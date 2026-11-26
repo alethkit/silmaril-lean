@@ -42,29 +42,29 @@ inductive Runs (block : LexicalBlock) : State → Statement → Code → Outcome
   | straight {source : Body.Suite} {code : Code} {state : State} {out : Outcome Flow} :
       Body.Runs block state source code out → Runs block state source.source code out
   | prefixError {leading : List (String × Expr)} {leadingCode : List (String × Functions.Lowering.Expr)}
-      {child : Body.Definition} {rest : Statement} {tail : Code} {id : DeclarationId}
+      {name : String} {parameters : Parameters} {child rest : Statement} {tail : Code} {id : DeclarationId}
       {state final : State} {error : Lists.Error} :
       Body.RunsPrefix block state leading leadingCode (.error error final) →
-      Runs block state (Body.prependSource leading (.seq (Nested.statement child) rest))
-        (Body.prependCode leadingCode (.seq (.define (fileSlot child.name) id) tail)) (.error error final)
+      Runs block state (Body.prependSource leading (.seq (.define name parameters.source child) rest))
+        (Body.prependCode leadingCode (.seq (.define (fileSlot name) id) tail)) (.error error final)
   | definitionError {leading : List (String × Expr)} {leadingCode : List (String × Functions.Lowering.Expr)}
-      {child : Body.Definition} {rest : Statement} {tail : Code} {id : DeclarationId}
+      {name : String} {parameters : Parameters} {child rest : Statement} {tail : Code} {id : DeclarationId}
       {state active final : State} {error : Lists.Error} {captures : List Lists.Capture}
-      {plan : Nested.Plan block child} :
+      {items : List PlainPositionalDefault} :
       Body.RunsPrefix block state leading leadingCode (.ok () active) →
-      Nested.DefinitionResult plan id captures active (.error error final) →
-      Runs block state (Body.prependSource leading (.seq (Nested.statement child) rest))
-        (Body.prependCode leadingCode (.seq (.define (fileSlot child.name) id) tail)) (.error error final)
+      Nested.SiteResult block name parameters items id captures active (.error error final) →
+      Runs block state (Body.prependSource leading (.seq (.define name parameters.source child) rest))
+        (Body.prependCode leadingCode (.seq (.define (fileSlot name) id) tail)) (.error error final)
   | define {leading : List (String × Expr)} {leadingCode : List (String × Functions.Lowering.Expr)}
-      {child : Body.Definition} {rest : Statement} {tail : Code} {id : DeclarationId}
-      {state active installed : State} {captures : List Lists.Capture} {out : Outcome Flow}
-      {plan : Nested.Plan block child} :
+      {name : String} {parameters : Parameters} {child rest : Statement} {tail : Code} {id : DeclarationId}
+      {childFree : List Functions.FreeName} {state active installed : State} {captures : List Lists.Capture} {out : Outcome Flow}
+      {items : List PlainPositionalDefault} :
       Body.RunsPrefix block state leading leadingCode (.ok () active) →
-      Installs active plan.body.free captures →
-      Nested.DefinitionResult plan id captures active (.ok .next installed) →
+      Installs active childFree captures →
+      Nested.SiteResult block name parameters items id captures active (.ok .next installed) →
       Runs block installed rest tail out →
-      Runs block state (Body.prependSource leading (.seq (Nested.statement child) rest))
-        (Body.prependCode leadingCode (.seq (.define (fileSlot child.name) id) tail)) out
+      Runs block state (Body.prependSource leading (.seq (.define name parameters.source child) rest))
+        (Body.prependCode leadingCode (.seq (.define (fileSlot name) id) tail)) out
 
 /-- The reached definition certifies both the local binding and the
 function record. A later operand may use this record at the same address. -/

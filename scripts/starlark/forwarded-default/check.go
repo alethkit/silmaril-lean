@@ -49,13 +49,16 @@ override = escaped(0, [91, 92])
 `, initialize, parameter, rebind, argument)
 }
 
-func recursiveSource(shadowed, malformed bool) string {
-	var relayParameter, relayArgument, duplicate string
+func recursiveSource(shadowed, malformed, failed bool) string {
+	var relayParameter, relayArgument, duplicate, leading string
 	if shadowed {
 		relayParameter, relayArgument = "x", "near"
 	}
 	if malformed {
 		duplicate = "saved, "
+	}
+	if failed {
+		leading = "    marker = [73]\n    broken = marker[1]\n    later = [99]\n"
 	}
 	return fmt.Sprintf(`def noise():
     return 0
@@ -68,11 +71,12 @@ def factory(x, index):
             alias = x
             return saved[offset]
         return leaf
-    return relay
+%s    copy = relay
+    return copy
 relay_fn = factory(values, 1)
 leaf_fn = relay_fn(%s)
 result = leaf_fn()
-`, relayParameter, duplicate, relayArgument)
+`, relayParameter, duplicate, leading, relayArgument)
 }
 
 func checkRecursive(opts *syntax.FileOptions) {
@@ -84,15 +88,24 @@ func checkRecursive(opts *syntax.FileOptions) {
 		{true, "44"},
 	} {
 		globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
-			"nested-suite.star", recursiveSource(test.shadowed, false), nil)
+			"nested-suite.star", recursiveSource(test.shadowed, false, false), nil)
 		require(err == nil && globals["result"].String() == test.result, globals)
 	}
 	fmt.Println("PASS grandchild default reads the forwarded binding or the nearer shadowing parameter")
 
 	_, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
-		"duplicate-leaf-parameter.star", recursiveSource(false, true), nil)
+		"duplicate-leaf-parameter.star", recursiveSource(false, true, false), nil)
 	require(err != nil && strings.Contains(err.Error(), "duplicate parameter: saved"), err)
 	fmt.Println("PASS duplicate grandchild parameter rejected")
+
+	_, compiled, err := starlark.SourceProgramOptions(opts, "nested-suite-error.star",
+		recursiveSource(false, false, true), func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := compiled.Init(new(starlark.Thread), nil)
+	require(err != nil && strings.Contains(err.Error(), "index 1 out of range"), err)
+	require(partial["factory"] != nil && partial["relay_fn"] == nil && partial["leaf_fn"] == nil &&
+		partial["result"] == nil, partial)
+	fmt.Println("PASS first reached suite error skips the escaped call and later module commands")
 }
 
 func main() {
