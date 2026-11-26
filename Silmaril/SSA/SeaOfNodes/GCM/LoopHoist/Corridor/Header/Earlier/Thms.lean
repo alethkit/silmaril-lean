@@ -44,6 +44,13 @@ theorem moveEarlier?_eval {target extraSteps : Nat}
       before.eval evalOp (fun term vals => term.eval vals) env :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier.moveEarlier?_eval moved env
 
+/-- An earlier move replaces only the header and preserves its evaluated frame. -/
+theorem moveAt?_header (moved : moveAt? cfg index cut = some out) :
+    ∃ header, out = withHeader cfg header ∧
+      ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
+        (cfg.block .header).eval evalOp (fun term vals => term.eval vals) env :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier.moveAt?_header moved
+
 /-- A one-position destination gives the existing adjacent emitter's result. -/
 theorem moveAt?_adjacent (adjacent : afterRemoval index cut.cut + 1 = index) :
     moveAt? cfg index cut = Header.moveAt? cfg index cut :=

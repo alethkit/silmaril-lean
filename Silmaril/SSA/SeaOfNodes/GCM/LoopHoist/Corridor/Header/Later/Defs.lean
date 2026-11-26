@@ -16,15 +16,23 @@ open Loop.MLIR.CF (Program TargetOp lower)
 variable {Input Γ : List Width} {carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 
-/-- Check that the original cut gives a later header insertion after removal,
-then check the actual operand and use sites on the original lowered CFG. -/
-def checkDestination (g : Program Input carried result entrySigs headerSigs)
+/-- Resolve operand and use sites and check a cut in the supplied typed CFG. -/
+def checkBindingCut (cfg : Cfg TargetOp (SourceLabel carried result) Input [result])
     (index : Nat) (cut : Point (SourceLabel carried result)) : Bool :=
   let _ := sourceTargetDecEq carried result
-  let cfg := lower g
-  decide (cut.block = headerId ∧ index < afterRemoval index cut.cut) &&
-    (findBinding index 0 headerOrigins (cfg.block .header)).any fun ⟨_, binding⟩ =>
-      Dominance.Placement.checkCut cfg blocks binding.operands binding.uses cut
+  (findBinding index 0 headerOrigins (cfg.block .header)).any fun ⟨_, binding⟩ =>
+    Dominance.Placement.checkCut cfg blocks binding.operands binding.uses cut
+
+/-- Check a later destination in the current typed CFG's coordinates. -/
+def checkCfgDestination (cfg : Cfg TargetOp (SourceLabel carried result) Input [result])
+    (index : Nat) (cut : Point (SourceLabel carried result)) : Bool :=
+  let _ := sourceTargetDecEq carried result
+  decide (cut.block = headerId ∧ index < afterRemoval index cut.cut) && checkBindingCut cfg index cut
+
+/-- Check an explicit later destination on the source program's lowering. -/
+def checkDestination (g : Program Input carried result entrySigs headerSigs)
+    (index : Nat) (cut : Point (SourceLabel carried result)) : Bool :=
+  checkCfgDestination (lower g) index cut
 
 /-- Move one binding across `extraSteps + 1` following bindings in the typed sequence.
 Each swap checks the next binding's operands in the current scope. -/
@@ -36,15 +44,19 @@ def moveLater? : (index extraSteps : Nat) →
     let block ← swapAt? index block
     moveLater? (index + 1) extraSteps block
 
-/-- Test an explicit destination in original CFG coordinates. Install the
-new header only when the destination check and every typed swap pass. -/
-def moveAt? (g : Program Input carried result entrySigs headerSigs)
+/-- Install the header only when the destination and every typed swap pass. -/
+def moveCfgAt? (cfg : Cfg TargetOp (SourceLabel carried result) Input [result])
     (index : Nat) (cut : Point (SourceLabel carried result)) :
     Option (Cfg TargetOp (SourceLabel carried result) Input [result]) :=
-  let cfg := lower g
-  if checkDestination g index cut then
+  if checkCfgDestination cfg index cut then
     let insertion := afterRemoval index cut.cut
     (moveLater? index (insertion - index - 1) (cfg.block .header)).map (withHeader cfg)
   else none
+
+/-- Test an explicit destination in the native program's lowered CFG. -/
+def moveAt? (g : Program Input carried result entrySigs headerSigs)
+    (index : Nat) (cut : Point (SourceLabel carried result)) :
+    Option (Cfg TargetOp (SourceLabel carried result) Input [result]) :=
+  moveCfgAt? (lower g) index cut
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later

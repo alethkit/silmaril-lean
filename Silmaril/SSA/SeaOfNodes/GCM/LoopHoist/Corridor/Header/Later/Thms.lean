@@ -17,7 +17,7 @@ variable {Input Γ : List Width} {carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {index : Nat} {cut : Point (SourceLabel carried result)}
-variable {out : Cfg TargetOp (SourceLabel carried result) Input [result]}
+variable {cfg out : Cfg TargetOp (SourceLabel carried result) Input [result]}
 variable {before after : Block TargetOp (SourceLabel carried result) Γ [result]}
 
 /-- The checked swaps preserve exact successor frames and returns. -/
@@ -25,6 +25,24 @@ theorem moveLater?_eval {extraSteps : Nat} (moved : moveLater? index extraSteps 
     (env : Env Γ) : after.eval evalOp (fun term vals => term.eval vals) env =
       before.eval evalOp (fun term vals => term.eval vals) env :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later.moveLater?_eval moved env
+
+/-- The checker validates the binding found at the current index. -/
+theorem checkBindingCut_sound (checked : checkBindingCut cfg index cut = true) :
+    ∃ (saved : Width) (binding : Binding Input (carried :: Input) saved carried result),
+      findBinding index 0 headerOrigins (cfg.block .header) = some ⟨saved, binding⟩ ∧
+      Legal cfg binding.operands binding.uses cut :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later.checkBindingCut_sound checked
+
+theorem moveCfgAt?_checked (moved : moveCfgAt? cfg index cut = some out) :
+    checkBindingCut cfg index cut = true :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later.moveCfgAt?_checked moved
+
+/-- A later move replaces only the header and preserves its evaluated frame. -/
+theorem moveCfgAt?_header (moved : moveCfgAt? cfg index cut = some out) :
+    ∃ header, out = withHeader cfg header ∧
+      ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
+        (cfg.block .header).eval evalOp (fun term vals => term.eval vals) env :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later.moveCfgAt?_header moved
 
 /-- A checked later cut is legal for the located source binding. Its
 post-removal insertion index is one less than the original cut. -/
