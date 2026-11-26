@@ -42,6 +42,14 @@ def graph : Graph args :=
   ⟨⟨body, rfl, zero⟩, .head, .tail .head,
     EntrySignature.Hom.port swap .head, EntrySignature.Hom.port swap (.tail .head)⟩
 
+def identifyAddresses : captures ⟶ captures :=
+  ⟨fun
+    | .head => .head
+    | .tail .head => .head
+    | .tail (.tail p) => .tail (.tail p)⟩
+
+def coincidentGraph : Graph args := { graph with entrySecond := .head }
+
 def input (second : Address 4) : Tuple (Val 4) args :=
   .cons (0 : Address 4) (.cons second (.cons (2 : Address 4) (.cons (0 : Word) .nil)))
 
