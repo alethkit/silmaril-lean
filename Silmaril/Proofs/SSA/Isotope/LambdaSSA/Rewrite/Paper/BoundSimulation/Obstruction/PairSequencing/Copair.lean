@@ -26,7 +26,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Ob
 local notation "U" => (Ty.unit : Ty Empty)
 local notation "Bit" => (Ty.coprod U U)
 local notation "Seed" => Paper.WithProjectionReturnsAndUnitEta.Step (τ := Ty Empty) (Φ := Empty)
-private abbrev caseObservation : TermObservation := { caseTerm := true }
+private abbrev caseObservation : TermObservation (α := Empty) Empty := { caseTerm := true }
 local notation "observeTerm" => evalTermWith caseObservation
 local notation "observeRegion" => evalRegionWith caseObservation
 
@@ -112,31 +112,6 @@ private theorem evalTerm_related (t : Tm Empty) {a b : Env}
   | case _ _ _ _ _ _ => exact .none
   | abort _ _ => exact .none
 
-private theorem evalBoundReturn (t : Tm Empty) (env : Env) :
-    observeRegion (.let₁ t (.br 0 (.var 0))) env =
-      match observeTerm t env with
-      | none => .fault
-      | some v => .jump 0 v := by
-  rw [evalRegionWith]
-  cases observeTerm t env <;> rfl
-
-private theorem evalReturnRegion {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
-    (ht : Tm.HasType Γ t A) {env : Env} (he : EnvTy Γ env) :
-    observeRegion (returnRegion t) env =
-      match observeTerm t env with
-      | none => .fault
-      | some v => .jump 0 v := by
-  induction ht generalizing env with
-  | @let₁ _ a b A D ha hb ia ib =>
-    rw [returnRegion, evalRegion_lsubst (returnRegion_typed ha) he, ia he, evalTermWith]
-    cases h : observeTerm a env with
-    | none => rfl
-    | some v =>
-      change observeRegion (returnRegion b) (extend env v) = _
-      exact ib (he.extend (evalTerm_typed ha he h))
-  | @op _ _ f _ _ => exact f.elim
-  | _ => exact evalBoundReturn _ _
-
 private theorem leftRightRelated : ∀ i, Related (leftEnv i) (rightEnv i)
   | 0 => .input
   | _ + 1 => .unit
@@ -153,8 +128,8 @@ private theorem return_results_related {A B : Ty Empty} {t : Tm Empty} (ht : Tm.
     (hl : observeRegion (returnRegion t) env = .jump 0 v)
     (hr : observeRegion (returnRegion t) env' = .jump 0 w) : Related v w := by
   have h := evalTerm_related t rel
-  rw [evalReturnRegion ht he] at hl
-  rw [evalReturnRegion ht he'] at hr
+  rw [evalReturnRegion (observation := caseObservation) ht he] at hl
+  rw [evalReturnRegion (observation := caseObservation) ht he'] at hr
   rw [some_of_jump hl, some_of_jump hr] at h
   cases h with
   | some hv => exact hv

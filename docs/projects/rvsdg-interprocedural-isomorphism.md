@@ -1,9 +1,9 @@
 # Typed renumbering of RVSDG translation units
 
-This extends the [interprocedural graph](rvsdg-interprocedural.md) and its
+This extends the [interprocedural graph](rvsdg/interprocedural/rvsdg-interprocedural.md) and its
 inductive bindings using the typed endpoint maps from
 [#2228](https://github.com/hiloopai/silmaril-lean/pull/2228) and
-[the nested renumbering development](rvsdg-nested-isomorphism.md).
+[the nested renumbering development](rvsdg/semantics/rvsdg-nested-isomorphism.md).
 The structural interfaces follow Reissmann, Meyer, Bahmann and
 Själander, *RVSDG: An Intermediate Representation for Optimizing
 Compilers*, arXiv:1912.05036v2, §§4.2.1–4.2.4. The PDF SHA-256 is

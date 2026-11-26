@@ -1,5 +1,7 @@
 module
 
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Eval.Defs
+
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Run.Defs
 public import Silmaril.Languages.Python.Compile.Closure.Run.Defs
@@ -24,6 +26,9 @@ inductive Argument where
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
@@ -69,6 +74,15 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
+  | .assertSequenceLength test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertSequenceLength test :: instructions, blocks)
+  | .assertListConstruction test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertListConstruction test :: instructions, blocks)
+  | .assertTupleChain test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertTupleChain test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -132,6 +146,17 @@ inductive Completion where
   | unprofiledVarNames (ref : CodeRef)
   | unsupportedVarNamesReceiver
   deriving DecidableEq, Repr
+
+def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
+  (session.globals "tuple").map fun
+    | .none => .noneValue
+    | _ => .outsideProfile
+
+def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
+  match (TupleChain.evaluate (fun _ => tupleBinding session) test).result with
+  | .ok true => .ok ()
+  | .ok false => .error .assertionError
+  | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
 
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
@@ -240,6 +265,17 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
+    | .assertSequenceLength _ => ([], .finished session (match session.globals "len" with
+      | none => .raised (.nameError "len")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
+      | none => .raised (.nameError "list")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertTupleChain test => ([], match checkTupleChain session test with
+      | .ok () => .ready session rest
+      | .error error => .finished session error)
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with
       | .ok () => .ready session rest
       | .error completion => .finished session completion)

@@ -48,9 +48,9 @@ returns. The comparison admits partial operations and uses source-order
 sequencing throughout. The partial observation identifies blocking and
 infinite iteration.
 
-The theorem covers the generated diamond family and its forward fibre.
-Reverse graph recovery, unrestricted reducible CFG structuring, and
-loop bodies containing additional θ are separate developments.
+The theorem covers the generated diamond family. Unrestricted reducible
+CFG structuring and loop bodies containing additional θ are separate
+developments.
 [Observation theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/LoopDiamond/Thms.lean)
 
 The regression checks the actual producer addresses at the join. Both
@@ -63,11 +63,43 @@ feedback indefinitely, by an invariant on every finite run derivation
 that rules out a return. No fuel bound is used.
 [Lean regression](../../tests/ssa/RVSDGLambdaSSALoopDiamond.lean)
 
+## Recover the flat CFG from the graph
+
+`LoopDiamond.Reverse.recover` takes the typed numbered graph and
+returns an optional pair of the recovered flat LambdaSSA region and
+its `LoopDiamond.Related` witness. The type indices give the entry,
+handoff and exit sorts. The parser reads the classifier opcode, the
+two ordered γ children and the common θ. It uses the serial recognizer
+to locate the θ inside each arm and read its local labels, with an
+independent size bound for each loop body. The right arm keeps its own
+entry sort `Y`, while the left arm and shared tail enter at `M`.
+
+The candidate is only a parse. Certification reconstructs the numbered
+graph and checks recursive equality of opcodes, port sorts and wire
+origins. This includes the classifier's selector wire and both producer
+addresses feeding the shared θ. A well-typed regression retains the γ
+payload edge but changes the shared θ's token source to the entry token.
+It produces the same candidate as the original and fails certification.
+
+`recover_isSome_iff` characterizes acceptance as literal equality with
+an emitted graph. It covers all body associations and nested acyclic
+choices in the three loops. Right-associated sources round trip to the
+same flat region by `recover_generated`. Other associations may recover
+a right-associated source with the same graph. The theorem concerns
+the emitted numbering and layout. Arbitrary renumberings and arbitrary
+CFG structuring are outside this recognizer's scope.
+
+The recovered relation witness transports the existing observation
+theorems to the actual `Region.denote` of the recovered CFG. The fixture
+checks both typed exits and their tokens, and absence of a finite return
+from the repeatedly restarting arm.
+[Reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/LoopDiamond/Reverse/Thms.lean)
+
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Reverse.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Reverse.Thms
 ```
 
 ## Sources

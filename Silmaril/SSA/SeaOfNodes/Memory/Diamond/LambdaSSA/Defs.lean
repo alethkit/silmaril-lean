@@ -23,14 +23,17 @@ abbrev wordPacket : Code := PhiView.packedType [wordCode]
 inductive Opcode where
   | load
   | store
+  | equalWords
 
 instance : HasTy Opcode Code where
   src
     | .load => .base .address
     | .store => .product (.base .address) wordCode
+    | .equalWords => .product wordCode wordCode
   trg
     | .load => wordCode
     | .store => .unit
+    | .equalWords => guardCode
 
 abbrev Atom (cells : Nat) := Address cells ⊕ Word
 
@@ -41,8 +44,12 @@ def encode {cells : Nat} : {sort : ValueSort} → Val cells sort → Value (Atom
 def packet {cells : Nat} (word : Word) : Value (Atom cells) :=
   .pair (encode (sort := .word) word) .unit
 
+def guardValue {cells : Nat} (guard : Bool) : Value (Atom cells) :=
+  if guard then .inl .unit else .inr .unit
+
 /-- The ambient state is the whole heap. A load leaves it intact and a store
-uses the shared heap update, returning unit as its scalar result. -/
+uses the shared heap update, returning unit as its scalar result.
+Word equality computes the guard for a tail test without changing the heap. -/
 inductive Instruction (cells : Nat) :
     Opcode → Value (Atom cells) → Heap cells → Value (Atom cells) → Heap cells → Prop where
   | load (address : Address cells) (heap : Heap cells) :
@@ -52,13 +59,13 @@ inductive Instruction (cells : Nat) :
       Instruction cells .store
         (.pair (encode (sort := .address) address) (encode (sort := .word) word)) heap
         .unit (heap.write address word)
+  | equalWords (left right : Word) (heap : Heap cells) :
+      Instruction cells .equalWords (.pair (encode (sort := .word) left) (encode (sort := .word) right))
+        heap (guardValue (decide (left = right))) heap
 
 def inputEnv {cells : Nat} : {args : List ValueSort} → Tuple (Val cells) args → Env (Atom cells)
   | _, .nil => fun _ => .unit
   | _, .cons value rest => extend (inputEnv rest) (encode value)
-
-def guardValue {cells : Nat} (guard : Bool) : Value (Atom cells) :=
-  if guard then .inl .unit else .inr .unit
 
 def entryEnv {cells : Nat} {args : List ValueSort} (guard : Bool) (input : Tuple (Val cells) args) :
     Env (Atom cells) :=
@@ -109,15 +116,17 @@ def Matches (route : Routing args past context) (env : Env (Atom cells))
   ∀ {sort} (wire : Origin args past sort),
     env (route wire).val = encode (readValue wire input locals)
 
-/-- Keep the emitted lets and the typed Return operand together. -/
-structure Schedule where
+/-- Keep the emitted lets and the typed Return operand together with the
+input references available to a continuation after the schedule. -/
+structure Schedule (args : List ValueSort) where
   statements : Isotope.LambdaSSA.Body Opcode
   context : List Code
   result : Ref context .word
+  inputRef : ∀ {sort}, Port args sort → Ref context sort
 
 def schedule : {past : List (List ValueSort)} → {version : Nat} →
-    Memory.Body args past version → {context : List Code} → Routing args past context → Schedule
-  | _, _, .ret _ source, context, route => ⟨.nil, context, route source⟩
+    Memory.Body args past version → {context : List Code} → Routing args past context → Schedule args
+  | _, _, .ret _ source, context, route => ⟨.nil, context, route source, fun p => route (.arg p)⟩
   | _, _, .load _ address rest, _, route =>
     let tail := schedule rest (Routing.afterLoad route)
     { tail with statements := .let₁ (.op .load (.var (route address).val)) tail.statements }
@@ -126,10 +135,10 @@ def schedule : {past : List (List ValueSort)} → {version : Nat} →
     let value : Tm Opcode := .op .store (.pair (.var (route address).val) (.var (route source).val))
     { tail with statements := .let₁ value tail.statements }
 
-def Schedule.arguments (body : Schedule) : PhiView.Arguments body.context [wordCode] :=
+def Schedule.arguments (body : Schedule args) : PhiView.Arguments body.context [wordCode] :=
   fun i => Fin.cases body.result (fun j => j.elim0) i
 
-def Schedule.terminator (body : Schedule) (label : Nat) : Terminator Opcode :=
+def Schedule.terminator (body : Schedule args) (label : Nat) : Terminator Opcode :=
   .br label (PhiView.packTerm body.arguments)
 
 def prepend : Isotope.LambdaSSA.Body Opcode → Region Opcode → Region Opcode
@@ -137,7 +146,7 @@ def prepend : Isotope.LambdaSSA.Body Opcode → Region Opcode → Region Opcode
   | .let₁ rhs rest, tail => .let₁ rhs (prepend rest tail)
   | .let₂ rhs rest, tail => .let₂ rhs (prepend rest tail)
 
-def Schedule.emit (body : Schedule) (label : Nat) : Region Opcode :=
+def Schedule.emit (body : Schedule args) (label : Nat) : Region Opcode :=
   prepend body.statements (.br label (PhiView.packTerm body.arguments))
 
 def armRouting (args : List ValueSort) : Routing args [] (.unit :: entryContext args) :=
@@ -156,7 +165,7 @@ def suffixRouting (args : List ValueSort) :
 
 variable (g : Graph args)
 
-def armSchedule (p : Projection) : Schedule := schedule (g.arm p) (armRouting args)
+def armSchedule (p : Projection) : Schedule args := schedule (g.arm p) (armRouting args)
 
 def armTerminator (p : Projection) : Terminator Opcode := (armSchedule g p).terminator 2
 

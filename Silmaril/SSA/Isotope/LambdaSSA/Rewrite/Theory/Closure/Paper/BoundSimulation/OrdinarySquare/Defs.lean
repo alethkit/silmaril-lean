@@ -5,6 +5,8 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Catego
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Coproducts.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Defs
 
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Feedback.Thms
+
 /-! # Ordinary singleton step and state-change representatives -/
 
 @[expose] public section
@@ -35,6 +37,13 @@ variable {A B D : τ} {t : Tm Φ} {p q : Region Φ}
 noncomputable def stepArrow (hp : ValueBranches [A] p [A, B]) :
     ofType (Φ := Φ) A ⟶ ofType B ⨿ ofType A :=
   InducedCategory.homMk (Paper.singletonArrow hp ≫ packStepExits A B)
+
+/-- The literal one-block feedback representative of a guarded two-exit step. -/
+theorem stepFeedback_typed (hp : ValueBranches [A] p [A, B]) :
+    ValueBranches [A] (feedbackRegion [A] (fun _ => p) 0) [B] :=
+  (show LSubst.ValueFamily ([] : VCtx τ) [A] ([A] ++ [B]) (fun _ => p) from
+    fun _ _ hi => (List.mem_singleton.mp (List.mem_of_getElem? hi)).symm ▸ hp).feedbackRegion
+      (ℓ := 0) (A := A) rfl
 
 /-- Run a guarded singleton state change at feedback label zero, forwarding
 each outward exit with its original index. -/

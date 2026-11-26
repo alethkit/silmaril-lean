@@ -35,9 +35,15 @@ CERBERUS_TARGETS := CerberusTests cerb-lean ail-lean core-lean core-elab cfront 
 CCOMP_TARGETS := ccomp ccomp-legacy ccomp-verified csem decompile
 CHECK_TARGETS ?= sqlite_file_format_compatibility sqlite_lean sqlite_image_lean Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject SilmarilLogicGraphData ProjectSelfTest wasm-pages elf-pages wasm-region-map $(WASM_TOOLS) wasm-shell-lean $(CERBERUS_TARGETS) SysVTvExample CompilesToExamples cexplorer-export $(CCOMP_TARGETS)
 CHECK_TARGETS += +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms LetIterPackingImportTests LetIterWeakTreeSoundnessTests PEGCoreTests
-CHECK_TARGETS += PEGCanonicalWhileTests
+CHECK_TARGETS += PEGIRBridgeTests PEGForwardCFGTests
 CHECK_TARGETS += PeggyDialectTests
-CHECK_TARGETS += PeggyEggTests
+CHECK_TARGETS += PeggyEggTests PeggySimpleValidationTests
+CHECK_TARGETS += PeggyFieldHeapTests PeggyFieldHeapLinearizeTests
+
+CHECK_TARGETS += PeggyInstitutionTests
+CHECK_TARGETS += PeggyEquationalTests
+CHECK_TARGETS += PEGRulesTests
+CHECK_TARGETS += PEGCanonicalWhileTests
 
 # Files Lake never reads; only the source gates in `make check` read them.
 SCOPE_EXCLUDE := 'docs/**' '**/*.md' 'scripts/**' 'apps/**' 'problems/**' 'specs/wasm/**' \
@@ -63,6 +69,8 @@ cache:
 		cov-lake-cache dependencies; \
 		echo 'No remote artifact bucket configured; public dependencies are ready.'; \
 	fi
+
+CHECK_TARGETS += PEGStructuredThetaTests
 
 # The release suites run when CHECK_TARGETS holds the executables. A change scoped to a library
 # that wasm-opt imports puts only wasm-opt in scope, so the other release binaries are built first.
@@ -92,6 +100,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.Logic.Temporal.TLA.Import.% +Silmaril.Logic.Temporal.TLA.Surface.Parser.% +Silmaril.Logic.Temporal.TLA.Elaborator.% +Silmaril.Logic.Temporal.TLA.Kernel.%,$(CHECK_TARGETS)),$(MAKE) tla-import-check)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Institution.% +Silmaril.Proofs.SSA.RVSDG.Institution.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Institution.Categorical.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInstitution.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.% +Silmaril.Proofs.SSA.RVSDG.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDG.lean)
+	$(if $(filter Silmaril +Silmaril.Project.Registry.IR.Defs +Silmaril.LogicGraph.Nodes.SSA.MLIR.Defs,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.LogicGraph.Nodes.SSA.MLIR.Defs +Silmaril.SSA.MLIR.Institution.Arith.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/IRRegistry.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.SeaOfNodes.Pure.% +Silmaril.Proofs.SSA.SeaOfNodes.Pure.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.SeaOfNodes.Pure.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/SeaOfNodesPure.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.Petri.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Petri.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedPetri.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Petri.% +Silmaril.Proofs.SSA.RVSDG.Petri.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPetri.lean)
@@ -210,7 +219,7 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic.Thms +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSAAcyclicSequentialTheta.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Recognize.Thms +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSASerialCuts.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse.Thms +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSAConditionalTheta.lean)
-	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.% +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Fork.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Thms +Silmaril.SSA.RVSDG.Isomorphism.Defs +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSALoopDiamond.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.% +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Fork.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Reverse.Thms +Silmaril.SSA.RVSDG.Isomorphism.Defs +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSALoopDiamond.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.OrderedTheta.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.OrderedTheta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.OrderedTheta.Thms +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSAOrderedTheta.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.% +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.TwoBlock.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.ExplicitRuntime.Thms +Silmaril.Raw.SSA.Isotope.Semantics.Model && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGLambdaSSATwoBlock.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)

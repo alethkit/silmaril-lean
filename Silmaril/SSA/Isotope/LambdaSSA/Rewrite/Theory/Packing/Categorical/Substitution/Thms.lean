@@ -29,6 +29,15 @@ variable {V : Type u₁} {C : Type u₂}
   {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
   {Φ : Type u₄} [HasTy Φ τ] [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M]
 
+/-- Literal tagging postcomposes the denotation of a guarded region with
+the categorical exit-packing map. -/
+theorem denoteRegion_packExits_valueBranches
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+    {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ} (hr : Region.ValueBranches Γ r L) :
+    denoteRegion J M hr.hasType.packExits = denoteRegion J M hr.hasType ≫ J.map (packLabelExit M L) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.denoteRegion_packExits_valueBranches_proof J M shared hr
+
 /-- Packing the bound branches and literally substituting the decoder
 preserves the original arrow by the native packing retraction. -/
 theorem denoteRegion_unpackPackExits_afterBinding {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}

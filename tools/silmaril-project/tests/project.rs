@@ -93,6 +93,147 @@ fn sil(dir: &Path, args: &[&str]) -> (bool, String) {
     (out.status.success(), text)
 }
 
+#[test]
+fn ir_registry_exports_models_and_checks_references() {
+    use serde_json::json;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    fs::write(dir.join("lakefile.toml"), "name = \"ir_demo\"\n").unwrap();
+    let (ok, output) = sil(dir, &["init"]);
+    assert!(ok, "{output}");
+
+    let dependency = dir.join("dependency");
+    fs::create_dir(&dependency).unwrap();
+    fs::write(
+        dependency.join("lakefile.toml"),
+        "name = \"dependency\"\n[[lean_lib]]\nname = \"Imported\"\n",
+    )
+    .unwrap();
+    let (ok, output) = sil(&dependency, &["init"]);
+    assert!(ok, "{output}");
+    fs::write(
+        dir.join("lake-manifest.json"),
+        r#"{"packages":[{"name":"dependency","type":"path","dir":"dependency"}]}"#,
+    )
+    .unwrap();
+
+    let records = vec![
+        json!({"kind": "ir_family", "name": "demo.family", "title": "Family", "module": "Demo"}),
+        json!({"kind": "ir_syntax_kind", "name": "demo.extension", "title": "New kind", "module": "Imported"}),
+        json!({"kind": "ir_subset", "name": "demo.subset", "title": "Subset", "module": "Demo",
+               "family": "demo.family", "syntax_kind": "demo.extension", "decl": "Demo.Program"}),
+        json!({"kind": "ir_model", "name": "demo.eval", "title": "Evaluator", "module": "Demo",
+               "subset": "demo.subset", "semantics": "operational", "decl": "Demo.eval"}),
+        json!({"kind": "ir_model", "name": "demo.denote", "title": "Denotation", "module": "Demo",
+               "subset": "demo.subset", "semantics": "denotational", "decl": "Demo.denote",
+               "institution": "demo.logic"}),
+        json!({"kind": "institution", "name": "demo.logic", "module": "Imported",
+               "decl": "Imported.logic", "arity": 0, "type": "Inst", "levels": ""}),
+    ];
+    let write_dump = |records| {
+        let dump = json!({
+            "schema": "silmaril.project-dump.v0.2",
+            "toolchain": "4.37.0",
+            "modules": ["Demo"],
+            "records": records,
+            "problems": [], "solutions": []
+        });
+        fs::write(dir.join("dump.json"), dump.to_string()).unwrap();
+    };
+    write_dump(records.clone());
+    let (ok, output) = sil(
+        dir,
+        &["sqlite", "--dump", "dump.json", "--db", "project.sqlite"],
+    );
+    assert!(ok, "{output}");
+
+    let db = rusqlite::Connection::open(dir.join("project.sqlite")).unwrap();
+    let scalar = |sql| db.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
+    assert_eq!(
+        scalar(
+            "SELECT count(DISTINCT sid) FROM objects
+             WHERE kind IN ('ir_family', 'ir_syntax_kind', 'ir_subset', 'ir_model')"
+        ),
+        5
+    );
+    assert_eq!(
+        scalar(
+            "SELECT count(*) FROM ir_models m
+             JOIN ir_subsets s ON m.subset = s.name
+             JOIN ir_families f ON s.family = f.name
+             JOIN ir_syntax_kinds k ON s.syntax_kind = k.name
+             JOIN logic_nodes n ON m.institution = n.name AND n.kind = 'institution'
+             JOIN institutions i ON i.name = n.name
+             WHERE f.name = 'demo.family' AND k.name = 'demo.extension'
+               AND s.name = 'demo.subset' AND m.name = 'demo.denote'
+               AND m.semantics = 'denotational' AND n.name = 'demo.logic'
+               AND k.origin = 'imported' AND i.origin = 'imported'"
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            "SELECT count(*) FROM ir_models
+             WHERE name = 'demo.eval' AND semantics = 'operational' AND institution IS NULL"
+        ),
+        1
+    );
+
+    for (record, field, value, diagnostic) in [
+        (
+            2,
+            "family",
+            "missing.family",
+            "family: no ir_family missing.family",
+        ),
+        (
+            2,
+            "syntax_kind",
+            "missing.kind",
+            "syntax_kind: no ir_syntax_kind missing.kind",
+        ),
+        (
+            4,
+            "subset",
+            "missing.subset",
+            "subset: no ir_subset missing.subset",
+        ),
+        (
+            4,
+            "institution",
+            "demo.family",
+            "institution: no institution demo.family",
+        ),
+        (4, "semantics", "unknown", "unknown variant"),
+    ] {
+        let mut invalid = records.clone();
+        invalid[record][field] = json!(value);
+        write_dump(invalid);
+        let (ok, output) = sil(dir, &["check", "--dump", "dump.json"]);
+        assert!(!ok && output.contains(diagnostic), "{output}");
+    }
+    let mut duplicate = records.clone();
+    duplicate.push(records[3].clone());
+    write_dump(duplicate);
+    let (ok, output) = sil(dir, &["check", "--dump", "dump.json"]);
+    assert!(
+        !ok && output.contains("ir_model demo.eval: declared twice"),
+        "{output}"
+    );
+
+    let mut reused_sid = records;
+    let sid = "a".repeat(64);
+    reused_sid[3]["sid"] = json!(sid);
+    reused_sid[4]["sid"] = json!(sid);
+    write_dump(reused_sid);
+    let (ok, output) = sil(dir, &["check", "--dump", "dump.json"]);
+    assert!(
+        !ok && output.contains("shared by ir_model demo.eval and ir_model demo.denote"),
+        "{output}"
+    );
+}
+
 /// `init`, `artifacts add`, `lock`: the registry workflow.
 #[test]
 fn init_add_lock() {

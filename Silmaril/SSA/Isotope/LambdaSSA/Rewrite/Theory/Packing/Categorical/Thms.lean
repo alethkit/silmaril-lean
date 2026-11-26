@@ -25,6 +25,11 @@ section Value
 variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
   {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
 
+/-- Packing sends each label injection to its own position in the nested sum. -/
+@[reassoc] theorem labelInject_packLabel {L : LCtx τ} {i : Nat} {A : τ} (hi : At L i A) :
+    labelInject M i hi ≫ packLabel M L = packedLabelInject M i hi :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.labelInject_packLabel M hi
+
 @[simp]
 theorem packLabelExit_unpackLabelExit (L : LCtx τ) :
     packLabelExit M L ≫ unpackLabelExit M L = 𝟙 _ :=

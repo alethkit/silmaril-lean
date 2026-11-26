@@ -28,19 +28,29 @@ abbrev Operands (scope : List (Ports (PortSort V))) (ports : Ports (PortSort V))
   Wires [] scope ports
 
 /-- A single block with explicit, ordered SSA bindings. Control operations
-bind their complete result tuples before the remainder of the block executes. -/
-inductive Block (A : Stateless.Signature.{u,v} V) :
+bind their complete result tuples before the remainder of the block executes.
+A zero-result primitive still appears as a binding in the sequence. -/
+inductive Code (primOp : Dialect.{u,v} V PUnit.{u+1}) :
     List (Ports (PortSort V)) → Ports (PortSort V) → Type (max u v) where
-  | yield {scope outs} (values : Operands scope outs) : Block A scope outs
-  | prim {scope ins results outs} (op : A.pure ins results) (args : Operands scope ins)
-      (rest : Block A (scope ++ [results]) outs) : Block A scope outs
+  | yield {scope outs} (values : Operands scope outs) : Code primOp scope outs
+  | prim {scope ins results outs} (op : primOp ins results) (args : Operands scope ins)
+      (rest : Code primOp (scope ++ [results]) outs) : Code primOp scope outs
   | choose {scope params results outs} {extra : Nat}
       (args : Operands scope (.control (extra + 2) :: params))
-      (arms : Fin (extra + 2) → Block A [params] results)
-      (rest : Block A (scope ++ [results]) outs) : Block A scope outs
+      (arms : Fin (extra + 2) → Code primOp [params] results)
+      (rest : Code primOp (scope ++ [results]) outs) : Code primOp scope outs
   | feedback {scope carried outs} (seed : Operands scope carried)
-      (body : Block A [carried] (.control 2 :: carried))
-      (rest : Block A (scope ++ [carried]) outs) : Block A scope outs
+      (body : Code primOp [carried] (.control 2 :: carried))
+      (rest : Code primOp (scope ++ [carried]) outs) : Code primOp scope outs
+
+/-- The stateless profile supplies its own primitive alphabet and evaluator. -/
+abbrev Block (A : Stateless.Signature.{u,v} V) := Code A.pure
+
+namespace Block
+
+export Code (yield prim choose feedback)
+
+end Block
 
 abbrev Region (A : Stateless.Signature.{u,v} V) (args outs : Ports (PortSort V)) :=
   Block A [args] outs
@@ -98,18 +108,18 @@ def Block.Exec (m : Stateless.Model.{u,v,w} A) :
     Locals (Values m.value) scope → Tuple (Values m.value) outs → Prop
   | _, _, .yield values, env, output => values.read .nil env = output
   | _, _, .prim op args rest, env, output =>
-    rest.Exec m (env.snoc (m.run op (args.read .nil env))) output
+    Block.Exec m rest (env.snoc (m.run op (args.read .nil env))) output
   | _, _, .choose args arms rest, env, output =>
     let .cons selector payload := args.read .nil env
-    ∃ result, (arms selector.down).Exec m (payload, PUnit.unit) result ∧
-      rest.Exec m (env.snoc result) output
+    ∃ result, Block.Exec m (arms selector.down) (payload, PUnit.unit) result ∧
+      Block.Exec m rest (env.snoc result) output
   | _, _, .feedback seed body rest, env, output =>
-    ∃ result, FeedbackReturns (fun x y => body.Exec m (x, PUnit.unit) y) (seed.read .nil env) result ∧
-      rest.Exec m (env.snoc result) output
+    ∃ result, FeedbackReturns (fun x y => Block.Exec m body (x, PUnit.unit) y) (seed.read .nil env) result ∧
+      Block.Exec m rest (env.snoc result) output
 
 def Block.Returns (r : Region A args outs) (m : Stateless.Model.{u,v,w} A)
     (input : Tuple (Values m.value) args) (output : Tuple (Values m.value) outs) : Prop :=
-  r.Exec m (input, PUnit.unit) output
+  Block.Exec m r (input, PUnit.unit) output
 
 /-- A positive witness of productive feedback in a particular body. Each
 transition is a successful activation followed by an actual restart. -/

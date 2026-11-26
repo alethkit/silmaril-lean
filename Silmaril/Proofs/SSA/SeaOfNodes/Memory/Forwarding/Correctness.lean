@@ -102,6 +102,37 @@ private theorem known_load {latest : Option (Stored args past)} {input : Tuple (
   | none => trivial
   | some stored => simpa only [Option.map_some, Known, Stored.underLoad, read_raise] using good
 
+private theorem forward_value_reads (storeVersion : Nat) (memory : MemoryInput version)
+    (address : Origin args past .address) {latest : Option (Stored args past)}
+    {value : Origin args past .word}
+    (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells)
+    (good : Known latest input locals heap)
+    (success : forwardValue storeVersion memory address latest = some value) :
+    heap.read (readValue address input locals) = readValue value input locals := by
+  cases latest with
+  | none => cases address <;> simp [forwardValue] at success
+  | some stored =>
+    cases address with
+    | output _ _ => simp [forwardValue] at success
+    | arg port =>
+      by_cases current : memory.producer.val = storeVersion
+      · by_cases same : port.index = stored.address.index
+        · have equal : stored.value = value := by
+            simpa [forwardValue, current, same] using success
+          subst value
+          exact port_eq stored.address port same.symm ▸ good
+        · simp [forwardValue, current, same] at success
+      · simp [forwardValue, current] at success
+
+theorem replaceLoad_denote (memory : MemoryInput version) (address : Origin args past .address)
+    (rest : Body args ([.word] :: past) version) (value : Origin args past .word)
+    (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells)
+    (agrees : heap.read (readValue address input locals) = readValue value input locals) :
+    (rewire rest (dropLoad value)).denote input locals heap =
+      (Body.load memory address rest).denote input locals heap := by
+  simp only [Body.denote, agrees]
+  exact rewire_denote rest (dropLoad value) input _ locals heap (drop_reads value input locals)
+
 private theorem forward_load_denote (storeVersion : Nat) (memory : MemoryInput version)
     (address : Origin args past .address) (rest : Body args ([.word] :: past) version)
     {latest : Option (Stored args past)} {rewritten : Body args past version}
@@ -109,26 +140,54 @@ private theorem forward_load_denote (storeVersion : Nat) (memory : MemoryInput v
     (good : Known latest input locals heap)
     (success : forwardLoad storeVersion memory address rest latest = some rewritten) :
     rewritten.denote input locals heap = (Body.load memory address rest).denote input locals heap := by
-  cases latest with
-  | none => cases address <;> simp [forwardLoad] at success
-  | some stored =>
-    cases address with
-    | output _ _ => simp [forwardLoad] at success
-    | arg port =>
-      by_cases current : memory.producer.val = storeVersion
-      · by_cases same : port.index = stored.address.index
-        · have equal : rewire rest (dropLoad stored.value) = rewritten := by
-            simpa [forwardLoad, current, same] using success
-          subst rewritten
-          have read : heap.read (input.get port) = readValue stored.value input locals :=
-            port_eq stored.address port same.symm ▸ good
-          change (rewire rest (dropLoad stored.value)).denote input locals heap =
-            rest.denote input (.cons (heap.read (input.get port)) .nil, locals) heap
-          rw [read]
-          exact rewire_denote rest (dropLoad stored.value) input _ locals heap
-            (drop_reads stored.value input locals)
-        · simp [forwardLoad, current, same] at success
-      · simp [forwardLoad, current] at success
+  obtain ⟨value, matched, rfl⟩ := Option.map_eq_some_iff.mp success
+  exact replaceLoad_denote memory address rest value input locals heap
+    (forward_value_reads storeVersion memory address input locals heap good matched)
+
+theorem originKey_injective {sort : ValueSort} {x y : Origin args past sort}
+    (same : originKey x = originKey y) : x = y := by
+  cases x with
+  | arg x =>
+    cases y with
+    | arg y => exact congrArg Origin.arg (port_eq x y (Sum.inl.inj same))
+    | output => cases same
+  | output i x =>
+    cases y with
+    | arg => cases same
+    | output j y =>
+      have keys := Sum.inr.inj same
+      have index : i = j := Fin.ext (congrArg Prod.fst keys)
+      subst j
+      exact congrArg (Origin.output i) (port_eq x y (congrArg Prod.snd keys))
+
+private theorem check_exit_at (storeVersion : Nat) (address : Port args .address)
+    (body : Body args past version) {latest : Option (Stored args past)}
+    (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells)
+    (good : Known latest input locals heap)
+    (accepted : checkExitAt storeVersion address body latest = true) :
+    let result := body.denote input locals heap
+    result.2.read (input.get address) = result.1 := by
+  induction body generalizing heap with
+  | ret memory source =>
+    cases matched : forwardValue storeVersion memory (.arg address) latest with
+    | none => simp [checkExitAt, matched] at accepted
+    | some value =>
+      have key : originKey value = originKey source := by
+        simpa [checkExitAt, matched] using accepted
+      have same := originKey_injective key
+      subst source
+      exact forward_value_reads storeVersion memory (.arg address) input locals heap good matched
+  | load memory target rest ih =>
+    exact ih _ _ (known_load good (heap.read (readValue target input locals))) accepted
+  | store memory target value rest ih =>
+    exact ih _ _ (known_store target value input locals heap) accepted
+
+theorem checkExit_reads (graph : Graph args) (address : Port args .address) (storeVersion : Nat)
+    (accepted : checkExit graph address storeVersion = true)
+    (input : Tuple (Val cells) args) (heap : Heap cells) :
+    let result := graph.denote input heap
+    result.2.read (input.get address) = result.1 :=
+  check_exit_at storeVersion address graph (latest := none) input PUnit.unit heap trivial accepted
 
 private theorem rewrite_at_denote (storeVersion : Nat) (body : Body args past version) (index : Nat)
     {latest : Option (Stored args past)} {rewritten : Body args past version}

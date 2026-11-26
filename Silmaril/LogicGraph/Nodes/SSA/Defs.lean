@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Project.Registry.Institution.Defs
+public import Silmaril.LogicGraph.Nodes.SSA.MLIR.Defs
 public import Silmaril.SSA.LambdaRTL.Institution.Defs
 public import Silmaril.SSA.LambdaRTL.Loop.Institution.Defs
 public import Silmaril.SSA.LambdaRTL.Nameless.Institution.Defs

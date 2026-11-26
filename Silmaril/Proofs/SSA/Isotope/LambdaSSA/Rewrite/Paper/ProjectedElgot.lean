@@ -40,7 +40,7 @@ private theorem c_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
       ← Functor.map_comp, coprod.inl_map, coprod.inr_map]
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem sumIso_map (A B : τ) :
+theorem sumIso_map (A B : τ) :
     (proj).mapIso (Paper.TypeCategory.sumIso A B) =
       sumIso Seed A B ≪≫ c (Paper.TypeCategory.ofType A) (Paper.TypeCategory.ofType B) := by
   apply Iso.ext
@@ -57,15 +57,21 @@ private theorem sumIso_map (A B : τ) :
       PreservesColimitPair.iso_hom, inr_coprodComparison]
 
 set_option backward.isDefEq.respectTransparency false in
-theorem iterateChosen_projectStep {X Y : P} (f : X ⟶ Y ⨿ X) :
-    iterateChosen Seed (projectStep Seed f) = (proj).map (Paper.TypeCategory.iterate f) := by
+theorem projectStep_comp_sumIso_inv {X Y : P} (f : X ⟶ Y ⨿ X) :
+    projectStep Seed f ≫ (sumIso Seed ((proj).obj Y).as ((proj).obj X).as).inv =
+      (proj).map (f ≫ (Paper.TypeCategory.sumIso (show τ from Y) (show τ from X)).inv) := by
   have e : (c Y X).inv ≫ (sumIso Seed ((proj).obj Y).as ((proj).obj X).as).inv =
       (proj).map (Paper.TypeCategory.sumIso (show τ from Y) (show τ from X)).inv :=
     (congrArg Iso.inv (sumIso_map Seed (show τ from Y) (show τ from X))).symm
-  unfold iterateChosen Paper.TypeCategory.iterate
-  rw [Category.assoc, e, ← Functor.map_comp, iterateSum_map]
+  rw [projectStep, Category.assoc, e, ← Functor.map_comp]
 
-private theorem exists_projectStep {X Y : Q} (f : X ⟶ Y ⨿ X) :
+set_option backward.isDefEq.respectTransparency false in
+theorem iterateChosen_projectStep {X Y : P} (f : X ⟶ Y ⨿ X) :
+    iterateChosen Seed (projectStep Seed f) = (proj).map (Paper.TypeCategory.iterate f) := by
+  unfold iterateChosen Paper.TypeCategory.iterate
+  rw [projectStep_comp_sumIso_inv, iterateSum_map]
+
+theorem exists_projectStep {X Y : Q} (f : X ⟶ Y ⨿ X) :
     ∃ f₀ : X.as ⟶ Y.as ⨿ X.as, projectStep Seed f₀ = f := by
   obtain ⟨f₀, hf⟩ := (proj).map_surjective (f ≫ (c Y.as X.as).hom)
   exact ⟨f₀, by rw [show projectStep Seed f₀ = (proj).map f₀ ≫ (c Y.as X.as).inv from rfl,
@@ -85,7 +91,7 @@ theorem iterateChosen_fixpoint {X Y : Q} (f : X ⟶ Y ⨿ X) :
         coprod.desc (𝟙 Y) ((proj).map (Paper.TypeCategory.iterate f₀))
       rw [← (show (proj).map (𝟙 Y.as) = 𝟙 Y from (proj).map_id Y.as), c_desc, Category.assoc, Iso.inv_hom_id_assoc]
 
-private theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
+theorem c_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
     (c X Y).inv ≫ coprod.map ((proj).map f) ((proj).map g) =
       (proj).map (coprod.map f g) ≫ (c X' Y').inv := by
   apply (cancel_mono (c X' Y').hom).1

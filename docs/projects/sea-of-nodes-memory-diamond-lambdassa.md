@@ -33,3 +33,41 @@ and reject a heap containing a write by the untaken arm.
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.Regression'
 ```
+
+## Equations in the existing observational room
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.Institution.Thms
+```
+
+`translateEquation` constructs an equation in the existing one-exit λSSA
+room at the scope length of the typed entry. The room uses the shared
+memory `Opcode` alphabet, which also includes the word comparison used by
+the loop lowering. The equation's two regions are the emitted load/store
+diamond CFGs, scoped by `lower_hasType`.
+At a native entry valuation, `entryModel` makes one room model for each
+Boolean guard. It fills the bound environment with the encoded guard and
+typed inputs. The ambient state is the entire initialized heap. Each
+return records its initial heap, packed word, and final heap.
+[Native equations](sea-of-nodes-memory-diamond.md#native-equations) ·
+[Observational room](../../Silmaril/SSA/Isotope/Institution/Observational/Thms.lean)
+
+`ret_mem_returns` uses `returns_iff` to identify the exact native return
+behind each encoded observation. `behavior_eq_range` characterizes all
+observations of the compiled graph at the encoded model. In particular,
+the generated graphs have no faults or divergence there.
+`translated_satisfaction` equates native satisfaction with satisfaction
+in the existing room at both encoded guards, with every initial heap
+already observable in each model.
+[Public API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/LambdaSSA/Institution/Thms.lean)
+
+`behavior_mapGraph` and `room_satisfaction_reindex` compare re-emission after
+a typed entry-port map with pulling back the encoded model. The result
+relates behavior sets across the affected scopes, using the same cell count.
+The existing institution has a discrete scope category. The comparison
+covers the emitted CFGs and induced typed-entry models at each scope.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/LambdaSSA/Institution/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.Institution.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.Institution.Regression'
+```
