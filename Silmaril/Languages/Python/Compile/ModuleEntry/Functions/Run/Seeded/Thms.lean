@@ -276,26 +276,33 @@ theorem observeTupleIdentityCall_helper (space : Namespace) (context : CallConte
   simp only [observeTupleIdentityCall, saved, evaluated]
   rfl
 
-theorem observeTupleFromEmptyList_stock (space : Namespace) (lists : ListHeap)
+theorem observeTupleFromListDisplay_stock (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
+    let (value, reached) := heap.materializeFreshTuple contents
+    observeTupleFromListDisplay space heap lists contents =
+      ((⟨.ok (seededValue value), none⟩, reached), (lists.allocate contents).2) := by
+  simp [observeTupleFromListDisplay, tupleBinding, stock, Core.Module.TupleDispatch.constructFromListDisplay_stock]
+
+theorem observeTupleFromListDisplay_stock_notList (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (object : ListObject)
     (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
-    observeTupleFromEmptyList space lists =
-      (⟨.ok (.returnedTuple []), none⟩, (lists.allocate []).2) := by
-  simp [observeTupleFromEmptyList, tupleBinding, stock, Core.Module.TupleDispatch.constructFromEmptyList_stock,
-    Except.map, Except.mapError]
+    (observeTupleFromListDisplay space heap lists contents).1.1.result ≠ .ok (.listObject object) := by
+  rw [observeTupleFromListDisplay_stock space heap lists contents stock]
+  cases contents <;> simp [seededValue, Heap.allocate]
 
-theorem observeTupleFromEmptyList_mask (space : Namespace) (lists : ListHeap)
-    (masked : space.lookupGlobal "tuple" = some .none) :
-    observeTupleFromEmptyList space lists =
-      (⟨.error (.raised (.runtime .notCallable)), none⟩, (lists.allocate []).2) := by
-  simp [observeTupleFromEmptyList, tupleBinding, masked, (Core.Module.TupleDispatch.constructFromEmptyList_mask lists).1,
-    TupleChain.runtimeError?, Except.map, Except.mapError]
+theorem observeTupleFromListDisplay_mask (space : Namespace) (heap : Heap) (lists : ListHeap)
+    (contents : List Core.Module.Value) (masked : space.lookupGlobal "tuple" = some .none) :
+    observeTupleFromListDisplay space heap lists contents =
+      ((⟨.error (.raised (.runtime .notCallable)), none⟩, heap), (lists.allocate contents).2) := by
+  simp [observeTupleFromListDisplay, tupleBinding, masked,
+    (Core.Module.TupleDispatch.constructFromListDisplay_mask lists contents).1, TupleChain.runtimeError?]
 
-theorem observeTupleFromEmptyListCall_outer_missing (space : Namespace) (context : CallContext)
-    (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String} (remaining : List Argument)
-    (missing : space.lookupGlobal name = none) :
-    observeTupleFromEmptyListCall space context destination (some (name, remaining)) lists =
+theorem observeTupleFromListDisplayCall_outer_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String}
+    (contents : List Core.Module.Value) (remaining : List Argument) (missing : space.lookupGlobal name = none) :
+    observeTupleFromListDisplayCall space context destination contents (some (name, remaining)) lists =
       ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists) := by
-  simp [observeTupleFromEmptyListCall, missing]
+  simp [observeTupleFromListDisplayCall, missing]
 
 theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Bool) (rest : List (Instruction scope)) :

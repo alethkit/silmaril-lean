@@ -249,28 +249,42 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
     return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
   | _ => .error .argumentProfile
 
-/-- A direct stock-tuple candidate or a first argument whose empty list
-must be allocated before the constructor can dispatch. -/
-inductive TupleEmptyListArguments (scope : Scope) :
-    Name → List (Source.ArgumentKind × Source.Expr) → Option (List (CallArgument scope)) → Prop where
-  | direct : TupleEmptyListArguments scope "tuple" [(.positional, .list_ [])] none
-  | nested {name source rest operands}
-      (constructor : CallExpression source "tuple" [(.positional, .list_ [])])
+def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value
+  | .none_ => some .none
+  | source => scalarLiteral? source
+
+/-- A direct stock-tuple candidate or a first argument converting a
+closed flat scalar list display. -/
+inductive TupleListDisplayArguments (scope : Scope) :
+    Name → List (Source.ArgumentKind × Source.Expr) → List Core.Module.Value →
+    Option (List (CallArgument scope)) → Prop where
+  | direct {elements contents} (checked : elements.mapM tupleListDisplayScalar? = some contents) :
+      TupleListDisplayArguments scope "tuple" [(.positional, .list_ elements)] contents none
+  | nested {name source elements contents rest operands}
+      (constructor : CallExpression source "tuple" [(.positional, .list_ elements)])
+      (checked : elements.mapM tupleListDisplayScalar? = some contents)
       (reference : GlobalReference scope "tuple")
       (tail : CallArguments scope rest operands) :
-      TupleEmptyListArguments scope name ((.positional, source) :: rest) (some operands)
+      TupleListDisplayArguments scope name ((.positional, source) :: rest) contents (some operands)
 
-def tupleEmptyListArguments? (scope : Scope) (name : Name)
+def tupleListDisplayArguments? (scope : Scope) (name : Name)
     (arguments : List (Source.ArgumentKind × Source.Expr)) :
-    Option {remaining // TupleEmptyListArguments scope name arguments remaining} :=
+    Option {result : List Core.Module.Value × Option (List (CallArgument scope)) //
+      TupleListDisplayArguments scope name arguments result.1 result.2} :=
   match arguments with
-  | [(.positional, .list_ [])] =>
-    if found : name = "tuple" then some ⟨none, found.symm ▸ .direct⟩ else none
+  | [(.positional, .list_ elements)] =>
+    if found : name = "tuple" then
+      match checked : elements.mapM tupleListDisplayScalar? with
+      | some contents => some ⟨(contents, none), found.symm ▸ .direct checked⟩
+      | none => none
+    else none
   | (.positional, source) :: rest => do
-    let ⟨("tuple", [(.positional, .list_ [])]), constructor⟩ ← callExpression? source | none
+    let ⟨("tuple", [(.positional, .list_ elements)]), constructor⟩ ← callExpression? source | none
     let reference ← globalReference? scope "tuple"
     let operands ← (lowerCallArguments scope rest).toOption
-    return ⟨some operands.val, .nested constructor reference operands.property⟩
+    match checked : elements.mapM tupleListDisplayScalar? with
+    | some contents => some ⟨(contents, some operands.val), .nested constructor checked reference operands.property⟩
+    | none => none
   | _ => none
 
 /-- The call immediately after a definition supplies exactly its one required
@@ -554,8 +568,8 @@ inductive Action (scope : Scope) where
       (arguments : List (Operand scope))
   | callTupleIdentity (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (test : TupleIdentity.Test)
-  | callTupleFromEmptyList (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
-      (remaining : Option (List (CallArgument scope)))
+  | callTupleFromListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (contents : List Core.Module.Value) (remaining : Option (List (CallArgument scope)))
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
@@ -609,11 +623,11 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operand : TupleIdentity.Argument tree.scope arguments test) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.callTupleIdentity destination name reference test :: tail)
-  | callTupleFromEmptyList {index statement rest target name arguments destination reference operands tail}
+  | callTupleFromListDisplay {index statement rest target name arguments destination reference contents operands tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
-      (checked : TupleEmptyListArguments tree.scope name arguments operands)
+      (checked : TupleListDisplayArguments tree.scope name arguments contents operands)
       (remaining : Translation tree index rest tail) :
-      Translation tree index (statement :: rest) (.callTupleFromEmptyList destination name reference operands :: tail)
+      Translation tree index (statement :: rest) (.callTupleFromListDisplay destination name reference contents operands :: tail)
   | nestedCall {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -739,10 +753,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
         let tail ← lowerPlan tree index rest
         return ⟨.callTupleIdentity destination.val name reference test.val :: tail.val,
           .callTupleIdentity site destination.property test.property tail.property⟩
-      if let some operands := tupleEmptyListArguments? tree.scope name arguments then
+      if let some operands := tupleListDisplayArguments? tree.scope name arguments then
         let tail ← lowerPlan tree index rest
-        return ⟨.callTupleFromEmptyList destination.val name reference operands.val :: tail.val,
-          .callTupleFromEmptyList site destination.property operands.property tail.property⟩
+        return ⟨.callTupleFromListDisplay destination.val name reference operands.val.1 operands.val.2 :: tail.val,
+          .callTupleFromListDisplay site destination.property operands.property tail.property⟩
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest
