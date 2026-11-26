@@ -34,6 +34,9 @@ declaration-stack entry.
 | `list` | Zero or one | Allocates a fresh mutable list. The optional iterable is a list, tuple, dictionary or range. |
 | `tuple` | Zero or one | Returns an immutable tuple over the same iterable domain. The internal tuple cell carries its structural key when hashable. |
 | `range` | One to three | Checks integer parameters in order, rejects a zero step, and returns an immutable range without allocating a heap cell. |
+| `abs` | Exactly one | Returns the exact absolute value of an integer. Other represented values, including Booleans, give a type error. |
+| `any` | Exactly one | Returns `True` at the first truthy item of a list, tuple, dictionary or range. Exhaustion gives `False`. |
+| `all` | Exactly one | Returns `False` at the first falsy item of the same iterable types. Exhaustion gives `True`. |
 
 Dictionary iteration yields keys in insertion order. Both constructors make
 shallow snapshots, retaining the identities of referenced elements.
@@ -63,13 +66,52 @@ The common-profile fixture uses small ranges, and the Lean fixture includes
 a short range with exact endpoints outside Go's host integer width.
 [Cursor definition](../../Silmaril/Languages/Starlark/Lists/Iteration/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/builtins/check.go)
 
+## Integer magnitude and iterable truth
+
+`abs` uses arbitrary-precision integer magnitude. `any` and `all` acquire
+the existing snapshot or range cursor after argument expansion, keyword and
+arity checks. They truth-test one yielded value at a time, using dictionary
+keys in insertion order. A decisive item ends the scan without advancing
+again. The quantifiers read ranges lazily, with work proportional to the
+number of cursor steps reached. String values can be truth-tested as items.
+Plain strings are invalid iterator operands in the spec, Go and this profile.
+[Pinned spec for abs][abs] · [Pinned spec for any and all][any] · [Pinned iteration rules][iteration] · [Pinned Go implementation][go-pure]
+
+The builtin phase preserves the entire reached state. For represented
+iterables the cursor and truth reads execute no user code, so they use the
+incoming iterator stack throughout. Go acquires an iterator and calls
+`Done` on both exhaustion and an early decision. The Go fixture observes
+this through a host iterator and host `Truth` callbacks, which are outside
+the Lean profile. On arbitrary resolved stores, a malformed receiver can
+fail during acquisition, and a malformed collection item can fail when its
+truth is read. The first reached read error keeps its category. The fixtures
+check that a decisive item can leave a malformed tail unread.
+[Operational scan rules](../../Silmaril/Languages/Starlark/Functions/Builtins/Operational/Defs.lean) · [Exact cursor and state theorems](../../Silmaril/Languages/Starlark/Functions/Builtins/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Go fixtures](../../scripts/starlark/builtins/check.go)
+
+The pinned spec and Go agree on the results for the common input domain.
+Go's positional unpacker rejects expanded keywords before arity and type.
+The spec describes the results in terms of collection elements, while Go
+accepts any value implementing `Iterable`, including element views and host
+types. Float `abs` is specified and implemented by Go. The Lean profile still
+needs a float value carrier for that arm and an iterable-view carrier for
+`string.elems()` and other views. Sets, bytes, iterable views and host
+values are absent. Ranges use exact integers and counts in Lean, and Go's
+range constructor uses host-width integers. The fixtures compare range
+results within that shared domain and exercise a larger lazy range only in Lean.
+[Pinned spec for abs][abs] · [Pinned spec for any and all][any] · [Pinned Go argument checks][go-unpack] · [Pinned Go range][go-range]
+
+## Agreement
+
 `Builtins.invoke` is total over expanded arguments and the current state.
 `invokes_iff_invoke` proves its exact result, error and store agree with the
-independent built-in rules. The range rule uses `CursorCollects`, whose yield
-order agrees with collection by `cursorCollects_iff_collect`. The call proofs
-compose these rules with operand evaluation in `exec_iff_denoteBody` and
-preserve the exact heap and visible bindings under scratch projection in
-`lower_preserves`.
+independent built-in rules. Range materialization uses `CursorCollects`,
+whose yield order agrees with collection by `cursorCollects_iff_collect`.
+`truthScans_iff_truthCursor` gives both directions for cursor exhaustion,
+continuation, a decisive item or the first truth-read failure.
+`exec_iff_denoteBody` composes builtin dispatch with ordered callee evaluation,
+operand evaluation and expansion in resolved calls, including checked
+expression operands. `lower_preserves` preserves the exact heap and visible
+bindings under scratch projection.
 [Operational rules](../../Silmaril/Languages/Starlark/Functions/Builtins/Operational/Defs.lean) · [Built-in theorem](../../Silmaril/Languages/Starlark/Functions/Builtins/Thms.lean) · [Cursor theorem](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean)
 
 ## Dialect and coverage
@@ -88,7 +130,7 @@ Calls can [spread ranges as positional arguments](starlark-functions.md#argument
 Loops can [unpack items into nested name patterns](starlark-functions.md#loop-target-patterns).
 Additional value types include bytes, sets and iterable views,
 floats and host values. The other pinned universal
-functions are `abs`, `any`, `all`, `bytes`, `dict`, `dir`,
+functions are `bytes`, `dict`, `dir`,
 `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`,
 `max`, `min`, `print`, `repr`, `reversed`, `set`,
 `sorted`, `str` and `zip`. General bound-method dispatch is open. The
@@ -105,20 +147,27 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Builtins.Checks
 Run from the repository root with Go 1.25 or newer.
 
 ```sh
-fixture="$(pwd)/examples/starlark/builtins/check.go"
+repo="$(pwd)"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
-(cd "$oracle" && go run "$fixture")
+(cd "$oracle" && go run "$repo/examples/starlark/builtins/check.go" &&
+  go run "$repo/scripts/starlark/builtins/check.go")
 ```
 
-[Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Go fixtures](../../examples/starlark/builtins/check.go)
+[Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Builtins/Checks.lean) · [Go call and constructor fixtures](../../examples/starlark/builtins/check.go) · [Go magnitude and truth fixtures](../../scripts/starlark/builtins/check.go)
 
 [builtins]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#built-in-constants-and-functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-resolution
 [strings]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#strings
 [list]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#list
 [tuple]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#tuple
+[abs]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#abs
+[any]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#any
+[iteration]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#iteration
 [go-list]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L679-L696
 [go-tuple]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L1124-L1143
+[go-pure]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L179-L227
+[go-unpack]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/unpack.go#L207-L239
+[go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
 [go-library]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go
