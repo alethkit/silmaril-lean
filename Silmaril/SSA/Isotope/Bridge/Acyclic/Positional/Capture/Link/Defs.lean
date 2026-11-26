@@ -211,6 +211,21 @@ def start (i : Fin (n + 1)) (entry : Operand Φ β (p.types i)) :
     Operand Φ β ((table p q j receive).types (Link.leftIndex p (carry q) i)) :=
   Link.entry p (carry q) j (carryEntry receive) i entry
 
+section Renaming
+
+variable {G : LCtx τ}
+
+/-- Rename an ambient context while keeping the local packet as the newest slot. -/
+def renameBlock (r : BoundCtx.Renaming β δ) :
+    Block Φ β R G A → Block Φ δ R G A
+  | .jump a t => .jump ⟨_, a.2.rename (r.up A)⟩ t
+  | .case a l h => .case ⟨_, a.2.rename (r.up A)⟩ l h
+
+def renameTable (r : BoundCtx.Renaming β δ) (q : Table Φ β G m) : Table Φ δ G m :=
+  ⟨q.types, fun i => renameBlock r (q.block i)⟩
+
+end Renaming
+
 end Open
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Link

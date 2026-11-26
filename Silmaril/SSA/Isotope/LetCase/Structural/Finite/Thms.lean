@@ -19,7 +19,7 @@ public section
 namespace Silmaril.Isotope.LetCase.Structural.Finite
 
 open LocallyNameless (Derivation Equiv HasType Tm)
-open Reply (Γ₀)
+open Reply (Γ₀ specialize)
 open scoped Silmaril.Isotope.LetCase.Structural.Finite LetSeq.StraightLine.Structural
 
 /-- Every interface type has finitely many constructor values. -/
@@ -50,7 +50,18 @@ theorem constructor_ext (shape : Shape) {n : Nat} {β : Context n} {D : Types}
     (h : ∀ v : Constructor shape.ty,
       Equiv false Γ₀ β (Tm.instantiate t v.term) (Tm.instantiate u v.term) D) :
     Equiv false Γ₀ (β.snoc shape.ty) t u D :=
-  constructor_ext_proof shape dt du h
+  constructor_ext_type_proof shape.ty dt du h
+
+/-- Precomposition by the left injection determines a body on
+`X + 0`. The omitted right specialization is a native empty-slot equation. -/
+theorem equiv_coprod_empty_iff {n : Nat} {β : Context n} {X D : Types} {t u : Term Φ (n + 1)}
+    (dt : HasType Φ Γ₀ (β.snoc (.coprod X .empty)) t D)
+    (du : HasType Φ Γ₀ (β.snoc (.coprod X .empty)) u D) :
+    Equiv false Γ₀ (β.snoc (.coprod X .empty)) t u D ↔
+      Equiv false Γ₀ (β.snoc X) (specialize t (.inl (.bv 0))) (specialize u (.inl (.bv 0))) D :=
+  (Reply.equiv_iff_specializations dt du).trans
+    ⟨And.left, fun h => ⟨h, empty_slot_proof
+      (dt.bsubst (Fin.cases (.inr .bv) (fun _ => .bv))) (du.bsubst (Fin.cases (.inr .bv) (fun _ => .bv)))⟩⟩
 
 /-- The ordered typed trace arrow separates inequivalent exact native terms
 at an open inhabited structural input. -/
@@ -59,6 +70,15 @@ theorem equiv_iff_traceArrow_eq {n : Nat} {β : Context n} {t u : Term Φ n} {A 
     Equiv false Γ₀ β t u A ↔ Reply.traceArrow d = Reply.traceArrow e :=
   ⟨fun h => Reply.traceArrow_of_valid (Reply.valid_of_equiv d e h),
     fun h => reflect_open_proof input d e ((Reply.traceArrow_eq_iff_run d e).mp h)⟩
+
+/-- The latest slot may be any atom-free type. Empty summands and empty
+products use native vacuity, so nested ordered sums retain their literal type. -/
+theorem equiv_iff_traceArrow_eq_snoc {n : Nat} {β : Context n} {t u : Term Φ (n + 1)} {X D : Types}
+    (input : StructuralContext β) (d : Derivation Φ Γ₀ (β.snoc X) t D)
+    (e : Derivation Φ Γ₀ (β.snoc X) u D) :
+    Equiv false Γ₀ (β.snoc X) t u D ↔ Reply.traceArrow d = Reply.traceArrow e :=
+  ⟨fun h => Reply.traceArrow_of_valid (Reply.valid_of_equiv d e h),
+    fun h => reflect_snoc_proof input d e ((Reply.traceArrow_eq_iff_run d e).mp h)⟩
 
 /-- Native derivability coincides with validity in the existing compatible
 Freyd class on the inhabited finite structural signature and input interface. -/
