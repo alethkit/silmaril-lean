@@ -17,7 +17,7 @@ variable {args ports : List (Ty Data)} {past sigs target : List (List (Ty Data))
 variable {inputs carried : List (ValueSort Data)} {entrySigs headerSigs : List (List (Ty Data))}
 variable {out : ValueSort Data} {m : Model.{u, v, w} Op}
 
-private theorem append_reads (literal : Op [] out) (flow : Dataflow Op args past sigs)
+theorem append_reads (literal : Op [] out) (flow : Dataflow Op args past sigs)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
     let added := appendLiteral literal flow
     let before := flow.eval m entry locals
@@ -31,7 +31,7 @@ private theorem append_reads (literal : Op [] out) (flow : Dataflow Op args past
     exact ⟨fun _ wire => GVN.read_weaken wire m entry locals next, GVN.read_newest .head m entry locals next⟩
   | cons _ _ _ ih => exact ih _
 
-private theorem read_mapped (wires : Wires args past ports)
+theorem read_mapped (wires : Wires args past ports)
     (route : ∀ (t : Ty Data), Origin args past t → Origin args target t)
     (entry : Tuple (Val m.value) args)
     (before : Locals (Val m.value) past) (after : Locals (Val m.value) target)
