@@ -60,8 +60,10 @@ def Profile.expected {Φ : Type} (op : Φ) (p : Profile Φ) : FiniteCFG Φ 3 2 1
     (Fin.cases (motive := fun _ : Fin 2 => Flat Φ 5 2)
       (p.fromBit.row p.bitTag) (fun _ => p.fromUnit.row p.unitTag))⟩
 
-def terminalTag (label : Fin 5) : Option Tag :=
-  if h : 3 ≤ label.val then some ⟨label.val - 3, by omega⟩ else none
+def terminalTagAt {d : Nat} (label : Fin (d + 2)) : Option Tag :=
+  if h : d ≤ label.val then some ⟨label.val - d, by omega⟩ else none
+
+abbrev terminalTag (label : Fin 5) : Option Tag := terminalTagAt label
 
 /-- The literal table and its scope are checked before any interpreter comparison. -/
 def Write.Agrees {Φ : Type} {b : Bool} (write : Write Φ b) (literals : Φ → Option Bool) : Prop :=

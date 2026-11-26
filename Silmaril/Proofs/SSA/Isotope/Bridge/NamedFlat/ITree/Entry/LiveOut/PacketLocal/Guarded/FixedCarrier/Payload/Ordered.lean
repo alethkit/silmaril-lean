@@ -31,15 +31,15 @@ open PayloadRecognition (Incoming rowTransfer packetValue packetTree unfold_retu
 
 attribute [local instance] requestTypes
 
-theorem eval_fields {Φ : Type} {hasBit : Bool} (literals : Φ → Option Bool)
+theorem eval_fields {Φ : Type} {d : Nat} {hasBit : Bool} (literals : Φ → Option Bool)
     (f : Fields Φ hasBit) (agrees : f.Agrees literals) (tag : Tag) (env : Env Runtime)
     (input : Syntax.Payload (if hasBit then Bit else .unit)) (caller : Syntax.Bindings [Bit]) :
-    region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up input.val) .unit)) (f.row tag).erase =
-      pure (tag.natAdd 3 |>.val, encodeValue ULift.up (f.output.eval (caller.push input)).val) := by
+    region (rawWithLiterals literals) (extend env (.pair (encodeValue ULift.up input.val) .unit)) (f.rowAt (d := d) tag).erase =
+      pure (tag.natAdd d |>.val, encodeValue ULift.up (f.output.eval (caller.push input)).val) := by
   rcases f with ⟨first, second⟩
   obtain ⟨firstEq, secondEq⟩ := agrees
   cases first <;> cases second <;>
-    simp [Fields.row, finish, Fields.output, fieldExpr, recordExpr, Flat.erase, Morphism.CaseSSA.erase,
+    simp [Fields.rowAt, finishAt, Fields.output, fieldExpr, recordExpr, Flat.erase, Morphism.CaseSSA.erase,
       region, LambdaSSA.Semantics.Interaction.term, rawWithLiterals, extend, PayloadRecognition.Write.Agrees]
       at firstEq secondEq ⊢
   · rfl

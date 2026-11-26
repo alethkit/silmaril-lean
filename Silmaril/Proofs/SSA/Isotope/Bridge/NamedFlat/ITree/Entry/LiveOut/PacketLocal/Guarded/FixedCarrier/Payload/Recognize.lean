@@ -128,13 +128,13 @@ theorem unfold_return {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signa
 
 private theorem restore_block {K : Type 1} (names : Fin 5 ≃ K) (i : Fin 3) (p : Value Runtime) :
     Recognize.restore names (i.val, p) = (names (i.castAdd 2), p) := by
-  unfold Recognize.restore
+  unfold Recognize.restore Recognize.restoreAt
   rw [dite_eq_left (show i.val < 5 by omega)]
   rfl
 
 private theorem restore_exit {K : Type 1} (names : Fin 5 ≃ K) (i : Tag) (p : Value Runtime) :
     Recognize.restore names ((i.natAdd 3).val, p) = (names (i.natAdd 3), p) := by
-  unfold Recognize.restore
+  unfold Recognize.restore Recognize.restoreAt
   rw [dite_eq_left (i.natAdd 3).isLt]
 
 /-- Replacing a divergent body by a pure edge to its own state preserves

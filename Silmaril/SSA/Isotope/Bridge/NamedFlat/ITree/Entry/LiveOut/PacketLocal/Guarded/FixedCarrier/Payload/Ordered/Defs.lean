@@ -21,7 +21,7 @@ open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperan
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload (Endpoint Exits exit_type)
 open LambdaSSA.UB.Overlay.Shape.TwoRequest (Tag)
 open Recognize (Bit interface requestRow requestTypes TypedRoutes)
-open PayloadRecognition (Incoming Write guardedControl terminalTag)
+open PayloadRecognition (Incoming Write guardedControl terminalTagAt)
 
 attribute [local instance] requestTypes
 
@@ -60,17 +60,23 @@ def Fields.output {Φ : Type} {hasBit : Bool} (f : Fields Φ hasBit) :
     Syntax.Expr [if hasBit then Bit else .unit, Bit] PayloadType :=
   recordExpr (fieldExpr f.first) (fieldExpr f.second)
 
-def finish {Φ : Type} {n : Nat} (i : Tag) (first second : Fin n) : Flat Φ 5 n :=
-  .br (i.natAdd 3) (.pair .unit (.pair (.bv first) (.pair (.bv second) .unit)))
+def finishAt {Φ : Type} {d n : Nat} (i : Tag) (first second : Fin n) : Flat Φ (d + 2) n :=
+  .br (i.natAdd d) (.pair .unit (.pair (.bv first) (.pair (.bv second) .unit)))
 
 /-- The two slots are assembled after the leading decoder. Literal writes
 occur in slot order; retained parameters are shifted past each write. -/
-def Fields.row {Φ : Type} {hasBit : Bool} (f : Fields Φ hasBit) (i : Tag) : Flat Φ 5 2 :=
+def Fields.rowAt {Φ : Type} {d : Nat} {hasBit : Bool} (f : Fields Φ hasBit) (i : Tag) : Flat Φ (d + 2) 2 :=
   .let₂ (.bv 0) <| match f.first, f.second with
-  | .read, .read => finish i 1 1
-  | .literal op _, .read => .let₁ (.op op .unit) (finish i 0 2)
-  | .read, .literal op _ => .let₁ (.op op .unit) (finish i 2 0)
-  | .literal op _, .literal other _ => .let₁ (.op op .unit) (.let₁ (.op other .unit) (finish i 1 0))
+  | .read, .read => finishAt i 1 1
+  | .literal op _, .read => .let₁ (.op op .unit) (finishAt i 0 2)
+  | .read, .literal op _ => .let₁ (.op op .unit) (finishAt i 2 0)
+  | .literal op _, .literal other _ => .let₁ (.op op .unit) (.let₁ (.op other .unit) (finishAt i 1 0))
+
+abbrev finish {Φ : Type} {n : Nat} (i : Tag) (first second : Fin n) : Flat Φ 5 n :=
+  finishAt i first second
+
+abbrev Fields.row {Φ : Type} {hasBit : Bool} (f : Fields Φ hasBit) (i : Tag) : Flat Φ 5 2 :=
+  f.rowAt i
 
 def readField {Φ : Type} (literals : Φ → Option Bool) (hasBit : Bool) (op : Option Φ) :
     Option {w : Write Φ hasBit // w.Agrees literals} :=
@@ -85,15 +91,15 @@ def readField {Φ : Type} (literals : Φ → Option Bool) (hasBit : Bool) (op : 
     | none => none
     | some b => some ⟨.literal op b, h⟩
 
-def terminalShape {Φ : Type} : Flat Φ 5 2 → Option (Tag × Option Φ × Option Φ)
-  | .let₂ _ (.br label _) => (terminalTag label).map fun i => (i, none, none)
+def terminalShape {Φ : Type} {d : Nat} : Flat Φ (d + 2) 2 → Option (Tag × Option Φ × Option Φ)
+  | .let₂ _ (.br label _) => (terminalTagAt label).map fun i => (i, none, none)
   | .let₂ _ (.let₁ (.op first .unit) (.let₁ (.op second .unit) (.br label _))) =>
-    (terminalTag label).map fun i => (i, some first, some second)
+    (terminalTagAt label).map fun i => (i, some first, some second)
   | .let₂ _ (.let₁ (.op op .unit) (.br label (.pair _ (.pair (.bv first) _)))) =>
-    (terminalTag label).map fun i => if first = 0 then (i, some op, none) else (i, none, some op)
+    (terminalTagAt label).map fun i => if first = 0 then (i, some op, none) else (i, none, some op)
   | _ => none
 
-def readFields {Φ : Type} (literals : Φ → Option Bool) (hasBit : Bool) (row : Flat Φ 5 2) :
+def readFields {Φ : Type} {d : Nat} (literals : Φ → Option Bool) (hasBit : Bool) (row : Flat Φ (d + 2) 2) :
     Option (Tag × {f : Fields Φ hasBit // f.Agrees literals}) := do
   let (i, first, second) ← terminalShape row
   let a ← readField literals hasBit first

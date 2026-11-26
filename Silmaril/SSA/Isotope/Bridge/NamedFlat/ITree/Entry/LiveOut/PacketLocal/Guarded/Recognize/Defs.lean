@@ -80,14 +80,18 @@ def exitRow {Φ : Type} (label : Fin 5) : Option Φ → Flat Φ 5 2
         (.br label (.pair .unit (.pair (.bv 0) .unit))))
 
 /-- The exact leading decoder and typed request dispatch shared by both profiles. -/
-def requestRow {Φ : Type} (opcode : Φ) (destination : Fin 3 → Fin 3) : Flat Φ 5 2 :=
+def requestAt {Φ : Type} {d : Nat} (opcode : Φ) (destination : Fin 3 → Fin d) (fallback : Fin d) :
+    Flat Φ (d + 2) 2 :=
   .let₂ (.bv 0) (.case (.op opcode (.bv 1))
     (.br ((destination 0).castAdd 2) (.pair (.bv 0) .unit))
     (.case (.bv 0)
       (.br ((destination 1).castAdd 2) (.pair (.bv 0) .unit))
       (.case (.bv 0)
         (.br ((destination 2).castAdd 2) (.pair (.bv 0) .unit))
-        (.br 2 (.pair .unit .unit)))))
+        (.br (fallback.castAdd 2) (.pair .unit .unit)))))
+
+abbrev requestRow {Φ : Type} (opcode : Φ) (destination : Fin 3 → Fin 3) : Flat Φ 5 2 :=
+  requestAt opcode destination 2
 
 /-- Literal lexical readback of the argument-plus-unit entry, the request
 with three replies, and its two ordered exit rows. -/
@@ -101,11 +105,14 @@ def expected {Φ : Type} (opcode : Φ) (routes : Routes)
 variable {κ V K α : Type 1} [DecidableEq V] [DecidableEq K]
   {P : FlatInstitution.Signature.{0, 0} κ} {E : Type → Type}
 
-/-- The five names are the three written blocks followed by the two exits.
-The caller provides one bit at the supplied register name. -/
-abbrev interface (seed : V) (names : Fin 5 ≃ K) : Interface κ V K :=
+/-- Number internal labels first, followed by the two original ordered exits. -/
+abbrev numberedInterface {d : Nat} (seed : V) (names : Fin (d + 2) ≃ K) : Interface κ V K :=
   ⟨1, .snoc .nil (.coprod .unit .unit), fun _ => seed, fun _ _ _ => Subsingleton.elim _ _,
-    [names 3, names 4], fun _ => .unit⟩
+    [names ((0 : Fin 2).natAdd d), names ((1 : Fin 2).natAdd d)], fun _ => .unit⟩
+
+/-- The fixed three-row profile uses the same numbered interface. -/
+abbrev interface (seed : V) (names : Fin 5 ≃ K) : Interface κ V K :=
+  numberedInterface seed names
 
 variable {seed : V} {names : Fin 5 ≃ K} {source : CFG V K P.Instr}
 
@@ -117,10 +124,15 @@ variable (a : Admission P (interface (κ := κ) seed names) fields source)
 local notation "lexical" => a.versioned.source
 
 /-- A checked numbered lexical table at the public bit entry and two exits. -/
-structure Readback (code : FiniteCFG P.Instr 3 2 1) : Type where
-  count : (lexical).blocks.length = 3
-  accepted : elaborateAt lexical (I).exits (I).version.names 3 count = some code
-  numbered : ∀ i : Fin 5, (labelIndex (lexical).blocks (I).exits (names i)).map Fin.val = some i.val
+structure NumberedReadback {d : Nat} {names : Fin (d + 2) ≃ K}
+    (a : Admission P (numberedInterface seed names) fields source) (code : FiniteCFG P.Instr d 2 1) : Type where
+  count : a.versioned.source.blocks.length = d
+  accepted : elaborateAt a.versioned.source (numberedInterface (κ := κ) seed names).exits
+    (numberedInterface (κ := κ) seed names).version.names d count = some code
+  numbered : ∀ i : Fin (d + 2), (labelIndex a.versioned.source.blocks
+    (numberedInterface (κ := κ) seed names).exits (names i)).map Fin.val = some i.val
+
+abbrev Readback (code : FiniteCFG P.Instr 3 2 1) := NumberedReadback a code
 
 /-- Success records the extracted routes and certifies the exact admitted lexical
 readback and first-match numbering of all five labels, independent of reachable rank. -/
@@ -141,26 +153,34 @@ theorem recover_readback {source : CFG V K P.Instr} {d n : Nat} {exits : List K}
   exact read
 
 /-- Read a profile from the admitted code and verify its reconstruction and numbering. -/
-def checkReadback [DecidableEq P.Instr] {Profile : Type}
-    (read : FiniteCFG P.Instr 3 2 1 → Option Profile)
-    (expected : Profile → FiniteCFG P.Instr 3 2 1) :
-    Option (Σ profile, Readback a (expected profile)) :=
-  if h : a.versioned.table.blocks = 3 then do
-    let code : FiniteCFG P.Instr 3 2 1 :=
+def checkNumberedReadback [DecidableEq P.Instr] {Profile : Type} {d : Nat}
+    {names : Fin (d + 2) ≃ K} (a : Admission P (numberedInterface seed names) fields source)
+    (read : FiniteCFG P.Instr d 2 1 → Option Profile)
+    (expected : Profile → FiniteCFG P.Instr d 2 1) :
+    Option (Σ profile, NumberedReadback a (expected profile)) :=
+  if h : a.versioned.table.blocks = d then do
+    let code : FiniteCFG P.Instr d 2 1 :=
       cast (congrArg (fun x => FiniteCFG P.Instr x 2 1) h) a.versioned.table.code
     let profile ← read code
     let want := expected profile
     if rows : code.entry = want.entry ∧ ∀ i, code.block i = want.block i then
       have same : code = want := congrArg₂ FiniteCFG.mk rows.1 (funext rows.2)
       let count := a.versioned.count.trans h
-      if numbered : (List.finRange 5).all (fun i =>
-          decide ((labelIndex (lexical).blocks (I).exits (names i)).map Fin.val = some i.val)) = true then
+      if numbered : (List.finRange (d + 2)).all (fun i =>
+          decide ((labelIndex a.versioned.source.blocks (numberedInterface (κ := κ) seed names).exits (names i)).map Fin.val = some i.val)) = true then
         some ⟨profile, ⟨count, (recover_readback a.versioned.count h a.versioned.accepted).trans
           (congrArg some same),
           fun i => of_decide_eq_true (List.all_eq_true.mp numbered i (List.mem_finRange i))⟩⟩
       else none
     else none
   else none
+
+/-- Read a profile from the admitted code and verify its reconstruction and numbering. -/
+def checkReadback [DecidableEq P.Instr] {Profile : Type}
+    (read : FiniteCFG P.Instr 3 2 1 → Option Profile)
+    (expected : Profile → FiniteCFG P.Instr 3 2 1) :
+    Option (Σ profile, Readback a (expected profile)) :=
+  checkNumberedReadback a read expected
 
 /-- Extract routes and check the existing admitted code against the reconstructed
 entry, row shapes, and label numbering. -/
@@ -173,11 +193,14 @@ def Checked.readback {opcode : P.Instr} {live : TwoRequest.Tag → Option P.Inst
     (checked : Checked a opcode live) : Readback a (expected opcode checked.routes live) :=
   ⟨checked.count, checked.accepted, checked.numbered⟩
 
-def restore (names : Fin 5 ≃ K) (p : Transfer α) : K × Value α :=
-  (names (if h : p.1 < 5 then ⟨p.1, h⟩ else 0), p.2)
+def restoreAt {d : Nat} (names : Fin (d + 2) ≃ K) (p : Transfer α) : K × Value α :=
+  (names (if h : p.1 < d + 2 then ⟨p.1, h⟩ else 0), p.2)
 
 /-- Re-encode constructor values in the named runtime. The atom arm completes
 the function on raw values. No typed packet in this fragment can take it. -/
+abbrev restore (names : Fin 5 ≃ K) (p : Transfer α) : K × Value α :=
+  restoreAt names p
+
 def encodeValue {β : Type*} {γ : Type*} (atom : β → γ) : Value β → Value γ
   | .atom a => .atom (atom a)
   | .unit => .unit

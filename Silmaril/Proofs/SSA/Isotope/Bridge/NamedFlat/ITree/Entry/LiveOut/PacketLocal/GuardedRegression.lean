@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Silent.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Silent.Identity.Thms
 import Mathlib.Tactic.FinCases
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Thms
@@ -1175,6 +1176,148 @@ example : compare? (checked? true) (checked? false)
   exact .inr (.inl rfl)
 
 end SilentCycle
+
+
+namespace IdentityTransfer
+
+open FixedCarrier.OrderedLiveOut.Identity
+open FixedCarrier.OrderedLiveOut (fields)
+
+private abbrev slots : List Bool := [true, true, false]
+private abbrev L := layout slots
+private abbrev Labels := ULift.{1} (Fin 6)
+private def keys : Fin 6 ≃ Labels := Equiv.ulift.symm
+
+-- A Bit reply enters row 1. Row 1 forwards the packet to row 2.
+-- Row 2 either returns both fields or forwards it back to row 1.
+private def source (cycle : Bool) (target : Fin 6 := 2) : CFG Reg Labels signature.Instr :=
+  ⟨.term (.br (keys 0) (.var .seed)),
+    [(keys 0, ⟨.arg, .term (.case (.app .poll (.var .arg))
+      .again (.br (keys 1) (.var .again))
+      .rest (.case (.val (.var .rest))
+        .left (.br (keys 3) (.var .left))
+        .tail (.case (.val (.var .tail))
+          .right (.br (keys 3) (.var .right)) .impossible (.br (keys 3) .unit))))⟩),
+     (keys 1, ⟨.again, .term (.br (keys target) (.var .again))⟩),
+     (keys 2, ⟨.left, if cycle then .term (.br (keys 1) (.var .left))
+       else .let1 .alt (.app (.literal true) .unit) (.term (.br (keys 4) .unit))⟩),
+     (keys 3, ⟨.arg, .let1 .alt (.app (.literal true) .unit)
+       (.let1 .left (.app (.literal false) .unit) (.term (.br (keys 5) .unit)))⟩)]⟩
+
+private def inferred? (cycle : Bool) (target : Fin 6 := 2) :=
+  admit? (P := signature) (slots := slots) (seed := Reg.seed) (first := Reg.alt) (second := Reg.left)
+    (names := keys) (source cycle target) literalValues
+
+private def checked (cycle : Bool) :
+    FixedCarrier.OrderedLiveOut.Identity.Checked (P := signature) (slots := slots) (seed := Reg.seed)
+      (first := Reg.alt) (second := Reg.left) (names := keys) (source cycle) literalValues :=
+  (inferred? cycle).get (by cases cycle <;> decide +kernel)
+
+private theorem checked_eq (cycle : Bool) : inferred? cycle = some (checked cycle) := by
+  cases cycle <;> rfl
+
+private abbrev native (cycle : Bool) (selected : Tag → Bool) : Endpoint nativeSig L outputType where
+  control := {
+    entry := 0
+    row := Fin.cases (motive := fun i : Fin 4 => Row nativeSig L [L.get i, Bit])
+      (.request .poll (.var 0) (fun i => if i = 0 then 1 else 3) (by intro i; fin_cases i <;> rfl))
+      (Fin.cases (if cycle then .diverge else .exit 0)
+        (Fin.cases (if cycle then .diverge else .exit 0)
+          (Fin.cases (.exit 1) (fun i => Fin.elim0 i))))
+    selected := selected }
+  output := Fin.cases (motive := fun i : Fin 4 => Syntax.Expr [L.get i, Bit] outputType)
+    (recordExpr (bitExpr false) (bitExpr false))
+    (Fin.cases (recordExpr (bitExpr true) (.var 0))
+      (Fin.cases (recordExpr (bitExpr true) (.var 0))
+        (Fin.cases (recordExpr (bitExpr true) (bitExpr false)) (fun i => Fin.elim0 i))))
+
+private theorem exact (cycle : Bool) (selected : Tag → Bool) :
+    ((checked cycle).profile.endpoint selected).checkNative (native cycle selected).native = true := by
+  have unselected : ((checked cycle).profile.endpoint noSelection).checkNative (native cycle noSelection).native = true := by
+    cases cycle <;> decide +kernel
+  cases cycle <;> exact unselected
+
+private def handler : Syntax.StatePrimitives signature.Instr Nat :=
+  fun _ _ n => if n = 0 then .ret (pack (L := Replies) ⟨0, rightBit⟩) 1 else .fault n
+
+private noncomputable def observe (cycle : Bool) (selected : Tag → Bool) :=
+  observeNamedNumbered (source cycle) keys .alt .left seedStore literalValues handler 0 selected
+
+private theorem exposed (cycle : Bool) :
+    observe cycle noSelection =
+      ((checked cycle).profile.endpoint noSelection).observeAt leftBit handler ⟨1, rightBit⟩ 1 := by
+  let g := (checked cycle).profile.endpoint noSelection
+  have admitted := (checked cycle).observe_native_on seedStore leftBit rfl noSelection
+    (native cycle noSelection).native (exact cycle noSelection) handler 0
+  have start := g.observe_entry_state _ (exact cycle noSelection) leftBit handler 0
+  refine (admitted.trans start).trans ?_
+  cases cycle <;> exact g.observe_state_step leftBit handler ⟨0, leftBit⟩ 0
+
+private theorem cycle_diverges : observe true noSelection = WithTop.some {Outcome.diverge} :=
+  (exposed true).trans (((checked true).profile.endpoint noSelection).observe_state_step leftBit handler ⟨1, rightBit⟩ 1)
+
+private theorem chain_returns : observe false noSelection =
+    WithTop.some {Outcome.ret (0 : Tag) (projected 0 true true).2.val (1 : Nat)} :=
+  (exposed false).trans (((checked false).profile.endpoint noSelection).observe_state_step leftBit handler ⟨1, rightBit⟩ 1)
+
+example : ¬ observe true noSelection ≤ observe false noSelection := by
+  rw [cycle_diverges, chain_returns]
+  simp [WithTop.coe_le_coe]
+
+-- The full scan keeps the second relay as the origin of the returning fields.
+example : (checked false).profile.scan 4 1 = some (.ret 2 0) := by decide +kernel
+example : (checked true).profile.scan 4 1 = none := by decide +kernel
+
+-- The declared exit slot and the ill-typed unit slot are both rejected.
+example : (inferred? true 4).isNone = true := by decide +kernel
+example : (inferred? true 3).isNone = true := by decide +kernel
+
+private def wrongOperand : CFG Reg Labels signature.Instr :=
+  let g := source true
+  { g with blocks := g.blocks.map fun (k, row) =>
+      if k == keys 1 then (k, ⟨.again, .term (.br (keys 2) (.var .seed))⟩) else (k, row) }
+
+example : (admit? (P := signature) (slots := slots) (seed := Reg.seed) (first := Reg.alt)
+    (second := Reg.left) (names := keys) wrongOperand literalValues).isNone = true := by
+  decide +kernel
+
+private def configurations : ConfigurationEnumeration L :=
+  ⟨[⟨0, leftBit⟩, ⟨0, rightBit⟩, ⟨1, leftBit⟩, ⟨1, rightBit⟩,
+    ⟨2, leftBit⟩, ⟨2, rightBit⟩, ⟨3, unitPacket⟩], by
+    rintro ⟨i, value, typed⟩
+    fin_cases i
+    · cases typed with
+      | inl h => cases h; decide +kernel
+      | inr h => cases h; decide +kernel
+    · cases typed with
+      | inl h => cases h; decide +kernel
+      | inr h => cases h; decide +kernel
+    · cases typed with
+      | inl h => cases h; decide +kernel
+      | inr h => cases h; decide +kernel
+    · cases typed
+      decide +kernel⟩
+
+example : compare? (inferred? true) (inferred? false)
+    (native true noSelection).native (native false noSelection).native
+    noSelection noSelection leftBit seedStore seedStore configurations = some false := by
+  rw [checked_eq true, checked_eq false]
+  apply (compare_rejection_iff (checked true) (checked false) _ _ noSelection noSelection
+    leftBit seedStore seedStore configurations rfl rfl (exact true noSelection) (exact false noSelection)).mpr
+  refine ⟨Nat, handler, 0, ?_⟩
+  change ¬ observe true noSelection ≤ observe false noSelection
+  rw [cycle_diverges, chain_returns]
+  simp [WithTop.coe_le_coe]
+
+example : compare? (inferred? true) (inferred? false)
+    (native true noSelection).native (native false noSelection).native
+    noSelection noSelection leftBit seedStore (fun _ => .inr .unit) configurations = none := by
+  rw [checked_eq true, checked_eq false]
+  apply (compare_none_iff (checked true) (checked false) _ _ noSelection noSelection
+    leftBit seedStore (fun _ => .inr .unit) configurations).mpr
+  exact .inr (.inl rfl)
+
+end IdentityTransfer
 
 end Ordered
 

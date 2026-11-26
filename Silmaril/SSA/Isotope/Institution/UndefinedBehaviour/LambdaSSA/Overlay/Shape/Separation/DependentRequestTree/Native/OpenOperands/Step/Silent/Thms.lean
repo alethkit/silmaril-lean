@@ -22,6 +22,13 @@ universe u v
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ}
   {R T : List Syntax.Ty} {A : Syntax.Ty} {σ : Type v}
 
+/-- The label-only projection of the bounded scan exhausts precisely
+when the typed resolver exhausts. -/
+theorem Table.resolve_none_iff (g : Table S R) (fuel : Nat) (i : Fin R.length) :
+    g.resolve fuel i = none ↔ search g.labelRows fuel i = none :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.resolve_none_iff
+    g fuel i
+
 /-- Resolving the silent prefixes preserves complete observations at each
 typed feedback invocation, including productive infinite replay. -/
 theorem Table.close_normalized (g : Table S R)

@@ -89,6 +89,14 @@ def Table.checkNative [DecidableEq Φ] (g : Table S R)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits) : Bool :=
   CFG.Dependent.Native.sameRegion raw.val g.native.val
 
+/-- Scan just the labels of the silent graph, retaining the origin of a
+productive row. The typed resolver can specialize operands separately. -/
+def Table.labelRows (g : OpenOperands.Silent.Table S R) (i : Fin R.length) :
+    Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Row R.length R.length 1 :=
+  match g.row i with
+  | .jump j _ => .repeat j
+  | .guarded _ => .stop (.ret i 0)
+
 /-- Follow only silent edges, substituting each jump operand into the
 productive row's argument. A productive row uses one unit of scan fuel. -/
 def Table.resolve (g : Table S R) :
