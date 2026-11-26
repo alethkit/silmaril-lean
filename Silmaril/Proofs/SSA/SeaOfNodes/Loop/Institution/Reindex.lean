@@ -10,27 +10,14 @@ namespace Silmaril.SSA.SeaOfNodes.Loop.Institution.Proofs
 
 open CategoryTheory
 open Diamond (Dataflow Model Ty Val ValueSort dataPorts sortValue)
-open Diamond.Institution (Signature mapDataflow eval_mapDataflow reduct)
+open Diamond.Institution (Signature mapDataflow_id mapDataflow_comp eval_mapDataflow reduct)
 open RVSDG (Locals Tuple extend)
 
 universe u v w
 
 variable {Data : Type u} {P Q R : Signature.{u, v} Data}
-variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {inputs carried : List (ValueSort Data)}
 variable {entrySigs headerSigs : List (List (Ty Data))} {out : ValueSort Data}
-
-private theorem mapDataflow_id (t : Dataflow P.op args past sigs) :
-    mapDataflow (𝟙 P) t = t := by
-  induction t with
-  | nil => rfl
-  | cons _ _ _ ih => simp only [mapDataflow, ih]; rfl
-
-private theorem mapDataflow_comp (h : P ⟶ Q) (k : Q ⟶ R) (t : Dataflow P.op args past sigs) :
-    mapDataflow (h ≫ k) t = mapDataflow k (mapDataflow h t) := by
-  induction t with
-  | nil => rfl
-  | cons _ _ _ ih => simp only [mapDataflow, ih]; rfl
 
 private theorem mapGraph_id (g : Graph P.op inputs carried entrySigs headerSigs out) :
     mapGraph (𝟙 P) g = g := by
