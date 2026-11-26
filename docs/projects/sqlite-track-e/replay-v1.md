@@ -44,17 +44,18 @@ targets=$(python3 scripts/ci-targets.py --scoped "$scoped" --full "$full")
 make check CHECK_TARGETS="$targets"
 ```
 
-The following replays the aggregate, public components, proofs and fixtures
-in the build above. Each process replays one olean's declarations in the
-kernel against its imported oleans. The list selects the separate implementation
-proof modules explicitly. [Replay driver](../../../tools/compiler-explorer/Replay.lean)
+The following replays the diagram headers, aggregate, public components,
+proofs and fixtures in the build above. Each process replays one olean's
+declarations in the kernel against its imported oleans. The list selects the
+separate implementation proof modules explicitly.
+[Replay driver](../../../tools/compiler-explorer/Replay.lean)
 
 ```bash
 paths=(
   Silmaril/Machine/SQLite/{Accessories,Backend,BTree,CodeGenerator,CommandProcessor,Compiler}
   Silmaril/Machine/SQLite/{Core,Interface,Pager,Parser,TestCode,Tokenizer,Utilities,VFS,VirtualMachine}
   Silmaril/Proofs/Machine/SQLite/{BTree,CodeGenerator,CommandProcessor,Interface,Pager,Parser,Tokenizer,VFS,VirtualMachine}
-  Silmaril/Machine/SQLite/Architecture/{All,Checks}.lean
+  Silmaril/Machine/SQLite/Architecture/{Defs,Thms,All,Checks}.lean
 )
 rg --files -g '*.lean' "${paths[@]}" | sort |
   while IFS= read -r file; do
@@ -124,3 +125,9 @@ The budget job enforces the scoped limit outside Lean module compilation.
 | [E backend #3913](https://github.com/hiloopai/silmaril-lean/pull/3913) | [`7d80ceaf976202c154d87d2dc83614f6a73a9e30`](https://github.com/hiloopai/silmaril-lean/commit/7d80ceaf976202c154d87d2dc83614f6a73a9e30) | `0082b172cd0247c7496ce6a55e7c69c32bde9860` | [Lean](https://github.com/hiloopai/silmaril-lean/actions/runs/45777045519/job/139763856510) · [CI](https://github.com/hiloopai/silmaril-lean/actions/runs/45777045519/job/139764739339) · [Time budget](https://github.com/hiloopai/silmaril-lean/actions/runs/45777045519/job/139764924543) |
 | [E traced and mutable VM #3917](https://github.com/hiloopai/silmaril-lean/pull/3917) | [`dad8efe2562bfa71e9a3fe32255f95399b07c3da`](https://github.com/hiloopai/silmaril-lean/commit/dad8efe2562bfa71e9a3fe32255f95399b07c3da) | `1c54f6d9a71b4b8b9f75a6e9710ae69dc25854db` | [Lean](https://github.com/hiloopai/silmaril-lean/actions/runs/45778301833/job/139767857313) · [CI](https://github.com/hiloopai/silmaril-lean/actions/runs/45778301833/job/139768962971) · [Time budget](https://github.com/hiloopai/silmaril-lean/actions/runs/45778301833/job/139769266868) |
 | [E snapshot concurrency #3919](https://github.com/hiloopai/silmaril-lean/pull/3919) | [`ab1f795428f0e4fffbe44b14a1fd19368e607d7c`](https://github.com/hiloopai/silmaril-lean/commit/ab1f795428f0e4fffbe44b14a1fd19368e607d7c) | `fff5e49cb18b03fbc5b9c032119891b0a2c1173a` | [Lean](https://github.com/hiloopai/silmaril-lean/actions/runs/45779536656/job/139771942499) · [CI](https://github.com/hiloopai/silmaril-lean/actions/runs/45779536656/job/139772736189) · [Time budget](https://github.com/hiloopai/silmaril-lean/actions/runs/45779536656/job/139772818922) |
+| [E public integration #3946](https://github.com/hiloopai/silmaril-lean/pull/3946) | [`0a8dd601d199fb46586759cab4189a234481f36c`](https://github.com/hiloopai/silmaril-lean/commit/0a8dd601d199fb46586759cab4189a234481f36c) | `b76b97b1c44f32d6fa6cd9850dda49c85a7542c7` | [Lean](https://github.com/hiloopai/silmaril-lean/actions/runs/45780986692/job/139776372544) · [CI](https://github.com/hiloopai/silmaril-lean/actions/runs/45780986692/job/139777300424) · [Time budget](https://github.com/hiloopai/silmaril-lean/actions/runs/45780986692/job/139777626768) |
+
+The #3946 PR run passed with 158.2 seconds counted against the 300-second
+budget. The main-push run at its merge commit was canceled.
+[Exact-head PR run](https://github.com/hiloopai/silmaril-lean/actions/runs/45780986692) ·
+[Canceled main-push run](https://github.com/hiloopai/silmaril-lean/actions/runs/45781700663)
