@@ -42,6 +42,13 @@ theorem run?_append (state : State Input carried result) (pre post : List Reques
     run? state (pre ++ post) = (run? state pre).bind (fun next => run? next post) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence.run?_append state pre post
 
+/-- The checked sequence replaces only the header, preserving its evaluated frame. -/
+theorem run?_header (accepted : run? state requests = some next) :
+    ∃ header, next.cfg = withHeader state.cfg header ∧
+      ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
+        (state.cfg.block .header).eval evalOp (fun term vals => term.eval vals) env :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence.run?_header accepted
+
 /-- A failing suffix cannot return the successfully rewritten prefix. -/
 theorem schedule?_refuses_suffix {pre post : List Request}
     (ran : run? (initial (lower g)) pre = some state) (rejected : run? state post = none) :

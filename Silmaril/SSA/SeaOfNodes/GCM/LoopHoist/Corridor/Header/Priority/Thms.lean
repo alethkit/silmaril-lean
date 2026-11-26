@@ -44,6 +44,11 @@ theorem schedule?_exists (distinct : priorities.Nodup)
     ∃ requests out, schedule? g priorities = some (requests, out) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Priority.schedule?_exists distinct known
 
+/-- Replaying a plan reconstructs the whole tracked state, including origins. -/
+theorem plan?_replay (planned : plan? state priorities = some (requests, next)) :
+    Sequence.run? state requests = some next :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Priority.plan?_replay planned
+
 /-- Replay through the explicit sequence API gives exactly the returned CFG. -/
 theorem schedule?_replay (accepted : schedule? g priorities = some (requests, out)) :
     Sequence.schedule? g requests = some out :=
