@@ -64,6 +64,73 @@ theorem argsExact {outs : List (Ty Data)} (args : Args P vars outs) {before : Li
 
 end
 
+theorem sourceOfStmt (stmt : Stmt P false vars outs) : (Body.ofStmt stmt).source = stmt := by
+  induction stmt with
+  | assign _ | project _ => rfl
+  | seq _ _ first second => simp only [Body.ofStmt, Body.source, first, second]
+  | branch _ _ _ yes no => simp only [Body.ofStmt, Body.source, yes, no]
+  | «while» impossible _ _ _ => cases impossible
+
+private theorem phiRead (flag : Port before .bool)
+    (yes no : Tuple (Port before) outs) (values : NodeValues (model m) before)
+    (slot : Port outs t) :
+    let joined := phiNodes (P := Opcode P) (params := params) flag yes no
+    (joined.code.eval (model m) env values).get (joined.refs.get slot) =
+      (values.get flag).elim none (fun b =>
+        values.get (if b.down then yes.get slot else no.get slot)) := by
+  induction slot with
+  | head =>
+    cases yes with
+    | cons y ys =>
+      cases no with
+      | cons n ns =>
+        let rest := phiNodes (P := Opcode P) (params := params) flag ys ns
+        let v := rest.code.eval (model m) env values
+        change (v.get (rest.code.lift flag)).elim none
+          (fun b => if b.down then v.get (rest.code.lift y) else v.get (rest.code.lift n)) =
+          (values.get flag).elim none (fun b => values.get (if b.down then y else n))
+        simp only [v, eval_lift]
+        cases values.get flag with
+        | none => rfl
+        | some b =>
+          obtain ⟨b⟩ := b
+          cases b <;> rfl
+  | tail slot ih =>
+    cases yes with
+    | cons y ys =>
+      cases no with
+      | cons n ns =>
+        let rest := phiNodes (P := Opcode P) (params := params) flag ys ns
+        change (Tuple.cons _ (rest.code.eval (model m) env values)).get
+          ((rest.refs.map fun _ p => Port.tail p).get slot) =
+          (values.get flag).elim none (fun b => values.get (if b.down then ys.get slot else ns.get slot))
+        rw [get_map]
+        exact ih ys ns
+
+private theorem branchRead (test : Simple.Build (Opcode P) params before [.bool])
+    (yes : Simple.Build (Opcode P) params test.nodes outs)
+    (no : Simple.Build (Opcode P) params yes.nodes outs)
+    (values : NodeValues (model m) before) (slot : Port outs t) :
+    let flag := no.code.lift (yes.code.lift (test.refs.get .head))
+    let joined := phiNodes flag (no.code.liftRefs yes.refs) no.refs
+    let testValues := test.code.eval (model m) env values
+    let yesValues := yes.code.eval (model m) env testValues
+    let noValues := no.code.eval (model m) env yesValues
+    ((test.code.append (yes.code.append (no.code.append joined.code))).eval
+      (model m) env values).get (joined.refs.get slot) =
+      (testValues.get (test.refs.get .head)).elim none
+        (fun b => if b.down then yesValues.get (yes.refs.get slot) else noValues.get (no.refs.get slot)) := by
+  dsimp only
+  rw [eval_append, eval_append, eval_append, phiRead, eval_lift, eval_lift]
+  simp only [Simple.Code.liftRefs, get_map]
+  cases (test.code.eval (model m) env values).get (test.refs.get .head) with
+  | none => rfl
+  | some b =>
+    obtain ⟨b⟩ := b
+    cases b with
+    | false => rfl
+    | true => exact eval_lift _ _ _ _ _
+
 private theorem afterEquation (token : Port before .bool) (value : Port before t)
     (vs : NodeValues (model m) before) :
     emitValue (model m) env (.op (.after t)) (.cons token (.cons value .nil)) vs =
@@ -96,6 +163,29 @@ theorem bodyBottom (body : Body P vars outs) (ctx : Tuple (Port before) (.bool :
     change ((a.code.append b.code).eval (model m) env values).get (b.refs.get .head) = none
     rw [eval_append]
     exact ihSecond a.refs _ (ihFirst ctx values bottom)
+  | branch guard yes no ihYes ihNo =>
+    let test := (expr guard).lower (params := params) (tail ctx)
+    let initial := test.code.liftRefs ctx
+    let y := yes.lower (params := params) initial
+    let n := no.lower (params := params) (y.code.liftRefs initial)
+    let testValues := test.code.eval (model m) env values
+    let yesValues := y.code.eval (model m) env testValues
+    have initialBottom : testValues.get (initial.get .head) = none := by
+      simpa only [testValues, initial, Simple.Code.liftRefs, get_map, eval_lift] using bottom
+    have noBottom : yesValues.get ((y.code.liftRefs initial).get .head) = none := by
+      simpa only [yesValues, Simple.Code.liftRefs, get_map, eval_lift] using initialBottom
+    have yBottom := ihYes initial testValues initialBottom
+    have nBottom := ihNo (y.code.liftRefs initial) yesValues noBottom
+    have joined := branchRead m env test y n values .head
+    simp only [Body.lower, Simple.Build.thenBuild]
+    rw [joined]
+    cases testValues.get (test.refs.get .head) with
+    | none => rfl
+    | some b =>
+      obtain ⟨b⟩ := b
+      cases b with
+      | false => exact nBottom
+      | true => exact yBottom
 
 /-- With a realized input store, the lowered slice produces a token just
 when the complete source slice succeeds, and preserves all output slots. -/
@@ -171,5 +261,51 @@ theorem bodyExact (body : Body P vars outs) (ctx : Tuple (Port before) (.bool ::
       exact bodyBottom m env second a.refs vs (by simpa only [result] using aExact)
     | some next =>
       exact ihSecond a.refs vs next (by simpa only [result] using aExact)
+  | @branch vars outs guard yes no ihYes ihNo =>
+    let test := (expr guard).lower (params := params) (tail ctx)
+    let initial := test.code.liftRefs ctx
+    let y := yes.lower (params := params) initial
+    let n := no.lower (params := params) (y.code.liftRefs initial)
+    let testValues := test.code.eval (model m) env values
+    let yesValues := y.code.eval (model m) env testValues
+    have testResult : testValues.get (test.refs.get .head) = guard.eval m store :=
+      exprExact m env guard (tail ctx) values store (by
+        cases ctx with
+        | cons _ _ => exact fun ty slot => entry ty (.tail slot))
+    have initialStore : Realizes (model m) testValues initial (.cons token store) :=
+      realizes_lift (model m) env test.code entry
+    have noStore : Realizes (model m) yesValues (y.code.liftRefs initial) (.cons token store) :=
+      realizes_lift (model m) env y.code initialStore
+    have yExact := ihYes initial testValues store initialStore
+    have nExact := ihNo (y.code.liftRefs initial) yesValues store noStore
+    have read ty (slot : Port (.bool :: outs) ty) := (branchRead m env test y n values slot).trans
+      (congrArg (fun condition => condition.elim none (fun b =>
+        if b.down then yesValues.get (y.refs.get slot)
+        else (n.code.eval (model m) env yesValues).get (n.refs.get slot))) testResult)
+    simp only [Body.source, Stmt.runLoopFree, Body.lower, Simple.Build.thenBuild]
+    cases selected : guard.eval m store with
+    | none =>
+      simpa only [selected, Option.bind_none, Option.elim_none] using read _ .head
+    | some b =>
+      obtain ⟨b⟩ := b
+      cases b
+      · simp only [Option.bind_some]
+        cases arm : no.source.runLoopFree m store with
+        | none =>
+          rw [arm] at nExact
+          exact (read _ .head).trans (by rw [selected]; exact nExact)
+        | some next =>
+          rw [arm] at nExact
+          intro ty slot
+          exact (read ty slot).trans (by rw [selected]; exact nExact ty slot)
+      · simp only [Option.bind_some, ↓reduceIte]
+        cases arm : yes.source.runLoopFree m store with
+        | none =>
+          rw [arm] at yExact
+          exact (read _ .head).trans (by rw [selected]; exact yExact)
+        | some next =>
+          rw [arm] at yExact
+          intro ty slot
+          exact (read ty slot).trans (by rw [selected]; exact yExact ty slot)
 
 end Silmaril.SSA.PEG.Simple.Structured.Token.Proofs
