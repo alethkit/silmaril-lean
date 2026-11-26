@@ -42,6 +42,30 @@ theorem packed_graph_tree (s : Selection g) (typed : g.HasType context R exitTyp
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline.packed_graph_tree s typed arm M x ambient
 
 /-- The actual named runner returns the same ordered exits and live-outs
+as the original graph at the supplied typed input, including through
+cyclic transfers. -/
+theorem checked_packed_observe (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
+    (arm : s.arm.HasType context (append R exitTypes) (R s.selected) left right)
+    (M : Model (κ := κ) Events P.Instr)
+    (c : Checked (context := context) (external := external) (fields := fields) s)
+    (x : Record.Input context) (ambient : Env (Sigma C)) :
+    region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
+      LiveOut.observe M ports fields c.lowered.source x :=
+  (packed_graph_tree s typed arm M x ambient).trans
+    (Materialize.lowered_packed_observe (graph_hasType s typed arm) M c.lowered x ambient)
+
+/-- The actual typed packet-local reversion satisfies the same equation
+without a reachable-rank certificate. -/
+theorem checked_packed_roundTrip (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
+    (arm : s.arm.HasType context (append R exitTypes) (R s.selected) left right)
+    (M : Model (κ := κ) Events P.Instr)
+    (c : Checked (context := context) (external := external) (fields := fields) s)
+    (x : Record.Input context) (ambient : Env (Sigma C)) :
+    region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
+      region M.raw (extend ambient (encodeValue C A x)) c.admission.program.code :=
+  (checked_packed_observe s typed arm M c x ambient).trans (c.admission.packed_tree M x ambient).symm
+
+/-- The actual named runner returns the same ordered exits and live-outs
 as the original graph at the supplied typed input. -/
 theorem packed_observe (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
     (arm : s.arm.HasType context (append R exitTypes) (R s.selected) left right)
@@ -50,8 +74,7 @@ theorem packed_observe (s : Selection g) (typed : g.HasType context R exitTypes)
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
       LiveOut.observe M ports fields c.lowered.source x :=
-  (packed_graph_tree s typed arm M x ambient).trans
-    (Materialize.packed_observe (graph_hasType s typed arm) M c x ambient)
+  checked_packed_observe s typed arm M ⟨c.lowered, c.admission⟩ x ambient
 
 /-- The same public equation holds for the actual packed reversion. -/
 theorem packed_roundTrip (s : Selection g) (typed : g.HasType context R exitTypes) {left right : Ty κ}
@@ -61,7 +84,7 @@ theorem packed_roundTrip (s : Selection g) (typed : g.HasType context R exitType
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
       region M.raw (extend ambient (encodeValue C A x)) c.admission.program.code :=
-  (packed_observe s typed arm M c x ambient).trans (c.admission.packed_tree M x ambient).symm
+  checked_packed_roundTrip s typed arm M ⟨c.lowered, c.admission⟩ x ambient
 
 /-- The two outlines compose through actual named admission at the original
 caller record and selected live-outs. -/

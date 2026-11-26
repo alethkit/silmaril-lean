@@ -16,7 +16,7 @@ open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (region)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
-open Silmaril.Elgot.ITree (vis diverge vis_bind)
+open Silmaril.Elgot.ITree (vis diverge vis_bind diverge_bind)
 open Isotope.Semantics (encodeValue)
 open Isotope.Institution.LetCase.WeakITree (algebra equationRoom)
 
@@ -725,31 +725,96 @@ private def backedgeSource : LambdaSSA.FiniteCFG sig.Instr 1 exits.length 2 :=
 private def backedgeSelection :=
   (Materialize.Outline.read backedgeSource 0 .right).get (by decide)
 
+private theorem backedgeTyped : backedgeSource.HasType mixedContext (fun _ => num) (twoSideResults false) :=
+  ⟨.br .bv, fun _ => .case .bv (.br .bv) (.br (.let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit))))⟩
+
+private theorem backedgeArm : backedgeSelection.arm.HasType mixedContext
+    (SSA.FiniteSum.append (fun _ => num) (twoSideResults false)) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit)), .br .bv⟩
+
+private def backedgeCompile :=
+  Materialize.Outline.compileChecked? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields false) backedgeSelection (fun _ => num) num (freshRegisters 2) outlineLabels
+
+private theorem backedgeCompile_ok : backedgeCompile.isSome = true := by decide +kernel
+private def backedgeAccepted := backedgeCompile.get backedgeCompile_ok
+
+example : Capture.Carry.inferSlots (Materialize.graph (Materialize.Outline.graph backedgeSelection)) = [0] :=
+  by decide
+
+example : backedgeAccepted.admission.acyclicCheck = false := by decide +kernel
+
+example : (Materialize.Outline.compile? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields false) backedgeSelection (fun _ => num) num (freshRegisters 2)
+    outlineLabels).isNone = true := by decide +kernel
+
 open LambdaSSA.Semantics.Interaction (BlockInput splitTransfer) in
-example (old chosen : Atom) :
-    region model.raw (inputEnv mixedContext (outlineInput old chosen false))
-      (Materialize.Outline.graph backedgeSelection).erase = diverge := by
-  rw [Materialize.Outline.graph_tree]
-  let env := inputEnv mixedContext (outlineInput old chosen false)
+private theorem backedge_raw (old chosen : Atom) (right : Bool) :
+    region model.raw (inputEnv mixedContext (outlineInput old chosen right)) backedgeSource.erase =
+      if right then vis Event.choose (fun reply => pure (1, rightResult old chosen reply)) else diverge := by
+  let env := inputEnv mixedContext (outlineInput old chosen right)
   let step (p : BlockInput Runtime 1) :=
     region model.raw (extend env p.2) (backedgeSource.block p.1).erase >>= fun out =>
       pure (splitTransfer 1 out)
-  have spin : step = fun p => pure (.inr p) := by
-    funext p
-    rcases p with ⟨i, packet⟩
-    have eq : i = 0 := Subsingleton.elim _ _
-    subst i
-    simp only [step, backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
-      LambdaSSA.Semantics.Interaction.term, pure_bind]
-    repeat' (first | rfl | erw [pure_bind])
   have entry : region model.raw env backedgeSource.entry.erase = pure (0, number old) := by
     simp only [backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
       LambdaSSA.Semantics.Interaction.term, pure_bind]
     rfl
   change (region model.raw env backedgeSource.entry.erase >>= fun out =>
     Sum.elim pure (Silmaril.Elgot.iter step) (splitTransfer 1 out)) = _
-  rw [entry, pure_bind, spin]
-  exact Silmaril.Elgot.ITree.iterate_forever (0, number old)
+  rw [entry, pure_bind]
+  change Silmaril.Elgot.iter step (0, number old) = _
+  cases right
+  · have spin : step = fun p => pure (.inr p) := by
+      funext p
+      rcases p with ⟨i, packet⟩
+      have eq : i = 0 := Subsingleton.elim _ _
+      subst i
+      simp only [step, backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+        LambdaSSA.Semantics.Interaction.term, pure_bind]
+      repeat' (first | rfl | erw [pure_bind])
+    rw [spin]
+    exact Silmaril.Elgot.ITree.iterate_forever (0, number old)
+  · rw [congrFun (Silmaril.Elgot.ITree.iterate_fixpoint step) (0, number old)]
+    simp only [step, backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind, bind_assoc]
+    let request : ModelTree Event (Value Runtime) := vis Event.choose (fun reply => pure (replyValue old reply))
+    change ((request >>= fun v => pure ((2 : Nat), outlineResult chosen (.pair v (number old)))) >>= _) = _
+    simp only [request, vis_bind, pure_bind]
+    rfl
+
+private theorem backedge_packed (old chosen : Atom) (right : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType (outlineInput old chosen right)))
+      (Program.ofCFGEntry backedgeTyped).code =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else diverge := by
+  let x := outlineInput old chosen right
+  rw [← inputEnv_packet]
+  have packed := Capture.packed_context_tree model.raw backedgeTyped ambient (inputEnv mixedContext x)
+  rw [show region model.raw (extend ambient (Capture.packEnv 2 (inputEnv mixedContext x)))
+      (Program.ofCFGEntry backedgeTyped).code =
+      (region model.raw (inputEnv mixedContext x) backedgeSource.erase >>= fun p =>
+        pure (LambdaSSA.FiniteCFG.packedTreeOutput p)) from packed, backedge_raw]
+  cases right <;> simp only [Bool.false_eq_true, ↓reduceIte, pure_bind, vis_bind, diverge_bind,
+    LambdaSSA.FiniteCFG.packedTreeOutput, Region.packedExitValue]
+
+-- Left revisits the same row with the same packet forever. Right requests
+-- on that packet and returns at the second ordered exit with the payload live-out.
+example (old chosen : Atom) (right : Bool) :
+    LiveOut.observe model twoSidePorts (twoSideFields false) backedgeAccepted.lowered.source
+      (outlineInput old chosen right) =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else diverge :=
+  (Materialize.Outline.checked_packed_observe backedgeSelection backedgeTyped backedgeArm model
+    backedgeAccepted (outlineInput old chosen right) (fun _ => .unit)).symm.trans
+    (backedge_packed old chosen right (fun _ => .unit))
+
+example (x : Record.Input mixedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType x))
+      (Program.ofCFGEntry backedgeTyped).code =
+    region model.raw (extend ambient (encodeValue C outlineInputType x)) backedgeAccepted.admission.program.code :=
+  Materialize.Outline.checked_packed_roundTrip backedgeSelection backedgeTyped backedgeArm model
+    backedgeAccepted x ambient
 
 end Outlined
 

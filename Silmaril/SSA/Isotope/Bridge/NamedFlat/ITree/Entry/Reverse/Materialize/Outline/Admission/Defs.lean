@@ -20,6 +20,19 @@ variable {κ K : Type (u + 1)} [DecidableEq K]
   {fields : K → List (Register × Ty κ)}
   {g : FiniteCFG P.Instr blocks exits.length n}
 
+abbrev Checked (s : Selection g) :=
+  let code := Materialize.graph (graph s)
+  CheckedFlat (context := context) (external := external) (fields := fields)
+    (Capture.Carry.graphList code (Capture.Carry.inferSlots code))
+
+/-- Outline and materialize a selected arm, then check named readback and
+typed reversion. The register plan and appended block label are supplied. -/
+def compileChecked? [DecidableEq κ] [DecidableEq P.Instr] (s : Selection g)
+    (R : Fin blocks → Ty κ) (active : Ty κ)
+    (registers : Registers Register) (labels : Fin (blocks + 1) → K) :
+    Option (Checked (context := context) (external := external) (fields := fields) s) :=
+  compileCheckedInferred? (Materialize.graph (graph s)) (packets R s.selected active) registers labels
+
 abbrev Compiled (s : Selection g) :=
   let code := Materialize.graph (graph s)
   CompiledFlat (context := context) (external := external) (fields := fields)
@@ -32,7 +45,7 @@ def compile? [DecidableEq κ] [DecidableEq P.Instr] (s : Selection g)
     (R : Fin blocks → Ty κ) (active : Ty κ)
     (registers : Registers Register) (labels : Fin (blocks + 1) → K) :
     Option (Compiled (context := context) (external := external) (fields := fields) s) :=
-  compileFlatInferred? (Materialize.graph (graph s)) (packets R s.selected active) registers labels
+  (compileChecked? s R active registers labels).bind CheckedFlat.checkRank
 
 /-- Run one named emission after both outlines, with names for both appended
 blocks and an exact checker for the resulting register plan. -/

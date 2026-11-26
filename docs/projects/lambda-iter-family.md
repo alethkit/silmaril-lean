@@ -1142,13 +1142,29 @@ The admission regressions cover the left and right outlines with a
 pure bypass, then a double outline with one visible request on each
 arm. The double outline returns at different ordered exits and
 projects the old packet on the left and the case payload on the right.
-A separate weak-tree regression checks an original bypass self-loop
-after outlining the right arm. Exact readback, typing, and reachable
-rank still gate named admission.
+`Outline.compileChecked?` stops before the reachable-rank gate. Its
+inferred layout comes from the materialized rows. `lowerChecked`
+checks the written block count, packet closure after live-out
+attachment, and literal readback of the carried table.
+`Straight.packetLocalChecks` checks the source entry and every row at
+the actual versioner's label numbering, then `PacketLocal.admit`
+supplies exact elaboration and pointwise typing for `compilePacketLocal`.
+These checks use the supplied labels, register plan and packet types.
+`CheckedFlat.checkRank` adds the reachable-rank check needed for finite
+LetCase expansion. The existing ranked entry points still apply it.
 
-On success, the original written LetCase tree agrees at every caller
-record with the actual named run and its packed LambdaSSA reversion.
-`Compiled.satisfies` validates the equation from the written term to
+`Outline.checked_packed_observe` and `checked_packed_roundTrip` compare the
+original typed graph, emitted named run and packed reversion as weak
+trees at the same caller record, with the same ordered exit types and
+selected live-outs. The self-loop regression passes `compileChecked?`
+and fails the ranked path. The left arm feeds the same packet back
+forever and has weak tree `diverge`. On the right, the named runner
+issues one request using that packet and returns at the second ordered
+exit with the case payload as the selected live-out.
+
+For the witnessed LetCase entry points, successful compilation equates
+the written LetCase tree, the actual named run, and its packed LambdaSSA
+reversion at every caller record. `Compiled.satisfies` validates the equation from the written term to
 the re-expanded admission in `LetCase.inst`, with the same compatible
 typed and erased primitives. `Compiled.packed_eq` compares the two
 existing typed packed denotations. The fixture supplies a number at

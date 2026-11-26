@@ -32,6 +32,16 @@ local notation "C" => AtomValues.carrier (κ := κ)
 
 /-- Admission compares the original typed table to the named runner, including
 the same caller input, ordered exits, and selected mutable-store reads. -/
+theorem lowered_packed_observe (typed : g.HasType context R exitTypes)
+    (M : Model (κ := κ) Events P.Instr)
+    (c : Lowered ports fields
+      (Capture.Carry.graphList (graph g) (Capture.Carry.inferSlots (graph g))))
+    (x : Record.Input context) (ambient : Env (Sigma C)) :
+    region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
+      LiveOut.observe M ports fields c.source x :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.lowered_packed_observe typed M c x ambient
+
+/-- The comparison also applies to ranked admissions. -/
 theorem packed_observe (typed : g.HasType context R exitTypes)
     (M : Model (κ := κ) Events P.Instr)
     (c : CompiledFlat (context := context) (external := external) (fields := fields)
@@ -39,7 +49,7 @@ theorem packed_observe (typed : g.HasType context R exitTypes)
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
       LiveOut.observe M ports fields c.lowered.source x :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.packed_observe typed M c x ambient
+  lowered_packed_observe typed M c.lowered x ambient
 
 /-- The original typed table and the actual packed reversion agree at
 every input of the original public interface. -/
