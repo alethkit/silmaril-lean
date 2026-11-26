@@ -357,3 +357,45 @@ committed and the emitted CFGs preserve the observed `99`.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Kill the nominated write inside the entry
+
+`Entry.Composition.Retained.Load.lowerOverwrite graph entry version input`
+runs the same entry-local cleanup, then checks the one-based Store version
+in the current table. It scans up to the first later Store whose original
+address port resolves to the nominated cell. A Load of that cell before
+the overwrite refuses the edit and keeps the earlier cleanup. The prefix
+through the nominated Store consists of argument-addressed Stores of
+argument words. The checked interval also uses original address ports.
+A retained Store can use a word computed by an earlier Load. Simple’s
+local Store rule checks that the pointer nodes are identical and that the
+earlier Store has no other users. This fragment checks concrete cell
+equality at the supplied typed input and scans the ordered access path
+for a reader before the overwrite.
+[Pinned Simple Store user check](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned execution order](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#executing-the-graph)
+
+Before the overwrite, disjoint Loads bind identical words and disjoint
+Stores commute with the nominated write. The first same-cell Store
+therefore uses the same operand and restores whole-heap equality. Every
+remaining operation runs on equal states. The native cut retains scalar
+origins and operation order and reconnects the memory versions. Both
+emitted CFGs keep the original diamond and agree on the successor
+occurrence, entry buffer, returned word and all final cells at any
+initial buffer, either predicate and every CF budget. Each takes three
+CF block steps to return. The disjoint-suffix and two-route check remains
+available through `Load.lower`. This check does not resolve dynamic addresses.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Defs.lean) ·
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Thms.lean)
+
+The runnable regression removes an earlier same-wire duplicate, then
+deletes the nominated write despite the next overwrite using a different
+port. The overwrite copies a loaded word and a subsequent same-cell
+Load feeds a retained Store. The false arm reads the overwritten cell
+without writing it. Switching the first Load to the aliasing port
+refuses the second deletion and preserves the observed `99`.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```

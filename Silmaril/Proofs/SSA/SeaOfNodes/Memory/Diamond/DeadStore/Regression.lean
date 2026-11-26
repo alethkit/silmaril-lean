@@ -540,4 +540,58 @@ example : (Entry.Composition.Retained.Load.lower chainDiamond entryWithTwoReads 
 #guard runTwoReadEdit nominatedAliases true ==
   (1, false, some ([99, 11, 2, 99, 55], [99, 11, 2, 99, 55]))
 
+private def overwriteTail (firstRead : Port args .address) : Memory.Graph args :=
+  .load (.latest 0) (.arg firstRead)
+    (.store (.latest 0) (.arg rightPort) loaded
+      (.load (.latest 1) (.arg headPort)
+        (.store (.latest 1) (.arg leftPort) (.output (0 : Fin 2) .head)
+          (.ret (.latest 2) (.output (0 : Fin 2) .head)))))
+
+private def overwriteEntry (firstRead : Port args .address) : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend (middleStore.prepend (overwriteTail firstRead))
+
+private def overwriteDiamond : Graph args :=
+  { (source .onFalse).diamond with
+    arm := fun edge => match edge with
+      | .onTrue => leftArm leftPort
+      | .onFalse => .load (.latest 0) (.arg headPort) (.ret (.latest 0) loaded) }
+
+private def overwriteInput : Tuple (Val 4) args := input headCell
+
+private def lowerWithOverwrite (firstRead : Port args .address) :
+    Entry.Composition.Retained.Load.OverwriteResult 4 args :=
+  Entry.Composition.Retained.Load.lowerOverwrite overwriteDiamond (overwriteEntry firstRead) 1 overwriteInput
+
+-- The early same-wire duplicate is removed. The remaining overwrite uses
+-- a different port to the same cell, and the false arm only reads it.
+example : (Entry.lowerRepeated overwriteDiamond (overwriteEntry leftPort) overwriteInput).entry =
+    middleStore.prepend (overwriteTail leftPort) := rfl
+example : Discovery.rewrite ⟨middleStore, overwriteDiamond⟩ overwriteInput = none := rfl
+example : Entry.Composition.Retained.Load.cutOverwrite 1 overwriteInput
+    (middleStore.prepend (overwriteTail leftPort)) = some (middleStore, overwriteTail leftPort) := rfl
+example : (lowerWithOverwrite leftPort).programs =
+    Entry.lowerPair overwriteDiamond (overwriteEntry leftPort) (overwriteTail leftPort) overwriteInput := rfl
+
+private def runOverwrite (firstRead : Port args .address) (guard : Bool) (fuel : Nat) :
+    Nat × Bool × Option (Word × Word × List Word × List Word) :=
+  let result := lowerWithOverwrite firstRead
+  (result.entryDeleted, result.overwriteDeleted, runEntryPrograms result.programs guard fuel)
+
+-- The first Load supplies 2 to the overwrite. A same-cell Load after it
+-- feeds the retained side Store. The false route has no overwrite.
+/-- info: (1, true, some (2#64, 2#64, [2#64, 2#64, 2#64, 3#64, 55#64], [2#64, 2#64, 2#64, 3#64, 55#64])) -/
+#guard_msgs in
+#eval runOverwrite leftPort false 3
+
+#guard runOverwrite leftPort true 3 == (1, true, some (2, 2, [2, 11, 11, 3, 55], [2, 11, 11, 3, 55]))
+#guard runOverwrite leftPort false 2 == (1, true, none)
+
+-- Reading through the aliasing port before the overwrite sees 99, so
+-- the second deletion refuses and the emitted stage-one edit survives.
+example : Entry.Composition.Retained.Load.cutOverwrite 1 overwriteInput
+    (middleStore.prepend (overwriteTail rightPort)) = none := rfl
+example : (lowerWithOverwrite rightPort).programs =
+    (Entry.lowerRepeated overwriteDiamond (overwriteEntry rightPort) overwriteInput).programs := rfl
+#guard runOverwrite rightPort false 3 == (1, false, some (99, 99, [99, 99, 99, 3, 55], [99, 99, 99, 3, 55]))
+
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

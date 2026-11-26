@@ -26,20 +26,46 @@ def checkTail (selected : PrefixStore args) (input : Tuple (Val cells) args) :
     decide (cell input selected.address ≠ cell input writer) && checkTail selected input rest
   | _, _, _ => false
 
-/-- Cut the nominated one-based Store version after an argument-Store prefix.
-Reconnect only memory edges. Scalar origins stay in their original scope. -/
-def cut (version : Nat) (input : Tuple (Val cells) args) :
+/-- Find the first later Store to the nominated cell. Every Load before it
+must read another cell. Before and at the overwrite, addresses must be
+original arguments. After the overwrite the complete states agree. -/
+def checkOverwrite (selected : PrefixStore args) (input : Tuple (Val cells) args) :
+    {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool
+  | _, _, .load _ (.arg reader) rest =>
+    decide (cell input selected.address ≠ cell input reader) && checkOverwrite selected input rest
+  | _, _, .store _ (.arg writer) _ rest =>
+    if cell input selected.address = cell input writer then true
+    else checkOverwrite selected input rest
+  | _, _, _ => false
+
+/-- Cut one one-based Store version after an argument-Store prefix using
+the supplied tail check. Reconnect memory edges without changing scalar origins. -/
+def cutWith
+    (check : PrefixStore args → {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool)
+    (version : Nat) :
     {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live →
       Option (PrefixStore args × Memory.Body args past live)
   | _, live, .store memory (.arg address) (.arg word) rest =>
     if live + 1 = version then
       let selected : PrefixStore args := ⟨address, word⟩
-      if checkTail selected input rest then
+      if check selected rest then
         some (selected, Memory.DeadStore.reindexMemory rest live)
       else none
-    else (cut version input rest).map fun (selected, tail) =>
+    else (cutWith check version rest).map fun (selected, tail) =>
       (selected, .store memory (.arg address) (.arg word) tail)
   | _, _, _ => none
+
+/-- Cut the nominated Store when the entire tail is disjoint from its cell. -/
+def cut (version : Nat) (input : Tuple (Val cells) args)
+    {past : List (List ValueSort)} {live : Nat} (body : Memory.Body args past live) :
+    Option (PrefixStore args × Memory.Body args past live) :=
+  cutWith (fun selected {_ _} tail => checkTail selected input tail) version body
+
+/-- Cut the nominated Store when the tail overwrites its cell before observing it. -/
+def cutOverwrite (version : Nat) (input : Tuple (Val cells) args)
+    {past : List (List ValueSort)} {live : Nat} (body : Memory.Body args past live) :
+    Option (PrefixStore args × Memory.Body args past live) :=
+  cutWith (fun selected {_ _} tail => checkOverwrite selected input tail) version body
 
 def rewrite (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args) : Option (Retained.Edit args) := do
@@ -54,5 +80,19 @@ def lower (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
   | none => ⟨repeated.deleted, false, repeated.programs⟩
   | some edit => ⟨repeated.deleted, true, { repeated.programs with
       optimized := lowerDiamond cells edit.routes.graph (some edit.retained) }⟩
+
+structure OverwriteResult (cells : Nat) (args : List ValueSort) where
+  entryDeleted : Nat
+  overwriteDeleted : Bool
+  programs : Discovery.MemRef.CF.Programs cells args
+
+/-- Run entry-local cleanup, then try a one-based nomination on the current
+table. Success changes only the entry. Refusal keeps the initial cleanup. -/
+def lowerOverwrite (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
+    (input : Tuple (Val cells) args) : OverwriteResult cells args :=
+  let repeated := Entry.lowerRepeated graph entry input
+  match cutOverwrite version input repeated.entry with
+  | none => ⟨repeated.deleted, false, repeated.programs⟩
+  | some (_, retained) => ⟨repeated.deleted, true, Entry.lowerPair graph entry retained input⟩
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load
