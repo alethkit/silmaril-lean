@@ -329,24 +329,34 @@ The continuation cannot jump back to its own label.
   and contexts outside that fixed-type signature category.
   [Signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
 - For small signatures and an empty named context, `reifyCorridor` sends
-  LetCase equations to the exact structured SSA room at a fixed signature.
+  LetCase equations to the exact structured SSA room at each signature.
   The model functor goes back from the discrete class of
   `CoherentRegionModel` objects to LetCase operation algebras. The class
   uses a fixed strong Elgot Freyd category with central unit and locally
   small arrows, with interpretations satisfying region typing coherence.
   `sat_compile_iff` and `sat_reify_iff` give satisfaction in both directions
-  under this reduct. `sat_reify_map_iff` further compares satisfaction
-  after a primitive signature map with satisfaction in the source LetCase
-  signature reduct. `denote_eq_of_sameTerm` gives agreement for independently
+  under this reduct. `denote_eq_of_sameTerm` gives agreement for independently
   chosen exact derivations in this class.
   [Exact equation comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Thms.lean)
+- `ssaInst` extends these rooms to the primitive signature category.
+  `mapEquation` preserves the actual typed operand derivations chosen by
+  the LetCase algebra fold. The model reduct restricts primitive arrows
+  and transports their domains and codomains along the signature map's
+  type equalities. Relabelling the region denotation witnesses transfers
+  typing coherence from the target model. Both maps preserve identity
+  and composition, and `ssaSat_map_iff` gives satisfaction invariance.
+  `reifyComorphism` bundles reification and the LetCase algebra reduct
+  over the identity signature functor. Its model class is the stated
+  coherent region model class; expansion of arbitrary LetCase algebras
+  is a separate question.
+  [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
-  uses scoped operational sentences over discrete scope signatures. The
-  exact SSA room has typed equations and categorical models. A full
-  comparison by institution comorphism still needs an exact SSA signature
-  functor, with a coherent-model reduct along each primitive relabelling
-  and its naturality against the LetCase algebra reduct. Soundness of the
-  full exact equational presentation remains separate.
+  uses scoped operational sentences over discrete scope signatures.
+  Extending the exact comparison to type-changing maps requires indexing
+  the signature category over type universes and showing that transport
+  of context and label objects preserves region denotation witnesses and
+  the LetCase algebra operations. Soundness of the full exact equational
+  presentation remains separate.
 
 ## Guarded iteration and resumptions
 
@@ -419,7 +429,7 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.

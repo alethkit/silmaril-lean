@@ -77,7 +77,7 @@ theorem denote_eq_of_sameTerm (K : CoherentRegionModel J P)
 
 /-- At a fixed signature, sentences go from LetCase into exact SSA and the
 model functor goes from coherent SSA models to LetCase algebras. -/
-noncomputable def reifyCorridor (J : V ⥤ C) [StrongElgotFreydCategory J]
+@[expose] noncomputable def reifyCorridor (J : V ⥤ C) [StrongElgotFreydCategory J]
     [FreydCategory.CentralUnit J] (P : InstrSig τ ε) :
     Corridor ((LetCase.inst Γ₀).obj P) (ssaRoom J P) where
   sen := reify
