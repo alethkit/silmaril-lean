@@ -30,6 +30,13 @@ theorem consumer_preserves (plan : Consumer) {program : Program} {consumer : Res
     PreservesDeclarations program consumer.program :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.consumer_preserves plan checked
 
+/-- Leading loads preserve declaration indices, while the suite appends checked definitions. -/
+theorem ordered_preserves (plan : OrderedConsumer) {program : Program} {consumer : ResolvedModule}
+    (checked : resolve plan.commands program = .ok consumer) :
+    PreservesDeclarations program consumer.program :=
+  (Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.ordered_layout plan checked).1.symm ▸
+    Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.preserves_suite plan.body program
+
 /-- Preserving the heap entries transports the exact published callable,
 including the original frozen closure record and its captures. -/
 theorem cached_publication {exports : Environment} {program : Program} {published : Modules.Published}
@@ -42,23 +49,22 @@ theorem cached_publication {exports : Environment} {program : Program} {publishe
 theorem run_suite {source : List Command} {seed producer : Program} {resolved : ResolvedModule}
     (checked : resolve source seed = .ok resolved)
     {manifest : Modules.Loader.Manifest} {active : List Nat} {id : Nat}
-    {importName : String} {globals : List String} (separate : importName ∉ globals)
-    (steps : List (Step importName globals)) (prefixTable : Program)
+    {aliases globals : List String} (separate : ∀ name ∈ globals, name ∉ aliases)
+    (steps : List (Step aliases globals)) (prefixTable : Program)
     (producerPrefix : PreservesDeclarations producer prefixTable)
     (table : PreservesDeclarations (compileSuite prefixTable steps).2 resolved.program)
-    {imported : Callee} {env : Tracked} (admitted : ReadyFor imported prefixTable env steps)
-    (earlier : imported.layout.id < prefixTable.size) (seen : env importName = some imported)
+    {env : Tracked} (admitted : ReadyFor prefixTable env steps)
     (unique : (steps.map Step.destination).Nodup)
-    (session : Session) (frame : Frame importName globals session.runtime)
+    (session : Session) (frame : Frame aliases globals session.runtime)
     (pending : ∀ step ∈ steps, Blank session.runtime (globalSlot step.destination))
-    (live : Live importName producer resolved.program env session.runtime) :
-    ∃ out, SuiteRuns imported prefixTable session.runtime steps out ∧
+    (live : Live aliases producer resolved.program env session.runtime) :
+    ∃ out, SuiteRuns prefixTable session.runtime steps out ∧
       Modules.Loader.Runs resolved.program manifest active (.commands id (compileSuite prefixTable steps).1) session
         (Modules.Loader.liftResult id session out) ∧
       ∀ reached, out = .ok () reached →
-        Frame importName globals reached ∧ Live importName producer resolved.program (trackSuite imported prefixTable env steps) reached :=
+        Frame aliases globals reached ∧ Live aliases producer resolved.program (trackSuite prefixTable env steps) reached :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.run_suite
-    checked separate steps prefixTable producerPrefix table admitted earlier seen unique session frame pending live
+    checked separate steps prefixTable producerPrefix table admitted unique session frame pending live
 
 /-- Cold loader agreement derives imported and consumer-owned callable provenance from reached bindings. -/
 theorem cold_agrees {commands : List Command} {linked final : Program}

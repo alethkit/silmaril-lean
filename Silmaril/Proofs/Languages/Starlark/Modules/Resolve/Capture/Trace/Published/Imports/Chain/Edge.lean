@@ -99,8 +99,8 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
       have independent := BindsAlias.found (plan := plan) (state := reached.runtime) loaded
       have table : PreservesDeclarations (compileSuite seed plan.body).2 whole.program := same ▸ extension
       obtain ⟨out, tail, tailRan, tailKept, records, success⟩ := run_suite_preserving wholeChecked (manifest := manifest)
-        (active := id :: active) (id := id) plan.separate plan.body seed originPrefix table admitted
-        earlier (by simp [initial, track]) unique session (writes_frame frame (fileSlot plan.alias) (.function address)) pending
+        (active := id :: active) (id := id) (fun name member => by simpa using (fun (same : name = plan.alias) => plan.separate (same ▸ member))) plan.body seed originPrefix table admitted
+        unique session (writes_frame frame (fileSlot plan.alias) (.function address)) pending
         caller.runtime.heap.size (fresh_slots fresh boundKept.1) initialLive
       have native := complete _ (.step (runImport independent) tailRan)
       rw [← observed_eq (before := session)] at native

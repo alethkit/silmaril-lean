@@ -278,6 +278,90 @@ after = [199]
 	}
 }
 
+func checkDiamond(preload bool, failure string) {
+	const left = `load("prodé.star", loaded="escaped")
+def relay():
+    return loaded(17)
+before = relay()
+reexport = loaded
+`
+	right := left
+	if failure == "dependency" {
+		right = `load("prodé.star", loaded="escaped")
+before = loaded(17, key=8)
+`
+	}
+	request := "relay"
+	if failure == "export" {
+		request = "absent"
+	}
+	skip := ""
+	if failure != "" {
+		skip = "load(\"skip.star\", skipped=\"relay\")\n"
+	}
+	source := fmt.Sprintf(`load("left.star", left="relay")
+load("right.star", right=%q)
+%sdef wrapRight():
+    return right()
+leftResult = left()
+rightResult = wrapRight()
+after = [199]
+`, request, skip)
+
+	sources := map[string]string{"prodé.star": producer, "left.star": left, "right.star": right, "skip.star": left}
+	cache := make(map[string]starlark.StringDict)
+	var initialized, cacheHits, prints []string
+	thread := &starlark.Thread{}
+	thread.Print = func(_ *starlark.Thread, msg string) { prints = append(prints, msg) }
+	opts := &syntax.FileOptions{}
+	thread.Load = func(_ *starlark.Thread, path string) (starlark.StringDict, error) {
+		if cached, ok := cache[path]; ok {
+			cacheHits = append(cacheHits, path)
+			return cached, nil
+		}
+		initialized = append(initialized, path)
+		body, exists := sources[path]
+		require(exists, path)
+		result, err := starlark.ExecFileOptions(opts, thread, path, body, nil)
+		if err == nil {
+			cache[path] = result
+		}
+		return result, err
+	}
+	if preload {
+		_, err := thread.Load(thread, "left.star")
+		require(err == nil, err)
+	}
+	_, program, err := starlark.SourceProgramOptions(opts, "diamond.star", source, func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := program.Init(thread, nil)
+	require(strings.Join(initialized, ",") == "left.star,prodé.star,right.star", initialized)
+	expectedHits := "prodé.star"
+	if preload {
+		expectedHits = "left.star,prodé.star"
+	}
+	require(strings.Join(cacheHits, ",") == expectedHits, cacheHits)
+	prod, leftPub, rightPub := cache["prodé.star"], cache["left.star"], cache["right.star"]
+	require(leftPub["reexport"] == prod["escaped"] && leftPub["before"] == prod["late"], leftPub)
+	switch failure {
+	case "":
+		require(err == nil, err)
+		require(leftPub["relay"] != rightPub["relay"] && rightPub["reexport"] == prod["escaped"], rightPub)
+		require(partial["leftResult"] == prod["late"] && partial["rightResult"] == prod["late"] &&
+			partial["left"] == nil && partial["right"] == nil && partial["after"].String() == "[199]", partial)
+		require(partial["rightResult"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
+		require(strings.Join(prints, ",") == "44,31 52,44,31 52,44,31 52,44,31 52,44,31 52", prints)
+	case "export":
+		require(err != nil && strings.Contains(err.Error(), "absent"), err)
+		require(rightPub != nil && rightPub["reexport"] == prod["escaped"] && len(partial) == 0, partial)
+		require(strings.Join(prints, ",") == "44,31 52,44,31 52,44,31 52", prints)
+	case "dependency":
+		require(err != nil && strings.Contains(err.Error(), "unhandled index operation"), err)
+		require(rightPub == nil && len(partial) == 0, partial)
+		require(strings.Join(prints, ",") == "44,31 52,44,31 52,44", prints)
+	}
+}
+
 func main() {
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
@@ -289,6 +373,9 @@ func main() {
 		checkDeclarationSuite(warm, false)
 		checkDeclarationSuite(warm, true)
 		checkReturnedClosure(warm)
+		for _, failure := range []string{"", "export", "dependency"} {
+			checkDiamond(warm, failure)
+		}
 	}
 	for _, preload := range []string{"", "prodé.star", "middle.star"} {
 		checkChain(preload, false)
@@ -305,4 +392,5 @@ func main() {
 	fmt.Println("PASS a consumer wrapper returns a fresh imported closure that remains callable")
 	fmt.Println("PASS three-module re-export with cold, root-preloaded and middle-preloaded histories")
 	fmt.Println("PASS direct and nested calls through the published middle wrapper, including reached failures")
+	fmt.Println("PASS ordered diamond imports share a dependency across cold and mixed requests and stop on later export/dependency failure")
 }

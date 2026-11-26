@@ -19,28 +19,34 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 open Silmaril.Languages.Starlark.Functions (Program)
 open Silmaril.Languages.Starlark.Lists (State Slot Cell)
 
-theorem dependency_frame {plan : Consumer} {source : Modules.Source} {caller state : State}
-    (globals : source.globals = plan.globals) (files : source.fileNames = [plan.alias])
+theorem entry_frame {aliases globals : List String} {source : Modules.Source} {caller state : State}
+    (names : source.globals = globals) (files : source.fileNames = aliases)
     (slots : state.slots = (enter source caller).slots) (kept : KeepsContents (enter source caller) state) :
-    Frame plan.alias plan.globals state := by
+    Frame aliases globals state := by
   refine ⟨?_, fun binding marked => ?_⟩
   · intro first second address atFirst atSecond
     exact RootCall.enter_distinct source caller first second address (slots.symm ▸ atFirst) (slots.symm ▸ atSecond)
   · have member : binding ∈ source.globals.map globalSlot ++ source.fileNames.map fileSlot := by
-      rw [globals, files]
+      rw [names, files]
       simpa [List.mem_append, or_comm] using marked
     obtain ⟨address, owned, blank⟩ := Entry.entered_blank source caller binding member
     obtain ⟨frozen, found⟩ := kept _ _ blank
     exact ⟨address, none, frozen, slots ▸ owned, found⟩
+
+theorem dependency_frame {plan : Consumer} {source : Modules.Source} {caller state : State}
+    (globals : source.globals = plan.globals) (files : source.fileNames = [plan.alias])
+    (slots : state.slots = (enter source caller).slots) (kept : KeepsContents (enter source caller) state) :
+    Frame [plan.alias] plan.globals state :=
+  entry_frame globals files slots kept
 
 private theorem keep_cell {state next : State} {address : Nat} {cell : Cell}
     (kept : Body.Keeps state.heap.size state next) (found : state.heap[address]? = some cell) :
     next.heap[address]? = some cell :=
   kept.2 _ _ (Array.getElem?_eq_some_iff.mp found).choose found
 
-theorem keeps_frame {importName globals} {state next : State}
-    (frame : Frame importName globals state) (kept : Body.Keeps state.heap.size state next) :
-    Frame importName globals next := by
+theorem keeps_frame {aliases globals} {state next : State}
+    (frame : Frame aliases globals state) (kept : Body.Keeps state.heap.size state next) :
+    Frame aliases globals next := by
   refine ⟨?_, fun binding member => ?_⟩
   · intro first second address atFirst atSecond
     exact frame.1 _ _ _ (kept.1.symm ▸ atFirst) (kept.1.symm ▸ atSecond)
@@ -53,8 +59,8 @@ private theorem write_other {state : State} {target binding : Binding} {address 
     (state.write target value).heap[address]? = state.heap[address]? :=
   RootCall.write_other_cell state target value address (fun hit => different (distinct _ _ _ hit owned))
 
-theorem writes_frame {importName globals} {state : State} (frame : Frame importName globals state)
-    (target : Binding) (value : Lists.Value) : Frame importName globals (state.write target value) := by
+theorem writes_frame {aliases globals} {state : State} (frame : Frame aliases globals state)
+    (target : Binding) (value : Lists.Value) : Frame aliases globals (state.write target value) := by
   have same := write_slots state target value
   refine ⟨?_, fun binding member => ?_⟩
   · intro first second address atFirst atSecond
@@ -170,15 +176,15 @@ theorem transport_callable {origin program : Program} {state next : State} {call
   | regular linked record =>
     obtain ⟨_, found⟩ := kept.functions _ _ _ record.recorded
     exact .regular linked (transport_record (callee := _) record found kept)
-  | @wrapper _ _ declaration id imported _ _ _ _ _ found earlier record captures cell _ ih =>
+  | @wrapper _ _ _ declaration id imported _ _ _ _ _ found earlier record captures cell _ ih =>
     obtain ⟨_, stored⟩ := kept.functions _ _ _ record.recorded
     obtain ⟨_, aliasStored⟩ := keeps_initialized kept cell
     exact .wrapper found earlier (transport_record (callee := (Callee.wrapper declaration id imported).layout) record stored kept)
       captures aliasStored ih
 
-theorem keeps_live {importName : String} {producer program : Program} {env : Tracked} {state next : State}
-    (live : Live importName producer program env state) (kept : Body.Keeps state.heap.size state next) :
-    Live importName producer program env next := by
+theorem keeps_live {aliases : List String} {producer program : Program} {env : Tracked} {state next : State}
+    (live : Live aliases producer program env state) (kept : Body.Keeps state.heap.size state next) :
+    Live aliases producer program env next := by
   intro name callee tracked
   obtain ⟨slot, address, flag, owned, stored, record⟩ := live name callee tracked
   exact ⟨slot, address, flag, kept.1 ▸ owned, keep_cell kept stored,
@@ -186,7 +192,7 @@ theorem keeps_live {importName : String} {producer program : Program} {env : Tra
 
 theorem initial_live {plan : Consumer} {producer program : Program} {state : State} {callee : Callee} {address : Nat}
     (blank : Blank state (fileSlot plan.alias)) (record : callee.At producer program state address) :
-    Live plan.alias producer program (initial plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
+    Live [plan.alias] producer program (initial plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
   intro name tracked found
   have hit : name = plan.alias := by
     by_contra different
@@ -199,33 +205,43 @@ theorem initial_live {plan : Consumer} {producer program : Program} {state : Sta
     transport_callable record (write_closure_cells owned cell _)⟩
   simp [readSlot, write_slots, owned]
 
-theorem read_live {importName : String} {producer program : Program} {env : Tracked}
+theorem read_live {aliases : List String} {producer program : Program} {env : Tracked}
     {state : State} {name : String} {callee : Callee}
-    (live : Live importName producer program env state) (tracked : env name = some callee) :
-    ∃ address, state.bindingValue (readSlot importName name) = .ok (.function address) ∧
+    (live : Live aliases producer program env state) (tracked : env name = some callee) :
+    ∃ address, state.bindingValue (readSlot aliases name) = .ok (.function address) ∧
       callee.At producer program state address := by
   obtain ⟨_, address, _, owned, cell, record⟩ := live name callee tracked
   exact ⟨address, by simp [State.bindingValue, Slot.address, owned, cell], record⟩
 
-theorem writes_live {importName : String} {producer program : Program} {env : Tracked}
+theorem write_tracked {aliases : List String} {producer program : Program} {env : Tracked}
     {state : State} {destination : String}
-    (blank : Blank state (globalSlot destination)) (live : Live importName producer program env state)
-    (separate : destination ≠ importName) (value : Lists.Value) (updated : Option Callee)
+    (blank : Blank state (readSlot aliases destination)) (live : Live aliases producer program env state)
+    (value : Lists.Value) (updated : Option Callee)
     (new : ∀ callee, updated = some callee → ∃ address, value = .function address ∧ callee.At producer program state address) :
-    Live importName producer program (track env destination updated) (state.write (globalSlot destination) value) := by
+    Live aliases producer program (track env destination updated) (state.write (readSlot aliases destination) value) := by
   obtain ⟨slot, frozen, owned, cell⟩ := blank
-  have slots := write_slots state (globalSlot destination) value
+  have slots := write_slots state (readSlot aliases destination) value
   have kept := write_closure_cells owned cell value
   intro name callee found
   by_cases same : name = destination
   · subst name
     obtain ⟨address, equal, record⟩ := new callee (by simpa [track] using found)
     subst value
-    exact ⟨slot, address, frozen, by simpa [readSlot, separate, slots] using owned,
+    exact ⟨slot, address, frozen, slots.symm ▸ owned,
       written_cell _ owned cell, transport_callable record kept⟩
   · obtain ⟨other, address, flag, read, bindingCell, closure⟩ :=
       live name callee (by simpa [track, same] using found)
     obtain ⟨next, stored⟩ := keeps_initialized kept bindingCell
     exact ⟨other, address, next, slots.symm ▸ read, stored, transport_callable closure kept⟩
+
+theorem writes_live {aliases : List String} {producer program : Program} {env : Tracked}
+    {state : State} {destination : String}
+    (blank : Blank state (globalSlot destination)) (live : Live aliases producer program env state)
+    (separate : destination ∉ aliases) (value : Lists.Value) (updated : Option Callee)
+    (new : ∀ callee, updated = some callee → ∃ address, value = .function address ∧ callee.At producer program state address) :
+    Live aliases producer program (track env destination updated) (state.write (globalSlot destination) value) := by
+  have slot : readSlot aliases destination = globalSlot destination := by simp [readSlot, separate]
+  exact Eq.mp (congrArg (fun target => Live aliases producer program (track env destination updated) (state.write target value)) slot)
+    (write_tracked (slot.symm ▸ blank) live value updated new)
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

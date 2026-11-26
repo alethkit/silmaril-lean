@@ -40,10 +40,10 @@ structure Wrapper where
       mappingReads mapping)) [⟨fileSlot alias, fileSlot alias⟩]
 
 @[expose] def Wrapper.parent (wrapper : Wrapper) : LexicalBlock :=
-  block wrapper.alias [wrapper.name, wrapper.destination]
+  block [wrapper.alias] [wrapper.name, wrapper.destination]
 
-@[expose] def Wrapper.declaration (wrapper : Wrapper) : WrapperDeclaration wrapper.alias [wrapper.name, wrapper.destination] :=
-  ⟨wrapper.name, by simp, wrapper.legalAlias, wrapper.arguments, wrapper.codes, wrapper.reads,
+@[expose] def Wrapper.declaration (wrapper : Wrapper) : WrapperDeclaration wrapper.alias [wrapper.alias] [wrapper.name, wrapper.destination] :=
+  ⟨wrapper.name, by simp, by simp, wrapper.legalAlias, wrapper.arguments, wrapper.codes, wrapper.reads,
     wrapper.operands, wrapper.keywords, wrapper.star, wrapper.mapping, wrapper.selects⟩
 
 @[expose] def Wrapper.expression (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr := wrapper.declaration.expression

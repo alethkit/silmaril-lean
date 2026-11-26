@@ -25,20 +25,18 @@ open Silmaril.Languages.Starlark.Lists (State)
 
 local notation "SourceCommand" => Modules.Resolve.Command
 
-theorem read_resolves {importName name : String} {globals : List String} (declared : name = importName ∨ name ∈ globals) :
-    Assignment.ReadResolves (block importName globals) name (Leaf.readOperand (readSlot importName name)) [readSlot importName name] ∧
-    ∃ origin, ReadOrigin (block importName globals) (readSlot importName name) origin := by
-  by_cases same : name = importName
-  · subst name
-    simpa [readSlot, Leaf.readOperand, fileSlot] using And.intro
-      (Assignment.ReadResolves.owned (block := block importName globals) (name := importName) (by simp [block]))
-      (show ∃ origin, ReadOrigin (block importName globals) (fileSlot importName) origin from ⟨_, .owned (by simp [block])⟩)
-  · have global := declared.resolve_left same
-    have outside : name ∉ (block importName globals).owned := by simpa [block] using same
-    simpa [readSlot, same, Leaf.readOperand, globalSlot] using And.intro
-      (Assignment.ReadResolves.global (block := block importName globals) outside (by simp [block]) global)
-      (show ∃ origin, ReadOrigin (block importName globals) (globalSlot name) origin from
-        ⟨_, .module outside (by simp [block]) global⟩)
+theorem read_resolves {aliases : List String} {name : String} {globals : List String}
+    (declared : name ∈ aliases ∨ name ∈ globals) :
+    Assignment.ReadResolves (block aliases globals) name (Leaf.readOperand (readSlot aliases name)) [readSlot aliases name] ∧
+    ∃ origin, ReadOrigin (block aliases globals) (readSlot aliases name) origin := by
+  by_cases localName : name ∈ aliases
+  · simp only [readSlot, ite_eq_left localName]
+    exact ⟨.owned localName, ⟨_, .owned localName⟩⟩
+  · have global := declared.resolve_left localName
+    simpa [readSlot, localName, Leaf.readOperand, globalSlot] using And.intro
+      (Assignment.ReadResolves.global (block := block aliases globals) localName (by simp [block]) global)
+      (show ∃ origin, ReadOrigin (block aliases globals) (globalSlot name) origin from
+        ⟨_, .module localName (by simp [block]) global⟩)
 
 private theorem plain_assignment {context : BlockContext} {source : Silmaril.Languages.Starlark.Functions.Lowering.Resolve.SourceExpr}
     {name : String} {rhs : CodeExpr} {reads : List Binding} {program : Program}
@@ -47,24 +45,24 @@ private theorem plain_assignment {context : BlockContext} {source : Silmaril.Lan
   rw [elaborateCommand_assign, resolved]
   rfl
 
-private theorem compiles_step {importName globals} (step : Step importName globals) (program : Program) :
-    elaborateCommand ⟨(block importName globals).context, .global⟩ step.source program = .ok (step.code program, step.emit program) := by
+private theorem compiles_step {aliases globals} (step : Step aliases globals) (program : Program) :
+    elaborateCommand ⟨(block aliases globals).context, .global⟩ step.source program = .ok (step.code program, step.emit program) := by
   cases step with
   | @assign name declared source rhs reads operand _ =>
-    have resolved : resolveExpr (block importName globals).context source [] = .ok (rhs, reads.reverse) := by
+    have resolved : resolveExpr (block aliases globals).context source [] = .ok (rhs, reads.reverse) := by
       simpa using Body.resolves_at operand []
     apply plain_assignment (reads := reads)
-    change resolveTracked (block importName globals).context source = .ok (rhs, reads)
+    change resolveTracked (block aliases globals).context source = .ok (rhs, reads)
     simp [resolveTracked, resolved, Except.map]
   | invoke call =>
     obtain ⟨resolved, origin, selected⟩ := read_resolves call.declared
-    exact plain_assignment (resolves_at (readSlot importName call.callee) (.read call.legal resolved selected)
+    exact plain_assignment (resolves_at (readSlot aliases call.callee) (.read call.legal resolved selected)
       call.operands call.keywords call.star call.mapping)
 
   | define declaration => exact wrapper_compiles declaration program
 
-private theorem compiles_suite {importName globals} (body : List (Step importName globals)) (program : Program) :
-    ((body.map Step.source).mapM (elaborateCommand ⟨(block importName globals).context, .global⟩)) program =
+theorem compiles_suite {aliases globals} (body : List (Step aliases globals)) (program : Program) :
+    ((body.map Step.source).mapM (elaborateCommand ⟨(block aliases globals).context, .global⟩)) program =
       .ok (compileSuite program body) := by
   induction body generalizing program with
   | nil => rfl
@@ -74,13 +72,67 @@ private theorem compiles_suite {importName globals} (body : List (Step importNam
       simp [List.mapM_cons, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure,
         compiles_step, ih, compileSuite, tail]
 
-private theorem suite_names {importName globals} (body : List (Step importName globals)) :
+theorem suite_names {aliases globals} (body : List (Step aliases globals)) :
     globalNames (body.map Step.source) = body.map Step.destination ∧ fileNames (body.map Step.source) = [] := by
   induction body with
   | nil => exact ⟨rfl, rfl⟩
   | cons head tail ih =>
     cases head <;> simp [globalNames, fileNames, Step.source, Step.destination, globalNames] at *
     all_goals exact ⟨ih.1, ih.2⟩
+
+private theorem compiled_suite_files {aliases globals} (body : List (Step aliases globals)) (program : Program) :
+    (compileSuite program body).1.flatMap (fun command => match command with
+      | .load _ imports => imports.map Modules.Import.localName
+      | _ => []) = [] := by
+  induction body generalizing program with
+  | nil => rfl
+  | cons head tail ih => cases head <;> simpa [compileSuite, Step.code] using ih _
+
+theorem ordered_layout (plan : OrderedConsumer) {program : Program} {consumer : ResolvedModule}
+    (checked : resolve plan.commands program = .ok consumer) :
+    consumer.program = (compileSuite program plan.body).2 ∧ consumer.source.commands = plan.code program ∧
+    consumer.source.globals = plan.globals ∧ consumer.source.fileNames = plan.imports.map ImportSite.alias := by
+  let body := plan.body.map Step.source
+  have suffixNames := suite_names plan.body
+  have names (loads : List ImportSite) : globalNames (loads.map ImportSite.source ++ body) = plan.globals := by
+    induction loads with
+    | nil => exact suffixNames.1.trans plan.declared
+    | cons head tail ih => exact ih
+  have files (loads : List ImportSite) :
+      fileNames (loads.map ImportSite.source ++ body) = loads.map ImportSite.alias := by
+    induction loads with
+    | nil => exact suffixNames.2
+    | cons head tail ih => exact congrArg (List.cons head.alias) ih
+  let context : BlockContext := ⟨(block (plan.imports.map ImportSite.alias) plan.globals).context, .global⟩
+  have sameContext : moduleBlock plan.commands = context := by
+    change moduleBlock (plan.imports.map ImportSite.source ++ body) = context
+    simp [moduleBlock, names, files, context, block, Assignment.LexicalBlock.context]
+  have compiledLoads (loads : List ImportSite) :
+      (((loads.map ImportSite.source ++ body).mapM (elaborateCommand context))) program =
+        .ok (loads.map ImportSite.code ++ (compileSuite program plan.body).1, (compileSuite program plan.body).2) := by
+    induction loads with
+    | nil => simpa [body, context] using compiles_suite plan.body program
+    | cons head tail ih =>
+      simp [body, ImportSite.source, ImportSite.code, List.mapM_cons, bind, StateT.bind, Except.bind,
+        pure, StateT.pure, Except.pure, elaborateCommand_load] at ih ⊢
+      rw [ih]
+  have detail := checked_of_resolve checked
+  rw [elaborateCommands, sameContext] at detail
+  obtain ⟨sameCode, sameTable⟩ := Prod.mk.inj (Except.ok.inj (detail.1.symm.trans (compiledLoads plan.imports)))
+  refine ⟨sameTable, sameCode, detail.2.1.trans (names plan.imports), ?_⟩
+  rw [Modules.Source.fileNames, detail.2.2.1, sameCode, List.nil_append, List.flatMap_append]
+  let collect : Modules.Command → List String := fun
+    | .load _ imports => imports.map Modules.Import.localName
+    | _ => []
+  change (plan.imports.map ImportSite.code).flatMap collect ++
+    (compileSuite program plan.body).1.flatMap collect = plan.imports.map ImportSite.alias
+  have empty : (compileSuite program plan.body).1.flatMap collect = [] := compiled_suite_files plan.body program
+  rw [empty, List.append_nil]
+  suffices ∀ loads : List ImportSite, (loads.map ImportSite.code).flatMap collect = loads.map ImportSite.alias from this _
+  intro loads
+  induction loads with
+  | nil => rfl
+  | cons head tail ih => exact congrArg (List.cons head.alias) ih
 
 theorem consumer_layout (plan : Consumer) {program : Program} {consumer : ResolvedModule}
     (checked : resolve plan.commands program = .ok consumer) :
@@ -92,7 +144,7 @@ theorem consumer_layout (plan : Consumer) {program : Program} {consumer : Resolv
   have files : fileNames plan.commands = [plan.alias] := by
     change plan.alias :: fileNames (plan.body.map Step.source) = [plan.alias]
     rw [(suite_names plan.body).2]
-  have context : moduleBlock plan.commands = ⟨(block plan.alias plan.globals).context, .global⟩ := by
+  have context : moduleBlock plan.commands = ⟨(block [plan.alias] plan.globals).context, .global⟩ := by
     simp [moduleBlock, names, files, block, Assignment.LexicalBlock.context]
   have compiled : elaborateCommands plan.commands program =
       .ok (plan.code program, (compileSuite program plan.body).2) := by
@@ -103,19 +155,10 @@ theorem consumer_layout (plan : Consumer) {program : Program} {consumer : Resolv
   have detail := checked_of_resolve checked
   obtain ⟨sameCode, sameTable⟩ := Prod.mk.inj (Except.ok.inj (detail.1.symm.trans compiled))
   refine ⟨sameTable, sameCode, detail.2.1.trans names, ?_⟩
-  have noLoads : ∀ (body : List (Step plan.alias plan.globals)) (seed : Program),
-      (compileSuite seed body).1.flatMap (fun command => match command with
-        | .load _ imports => imports.map Modules.Import.localName
-        | _ => []) = [] := by
-    intro body seed
-    induction body generalizing seed with
-    | nil => rfl
-    | cons head tail ih => cases head <;> simpa [compileSuite, Step.code] using ih _
   rw [Modules.Source.fileNames, detail.2.2.1, sameCode, Consumer.code]
-  change plan.alias :: _ = [plan.alias]
-  exact congrArg (List.cons plan.alias) (noLoads plan.body program)
+  exact congrArg (List.cons plan.alias) (compiled_suite_files plan.body program)
 
-theorem preserves_emit {importName globals} (step : Step importName globals) (program : Program) :
+theorem preserves_emit {aliases globals} (step : Step aliases globals) (program : Program) :
     PreservesDeclarations program (step.emit program) := by
   intro id declaration found
   cases step with
@@ -123,7 +166,7 @@ theorem preserves_emit {importName globals} (step : Step importName globals) (pr
   | define relay =>
     simp [Step.emit, Array.getElem?_push, Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp found).choose, found]
 
-theorem preserves_suite {importName globals} (body : List (Step importName globals)) (program : Program) :
+theorem preserves_suite {aliases globals} (body : List (Step aliases globals)) (program : Program) :
     PreservesDeclarations program (compileSuite program body).2 := by
   induction body generalizing program with
   | nil => exact fun _ _ found => found

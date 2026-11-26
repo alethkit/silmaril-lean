@@ -61,9 +61,9 @@ theorem invoke_callable {origin seed : Program} {source : List Modules.Resolve.C
       obtain ⟨out, source, native, _, kept⟩ := runs_at entry.site entry.BodyRuns checked entry.id
         (extension _ _ linked.1) available allowed body slot read record operands keywords star mapping
       exact ⟨out, source, native, kept⟩
-  | @wrapper importName globals declaration id imported ih =>
+  | @wrapper importName aliases globals declaration id imported ih =>
     cases live with
-    | @wrapper _ _ _ _ _ defining _ cell target flag found earlier record captureEq stored original =>
+    | @wrapper _ _ _ _ _ _ defining _ cell target flag found earlier record captureEq stored original =>
       change List.Subset (List.range (id + 1)) available at guarded
       have allowed : id ∈ available := guarded (List.mem_range.mpr (Nat.lt_succ_self _))
       have bodyGuard : List.Subset (List.range (imported.layout.id + 1)) (withoutDeclaration available id) := by
@@ -96,7 +96,7 @@ theorem invoke_callable {origin seed : Program} {source : List Modules.Resolve.C
           simp [State.bindingValue, slotFound, Slot.address, aliasStored]
         have calleeRead := Body.Evaluates.read (state := active)
           (Assignment.ReadResolves.enclosing (block := declaration.site.block) (name := importName)
-            (by change ¬ _ ∈ ([] : List String); simp) (by change _ ∈ [importName]; simp))
+            (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using declaration.visible))
         change Body.Evaluates _ _ _ _ (active.read (.bound (fileSlot importName))) at calleeRead
         rw [State.read, fromAlias] at calleeRead
         obtain ⟨result, ran, interpreted, saved⟩ := ih bodyGuard (fileSlot importName) calleeRead

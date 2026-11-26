@@ -31,23 +31,23 @@ open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (Capture Cell Slot State Outcome)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
-theorem wrapper_compiles {importName globals} (relay : WrapperDeclaration importName globals) (program : Program) :
-    elaborateCommand ⟨(block importName globals).context, .global⟩ (.define relay.name relay.site.sourceSignature relay.site.source)
+theorem wrapper_compiles {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) (program : Program) :
+    elaborateCommand ⟨(block aliases globals).context, .global⟩ (.define relay.name relay.site.sourceSignature relay.site.source)
       program = .ok (.exec (.define relay.name program.size), program.push relay.site.declaration) := by
   have imported : Body.Operand relay.site.block (.scalar (.read importName))
       (Leaf.readOperand (fileSlot importName)) [fileSlot importName] :=
     .read relay.legalAlias
-      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change _ ∈ [importName]; simp))
-      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change _ ∈ [importName]; simp))
+      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
+      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
   have compiled : compileBody ⟨relay.site.block.context, .local⟩ relay.site.source program =
       .ok (relay.site.body, program) :=
     compileBody_plainReturn _ _ _ _ _
       (resolves_at _ imported relay.operands relay.keywords relay.star relay.mapping)
-  exact elaborateCommand_nativeDefinition ⟨(block importName globals).context, .local⟩ .global
+  exact elaborateCommand_nativeDefinition ⟨(block aliases globals).context, .local⟩ .global
     relay.name relay.site.sourceSignature relay.site.source program (program.push relay.site.declaration)
     _ _ (compile_site relay.site .nil compiled)
 
-theorem wrapper_returns {importName globals} (relay : WrapperDeclaration importName globals) {producer : Program} {consumer : ResolvedModule}
+theorem wrapper_returns {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) {producer : Program} {consumer : ResolvedModule}
     {commands : List Modules.Resolve.Command} {seed : Program}
     (checked : resolve commands seed = .ok consumer) {callee : Callable}
     (extension : PreservesDeclarations producer consumer.program) (id : DeclarationId)
@@ -85,7 +85,7 @@ theorem wrapper_returns {importName globals} (relay : WrapperDeclaration importN
     simp [State.bindingValue, captures, Slot.address, sameHeap _ _ stored]
   have read := Body.Evaluates.read (state := active)
     (Assignment.ReadResolves.enclosing (block := relay.site.block) (name := importName)
-      (by change ¬ _ ∈ ([] : List String); simp) (by change _ ∈ [importName]; simp))
+      (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
   change Body.Evaluates _ _ _ _ (active.read (.bound (fileSlot importName))) at read
   rw [State.read, aliasRead] at read
   obtain ⟨packedRecord⟩ := keep_record record kept
@@ -108,7 +108,7 @@ theorem wrapper_returns {importName globals} (relay : WrapperDeclaration importN
 
 /-- Installation allocates the closure before the ordinary module write.
 The heap extension alone keeps all earlier callable records. -/
-theorem wrapper_allocates {importName globals} (relay : WrapperDeclaration importName globals) (program : Program) (id : Nat)
+theorem wrapper_allocates {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) (program : Program) (id : Nat)
     (found : program[id]? = some relay.site.declaration) {state : State} {aliasCell : Nat}
     {value : Option Lists.Value} {frozen : Bool}
     (owned : state.slots (fileSlot importName) = some (.owned aliasCell))
@@ -116,7 +116,7 @@ theorem wrapper_allocates {importName globals} (relay : WrapperDeclaration impor
     ∃ grown, Body.Keeps state.heap.size state grown ∧
       Nonempty (ClosureAt relay.site id state grown state.heap.size) ∧
       let result := .ok Flow.next (grown.write (globalSlot relay.name) (.function state.heap.size))
-      Lexical.DefinesFor (block importName globals) (globalSlot relay.name) id relay.site.free [] [] state result ∧
+      Lexical.DefinesFor (block aliases globals) (globalSlot relay.name) id relay.site.free [] [] state result ∧
         Exec program (List.range program.size) state (.define (globalSlot relay.name) id) result := by
   let capture : Capture := ⟨fileSlot importName, aliasCell, true⟩
   have installed : Installs state relay.site.free [capture] := .cons (.enclosing owned) .nil
@@ -124,7 +124,7 @@ theorem wrapper_allocates {importName globals} (relay : WrapperDeclaration impor
   let grown : State := {state with heap := state.heap.push cell}
   have kept : Body.Keeps state.heap.size state grown := by
     exact ⟨rfl, fun address _ below present => by simp [grown, Array.getElem?_push, Nat.ne_of_lt below, present]⟩
-  have source : Lexical.DefinesFor (block importName globals) (globalSlot relay.name) id relay.site.free [] [] state
+  have source : Lexical.DefinesFor (block aliases globals) (globalSlot relay.name) id relay.site.free [] [] state
       (.ok .next (grown.write (globalSlot relay.name) (.function state.heap.size))) := .installed .nil installed
   refine ⟨grown, kept, ⟨⟨[capture], [], false, rfl, Array.getElem?_push_size, installed, ?_⟩⟩, source,
     (Lexical.defines_agree program (List.range program.size) (globalSlot relay.name) id

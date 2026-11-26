@@ -99,8 +99,8 @@ private theorem consumer_agrees {commands : List Modules.Resolve.Command}
       have table : PreservesDeclarations (compileSuite producer.program plan.body).2 consumer.program :=
         same ▸ fun _ _ found => found
       obtain ⟨out, tail, tailRan, _⟩ := run_suite checked (manifest := graph producer consumer plan)
-        (active := [1]) (id := 1) plan.separate plan.body producer.program (fun _ _ found => found) table admitted
-        (Array.getElem?_eq_some_iff.mp link.1).choose (by simp [initial, track]) unique session
+        (active := [1]) (id := 1) (fun name member => by simpa using (fun (same : name = plan.alias) => plan.separate (same ▸ member))) plan.body producer.program (fun _ _ found => found) table admitted
+        unique session
         (writes_frame frame (fileSlot plan.alias) (.function address)) pending liveBinding
       have native := complete _ (.step (runImport independent) tailRan)
       rw [← observed_eq (before := session)] at native
