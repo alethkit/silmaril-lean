@@ -308,9 +308,8 @@ the entire buffer in the shared state.
 at either arrival. `run_eq_evalWithin` compares a native backedge allowance
 `k` with `k + 3` CF block steps. `petri_activation_iff_header` compares one
 existing coloured activation seeded with the selected typed inputs to
-that header transition. Emitting a whole coloured loop with this address
-Phi remains open, as do computed address operands and control inside the
-ordered body.
+that header transition. Computed address operands and control inside the
+ordered body remain open.
 [Theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/MemRef/Thms.lean)
 
 ```lean
@@ -322,6 +321,38 @@ restarts with `[9, 0, 99]`. The next activation reads cell 1, writes it,
 and exits with word `0` and cells `[9, 9, 99]`. The same checks cover
 immediate exit, an exhausted backedge allowance, and coincident ports.
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/MemRef/Regression.lean)
+
+#### Emitted coloured loop with the address Phi
+
+`CarriedAddress.Petri.lower` emits one numbered θ with a γ in its body.
+The θ carries the occurrence colour, invariant typed input tuple, and one
+initialized heap. The γ arms reuse the ordered Load/Store activation with
+the leading address wired to the corresponding input port. The arm's
+continuation tag supplies both the θ decision and the next occurrence. On
+feedback, the existing `Fire.restart` rule installs occurrence one and the
+whole post-store heap in the next activation. The root receives
+`encodeArrival .entry heap input` once.
+[Lowering definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Petri/Defs.lean)
+
+`lowerBody_run` gives the complete successor tuple.
+`lower_finishes_iff` identifies finite completion from the single entry
+marking with a native return of the word and every final cell.
+`finishes_iff_memref_run` and `no_finishes_iff_memref_none` transfer finite
+completion and its absence to the emitted MemRef CFG. A native allowance
+of `k` backedges uses `k + 1` numbered θ activations or `k + 3` MemRef CF
+block steps. The coloured result has a separate finite firing-trace
+witness.
+[Completion theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Petri/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Petri.Thms
+```
+
+The shared three-cell fixture proves completion of the emitted net from
+one marking, with the cell 0 → cell 1 transition and the full result
+`(0, [9, 9, 99])`. It also proves immediate-exit completion and executes
+the numbered graph with distinct and coincident ports.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Petri/Regression.lean)
 
 ### Equations for coloured Petri completion
 
