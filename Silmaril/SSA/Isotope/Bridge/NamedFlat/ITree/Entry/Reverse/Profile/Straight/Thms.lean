@@ -38,6 +38,16 @@ theorem empty_of_no_captures (closed : n = 0) (saved : a.SavesCaptures) :
 
 variable [DecidableEq κ]
 
+/-- Source checks suffice for exact scoped readback and typing of the
+opt-in compiler at the original argument types paired with unit. -/
+theorem compiled_success_packetLocal (R : Fin blocks → Ty κ) (checked : packetLocalChecks a R = true) :
+    ∃ table, NamedFlat.elaborate (CFG.Cyclic.Versioning.compilePacketLocal attached) exits
+        (fun i : Fin n => ((⟨i.val⟩ : Register), 0)) = some table ∧
+      let types := SSA.FiniteSum.append (packetLocalProfile a R) exitTypes
+      checkBody types context table.entry = true ∧
+        ∀ i, checkBody types (.snoc context (packetLocalProfile a R i)) (table.block i) = true :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success_packetLocal a R checked
+
 /-- The actual compiler reads back and typechecks when every destination
 uses its declared projection of the entry slots and each block can supply
 the saved slots required by all its outgoing jumps. -/

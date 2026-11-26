@@ -42,17 +42,39 @@ local notation "versioned" => Versioning.compile attached
 local notation "exitTypes" => Interface.external
   (LiveOut.exitInterface (numberedInterface context exits external) fields)
 
+/-- Check the source rows against a label numbering with the same row count. -/
+def checkRows {count : Nat} (order : (attached).blocks.length = count)
+    (R : Fin count → Ty κ) (index : K → Option (Fin (count + exits.length))) : Bool :=
+  let types := SSA.FiniteSum.append R exitTypes
+  sourceCheck index types (first fun i : Fin n => (⟨i.val⟩ : Register)) context (attached).entry &&
+    (List.finRange count).all fun i =>
+      let b := (attached).blocks[Fin.cast order.symm i].2
+      sourceCheck index types (blockNames b.param) (.snoc context (R i)) b.body
+
 /-- Check the original entry and every original block with their original
 packet types. Use the versioned label order, which retains the written
 block order, to avoid a separate numbering in the local checks. -/
 def checks (R : Fin blocks → Ty κ) : Bool :=
-  let original := fun i => R (Fin.cast a.reversionCount i)
-  let types := SSA.FiniteSum.append original exitTypes
-  let index := labelIndex (versioned).blocks exits
-  sourceCheck index types (first fun i : Fin n => (⟨i.val⟩ : Register)) context (attached).entry &&
-    (List.finRange (versioned).blocks.length).all fun i =>
-      let b := (attached).blocks[Fin.cast (List.length_map _) i].2
-      sourceCheck index types (blockNames b.param) (.snoc context (original i)) b.body
+  checkRows a (List.length_map _).symm (fun i => R (Fin.cast a.reversionCount i))
+    (labelIndex (versioned).blocks exits)
+
+local notation "packetLocal" => Versioning.compilePacketLocal attached
+
+omit [DecidableEq κ] in
+/-- The opt-in compiler preserves the written block count and order. -/
+theorem packetLocalCount : (packetLocal).blocks.length = blocks :=
+  (List.length_map _).trans a.count
+
+/-- The actual installed profile pairs each original argument with unit. -/
+def packetLocalProfile (R : Fin blocks → Ty κ)
+    (i : Fin (packetLocal).blocks.length) : Ty κ :=
+  .product (R (Fin.cast (packetLocalCount a) i)) .unit
+
+/-- Check the original bodies at the opt-in compiler's label numbering,
+using the original argument and exit types. -/
+def packetLocalChecks (R : Fin blocks → Ty κ) : Bool :=
+  checkRows a (List.length_map _).symm (fun i => R (Fin.cast (packetLocalCount a) i))
+    (labelIndex (packetLocal).blocks exits)
 
 /-- The selected input register has no assignment or case binder in the
 attached entry or block bodies. Packet parameters are checked by the actual

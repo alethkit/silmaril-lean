@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.CaptureDemand.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -164,6 +164,16 @@ example (right : Bool) (n : Nat) (ambient : Env Runtime) :
     region model.raw (extend ambient (packedInput right n)) recompiled.program.code =
       pure (output right n) :=
   (recompiled.packed_tree model (input right n) ambient).trans (named_result right n)
+
+-- Both original exit tags and the projected binder value still depend
+-- on the caller's supplied sum after the saved record is removed.
+private def packetLocalCase : PacketLocal.Admission lowered :=
+  PacketLocal.admit lowered (fun _ => choice) (by decide)
+
+example (right : Bool) (n : Nat) (ambient : Env Runtime) :
+    region model.raw (extend ambient (packedInput right n)) packetLocalCase.program.code =
+      pure (output right n) :=
+  (packetLocalCase.packed_tree model (input right n) ambient).trans (named_result right n)
 
 /-- Keep the input and the two exits, with the dispatcher in the entry.
 The left arm unpacks the same sum again and uses both binder depths. -/
@@ -492,6 +502,80 @@ example :
       checkBody types (.snoc projectedPorts.context (packets (0 : Fin 2))) (table.block (0 : Fin 2)) = true ∧
       checkBody types (.snoc projectedPorts.context (packets (1 : Fin 2))) (table.block (1 : Fin 2)) = false := by
   decide
+
+-- The opt-in compiler also admits the certified back-edge variant.
+-- Its slots are empty at both destinations, so the atom overwritten by
+-- the block parameter is never requested as an unchanged capture.
+private def packetLocalAdmission (back : Bool) : PacketLocal.Admission (projectedLowered back) :=
+  PacketLocal.admit (projectedLowered back) (fun _ => .unit) (by cases back <;> decide)
+
+example : ∀ i : Fin 2, Straight.packetLocalProfile (projectedLowered false) (fun _ => .unit) i =
+    .product .unit .unit := fun _ => rfl
+
+-- Both encodings come from the compiler entry routes. The default
+-- nonempty records are checked above, whereas the opt-in records are unit.
+example (i : Fin 2) (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.Versioning.encodePacketLocal (treeModel model.raw) (projectedGraph false)
+      (projectedTransfer i right n saved) = (twoLabels i, .pair .unit .unit) := by
+  refine Fin.cases ?_ (fun j => ?_) i
+  · rfl
+  · obtain rfl : j = 0 := Subsingleton.elim _ _
+    rfl
+
+example (right : Bool) (n saved : Nat) :
+    let m := treeModel model.raw
+    let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+    CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compilePacketLocal (projectedGraph false)).blocks input
+      (twoLabels 0, .pair .unit .unit) = pure (.inr (twoLabels 1, .pair .unit .unit)) := by
+  let m := treeModel model.raw
+  let graph := projectedGraph false
+  let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+  have actual : CFG.Cyclic.step m graph.blocks (projectedTransfer 0 right n saved) =
+      pure (.inr (projectedTransfer 1 right n saved)) := by cases right <;> rfl
+  have commute := CFG.Cyclic.Versioning.stepPacketLocal_commutes m ⟨fun _ _ => rfl⟩ graph
+    (projectedLowered false).closed input (projectedTransfer 0 right n saved)
+  rw [actual, map_pure, Sum.map_inr] at commute
+  exact commute.symm
+
+-- Continue across the previous back edge with another empty record.
+example (right : Bool) (n saved : Nat) :
+    let m := treeModel model.raw
+    let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+    CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compilePacketLocal (projectedGraph true)).blocks input
+      (twoLabels 1, .pair .unit .unit) = pure (.inr (twoLabels 0, .pair .unit .unit)) := by
+  let m := treeModel model.raw
+  let graph := projectedGraph true
+  let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+  let pending := projectedTransfer 1 right n saved
+  let back : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
+    (twoLabels 0, .unit, upd pending.2.2 ⟨0⟩ .unit)
+  have actual : CFG.Cyclic.step m graph.blocks pending = pure (.inr back) := rfl
+  have commute := CFG.Cyclic.Versioning.stepPacketLocal_commutes m ⟨fun _ _ => rfl⟩ graph
+    (projectedLowered true).closed input pending
+  rw [actual, map_pure, Sum.map_inr] at commute
+  exact commute.symm
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType projectedPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) (Program.ofCFGEntry projectedTyped).code =
+      region model.raw (extend ambient packed) (packetLocalAdmission false).program.code :=
+  (packetLocalAdmission false).packed_roundTrip model projectedTyped (twoInput right n saved) ambient
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType projectedPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) (packetLocalAdmission false).program.code =
+      region model.raw (extend ambient packed) projectedAdmission.program.code :=
+  ((packetLocalAdmission false).packed_tree model (twoInput right n saved) ambient).trans
+    (projectedAdmission.packed_tree model (twoInput right n saved) ambient).symm
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType projectedPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) (packetLocalAdmission true).program.code =
+      LiveOut.observe model projectedPorts noFields (projectedSource true) (twoInput right n saved) :=
+  (packetLocalAdmission true).packed_tree model (twoInput right n saved) ambient
 
 end ProjectedCaptures
 

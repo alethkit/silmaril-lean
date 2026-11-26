@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Defs
+public import Silmaril.SSA.LambdaRTL.Version.Thms
 
 @[expose] public section
 
@@ -14,20 +15,6 @@ open LambdaSSA (FiniteCFG)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
 universe u v w
-
-private theorem val_mem_fv {V : Type w} [DecidableEq V] (a : Val V) (x : V) :
-    x ∈ a.fvList ↔ x ∈ a.fv := by
-  induction a <;> simp [Val.fvList, Val.fv, *]
-
-private theorem op_mem_fv {V : Type w} {F : Type v} [DecidableEq V] (a : Op V F) (x : V) :
-    x ∈ a.fvList ↔ x ∈ a.fv := by
-  cases a <;> simp [Op.fvList, Op.fv, val_mem_fv]
-
-private theorem region_mem_fv {V K : Type w} {F : Type v} [DecidableEq V]
-    (r : Silmaril.SSA.LambdaRTL.Region V K F) (x : V) : x ∈ r.fvList ↔ x ∈ r.fv := by
-  induction r <;>
-    simp [Silmaril.SSA.LambdaRTL.Region.fvList, Silmaril.SSA.LambdaRTL.Region.fv, val_mem_fv,
-      op_mem_fv, *, and_assoc, and_comm]
 
 section Readback
 
@@ -135,7 +122,7 @@ theorem elaborateAt_packetClosed (graph : CFG V K F) (exits : List K) (names : F
   change body index (blockNames (n := n) graph.blocks[Fin.cast count.symm slot].2.param)
     graph.blocks[Fin.cast count.symm slot].2.body = some (rows slot) at read
   rw [block] at read
-  have bound := body_reads read reg ((region_mem_fv _ _).mpr free)
+  have bound := body_reads read reg ((Version.mem_fvList_iff _ _).mpr free)
   by_cases same : reg = item.2.param
   · exact Finset.mem_singleton.mpr same
   · simp [blockNames, bindName, same] at bound
@@ -185,7 +172,7 @@ theorem saves_captures
   rcases support with used | ⟨item, inTable, used⟩
   · exact entry reg used
   · have eq : reg = item.2.param :=
-      Finset.mem_singleton.mp (a.closed item inTable ((region_mem_fv _ _).mp used))
+      Finset.mem_singleton.mp (a.closed item inTable ((Version.mem_fvList_iff _ _).mp used))
     simp [eq, params item inTable, param] at notParam
 
 theorem saves_captures_of_lowerFresh [DecidableEq P.Instr] (internal : Fin blocks → K)
