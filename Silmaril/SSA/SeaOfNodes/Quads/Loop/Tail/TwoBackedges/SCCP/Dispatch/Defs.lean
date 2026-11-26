@@ -34,15 +34,22 @@ structure Checked where
   marked : incomingIndex (.feedback side) ∈ (solve m p input).1
   excluded : incomingIndex (.feedback !side) ∉ (solve m p input).1
 
-/-- Admit exactly one marked feedback route. Two marked routes or zero
-marked routes leave the dispatcher unspecialized. -/
-def check : Option (Checked m p input) :=
+inductive Refusal where
+  | bothMarked
+  | neitherMarked
+  deriving DecidableEq, Repr
+
+/-- Solve once and admit exactly one marked feedback route. -/
+def admit : Except Refusal (Checked m p input) :=
   let marks := (solve m p input).1
-  if h : incomingIndex (.feedback true) ∈ marks ∧ incomingIndex (.feedback false) ∉ marks then
-    some ⟨true, h.1, h.2⟩
-  else if h : incomingIndex (.feedback false) ∈ marks ∧ incomingIndex (.feedback true) ∉ marks then
-    some ⟨false, h.1, h.2⟩
-  else none
+  if onTrue : incomingIndex (.feedback true) ∈ marks then
+    if onFalse : incomingIndex (.feedback false) ∈ marks then .error .bothMarked
+    else .ok ⟨true, onTrue, onFalse⟩
+  else if onFalse : incomingIndex (.feedback false) ∈ marks then .ok ⟨false, onFalse, onTrue⟩
+  else .error .neitherMarked
+
+/-- Admit exactly one marked feedback route, omitting refusal details. -/
+def check : Option (Checked m p input) := (admit m p input).toOption
 
 variable {m p input}
 

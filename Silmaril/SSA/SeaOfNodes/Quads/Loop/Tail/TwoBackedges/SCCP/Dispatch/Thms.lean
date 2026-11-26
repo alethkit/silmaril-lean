@@ -24,10 +24,28 @@ variable {input : Tuple (Fact m.value) (dataPorts regs)} {concrete : Bank (regs 
 
 attribute [local irreducible] SCCP.solve
 
+theorem admit_bothMarked_iff :
+    admit m p input = .error .bothMarked ↔
+      incomingIndex (.feedback true) ∈ (solve m p input).1 ∧
+      incomingIndex (.feedback false) ∈ (solve m p input).1 := by
+  by_cases onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1 <;>
+    by_cases onFalse : incomingIndex (.feedback false) ∈ (solve m p input).1 <;>
+    simp [admit, onTrue, onFalse]
+
+theorem admit_neitherMarked_iff :
+    admit m p input = .error .neitherMarked ↔
+      incomingIndex (.feedback true) ∉ (solve m p input).1 ∧
+      incomingIndex (.feedback false) ∉ (solve m p input).1 := by
+  by_cases onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1 <;>
+    by_cases onFalse : incomingIndex (.feedback false) ∈ (solve m p input).1 <;>
+    simp [admit, onTrue, onFalse]
+
 theorem check_none_of_both_marked
     (onTrue : incomingIndex (.feedback true) ∈ (solve m p input).1)
     (onFalse : incomingIndex (.feedback false) ∈ (solve m p input).1) :
-    check m p input = none := by simp [check, onTrue, onFalse]
+    check m p input = none := by
+  rw [check, admit_bothMarked_iff.mpr ⟨onTrue, onFalse⟩]
+  rfl
 
 /-- The replacement is an unconditional jump to the original selected block. -/
 theorem Checked.source_at_dispatch (checked : Checked m p input) :
