@@ -46,9 +46,9 @@ theorem no_ub (program : Program) :
     none ∉ UB.atBoundary (unfoldProgram.observes program) :=
   Proofs.Machine.SqliteVfs.TrackA.Write.no_ub program
 
-/-- After VM operand admission and a successful pure leaf preflight, the
-layered run implements the flat schedule. It reflects the handler's actual
-replies and poststate, stopping at the first failed request. -/
+/-- After VM operand admission and a successful pure leaf preflight, a run
+of `insertAndCommit` implements the flat schedule. It reflects the handler's
+actual replies and poststate, stopping at the first failed request. -/
 theorem run_follows_schedule (handler : Coalgebra.Handler vfs Files) (files : Files)
     (vmOperands : op.operands vm ctx = .ok (id, amount))
     (prepared : prepareLeaf ctx id amount = .ok (edited, newPage)) :
@@ -57,8 +57,9 @@ theorem run_follows_schedule (handler : Coalgebra.Handler vfs Files) (files : Fi
       FollowsSchedule handler (schedule ctx newPage) files run.events status run.files :=
   Proofs.Machine.SqliteVfs.TrackA.Write.run_follows_schedule handler files vmOperands prepared
 
-/-- Even a failed database write attempt is preceded by a successful preimage
-write and successful journal sync on the journal handle. -/
+/-- In a run of `insertAndCommit` after operand admission and leaf preflight,
+even a failed database write attempt follows a successful preimage write
+and successful sync on the journal handle. -/
 theorem database_write_requires_journal (handler : Coalgebra.Handler vfs Files) (files : Files)
     (vmOperands : op.operands vm ctx = .ok (id, amount))
     (prepared : prepareLeaf ctx id amount = .ok (edited, newPage))

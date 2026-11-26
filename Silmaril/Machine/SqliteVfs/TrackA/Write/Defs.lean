@@ -44,7 +44,8 @@ structure Limits where
 
 /-- Select both the backing and its handle scope by file identity. A sync
 fault is injected only after validating the journal handle. A rejected
-operation retains the state in this backing. -/
+operation retains the state in this backing. Journal deletion checks only
+that the journal exists and the handle has read-write access. -/
 def dispatch (limits : Limits) (journalSyncError : Option SqliteVfs.Error := none) :
     Coalgebra.Handler vfs Files :=
   fun files call =>
@@ -159,28 +160,37 @@ def issue (stage : Stage) (request : Call) (next : Program) : Program :=
 
 namespace Pager
 
-/-- Admission issues a writable page only after successful recording of the
-resident preimage. In this composition the ready phase follows journal
-sync, the database write and database sync. -/
+/-- Context passed to the successful write-admission continuation. The
+public constructor carries no evidence of the journal write. -/
 structure Writable where
   context : Context
 
+/-- Replacement bytes and their write context, supplied by the caller of
+`phaseOne`. -/
 structure Dirty where
   page : Writable
   bytes : Bytes
 
+/-- Context passed to the successful phase-one continuation. Callers can
+construct this value directly from a `Context`. It carries no I/O history. -/
 structure CommitReady where
   context : Context
 
+/-- Record the resident preimage and continue with a `Writable` value
+after a successful reply. -/
 def admit (ctx : Context) (next : Writable → Program) : Program :=
   issue .journalOldPage (.write .journal ctx.journalHandle 0 ctx.oldPage) (next ⟨ctx⟩)
 
+/-- Sync the journal, write the supplied dirty page, and sync the database.
+Callers composing this stage directly are responsible for write admission. -/
 def phaseOne (dirty : Dirty) (next : CommitReady → Program) : Program :=
   let ctx := dirty.page.context
   issue .syncJournal (.sync .journal ctx.journalHandle) <|
     issue .writeDatabase (.write .database ctx.page.handle ctx.page.offset dirty.bytes) <|
       issue .syncDatabase (.sync .database ctx.databaseHandle) (next ⟨ctx⟩)
 
+/-- Request journal deletion using the supplied context. Callers composing
+this stage directly are responsible for prior completion of phase one. -/
 def phaseTwo (ready : CommitReady) (next : Program) : Program :=
   issue .deleteJournal (.deleteJournal ready.context.journalHandle) next
 
@@ -210,8 +220,9 @@ def Insert.operands (op : Insert) (vm : Vdbe.State) (ctx : Context) :
   let [.null, .integer amount] := fields.toList | throw .operands
   pure (id, amount)
 
-/-- Selected VM entry point. The successful Halt after the Insert is modeled
-by advancing its PC once and setting the existing VDBE halted field. -/
+/-- Selected VM entry point. Its continuations sequence write admission and
+both commit phases. The successful Halt after the Insert advances the PC
+once and sets the existing VDBE halted field. -/
 def insertAndCommit (op : Insert) (vm : Vdbe.State) (ctx : Context) : Program :=
   match op.operands vm ctx with
   | .error reason => .done (.error reason)

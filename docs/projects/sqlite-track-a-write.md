@@ -44,16 +44,32 @@ cached page after `sqlite3PagerWrite` succeeds.
 
 [Definitions](../../Silmaril/Machine/SqliteVfs/TrackA/Write/Defs.lean)
 
+## Public Pager stages
+
+`Pager.Writable`, `Pager.Dirty`, and `Pager.CommitReady` have public
+constructors. They carry context and page data for the continuations.
+Callers composing individual stages are responsible for the preceding
+steps. A caller can construct `Pager.CommitReady.mk ctx` and pass it
+directly to `Pager.phaseTwo`. Running that stage on
+`initialFiles ctx catalogue` with `dispatch` deletes the open journal
+in its first exchange. Deletion checks that the handle identifies an
+open read-write journal.
+
+The checked ordering comes from the continuations in `insertAndCommit`.
+With admitted VM operands and successful leaf preflight,
+`run_follows_schedule` requires each preceding call to succeed before
+the delete request can be issued.
+
 ## Checked statements
 
-- `run_follows_schedule` relates the layered run to a separately written
-  list of calls. Given successful VM operand decoding and leaf preflight, it
-  holds for any stateful handler of the selected VFS signature. The flat
-  relation records completed calls and actual replies, stops on the first
-  error, and retains the handler's actual poststate.
+- `run_follows_schedule` relates a run of `insertAndCommit` to a separately
+  written list of calls. Given successful VM operand decoding and leaf
+  preflight, it holds for any stateful handler of the selected VFS
+  signature. The flat relation records completed calls and actual replies,
+  stops on the first error, and retains the handler's actual poststate.
 - `database_write_requires_journal` uses that relation to show that even a
-  failed database write attempt follows a successful write of the resident
-  preimage and a successful sync on the journal handle.
+  failed database write attempt in that run follows a successful write of
+  the resident preimage and a successful sync on the journal handle.
 - `commit_success` assumes successful VM operand decoding, logical insertion
   of the fresh rowid, a resident preimage matching the packed old snapshot,
   the canonical catalogue page, and successful packing of the edited
