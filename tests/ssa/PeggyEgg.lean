@@ -7,6 +7,7 @@ import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -17,11 +18,13 @@ meta import Silmaril.SSA.Peggy.Acyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
+meta import Mathlib.Tactic.FinCases
 
 namespace Silmaril.SSA.Peggy.Tests
 
@@ -935,5 +938,69 @@ example (initial : Option (ULift Nat)) :
     target.observe (arithmetic initial) (target.denote (arithmetic initial) .nil
       (plan.demandWellFounded 2 wf)) clockZero = .cons initial (.cons initial (.cons initial .nil)) :=
   ((traceSound initial 2).2 clockZero).trans (initially initial)
+
+/-- A competing extension has already added the same RHS and a different
+row, then renumbered the original eval out of its old address. -/
+private abbrev biggerSort (_ : Fin 7) : Ty Unit := .count
+private def biggerRef (i : Fin 7) : Ref biggerSort .count := ⟨i, rfl⟩
+private def biggerPair (a b : Fin 7) : Tuple (Ref biggerSort) [.count, .count] :=
+  .cons (biggerRef a) (.cons (biggerRef b) .nil)
+
+private def biggerGraph : Graph Op [] outputs 7 1 where
+  forest := ⟨fun _ => none⟩
+  sort := biggerSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (biggerPair 1 2)
+    | 1 => .ofLabel (.op .initial) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (biggerRef 0) .nil)
+    | 3 => .ofLabel (.op .zero) .nil
+    | 4 => .ofLabel (.op .one) .nil
+    | 5 => .ofLabel (.eval 0) (biggerPair 1 3)
+    | _ => .ofLabel (.eval 0) (biggerPair 0 3)
+  roots := .cons (biggerRef 6) (biggerPair 0 6)
+
+private def permutation : Equiv.Perm (Fin 7) := Equiv.swap 4 6
+
+private def bigger : State Op [] outputs 7 1 :=
+  ⟨biggerGraph, Classes.discrete.merge 6 5⟩
+
+private def nonPrefix : Embedding source bigger where
+  vertices :=
+    ⟨⟨fun i => permutation.symm i.castSucc.castSucc, fun _ _ h =>
+      Fin.castSucc_inj.mp (Fin.castSucc_inj.mp (permutation.symm.injective h))⟩,
+      fun _ => rfl⟩
+  rows i := by fin_cases i <;> rfl
+  roots := rfl
+  forest := rfl
+  classes a b h := congrArg bigger.classes
+    (congrArg (fun i : Fin 5 => permutation.symm i.castSucc.castSucc) (show a = b from h))
+
+private def delayedMatch := matched.transport nonPrefix
+private def delayedResult := delayedMatch.step.apply
+
+#guard (nonPrefix.vertices.address 4).val == 6
+#guard (ZeroSample.matchAt (g := bigger.graph) 6 .zero).isSome
+#guard (ZeroSample.matchAt (g := bigger.graph) 4 .zero).isNone
+#guard refNumbers bigger.graph.roots == [6, 0, 6]
+#guard evalOperands bigger.graph == [[1, 3], [0, 3]]
+#guard evalOperands delayedResult.graph == [[1, 3], [0, 3], [1, 3]]
+#guard bigger.classes 5 == bigger.classes 6
+#guard delayedResult.classes 5 == delayedResult.classes 7
+#guard ((nonPrefix.appendVertices matched.row).address 5).val == 7
+
+example : ZeroSample.matchAt (g := bigger.graph) 6 .zero = some delayedMatch :=
+  matched.matchAt_transport nonPrefix
+
+example : ∃ mapped : Embedding matched.step.apply delayedResult,
+    mapped.vertices.address 4 = 6 ∧ mapped.vertices.address 5 = 7 := by
+  obtain ⟨mapped, addresses⟩ := matched.simulate nonPrefix
+  exact ⟨mapped, addresses 4, addresses 5⟩
+
+private theorem takeSample : ZeroSampleAnalysis Op.zero ⟨5, source⟩ ⟨6, matched.step.apply⟩ :=
+  .inr ⟨4, matched, rfl⟩
+
+example : ∃ next, ZeroSampleAnalysis Op.zero ⟨6, matched.step.apply⟩ next ∧
+    Comparable ⟨6, matched.step.apply⟩ next :=
+  delayed_step (ZeroSampleAnalysis.monotone _) (ZeroSampleAnalysis.inflationary _) takeSample takeSample
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Tests
