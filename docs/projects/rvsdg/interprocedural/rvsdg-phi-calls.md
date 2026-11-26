@@ -927,6 +927,26 @@ chosen demand when the live captures agree. The θ/γ fixture proposes new
 values for all three formals, substitutes only the spare, and exercises
 the transformed invocation through return, block, and resumption.
 
+### Analyzing a numbered client with a checked provider
+
+`analyzeAllocatingClient` takes a checked numbered provider and an
+`Export` demand receipt for those same provider links. It checks the
+client's head import against the actual closure, seeds static dispatch
+from the receipt, and starts the client initializer at the provider's
+common post-link store. The client is one unshifted δ→λ in a distinct
+unit. `Scope.Checked.addInitialized` appends the two initialized rows
+when both runs reach the same post-initialization store. The client λ
+supplies typed static body resolution for those rows.
+[Provider composition API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Thms.lean)
+
+The fixture uses a provider λ that probes its initialized capture and a
+client λ that probes its own global after the provider call. The public
+analysis keeps both probe inputs live even at empty result demand.
+Substituting the client's dead formal preserves the exact return, the
+typed provider block, and resumption through the client suffix. A
+same-signature import with a stale capture fails admission.
+[Provider composition fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Regression.lean)
+
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local
