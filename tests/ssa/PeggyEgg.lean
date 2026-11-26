@@ -14,6 +14,7 @@ import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Thms
 import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
@@ -32,6 +33,7 @@ meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 meta import Silmaril.SSA.Peggy.Worked.EvalScale.Defs
 meta import Silmaril.SSA.Peggy.Worked.StrengthReduction.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Defs
 meta import Silmaril.SSA.PEG.Projection.Defs
 meta import Mathlib.Tactic.FinCases
 
@@ -1282,6 +1284,8 @@ namespace Silmaril.SSA.Peggy.Worked.EvalScale.Tests
 
 open PEG
 open RVSDG (Tuple)
+open PEG.Simple (Stmt Expr Exec)
+open PEG.Simple.Revert.While.Region
 open EPEG (Classes)
 open EPEG.Saturation.Extension (State)
 
@@ -1290,6 +1294,7 @@ private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | five : Op [] .count
   | succ : Op [.count] .count
   | exit : Op [.count] .bool
+  | negate : Op [.bool] .bool
   | mul : Op [.count, .count] .count
   | add : Op [.count, .count] .count
   deriving DecidableEq
@@ -1359,6 +1364,7 @@ private def model (failsAtZero : Bool) : Interpretation.{0,0,0} Op where
     | .five, .nil => some ⟨5⟩
     | .succ, .cons a .nil => some ⟨a.down + 1⟩
     | .exit, .cons a .nil => some ⟨decide (3 ≤ a.down)⟩
+    | .negate, .cons b .nil => some ⟨!b.down⟩
     | .mul, .cons a (.cons b .nil) =>
       if failsAtZero && b.down == 0 then none else some ⟨a.down * b.down⟩
     | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
@@ -1523,17 +1529,116 @@ private theorem strengthRanked : strengthRank.check reduced.candidate = true := 
   intro i _
   fin_cases i <;> decide
 
-example (idx : Index 1) :
-    reduced.candidate.observe (model false)
-      (reduced.candidate.denote (model false) .nil
-        (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx =
-      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) := by
+private theorem figure6_rewrites (idx : Index 1) :
+    source.graph.observe (model false) (values false) idx =
+      reduced.candidate.observe (model false)
+        (reduced.candidate.denote (model false) .nil
+          (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx := by
   have motion := found.extract_sound (m := model false) (env := .nil) wf Classes.discrete_valid totalLaw
     (rank 10) checked idx
   have strength := reduced.candidate_sound (env := .nil) strengthLaw
     ((found.selection (rank 10)).demandWellFounded (Bool.and_eq_true_iff.mp checked).1)
     strengthRank strengthRanked idx
-  exact (motion.trans strength).symm.trans (observed idx)
+  exact motion.trans strength
+
+example (idx : Index 1) :
+    reduced.candidate.observe (model false)
+      (reduced.candidate.denote (model false) .nil
+        (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx =
+      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) :=
+  (figure6_rewrites idx).symm.trans (observed idx)
+
+private abbrev carried : List (Ty Unit) := [.count, .count]
+
+-- The existing unscaled counter still drives the pass. The scaled value
+-- and the raw pass are returned in the original order, including repeats.
+private def region : Closed.Descriptor reduced.candidate carried where
+  theta := .cons ⟨0, rfl⟩ (.cons ⟨8, rfl⟩ .nil)
+  initial := .cons ⟨1, rfl⟩ (.cons ⟨1, rfl⟩ .nil)
+  next := .cons ⟨2, rfl⟩ (.cons ⟨10, rfl⟩ .nil)
+  exit := ⟨3, rfl⟩
+  pass := ⟨4, rfl⟩
+  clock := .head
+  zero := .zero
+  tick := .succ
+  negate := .negate
+  outputs := .cons (.eval (.tail .head)) (.cons (.eval .head)
+    (.cons .pass (.cons (.eval (.tail .head)) .nil)))
+
+private def checkedRegion := Closed.check reduced.candidate region strengthRank
+
+-- Even though the operands have the same type, a different count at
+-- the unscaled eval cannot be used as part of the shared exit bundle.
+private def wrongCount : Graph Op [] result 11 1 :=
+  { reduced.candidate with node := fun i =>
+    if h : i = 5 then h.symm ▸ Node.ofLabel (.eval 0) (.cons ⟨0, rfl⟩ (.cons ⟨1, rfl⟩ .nil))
+    else reduced.candidate.node i }
+
+private def wrongRegion : Closed.Descriptor wrongCount carried where
+  theta := region.theta
+  initial := region.initial
+  next := region.next
+  exit := region.exit
+  pass := region.pass
+  clock := region.clock
+  zero := region.zero
+  tick := region.tick
+  negate := region.negate
+  outputs := region.outputs
+
+private def asList : {ts : List (Ty Unit)} → Tuple (model false).Value ts → List Nat
+  | _, .nil => []
+  | .count :: _, .cons value rest => value.down :: asList rest
+  | .bool :: _, .cons _ rest | .data _ :: _, .cons _ rest => asList rest
+
+private def runFigure6 (fuel : Nat) : Option (List Nat) := do
+  let cert ← checkedRegion
+  (cert.val.runFuel (model false) fuel).map asList
+
+private def opcode {is : List (Ty Unit)} {t : Ty Unit} : Op is t → String
+  | .zero => "zero" | .five => "five" | .succ => "succ" | .exit => "exit"
+  | .mul => "mul" | .add => "add" | .negate => "negate"
+
+mutual
+private def exprOpcodes {vars : List (Ty Unit)} {t : Ty Unit} : Expr Op vars t → List String
+  | .var _ => []
+  | .op instr args => opcode instr :: argsOpcodes args
+private def argsOpcodes {vars args : List (Ty Unit)} : PEG.Simple.Args Op vars args → List String
+  | .nil => []
+  | .cons e es => exprOpcodes e ++ argsOpcodes es
+end
+
+private def opcodes {loops : Bool} {vars outs : List (Ty Unit)} : Stmt Op loops vars outs → List String
+  | .assign e => exprOpcodes e
+  | .project _ => []
+  | .seq a b => opcodes a ++ opcodes b
+  | .branch e a b => exprOpcodes e ++ opcodes a ++ opcodes b
+  | .while _ e body => exprOpcodes e ++ opcodes body
+
+#guard runFigure6 3 == some [15, 3, 3, 15]
+#guard (runFigure6 2).isNone
+#guard (Closed.check wrongCount wrongRegion strengthRank).isNone
+#guard (checkedRegion.map fun cert => opcodes cert.val.step.lower) == some ["succ", "five", "add"]
+#guard (checkedRegion.map fun cert => opcodes cert.val.revert) ==
+  some ["zero", "exit", "negate", "succ", "five", "add", "exit"]
+#guard (checkedRegion.bind fun cert => (cert.val.step.lower.runLoopFree (model false)
+  (.cons ⟨2⟩ (.cons ⟨10⟩ .nil))).map asList) == some [3, 15]
+
+-- The checker retains the descriptor, so the actual fixture discharges
+-- all three reversion laws. The rank and arithmetic premises of the
+-- earlier rewrites were already checked in figure6_rewrites.
+private theorem figure6Laws (cert : {a : Closed.Accepted reduced.candidate carried //
+    a.descriptor = region}) : cert.val.Laws (model false) := by
+  constructor
+  · rw [cert.property]; rfl
+  · intro k; rw [cert.property]; rfl
+  · intro b; rw [cert.property]; rfl
+
+example (cert : {a : Closed.Accepted reduced.candidate carried // a.descriptor = region})
+    (idx : Index 1) (out : Tuple (model false).Value result)
+    (ran : Exec (model false) cert.val.revert .nil (some out)) :
+    source.graph.observe (model false) (values false) idx = out.map (fun _ => some) :=
+  (figure6_rewrites idx).trans (cert.val.observe_of_exec (figure6Laws cert) idx ran)
 
 private def wrongAdd : Interpretation.{0,0,0} Op where
   carrier := (model false).carrier
