@@ -26,6 +26,10 @@ LEAN = TRANSPORT["LEAN"] + """
 private def equalitySeed (placement : Compile.ModuleEntry.Functions.Run.Seeded.SeedPlacement) : Namespace :=
   let space := Compile.ModuleEntry.Functions.Run.Seeded.legacySeed placement
   { space with builtins := ("compare_numbers", .helper .assertEqual) :: space.builtins }
+
+private def integerTypeSeed (placement : Compile.ModuleEntry.Functions.Run.Seeded.SeedPlacement) : Namespace :=
+  let space := Compile.ModuleEntry.Functions.Run.Seeded.legacyTupleIdentitySeed placement
+  { space with builtins := [("isinstance", .builtin .isinstance), ("int", .builtin .int)] ++ space.builtins }
 """
 
 PROFILES = (
@@ -50,6 +54,8 @@ def numeric_operand(value):
 
 
 def assertion_error(left, right):
+    if type(left) is int and type(right) is int:
+        return f".assertionError (.integerPair ({left}) ({right}))"
     return f".assertionError (.numericPair ({numeric_operand(left)}) ({numeric_operand(right)}))"
 
 
@@ -143,14 +149,75 @@ def expect(ordinary, supplied):
     return dict(ordinary=ordinary, empty=ordinary, builtin=supplied, preamble=supplied)
 
 
+def addition_controls(first):
+    operands = []
+
+    def capture(left, right):
+        assert type(left) is type(right) is int
+        operands.append((left, right))
+
+    exec(compile(first, FILENAME, "exec", dont_inherit=True, optimize=0),
+         {"__builtins__": {HELPER: capture}})
+    assert operands == [(6, 6)]
+
+    missing = "NameError:___assertEqual"
+    fixtures = []
+    observations = {}
+    for label, source, expected, lookup_receipts in (
+        ("isolated integer addition", first, expect(missing, "normal"), {"empty": HELPER}),
+        ("signed and large integer addition", PREFIX + "___assertEqual(-7 + 2, -5)\n"
+         "___assertEqual((2**53 + 1) + 1, 9007199254740994)\n", expect(missing, "normal"), {"empty": HELPER}),
+        ("integer addition mismatch", PREFIX + "___assertEqual(4 + 2, 7)\ntail = 9\n",
+         expect(missing, "AssertionError"), {"empty": HELPER}),
+        ("integer addition live alias", PREFIX + "___assertEqual = 0\ncompare_numbers(4 + 2, 6)\ntail = 9\n",
+         expect("NameError:compare_numbers", "normal"), {"empty": ALIAS}),
+        ("integer addition masked callee", PREFIX + "___assertEqual = 0\n___assertEqual(4 + 2, 6)\ntail = 9\n",
+         expect("TypeError", "TypeError"), None),
+        ("lookup before noncallable mask", PREFIX + "___assertEqual = 0\n___assertEqual(4 + 2, missing)\ntail = 9\n",
+         expect("NameError:missing", "NameError:missing"), dict.fromkeys(("empty", "builtin", "preamble"), HELPER)),
+        ("reached division after closed sum", PREFIX + "___assertEqual(4 + 2, 1 / 0)\ntail = 9\n",
+         expect(missing, "ZeroDivisionError"), None),
+    ):
+        fixture, observed = observe(source, expected, lookup_receipts)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    _, guards = fixtures[0]
+    fixtures[0] = (first, guards + """
+#guard (match compile pythonSource with
+  | .ok compiled => match compiled.instructions with
+    | [.call .discard "___assertEqual" [.literal (.int 6), .literal (.int 6)]] => true
+    | _ => false
+  | .error _ => false)
+""")
+    observations["isolated integer addition"]["exact_operands"] = operands
+    return fixtures, observations
+
+
+def prefix_control(first_two):
+    observed = []
+    exec(compile(first_two, FILENAME, "exec", dont_inherit=True, optimize=0),
+         {"__builtins__": {HELPER: lambda left, right: observed.append((left, right)),
+                          "___assertTrue": observed.append, "isinstance": isinstance, "int": int}})
+    assert observed == [(6, 6), True] and type(observed[1]) is bool
+    calls = '[("___assertEqual", .ok .none), ("isinstance", .error .unsupported)]'
+    guards = [TRANSPORT["seeded"](f"(integerTypeSeed .{placement})", ".error .unsupported", "[]", "[]", calls)
+              for placement in ("builtin", "preamble")]
+    return (first_two, "\n".join(guards))
+
+
 def controls(upstream):
     original = "___assertEqual(5 / 2, 2.5)\n"
+    first = "___assertEqual(4 + 2, 6)\n"
     full = None
     if upstream is not None:
         raw = (upstream / QUOTIENT["PIN"]).read_bytes()
         assert hashlib.sha256(raw).hexdigest() == QUOTIENT["SHA256"]
         full = raw.decode("utf-8")
         assert full.splitlines(keepends=True)[27] == original
+        first_line = full.splitlines(keepends=True)[0]
+        assert first_line == first
+        first = first_line
     missing = "NameError:___assertEqual"
     through_literal = (
         "def relay(value):\n    return value\n"
@@ -160,8 +227,7 @@ def controls(upstream):
         "subnormal = relay(5e-324)\n"
         "underflow = relay(-1e-400)\n"
     )
-    fixtures = []
-    observations = {}
+    fixtures, observations = addition_controls(first)
     for label, source, expected in (
         ("isolated pin", original, expect(missing, "normal")),
         ("signed zeros", PREFIX + "positive = relay(+0.0)\nnegative = relay(-0.0)\n"
@@ -204,10 +270,17 @@ def controls(upstream):
         "___assertEqual(1e-4097, 0.0)\n",
     ))
     if full is not None:
+        lines = full.splitlines(keepends=True)
         fixtures.append((full, rejected))
-        fixtures.append((full.splitlines(keepends=True)[0], """#guard (match compile pythonSource with
-  | .error .callOperand => true
-  | _ => false)"""))
+        fixtures.append(prefix_control("".join(lines[:2])))
+        assert lines[2] == "___assertEqual(4 + 2.0, 6.0)\n"
+        fixtures.append(("".join(lines[:3]), rejected))
+        observations["first prefix cutoffs"] = {
+            "first_rejected_compiler_prefix": 3,
+            "source": lines[2].rstrip("\n"),
+            "seeded_runtime_line": 2,
+            "seeded_runtime_cutoff": "unsupported isinstance(int, int)",
+        }
         corpus = (upstream / QUOTIENT["PIN"]).parents[1]
         for path, sha256, expected, lookup_receipts in (
             ("bool/bool-float.py", "bca49382b43b0ca3ad600b9d195c5f8154669091727817fc167b202493a24493",
