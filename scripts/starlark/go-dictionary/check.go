@@ -281,6 +281,11 @@ func checkDepthError() {
 	left, right := starlark.NewDict(0), starlark.NewDict(0)
 	require(left.SetKey(deep, cycle) == nil && right.SetKey(wrap(fromBits(0x8000000000000000)), cycle) == nil,
 		"deep alias insertion failed")
+	_, found, err = right.Get(deep)
+	require(!found && err != nil && strings.Contains(err.Error(), "maximum recursion depth"),
+		"a deep alias must reach a raw depth error despite equal scalar leaves")
+	aliasMember, err := starlark.Binary(syntax.IN, deep, right)
+	require(err == nil && aliasMember == starlark.False, "deep alias membership must observe the depth failure as a miss")
 	equal, err := starlark.Compare(syntax.EQL, left, right)
 	require(err == nil && !equal, fmt.Sprintf("lookup error should mask the cyclic value, got %v (%v)", equal, err))
 	_, err = starlark.Compare(syntax.EQL, cycle, cycle)
@@ -429,6 +434,47 @@ func checkDeletionErrors() {
 	fmt.Println("PASS delete miss, hash/depth errors, and pre-hash guards outside the admitted profile")
 }
 
+func checkScalarAbstraction() {
+	dict := starlark.NewDict(0)
+	var keys []starlark.Value
+	for i := range 9 {
+		keys = append(keys, starlark.MakeInt(i))
+	}
+	keys = append(keys, starlark.MakeInt64(1<<32), starlark.False, fromBits(0x7ff8000000000007),
+		starlark.MakeInt64(9007199254740993), fromBits(0x4340000000000000))
+	for i, key := range keys {
+		require(dict.SetKey(key, starlark.MakeInt(i)) == nil, "scalar abstraction insert failed")
+	}
+	negativeZero, otherNaN := fromBits(0x8000000000000000), fromBits(0xfff8000000000015)
+	require(dict.SetKey(negativeZero, starlark.MakeInt(100)) == nil &&
+		dict.SetKey(otherNaN, starlark.MakeInt(101)) == nil, "scalar alias replacement failed")
+	require(dict.Len() == len(keys), "scalar alias replacement changed the row count")
+	for i, stored := range dict.Keys() {
+		switch key := keys[i].(type) {
+		case starlark.Float:
+			got, ok := stored.(starlark.Float)
+			require(ok && math.Float64bits(float64(got)) == math.Float64bits(float64(key)), "float key identity changed")
+		default:
+			require(stored == key, "original scalar key or iteration order changed")
+		}
+	}
+	for _, tc := range []struct {
+		key  starlark.Value
+		want int
+	}{
+		{negativeZero, 100}, {starlark.MakeInt64(1 << 32), 9}, {starlark.False, 10}, {starlark.True, -1},
+		{otherNaN, 101}, {starlark.MakeInt64(9007199254740993), 12}, {starlark.MakeInt64(9007199254740992), 13},
+		{starlark.MakeInt(42), -1},
+	} {
+		value, found, err := dict.Get(tc.key)
+		require(err == nil && found == (tc.want >= 0), "wrong scalar abstraction lookup result")
+		if found {
+			require(value == starlark.MakeInt(tc.want), "wrong scalar abstraction value")
+		}
+	}
+	fmt.Println("PASS scalar abstraction observations, exact large numbers and stored alias identity")
+}
+
 func main() {
 	require(starlark.CompareLimit == 10, "pinned default comparison limit changed")
 	checkHashes()
@@ -439,4 +485,5 @@ func main() {
 	checkGrownDepthError()
 	checkDeletionSlots()
 	checkDeletionErrors()
+	checkScalarAbstraction()
 }
