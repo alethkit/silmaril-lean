@@ -27,6 +27,7 @@ inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
   | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
   | assertVarNames (receiver : String) (needle : List UInt32)
@@ -77,6 +78,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertSequenceLength test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertSequenceLength test :: instructions, blocks)
+  | .assertBoolIdentity test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertBoolIdentity test :: instructions, blocks)
   | .assertListConstruction test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertListConstruction test :: instructions, blocks)
@@ -251,6 +255,19 @@ def checkVarNames (table : CodeTable) (session : Session) (receiver : String)
     | .code error => .codeFault error
   unless member do throw .assertionError
 
+/-- The ordinary namespace has no stock descriptor. Read the name and then
+prepare the argument before classifying a present mask. -/
+def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdentityTest scope) : Completion :=
+  match session.globals "bool" with
+  | none => .raised (.nameError "bool")
+  | some callee =>
+    match test.argument.mapM (evaluate session) with
+    | .error error => error
+    | .ok _ =>
+      match callee with
+      | .function _ => .scalarProfile
+      | _ => .raised .notCallable
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -265,6 +282,7 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | none => .raised (.nameError "len")
       | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
+    | .assertBoolIdentity test => ([], .finished session (boolIdentityCompletion session test))
     | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
       | none => .raised (.nameError "list")
       | some (.function _) => .scalarProfile

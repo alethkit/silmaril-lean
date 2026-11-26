@@ -231,6 +231,54 @@ def sequenceLengthTest? (scope : Scope) : (statement : Source.Stmt) →
     else none
   | _ => none
 
+inductive BoolCallArguments (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → Option (Operand scope) → Prop where
+  | omitted : BoolCallArguments scope [] none
+  | positional {source operand} (checked : OperandTranslation scope source operand)
+      (scalar : operand.comparable = true) :
+      BoolCallArguments scope [(.positional, source)] (some operand)
+
+def boolCallArgument? (scope : Scope) : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // BoolCallArguments scope arguments argument}
+  | [] => some ⟨none, .omitted⟩
+  | [(.positional, source)] => do
+    let operand ← (lowerOperand scope source).toOption
+    if scalar : operand.val.comparable = true then
+      some ⟨some operand.val, .positional operand.property scalar⟩
+    else none
+  | _ => none
+
+structure BoolIdentityTest (scope : Scope) where
+  reference : GlobalReference scope "bool"
+  argument : Option (Operand scope)
+  operator : Core.Module.IdentityOperator
+  right : Operand scope
+
+/-- A stock conversion result can feed a checked, single-link singleton test. -/
+inductive BoolIdentityTranslation (scope : Scope) : Source.Stmt → BoolIdentityTest scope → Prop where
+  | assertion {left arguments comparison right reference argument operator operand}
+      (call : CallExpression left "bool" arguments)
+      (checkedArgument : BoolCallArguments scope arguments argument)
+      (identified : identityOperator? comparison = some operator)
+      (checkedRight : OperandTranslation scope right operand) (singleton : operand.singletonResult = true) :
+      BoolIdentityTranslation scope (.assert_ (.comparison left [(comparison, right)]) none)
+        ⟨reference, argument, operator, operand⟩
+
+def boolIdentityTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // BoolIdentityTranslation scope statement test}
+  | .assert_ (.comparison left [(comparison, right)]) none => do
+    let ⟨("bool", arguments), call⟩ ← callExpression? left | none
+    let argument ← boolCallArgument? scope arguments
+    let reference ← globalReference? scope "bool"
+    let operand ← (lowerOperand scope right).toOption
+    if singleton : operand.val.singletonResult = true then
+      match identified : identityOperator? comparison with
+      | some operator => some ⟨⟨reference, argument.val, operator, operand.val⟩,
+          .assertion call argument.property identified operand.property singleton⟩
+      | none => none
+    else none
+  | _ => none
+
 inductive ListConstructorArgument where
   | omitted
   | literal (sequence : ClosedSequence)
@@ -304,6 +352,7 @@ inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
   | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
   /-- Read the current module binding once at this assertion. -/
@@ -330,6 +379,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : SequenceLengthTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertSequenceLength test :: tail)
+  | assertBoolIdentity {index statement test rest tail}
+      (checked : BoolIdentityTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertBoolIdentity test :: tail)
   | assertListConstruction {index statement test rest tail}
       (checked : ListConstructionTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
@@ -431,6 +484,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     if let some test := sequenceLengthTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertSequenceLength test.val :: tail.val, .assertSequenceLength test.property tail.property⟩
+    else if let some test := boolIdentityTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertBoolIdentity test.val :: tail.val, .assertBoolIdentity test.property tail.property⟩
     else if let some test := listConstructionTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertListConstruction test.val :: tail.val, .assertListConstruction test.property tail.property⟩

@@ -513,6 +513,33 @@ def assertSequenceLength {scope : Scope} (space : Namespace) (test : SequenceLen
   let checked := result.bind (checkSequenceLengthResult space test)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"len", ⟨result.map .int, none⟩⟩]⟩
 
+def readBoolCall {scope : Scope} (space : Namespace) (argument : Option (ModuleEntry.Operand scope)) :
+    Except Failure Bool :=
+  match space.lookupGlobal "bool" with
+  | none => .error (.raised (.runtime (.nameError "bool")))
+  | some callee =>
+    (argument.mapM (evaluateScalar space true)).bind fun value =>
+      match callee with
+      | .builtin .bool =>
+        match scalar? (value.getD .none) with
+        | some scalar => .ok scalar.truth
+        | none => .error .unsupported
+      | other =>
+        match Core.Module.SeededCall.Request.decode other value.toList with
+        | .nonCallable => .error (.raised (.runtime .notCallable))
+        | _ => .error .unsupported
+
+def checkBoolIdentityResult {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope)
+    (value : Bool) : Except Failure Unit := do
+  let right ← Core.Module.Identity.project (fun item => (scalar? item).bind Core.Module.Value.singleton?)
+    .unsupported (evaluateScalar space true test.right)
+  assertTruth (.bool (test.operator.test (.boolean value) right))
+
+def assertBoolIdentity {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope) : Effect :=
+  let result := readBoolCall space test.argument
+  let checked := result.bind (checkBoolIdentityResult space test)
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"bool", ⟨result.map .bool, none⟩⟩]⟩
+
 /-- Only a checked list argument allocates a list before constructor dispatch. -/
 def prepareListArgument (heap : ListHeap) : ListConstructorArgument → List Core.Module.Value × ListHeap
   | .omitted => ([], heap)
@@ -599,6 +626,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
   | .assertSequenceLength test => (assertSequenceLength space test, context.heap)
+  | .assertBoolIdentity test => (assertBoolIdentity space test, context.heap)
   | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
   | .assertTupleChain test =>
     (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
