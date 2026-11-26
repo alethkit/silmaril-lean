@@ -5,6 +5,7 @@ import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms
 import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
 public import Silmaril.Languages.Python.Core.Text.Thms
+import Silmaril.Languages.Python.Core.Text.Slice.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
@@ -786,6 +787,32 @@ theorem observeArgumentIn_resolutionFailure {space : Namespace} {context : CallC
     observeArgumentIn space context (.call name arguments) allowClosureCalls =
       (.error (.ofCall error), [⟨name, ⟨.error error, none⟩⟩], context.heap) := by
   simp [observeArgumentIn, failed, argumentObservation, Except.mapError]
+
+theorem textSliceOperand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (receiver : Core.Text) (bounds : Core.SliceBounds) :
+    (lowerCallOperand (.textSlice receiver bounds)).eval space #v[] =
+      (((Core.Module.Functions.Operand.textSlice receiver bounds).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  cases sliced : receiver.slice? bounds <;>
+    simp [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+      Core.Closure.Executor.Operand.evalIn, sliced, Except.map, Except.mapError, seededValue]
+
+theorem observeArgumentIn_textSlice {space : Namespace} {context : CallContext}
+    {receiver result : Core.Text} {bounds : Core.SliceBounds} (allowEscaped : Bool)
+    (sliced : receiver.slice? bounds = some result) :
+    observeArgumentIn space context (.scalar (.textSlice receiver bounds)) allowEscaped =
+      (.ok (.text result), [], context.heap) := by
+  simp [observeArgumentIn, lowerCallOperand, Core.Module.SeededCall.Operand.eval, sliced, Except.mapError]
+
+theorem observeArgumentIn_textSlice_zero {space : Namespace} {context : CallContext}
+    (receiver : Core.Text) {bounds : Core.SliceBounds} (allowEscaped : Bool) (zero : bounds.step = some 0) :
+    observeArgumentIn space context (.scalar (.textSlice receiver bounds)) allowEscaped =
+      (.error (.raised (.runtime .zeroSliceStep)), [], context.heap) := by
+  simp [observeArgumentIn, lowerCallOperand, Core.Module.SeededCall.Operand.eval,
+    Core.Text.slice_zero receiver bounds zero, Except.mapError, ModuleFailure.ofCall]
 
 theorem argumentObservation_tuple (space : Namespace) (name : String) (heap : Heap)
     (items : List Core.Module.TupleDispatch.Element) :

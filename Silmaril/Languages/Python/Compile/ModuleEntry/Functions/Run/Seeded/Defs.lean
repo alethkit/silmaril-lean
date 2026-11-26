@@ -104,6 +104,7 @@ def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .tuple items => .tuple items
+  | .textSlice receiver bounds => .textSlice receiver bounds
   | .literal (.int value) => .literal (.int value)
   | .literal (.bool value) => .literal (.bool value)
   | .literal (.float64 value) => .literal (.float64 value)

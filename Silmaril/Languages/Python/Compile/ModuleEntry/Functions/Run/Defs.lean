@@ -66,6 +66,7 @@ def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Function
   | .float64 value => some (.literal (.float64 value))
   | .tuple items => some (.tuple items)
   | .text value => some (.literal (.text value))
+  | .textSlice receiver bounds => some (.textSlice receiver bounds)
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .value operand => (callValue? operand).map .scalar

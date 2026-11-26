@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Core.Closure.Defs
 public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
+public import Silmaril.Languages.Python.Core.Text.Slice.Defs
 
 /-! # Closed callables for explicitly seeded module entry -/
 
@@ -156,6 +157,7 @@ inductive Operand (slots : Nat) where
   | local (slot : Fin slots)
   | global (name : String)
   | tuple (items : List Core.Closure.GlobalTupleItem)
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
   | unsupported
 
 abbrev Locals (slots : Nat) := Vector (Option Value) slots
@@ -184,6 +186,8 @@ def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Ope
     (space.lookupGlobal name).elim (.error (.raised (.runtime (.nameError name)))) .ok
   | .tuple items =>
     (evalTupleContents space items).map .returnedTuple
+  | .textSlice receiver bounds =>
+    (receiver.slice? bounds).elim (.error (.raised (.runtime .zeroSliceStep))) (fun result => .ok (.text result))
   | .unsupported => .error .unsupported
 
 structure Expectation where

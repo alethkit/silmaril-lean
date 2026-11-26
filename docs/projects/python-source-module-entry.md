@@ -245,6 +245,21 @@ last comparison with only `a` bound. The pinned replay and CPython 3.13.5
 controls also check clipping, reverse defaults and explicit stops, non-ASCII
 code points, and the residual state after a failed read or zero step.
 
+A positional call operand can use the same slice core with a validated
+literal text receiver and the same literal bounds and step. Both runners
+evaluate the operand after the live callee lookup, within the usual
+left-to-right argument scan. Successful evaluation delivers the exact
+text tag and code points. A reached zero step keeps previous argument
+receipts and stops before later operands or invocation. The operand itself
+leaves both heaps intact and emits zero receipts.
+
+The unchanged `slice1.py` completes all seven equality-helper calls in
+both stock helper placements. Each emits one successful `None` receipt.
+Ordinary and empty seeded execution reach the first missing helper with
+no user bindings or receipts. Live slice receivers in call operands,
+slice assignment and composition remain outside this profile. Live text
+receivers in a slice equality guard use the existing guard rule.
+
 A message-free assertion can use `bool()` or `bool(scalar)` on the left
 of a single `is` or `is not` link. The checker certifies the optional
 positional operand in the shared scalar profile and the right operand in
