@@ -5,7 +5,7 @@ import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Regression
 
 open Silmaril.MLIR.Arith (Env Width)
-open Silmaril.MLIR.CF (Block Frame Terminator)
+open Silmaril.MLIR.CF (Block Cfg Frame Terminator)
 open Silmaril.MLIR.Pure (Operands)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.GCM
@@ -66,35 +66,45 @@ private theorem edge_bound {dependent : Bool} {src : BlockId BeforeLabel} {dst :
      · cases slot <;> cases edge <;> decide
      · cases label <;> cases slot <;> cases edge <;> decide)
 
-private theorem path_visits {dependent : Bool} {a b : BlockId BeforeLabel} {past}
-    (path : EntryPath (lower (loop dependent)) b past) (ancestor : stage a ≤ stage b) :
-    a ∈ past := by
+private abbrev SourceCfg := Cfg TargetOp BeforeLabel Input [i8]
+
+private theorem path_visits {cfg : SourceCfg}
+    (ordered : ∀ {src : BlockId BeforeLabel} {dst : Target BeforeLabel} (slot : EdgeSlot),
+      (shape cfg src).target slot = some dst → stage (some dst) ≤ stage src + 1)
+    {a b : BlockId BeforeLabel} {past}
+    (path : EntryPath cfg b past) (ancestor : stage a ≤ stage b) : a ∈ past := by
   induction path with
   | entry => exact List.mem_singleton.mpr (stage_injective (Nat.eq_zero_of_le_zero ancestor))
   | @step src prior dst previous slot edge ih =>
     by_cases same : stage a = stage (some dst)
     · exact List.mem_cons.mpr (.inl (stage_injective same))
-    · have bound := edge_bound slot edge
+    · have bound := ordered slot edge
       exact List.mem_cons_of_mem _ (ih (by omega))
 
-private theorem reachable (dependent : Bool) (b : BlockId BeforeLabel) :
-    Reachable (lower (loop dependent)) b := by
-  have reachesHeader : EntryPath (lower (loop dependent)) headerId [headerId, none] := by
-    cases dependent <;> exact .step .entry .jump rfl
-  rcases b with _ | ⟨_, label⟩
-  · exact ⟨_, .entry⟩
-  cases label
-  · exact ⟨_, reachesHeader⟩
-  · cases dependent <;> exact ⟨_, .step reachesHeader .onFalse rfl⟩
-
-private def tree (dependent : Bool) : DominatorTree (lower (loop dependent)) where
+private def stageTree (cfg : SourceCfg)
+    (entry : (shape cfg none).target .jump = headerId)
+    (exit : (shape cfg headerId).target .onFalse = some ⟨_, .exit⟩)
+    (ordered : ∀ {src : BlockId BeforeLabel} {dst : Target BeforeLabel} (slot : EdgeSlot),
+      (shape cfg src).target slot = some dst → stage (some dst) ≤ stage src + 1) :
+    DominatorTree cfg where
   address := fun b => List.replicate (stage b) 0
   entry_address := rfl
   address_injective := fun h => stage_injective (by simpa using congrArg List.length h)
   reachable := fun _ => true
-  reachable_sound := fun {b} _ => reachable dependent b
+  reachable_sound := by
+    intro b _
+    have reachesHeader : EntryPath cfg headerId [headerId, none] := .step .entry .jump entry
+    rcases b with _ | ⟨_, label⟩
+    · exact ⟨_, .entry⟩
+    cases label
+    · exact ⟨_, reachesHeader⟩
+    · exact ⟨_, .step reachesHeader .onFalse exit⟩
   prefix_sound := fun _ ancestor _ path =>
-    path_visits path (by simpa [List.prefix_replicate_iff] using ancestor)
+    path_visits ordered path (by simpa [List.prefix_replicate_iff] using ancestor)
+
+private def tree (dependent : Bool) : DominatorTree (lower (loop dependent)) :=
+  stageTree (lower (loop dependent)) (by cases dependent <;> rfl) (by cases dependent <;> rfl)
+    edge_bound
 
 private def captured : Operands Input [i8, i8] :=
   .cons (.there (.there .here)) (.cons (.there (.there .here)) .nil)
@@ -110,6 +120,8 @@ private def moved : Output Input i8 i8 :=
   ⟨i8, emit (lower (loop false)).entry (.original (.binary i8 .addi)) captured rest⟩
 
 private theorem selected : pickAndHoist? (loop false) (tree false) = some (⟨none, 0⟩, moved) := by cbv
+
+example : pickBindingAndHoist? (loop false) (tree false) 0 = some (⟨none, 0⟩, moved) := by cbv
 
 example : (LoopForest.forest? (tree false) blocks).map (fun loops =>
     (LoopForest.depth (tree false) loops none, LoopForest.depth (tree false) loops headerId)) =
@@ -165,5 +177,99 @@ example (budget : Nat) :
       ((loop false).evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs many)).map
         (fun value => Env.cons value .nil) :=
   pickAndHoist?_budget selected many budget
+
+private abbrev laterSigs : List (List (Diamond.Ty Width)) := [[byte], [byte], [byte], [pred], [byte]]
+
+-- Two earlier results depend on the latch. The nominated binding reads
+-- stride twice, or reads the second earlier result in the rejected variant.
+private def laterLoop (dependent : Bool) : Program Input i8 i8 entrySigs laterSigs where
+  preheader := (loop false).preheader
+  header :=
+    .cons (.arithmetic (.binary .addi))
+      (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail (.tail .head))) .nil))
+      (.cons (.arithmetic (.binary .addi))
+        (.cons (.output (0 : Fin 1) .head) (.cons (.arg (.tail (.tail .head))) .nil))
+        (.cons (.arithmetic (.binary .addi))
+          (.cons (if dependent then .output (1 : Fin 2) .head else .arg (.tail (.tail .head)))
+            (.cons (.arg (.tail (.tail .head))) .nil))
+          (.cons (.ult i8)
+            (.cons (.arg (.tail (.tail (.tail .head)))) (.cons (.arg (.tail .head)) .nil))
+            (.cons (.arithmetic (.binary .addi))
+              (.cons (.output (1 : Fin 4) .head) (.cons (.output (2 : Fin 4) .head) .nil))
+              .nil))))
+  phiInputs
+    | .entry => (loop false).phiInputs .entry
+    | .backedge => .cons (.output (4 : Fin 5) .head) .nil
+  predicate := .output (3 : Fin 5) .head
+  result := .output (2 : Fin 5) .head
+
+private def laterTree (dependent : Bool) : DominatorTree (lower (laterLoop dependent)) :=
+  stageTree (lower (laterLoop dependent)) (by cases dependent <;> rfl) (by cases dependent <;> rfl)
+    (by
+      intro src dst slot edge
+      cases dependent <;>
+        (rcases src with _ | ⟨_, label⟩
+         · cases slot <;> cases edge <;> decide
+         · cases label <;> cases slot <;> cases edge <;> decide))
+
+private def nominated (dependent : Bool) : Binding Input (i8 :: Input) i8 i8 i8 :=
+  let found := findBinding 2 0 headerOrigins ((lower (laterLoop dependent)).block .header)
+  (found.get (by cases dependent <;> rfl)).2
+
+example : (nominated false).operands = [⟨none, 0⟩, ⟨none, 0⟩] := rfl
+example : (nominated false).captured? = some captured := rfl
+example : (nominated false).uses = [.ordinary ⟨headerId, 4⟩, .phi headerId .onFalse 0] := rfl
+
+private def laterOutput : Output Input i8 i8 :=
+  ⟨i8, emitHeader (lower (laterLoop false)).entry (nominated false).op captured
+    ((nominated false).rewrite .there .here)⟩
+
+private theorem laterSelected :
+    pickBindingAndHoist? (laterLoop false) (laterTree false) 2 = some (⟨none, 0⟩, laterOutput) := by cbv
+
+example : (shape laterOutput.2 none).bindings = 3 := rfl
+example : (shape (lower (laterLoop false)) headerId).bindings = 5 := rfl
+example : (shape laterOutput.2 (some ⟨_, .header⟩)).bindings = 4 := rfl
+
+private def laterMany := input 2 10 1
+private def laterZero := input 10 10 3
+
+-- The nominated value is saved once. The preceding dependent bindings
+-- still affect each feedback argument, including after the first backedge.
+example : laterOutput.2.entry.eval evalOp (fun term vals => term.eval vals) laterMany =
+    .inl (⟨.header, .cons 2 (.cons 3 .nil)⟩ : Frame (Label i8 i8 i8)) := rfl
+example : (laterOutput.2.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 2 (.cons 3 laterMany)) =
+    .inl (⟨.header, .cons 2 (.cons 7 .nil)⟩ : Frame (Label i8 i8 i8)) := rfl
+example : (laterOutput.2.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 2 (.cons 7 laterMany)) =
+    .inl (⟨.header, .cons 2 (.cons 11 .nil)⟩ : Frame (Label i8 i8 i8)) := rfl
+example : (laterOutput.2.block .header).eval evalOp (fun term vals => term.eval vals)
+    (.cons 2 (.cons 11 laterMany)) =
+    .inl (⟨.exit, .cons 2 .nil⟩ : Frame (Label i8 i8 i8)) := rfl
+
+example : (lower (laterLoop false)).run evalOp 3 laterZero = some (.cons 6 .nil) := rfl
+example : laterOutput.2.run evalOp 3 laterZero = some (.cons 6 .nil) := rfl
+example : (lower (laterLoop false)).run evalOp 5 laterMany = some (.cons 2 .nil) := rfl
+example : laterOutput.2.run evalOp 5 laterMany = some (.cons 2 .nil) := rfl
+example : laterOutput.2.run evalOp 4 laterMany = none := rfl
+
+example (budget : Nat) :
+    laterOutput.2.run evalOp (budget + 3) laterMany =
+      ((laterLoop false).evalBackedges model budget
+        (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs laterMany)).map
+        (fun value => Env.cons value .nil) :=
+  pickBindingAndHoist?_budget laterSelected laterMany budget
+
+example : (nominated true).operands = [⟨headerId, 2⟩, ⟨none, 0⟩] := rfl
+example : (nominated true).captured? = none := rfl
+example : (nominated true).uses = (nominated false).uses := rfl
+example : checkPlacement (laterTree true) (nominated true).operands (nominated true).uses
+    ⟨none, 0⟩ = false := by cbv
+example : LoopForest.choosePlacement (laterTree true) blocks
+    (nominated true).operands (nominated true).uses = some ⟨headerId, 2⟩ := by cbv
+example : pickBindingAndHoist? (laterLoop true) (laterTree true) 2 = none := by cbv
+example : pickBindingAndHoist? (laterLoop false) (laterTree false) 5 = none := by cbv
+
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Regression
