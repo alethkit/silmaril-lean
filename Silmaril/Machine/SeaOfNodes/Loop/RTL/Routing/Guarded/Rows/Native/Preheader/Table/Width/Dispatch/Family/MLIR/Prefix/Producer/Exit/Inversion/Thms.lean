@@ -90,4 +90,21 @@ theorem region_of_rtl (compiled : Compiled mapping source origins) (input : Word
       (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) initial 0 (packValues returned) final :=
   Proofs.region_of_rtl compiled input initial final fuel returned observed env entry
 
+/-- A bounded RTL return exists exactly when an ordered dispatch route
+(the positional Φ observations recorded by `Realized`) reaches a taken
+exit with the same word. That single witness also supplies a matching
+bounded CF return, with full memory preserved by both backends. This
+consolidates the actual-run forward law (`Exit.returns`/`after_prefix`)
+and its converse (`from_rtl`) into one public existence statement. -/
+theorem returns_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (value : Word) :
+    (∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) ↔
+    ∃ slots before finish after,
+      source.ReturnsAlong (mapping.pull input) slots (source.primary.initial model (mapping.pull input)) value ∧
+      Realized compiled.setup input mem slots (source.primary.initial model (mapping.pull input)) before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.rtl.runMain (rtlFuel entrySigs sigs slots) 0 (words input) mem = .returned [value] mem ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
+  Proofs.returns_iff compiled input mem value
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion

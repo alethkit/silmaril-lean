@@ -136,4 +136,13 @@ theorem FeedbackCut.path {p : Source captures bank entrySigs sigs tests}
       ⟨⟨0, 1, 0⟩, before, [], mem⟩ ⟨⟨0, 1, 0⟩, latched, [], mem⟩ :=
   Proofs.FeedbackCut.path cut
 
+/-- The deterministic native selector and row step make the chosen slot
+sequence of a finite return unique at a fixed input, carried bank and
+returned word. -/
+theorem returnsAlong_unique (p : Source captures bank entrySigs sigs tests) (input : WordTuple captures)
+    {slots other : List (Fin (tests + 1))} {carried : WordTuple bank} {value : Word}
+    (left : p.ReturnsAlong input slots carried value) (right : p.ReturnsAlong input other carried value) :
+    slots = other :=
+  Proofs.returnsAlong_unique p input left right
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family

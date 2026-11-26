@@ -1178,6 +1178,56 @@ immediate run consumes seven and yields the three-block CF return of
 the eight-block CF return of `6`.
 [Checked regression][table-regression]
 
+### Consolidate the forward and converse termination laws
+
+`Producer.Exit.Inversion.returns_iff` combines the actual-run forward law
+(`Exit.returns`/`after_prefix`) and its converse (`from_rtl`) into one
+existence statement: a bounded RTL return exists for the typed input and
+initial memory exactly when an ordered dispatch route (the positional Φ
+observations recorded by `Realized`) reaches a taken exit with the same
+word. That single witness also supplies a matching bounded CF return, with
+the whole memory preserved by both backends. `Family.returnsAlong_unique`
+derives that the recovered route is the only one reaching a given value,
+from the deterministic native selector and row step; it does not relate
+the independent CF block and RTL instruction bounds. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost Realized wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+open Family.MLIR.Prefix.Producer.Exit (Taken)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (fuel : Nat) (value : Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) :
+    ∃ slots before finish after,
+      source.ReturnsAlong (mapping.pull input) slots
+        (source.primary.initial model (mapping.pull input)) value ∧
+      Realized compiled.setup input mem slots
+        (source.primary.initial model (mapping.pull input)) before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨slots, before, finish, after, route, realized, taken, _, cf⟩ :=
+    (Family.MLIR.Prefix.Producer.Exit.Inversion.returns_iff compiled input mem value).mp ⟨fuel, observed⟩
+  exact ⟨slots, before, finish, after, route, realized, taken, cf⟩
+```
+
+In the resized fixture the immediate run returns `8` along the empty
+route, and `Family.returnsAlong_unique` identifies it as the unique route
+for that word. The mixed run returns `6` along `[0, 1]`, the same route
+the forward and converse directions above separately recover.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
