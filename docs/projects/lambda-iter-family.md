@@ -535,3 +535,38 @@ empty parameter. The two annotations give distinct flat sentences and
 the same written packed program. The witness concerns internal profile
 annotations.
 [Noninjectivity witness](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution.lean)
+
+### Packing with a typed external entry
+
+`EntryInstitution.institution Events κ β` fixes an exact bound context
+`β` for the room family. Each sentence shares an ordered exit profile
+between its two tables. Each table keeps its own heterogeneous block
+parameter types. The entry can read `β`, and every block can read the
+same context under its own local payload binder. `Program.ofCFGEntry`
+runs the existing one-label packed dispatcher under the pure decoder for
+`Region.packedInputType β.toList`. The context head is the right field
+and the product terminates in unit.
+[Entry representative](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Defs.lean)
+· [Institution data](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Institution/Thms.lean)
+
+`satisfies_ofCFGEntry_iff` compares weak traces at every value of the
+packed input type using the compatible typed and raw model. The
+comorphism targets the existing packed institution at that input type.
+Packing commutes with relabelling as equality of typed syntax, and the
+shared models give satisfaction and entailment in both directions. The
+signature maps still have identity type components and preserve bottom
+Boolean effect in a fixed event family. The original unit-entry
+`FlatInstitution` and its packing map remain available.
+[Pointwise satisfaction and relabelling](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Thms.lean)
+
+`Capture.close` accepts a producer typed in the empty context and returns
+a capture-free graph. The supplied-entry path starts with the existing
+open `HasType β R E` judgment. `packed_entry_run_tree` relates the actual
+packed code with an encoded input record to the named runner on matching
+version-zero captures, and applies the existing exit tag. The regression
+uses the actual `compileTyped` back-edge graph with input `((), 7)`.
+The first mapped tick receives 7, and successive replies 3 and 5 become
+the next tick operands. A silent loop refines the relabelled cycle at
+every typed input, and that trace at 7 separates the reverse comparison.
+[Named supplied-entry theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+· [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
