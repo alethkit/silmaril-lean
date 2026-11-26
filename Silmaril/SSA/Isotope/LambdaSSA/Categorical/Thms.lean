@@ -22,6 +22,20 @@ variable {V : Type u₁} {C : Type u₂}
   [HasFiniteCoproducts V] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
 
+section Packets
+
+variable {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
+
+/-- Distributing a fixed value context across a nonempty finite label
+coproduct gives the coproduct of the individual context and payload pairs. -/
+noncomputable def finitePacketCofanIsColimit (n : Nat) (Γ : VCtx τ) (R : Fin (n + 1) → τ) :
+    IsColimit (Cofan.mk (f := fun i => ctxObj M Γ ⊗ M.obj (R i))
+      (ctxObj M Γ ⊗ finiteLabelObj M R)
+      (fun i => (𝟙 (ctxObj M Γ)) ⊗ₘ finiteLabelInject M R i)) :=
+  Classical.choice (finitePacketColimit M n Γ R)
+
+end Packets
+
 section Collective
 
 variable (J : Functor V C) [DistributiveFreydCategory J]
