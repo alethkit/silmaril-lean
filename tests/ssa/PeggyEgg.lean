@@ -10,6 +10,7 @@ import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -30,6 +31,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -1523,6 +1525,62 @@ private theorem observed (idx : Index 1) :
         (.cons (Rules.readRef (values false) (r 4 rfl) idx)
           (.cons (Rules.readRef (values false) (r 7 rfl) idx) .nil)))) = _
   rw [scaled, sampled, exitIndex]
+
+open EPEG.Saturation.Extension in
+private def extraZeroSample : Row source.graph :=
+  ⟨[.count, .count], .count, .eval 0, pair (r 0 rfl) (r 1 rfl)⟩
+
+open EPEG.Saturation.Extension in
+private def combinedSource : Output Op [] result 1 :=
+  ⟨9, ⟨extraZeroSample.append, Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedOps : Combined.Ops Op := ⟨.zero, .five, .mul⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedDriver := Combined.driver (params := []) (results := result) (l := 1) combinedOps
+
+private def shortRun := combinedDriver.run 1 combinedSource
+private def combinedRun := combinedDriver.run 2 combinedSource
+
+private def classesAt {n : Nat} (state : State Op [] result n 1) : List Nat :=
+  (List.finRange n).map fun i => (state.classes i).val
+
+private def wiring {n : Nat} (state : State Op [] result n 1) : List (List Nat) :=
+  (List.finRange n).map fun i => refNumbers (state.graph.node i).args
+
+#guard shortRun.report.sites == [.zeroSample 8]
+
+#guard shortRun.report.stop == .exhausted
+#guard (combinedDriver.check 1 combinedSource shortRun.report).isSome
+#guard (combinedDriver.check 1 combinedSource ⟨shortRun.report.sites, .fixed⟩).isNone
+#guard combinedRun.report.sites == [.zeroSample 8, .evalScale 7]
+#guard combinedRun.report.stop == .fixed
+#guard combinedRun.state.1 == 12
+#guard ((classesAt combinedRun.state.2)[8]?) == (classesAt combinedRun.state.2)[9]?
+#guard ((classesAt combinedRun.state.2)[7]?) == (classesAt combinedRun.state.2)[11]?
+#guard (wiring combinedRun.state.2).drop 9 == [[1, 1], [6, 0], [10, 4]]
+#guard (combinedDriver.check 2 combinedSource combinedRun.report).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 7, .zeroSample 8], .fixed⟩).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 8], .fixed⟩).isNone
+
+private def combinedObservation : Tuple (fun t => Option ((model false).Value t)) result :=
+  .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil)))
+
+open EPEG.Saturation.Extension.Worklist in
+private theorem combinedPreserves :
+    EPEG.Saturation.Extension.Dedup.Preserves (model false) .nil combinedSource combinedRun.state :=
+  Combined.check_sound (Combined.run_checked (ops := combinedOps) 2 combinedSource) rfl totalLaw
+
+example (idx : Index 1) :
+    ∃ after : WellFounded combinedRun.state.2.graph.Demand,
+      combinedRun.state.2.classes.Valid (combinedRun.state.2.graph.denote (model false) .nil after) ∧
+      combinedRun.state.2.graph.observe (model false)
+        (combinedRun.state.2.graph.denote (model false) .nil after) idx = combinedObservation := by
+  have before := extraZeroSample.demandWellFounded wf
+  obtain ⟨after, valid, agrees⟩ := combinedPreserves before Classes.discrete_valid
+  exact ⟨after, valid, (agrees idx).trans
+    ((extraZeroSample.observe_eq wf before idx).trans (observed idx))⟩
 
 private theorem ranked : (rank 10).check found.extract = true := by
   rw [show found = expectedMatch from rfl]
