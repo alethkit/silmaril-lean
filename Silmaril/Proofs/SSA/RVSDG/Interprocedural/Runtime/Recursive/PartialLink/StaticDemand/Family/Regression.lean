@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
@@ -10,6 +12,7 @@ meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Sta
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
 
 open NestedTheta.Liveness
+open Isomorphism.RecursiveCall.Numbered.Prefix (linkTerm_bind)
 open Continuation (Stack)
 open Continuation.Partial (Config Step)
 open Continuation.Partial.Executable (Actions Observation next? observe runFor runFor_add step_iff)
@@ -385,14 +388,18 @@ private def wrapper : Family.Wrapper inferred exportFn where
 
 example : wrapper.dispatchOrigin.address = .output 0 0 := rfl
 
-private theorem wrapperLive : wrapper.liveIn requested = [.arg 1, .arg 2, .arg 3] := by
+private theorem wrapperReads : (wrapper.body.plan requested).live = [.arg 1, .arg 2, .arg 3] := by
   have usesFirst : resultDemand 0 (wrapperSuffix.plan requested) = requested := by
     funext p
     cases p <;> rfl
   change ((wrapperSuffix.plan requested).prepend 0
     (applyReads ((template true).summaries.live (0 : Fin 2) (resultDemand 0 (wrapperSuffix.plan requested)))
-      _ _)).live.eraseDups = _
+      _ _)).live = _
   rw [usesFirst, relayLive]
+  decide
+
+private theorem wrapperLive : wrapper.liveIn requested = [.arg 1, .arg 2, .arg 3] := by
+  simp only [Family.Wrapper.liveIn, Code.liveIn, wrapperReads]
   decide
 
 #guard wrapper.liveIn empty == [.arg 1, .arg 2]
@@ -441,5 +448,147 @@ private def wrapperResult : Observation machine Nat single → Option (Nat × Na
 #guard probeBlock (runWrapper 64 0 2 40) 7
 #guard (resume (runWrapper 64 0 2 4)).bind wrapperResult == some (41, 80)
 #guard (resume (runWrapper 64 0 2 40)).bind wrapperResult == some (41, 80)
+
+-- The later λ captures the earlier λ at vertex 1 and the φ member at
+-- vertex 0. The latter is an actual witness for the earlier λ's capture.
+private abbrev seeds := (template true).summaries
+private abbrev seedSigs := [memberPorts seeds.members]
+private abbrev firstSigs := seedSigs ++ [[exportFn.port]]
+
+private def firstBinding : Ordered.Binding Op seeds single seedSigs exportFn where
+  context := wrapper.lambda.context
+  captures := wrapper.lambda.captures
+  sigs := wrapper.sigs
+  body := wrapper.body
+
+private abbrev firstSlots := Ordered.prepend firstBinding.summary seeds
+private abbrev laterEntry := [exportFn.port, fn.port, num] ++ exportFn.args
+
+private def laterSuffix : Code Op laterEntry [single] [[]] single true (some firstSlots) :=
+  .primitive .after .nil (.ret (.cons (.output (0 : Fin 2) .head) .nil))
+
+private def laterBinding : Ordered.Binding Op firstSlots single firstSigs exportFn where
+  context := [exportFn.port, fn.port, num]
+  captures := .cons (.output (1 : Fin 2) .head)
+    (.cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil))
+  sigs := [single, []]
+  body := .familyCall (table := firstSlots) (0 : Fin 3) .head
+    (.cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) .nil))
+    (.cons (.arg (.tail (.tail (.tail .head))))
+      (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
+    laterSuffix
+
+private abbrev laterSlots := Ordered.prepend laterBinding.summary firstSlots
+
+private def seedLocals (cap : Nat) : Locals machine.Val seedSigs :=
+  (inferred.references (one cap), PUnit.unit)
+
+private def seedChecked (cap : Nat) :=
+  Ordered.CheckedPrefix.seed actions inferred (one cap) (one cap) (relayReady cap) (relayReady cap)
+
+private def firstLocals (cap : Nat) : Locals machine.Val firstSigs :=
+  (seedLocals cap).snoc (.cons (firstBinding.value (one cap) (seedLocals cap)) .nil)
+
+private def firstChecked? (cap : Nat) : Option (Ordered.CheckedPrefix actions firstSlots
+    (firstLocals cap) (firstLocals cap)) :=
+  (seedChecked cap).addLambda firstBinding (one cap) (one cap)
+    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
+
+private def firstChecked (cap : Nat) := (firstChecked? cap).get (by rfl)
+
+private def laterChecked? (cap : Nat) :=
+  (firstChecked cap).addLambda laterBinding (one cap) (one cap)
+    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
+
+private def laterChecked (cap : Nat) := (laterChecked? cap).get (by rfl)
+
+private def orderedExport : ModuleTerm Op single (firstSigs ++ [[exportFn.port]]) [] [exportFn.port] :=
+  .ret (.cons (.output (2 : Fin 3) .head) .nil)
+
+private def orderedLambdas : ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port]] [exportFn.port] :=
+  .bind (.lambda firstBinding.term) (.bind (.lambda laterBinding.term) orderedExport)
+
+private def orderedGraph : Omega Op single [exportFn.port] (firstSigs ++ [[exportFn.port]]) :=
+  OmegaTerm.toGraph ⟨.bind (.phi inferred.group) orderedLambdas⟩
+
+private def exportValues (cap : Nat) : Tuple machine.Val [exportFn.port] :=
+  .cons (laterBinding.value (one cap) (firstLocals cap)) .nil
+
+private def laterCaptures (cap : Nat) := laterBinding.captures.read (one cap) (firstLocals cap)
+
+private theorem linkedOrdered (cap : Nat) :
+    Executable.link actions 83 orderedGraph (one cap) 20 = .linked (exportValues cap) 20 := by
+  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap) (past := [])
+    PUnit.unit (.bind (.phi inferred.group) orderedLambdas) 20 = _
+  refine (linkTerm_bind (past := []) actions 83 (one cap) PUnit.unit (.phi inferred.group) orderedLambdas 20).trans ?_
+  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap)
+    (seedLocals cap) orderedLambdas 20 = _
+  exact (firstBinding.link_step actions 83 (one cap) (seedLocals cap)
+      (.bind (.lambda laterBinding.term) orderedExport) 20).trans
+    ((laterBinding.link_step actions 83 (one cap) (firstLocals cap) orderedExport 20).trans rfl)
+
+private theorem laterReads : laterBinding.summary.live requested = [.arg 2, .arg 3, .arg 4] := by
+  have usesFirst : resultDemand 0 (laterSuffix.plan requested) = requested := by
+    funext p
+    cases p <;> rfl
+  change ((laterSuffix.plan requested).prepend 0
+    (applyReads (firstBinding.summary.live (resultDemand 0 (laterSuffix.plan requested))) _ _)).live = _
+  rw [usesFirst]
+  have firstReads : firstBinding.summary.live requested = [.arg 1, .arg 2, .arg 3] := wrapperReads
+  rw [firstReads]
+  decide
+
+#guard laterBinding.summary.live empty == [.arg 2, .arg 3]
+example : Address.arg 4 ∈ (laterBinding.body.liveness requested).mayOut 0 :=
+  (laterBinding.body.mem_liveIn_iff requested _).1 (by
+    simp only [Code.liveIn, List.mem_eraseDups]
+    change Address.arg 4 ∈ laterBinding.summary.live requested
+    rw [laterReads]
+    decide)
+
+private theorem laterAgreed (cap count : Nat) :
+    Ordered.InputsAgree (m := machine) laterBinding.summary requested
+      (prependContext (args count 41 4) (laterCaptures cap))
+      (prependContext (args count 41 40) (laterCaptures cap)) := by
+  intro ty p live
+  change .arg p.index ∈ laterBinding.summary.live requested at live
+  rw [laterReads] at live
+  cases p with
+  | head => simp [Port.index] at live
+  | tail p =>
+    cases p with
+    | head => simp [Port.index] at live
+    | tail p =>
+      cases p with
+      | head => rfl
+      | tail p =>
+        cases p with
+        | head => rfl
+        | tail p =>
+          cases p with
+          | head => rfl
+          | tail p =>
+            cases p with
+            | head => simp [Port.index] at live
+            | tail p => nomatch p
+
+private def runOrdered (fuel cap count spare : Nat) :=
+  Executable.run actions fuel 83 orderedGraph (one cap) .head (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runOrdered fuel cap count 4 = .ok left ∧ runOrdered fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right := by
+  exact (laterChecked cap).dispatch.linked_prefixes_agree (0 : Fin 4) requested fuel after 83 orderedGraph
+    .head (one cap) (one cap) (args count 41 4) (args count 41 40) 20
+    (capsL := laterCaptures cap) (capsR := laterCaptures cap)
+    (linkedOrdered cap) (linkedOrdered cap) ⟨rfl, rfl⟩ ⟨rfl, rfl⟩ (laterAgreed cap count)
+
+#guard (runOrdered 80 2 2 4).toOption.bind wrapperResult == some (41, 66)
+#guard (runOrdered 80 2 2 40).toOption.bind wrapperResult == some (41, 66)
+#guard probeBlock (runOrdered 80 0 2 4) 8
+#guard probeBlock (runOrdered 80 0 2 40) 8
+#guard (resume (runOrdered 80 0 2 4)).bind wrapperResult == some (41, 90)
+#guard (resume (runOrdered 80 0 2 40)).bind wrapperResult == some (41, 90)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression

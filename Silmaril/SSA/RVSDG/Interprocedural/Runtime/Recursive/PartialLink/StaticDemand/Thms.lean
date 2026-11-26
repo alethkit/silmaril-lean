@@ -24,6 +24,11 @@ theorem Code.mem_liveIn_iff (code : Code Op entry [] sigs results loops member) 
     a ∈ code.liveIn demand ↔ a ∈ (code.liveness demand).mayOut 0 :=
   Proofs.mem_liveIn_iff code demand a
 
+/-- Increasing output demand enlarges the input reads of the shared plan. -/
+theorem Code.plan_mono {past : List (Ports (Ty V S))} (code : Code Op entry past sigs results loops member) {low high : Demand}
+    (more : ∀ p, low p = true → high p = true) : (code.plan low).live ⊆ (code.plan high).live :=
+  Proofs.plan_mono code more
+
 /-- The linked body's feedback transfer uses the native finite least fixed point. -/
 theorem Code.feedbackLive_isLeast {carried : Ports (Ty V S)}
     (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand) :

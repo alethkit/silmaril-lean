@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
-import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Correct
+public import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Correct
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 public section
@@ -9,6 +9,7 @@ public section
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Proofs
 
 open NestedTheta.Liveness (Demand)
+open Continuation (Stack)
 open Continuation.Partial (Config)
 open Continuation.Partial.Executable (Actions next?)
 
@@ -17,6 +18,43 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {table : MemberSummaries V S} {imports : Ports (Ty V S)} {fn : Function V S}
 variable {family : Family Op table imports}
+
+/-- Enter the actual λ with an arbitrary related saved suffix. The earlier
+dispatch environment handles any static calls in the λ body. -/
+theorem lambda_with_dispatch {context final : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    (code : Code Op (context ++ fn.args) [] sigs fn.results true (some table))
+    (actions : Actions m σ) (observed wanted : Demand)
+    (guardL guardR : MemberResolution m (some table))
+    (dispatch : ∀ n, MemberDispatch actions observed guardL guardR n final)
+    (capsL capsR : Tuple m.Val context) (argsL argsR : Tuple m.Val fn.args) (store : σ)
+    (left right : Stack m fn.results final) (depth : Nat)
+    (resolvedL : code.ResolvedWith guardL (prependContext argsL capsL))
+    (resolvedR : code.ResolvedWith guardR (prependContext argsR capsR))
+    (agree : ∀ {ty} (p : Port (context ++ fn.args) ty), .arg p.index ∈ (code.plan wanted).live →
+      (prependContext argsL capsL).get p = (prependContext argsR capsR).get p)
+    (finish : ResumeAgrees actions observed wanted (some depth) left right (fun _ => True) (fun _ => True)) :
+    PrefixMatches actions observed depth
+      ⟨.eval (.call (.closure capsL code.term.toGraph) argsL) left, store⟩
+      ⟨.eval (.call (.closure capsR code.term.toGraph) argsR) right, store⟩ := by
+  cases depth with
+  | zero => exact .cut _ _
+  | succ n =>
+    have enter (caps : Tuple m.Val context) (args : Tuple m.Val fn.args) (frame : Stack m fn.results final) :
+        next? actions ⟨.eval (.call (.closure caps code.term.toGraph) args) frame, store⟩ =
+          some (⟨.eval (.region code.term (prependContext args caps) PUnit.unit) frame, store⟩ :
+            Config m σ final) := by
+      change some (⟨.eval (.region code.term.toGraph.toTerm (prependContext args caps) PUnit.unit) frame, store⟩ :
+        Config m σ final) = _
+      rw [NestedTheta.Term.toTerm_toGraph]
+    apply PrefixMatches.step (enter capsL argsL left) (enter capsR argsR right)
+    apply region actions observed code guardL guardR (some n) (by simp) (dispatch n) wanted _ _ PUnit.unit PUnit.unit
+      left right store resolvedL resolvedR
+    · intro ty source needed
+      cases source with
+      | output i _ => exact i.elim0
+      | arg p => exact agree p needed
+    · intro outL outR middle equal _ _
+      exact prefix_mono (Nat.le_succ n) (finish outL outR middle equal trivial trivial)
 
 theorem lambda_calls (family : Family Op table imports) {context : Ports (Ty V S)}
     {sigs : List (Ports (Ty V S))}
@@ -32,28 +70,14 @@ theorem lambda_calls (family : Family Op table imports) {context : Ports (Ty V S
       ⟨Continuation.start (.call (.closure capsL code.term.toGraph) argsL), store⟩
       ⟨Continuation.start (.call (.closure capsR code.term.toGraph) argsR), store⟩ := by
   intro depth
-  cases depth with
-  | zero => exact .cut _ _
-  | succ n =>
-    have enter (caps : Tuple m.Val context) (args : Tuple m.Val fn.args) :
-        next? actions ⟨Continuation.start (.call (.closure caps code.term.toGraph) args), store⟩ =
-          some (⟨.eval (.region code.term (prependContext args caps) PUnit.unit) .halt, store⟩ :
-            Config m σ fn.results) := by
-      change some (⟨.eval (.region code.term.toGraph.toTerm (prependContext args caps) PUnit.unit) .halt, store⟩ :
-        Config m σ fn.results) = _
-      rw [NestedTheta.Term.toTerm_toGraph]
-    apply PrefixMatches.step (enter capsL argsL) (enter capsR argsR)
-    apply region actions demand code (family.guard groupL) (family.guard groupR) (some n) (by simp)
-      (family_dispatch family actions demand groupL groupR closedL closedR n) demand _ _ PUnit.unit PUnit.unit
-      .halt .halt store resolvedL resolvedR
-    · intro ty source needed
-      cases source with
-      | output i _ => exact i.elim0
-      | arg p => exact agree p (List.mem_eraseDups.2 needed)
-    · intro outL outR middle observed _ _
-      cases n with
-      | zero => exact .cut _ _
-      | succ n => exact .returned observed
+  apply lambda_with_dispatch code actions demand demand (family.guard groupL) (family.guard groupR)
+    (fun n => family_dispatch family actions demand groupL groupR closedL closedR n)
+    capsL capsR argsL argsR store .halt .halt depth resolvedL resolvedR
+  · exact fun p h => agree p (List.mem_eraseDups.2 h)
+  · intro outL outR middle observed _ _
+    cases depth with
+    | zero => exact .cut _ _
+    | succ n => exact .returned observed
 
 variable (wrapper : Family.Wrapper family fn)
 
