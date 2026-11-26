@@ -1113,9 +1113,8 @@ recorded-cut law to the first readable bank. `Slice.boundary` checks
 the actual restart or exit marking, and `Complete.observations_agree`
 compares every selected occurrence and full bank with the original CF/Φ
 rows and latch successors. The comparison uses separate source, CF, θ
-and coloured witnesses. The scan is a sound check for this complete-log
-profile. Acceptance of all legal schedules, including θ entry before
-independent preheader work finishes, remains open.
+and coloured witnesses. The complete-log profile requires a fully
+marked preheader at θ entry.
 [Log API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Thms.lean) ·
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Regression.lean)
 
@@ -1139,6 +1138,41 @@ schedules produce different flat logs with the same three
 observations and return word `152`. The last two booleans check
 refusal when the final commit is missing and when the initial pending
 marking is repeated as a purported firing.
+
+### Characterize which flat logs are accepted
+
+`Outer.Numbered.Petri.Trace.Log.Completeness.Thms` adds
+`scan_isSome_iff`. Its independent `LegalComplete` predicate starts at
+the original pending marking, checks adjacent pairs with the original
+`Fire` relation, requires all preheader results when θ leaves pending,
+and reads completion at the last marking with `finished`. The theorem
+derives body advances, restarts, and the final commit from those
+transitions. The entry condition excludes schedules that start θ while
+independent preheader work is still pending.
+
+`Complete.observations_eq` and `Complete.result_eq` give equality of
+the ordered full typed observations and final output at the same
+input. These laws compare decoded data. Checkpoint positions can vary
+with scheduling. The executable fixture changes the choice of fire
+inside the live outer-true child containing the inner split. Its
+child-marking histories differ even after removing repeated markings
+from unrelated firings. Both logs take two restarts and return `152`.
+[Completeness API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Completeness/Thms.lean) ·
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Completeness/Regression.lean)
+
+Build the import below with `lake build --wfail +<module>`. Paste it
+into `QuadSharedPetriInnerSchedules.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadSharedPetriInnerSchedules.lean`.
+
+```lean
+module
+
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Trace.Log.Completeness.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Log.Completeness.Example
+
+#eval report
+```
 
 ## Complete the emitted loop by coloured firing
 
