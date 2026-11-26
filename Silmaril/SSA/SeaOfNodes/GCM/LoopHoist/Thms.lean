@@ -12,6 +12,7 @@ namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Block Cfg Frame Terminator)
 open Silmaril.MLIR.Pure (Operands)
+open Silmaril.MLIR.SCF (For)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
 variable {Input : List Width} {carried result : Width}
@@ -85,6 +86,14 @@ theorem evalCaptureOrigins {Γ args : List Width} (origins : Origins Input Γ)
     operands.eval env = captured.eval input :=
   Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.evalCaptureOrigins origins operands found env input agree
 
+/-- A typed rename with agreeing environments preserves operand evaluation. -/
+theorem evalRenameOperands {Γ Δ args : List Width} (rename : Rename Γ Δ)
+    (source : Env Γ) (target : Env Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
+    (operands : Operands Γ args) :
+    (For.renameOperands rename operands).eval target = operands.eval source :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.evalRename rename source target same operands
+
 /-- Successful emission consumes the selected preheader cut and the
 actual current binding with captured operands. -/
 theorem hoistCodeWith?_spec
@@ -121,6 +130,16 @@ theorem routes_run_eq {saved : Width}
     {value : BitVec saved.val} (routing : Routes cfg target input value) (fuel : Nat) :
     target.run evalOp fuel input = cfg.run evalOp fuel input :=
   Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.routes_run_eq routing fuel
+
+/-- Prefixing the header's packet preserves the runner at every fuel if
+entry and block transfers commute with that prefix. -/
+theorem routesWith_run_eq {saved : Width} {extra : List Width}
+    {source : Cfg TargetOp (SourceLabel carried result) Input [result]}
+    {target : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {input : Env Input} {values : Env (extra ++ [saved])}
+    (routing : RoutesWith source target input values) (fuel : Nat) :
+    target.run evalOp fuel input = source.run evalOp fuel input :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.runEqOfRoutes routing fuel
 
 /-- The nominated binding uses the legal preheader cut selected from its
 actual typed operand and use sites. -/

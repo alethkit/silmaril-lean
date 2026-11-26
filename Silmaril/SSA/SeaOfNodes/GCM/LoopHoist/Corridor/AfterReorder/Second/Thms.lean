@@ -8,7 +8,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 
 open Silmaril.MLIR.Arith (Env Width)
-open Silmaril.MLIR.CF (Block)
+open Silmaril.MLIR.CF (Block Cfg)
 open Silmaril.MLIR.Pure (Operands)
 open Header.Earlier (operations)
 open Header.Sequence (State)
@@ -62,5 +62,18 @@ theorem prepare?_available (accepted : prepare? g first consumerOrigin = some pr
           some ⟨prepared.consumer.width, evalOp prepared.consumer.op
             (prepared.consumer.inputs.eval (.cons saved input))⟩ :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.prepare?_available accepted
+
+/-- The leading preheader let computes the exact value supplied by the first
+emitter on entry and feedback. The exit block is the canonical return. -/
+theorem prepare?_first_routes (accepted : prepare? g first consumerOrigin = some prepared)
+    (input : Env Input) :
+    ∃ (source : Cfg TargetOp (SourceLabel carried result) Input [result])
+      (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
+      (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
+        (prepared.intermediate.1 :: Input) [result]),
+      prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      prepared.intermediate.2.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      Routes source prepared.intermediate.2 input (evalOp producer (operands.eval input)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.prepare?_first_routes accepted input
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second

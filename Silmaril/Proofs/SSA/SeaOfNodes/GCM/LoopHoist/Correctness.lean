@@ -38,7 +38,7 @@ private theorem evalCapture (operands : Operands (carried :: Input) args)
       obtain ⟨tail, translated, rfl⟩ := Option.map_eq_some_iff.mp found
       simp only [Operands.eval, Env.get, ih translated]
 
-private theorem evalRename (rename : Rename Γ Δ) (source : Env Γ) (target : Env Δ)
+theorem evalRename (rename : Rename Γ Δ) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
     (operands : Operands Γ args) :
     (For.renameOperands rename operands).eval target = operands.eval source := by
@@ -205,7 +205,7 @@ theorem pickAndHoist?_routes (picked : pickAndHoist? g tree = some (cut, output)
   exact ⟨_, op, operands, captured, rest, header, capture, evalEntry op captured rest input,
     evalBlock op operands captured rest header capture input⟩
 
-private theorem runEqOfRoutes
+theorem runEqOfRoutes
     {source : Cfg TargetOp (SourceLabel carried result) Input [result]}
     {target : Cfg TargetOp (Label saved carried result extra) Input [result]}
     {input : Env Input} {values : Env (extra ++ [saved])}
