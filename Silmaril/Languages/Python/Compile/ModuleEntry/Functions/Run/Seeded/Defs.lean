@@ -190,14 +190,18 @@ structure CallContext where
   published : List Function := []
   escaped : List Function := []
 
-/-- The ledger records the descriptors of functions published in this run.
-The ordinary executor reports an invalid reference if dispatch fails. -/
-def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) (arity : Nat := 0) : Bool :=
-  if closure ∈ context.published then
+/-- A bad reference is left to the ordinary executor after the descriptor
+has passed the same-run ledger check. -/
+def CallContext.acceptsCallFrom (context : CallContext) (ledger : List Function)
+    (closure : Function) (arity : Nat) : Bool :=
+  if closure ∈ ledger then
     match Core.Closure.Dispatch.resolve context.table closure.code with
     | .ok definition => definition.parameters.slots.length == arity
     | .error _ => true
   else false
+
+def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) (arity : Nat := 0) : Bool :=
+  context.acceptsCallFrom context.published closure arity
 
 /-- Track only private locals assigned fresh closures. A final call can
 forward the result of a closure created in this frame. -/
@@ -227,17 +231,15 @@ def factoryCode (table : CodeTable) (ref : CodeRef) : Nat → Bool
     | .ok definition => returnsClosure (fun child => factoryCode table child depth) definition.body (fun _ => none)
     | .error _ => true
 
+/-- Both a successful entry publication and a stored factory result can
+supply the live factory descriptor. The returned function must still
+pass the same independent factory-body check. -/
 def CallContext.acceptsFactory (context : CallContext) (closure : Function) (arity : Nat) : Bool :=
-  context.acceptsPublishedCall closure arity && factoryCode context.table closure.code 2
+  context.acceptsCallFrom (context.published ++ context.escaped) closure arity &&
+    factoryCode context.table closure.code 2
 
-/-- Escaped results have their own ledger. Their one-slot selector is
-used only inside a checked helper argument. -/
-def CallContext.acceptsEscapedArgument (context : CallContext) (closure : Function) : Bool :=
-  if closure ∈ context.escaped then
-    match Core.Closure.Dispatch.resolve context.table closure.code with
-    | .ok definition => definition.parameters.slots.length == 1
-    | .error _ => true
-  else false
+def CallContext.acceptsEscapedArgument (context : CallContext) (closure : Function) (arity : Nat := 1) : Bool :=
+  context.acceptsCallFrom context.escaped closure arity
 
 def invokeCallback (space : Namespace) (context : CallContext)
     (expectation : Expectation) (closure : Function) : Except ModuleFailure CallObservation × Heap :=
@@ -267,10 +269,14 @@ def ordinaryCall (space : Namespace) (context : CallContext) (closure : Function
   let invocation := (callbackSession space context.heap).prepareCall .discard (.literal (.function closure)) arguments
   (invocation.runPrefix context.table context.fuel).2.state
 
-def factoryOperands : List Value → Option (List Core.Module.Functions.Operand)
-  | [] => some []
-  | [.int value] => some [.literal (.int value)]
+def factoryOperand : Value → Option Core.Module.Functions.Operand
+  | .int value => some (.literal (.int value))
   | _ => none
+
+/-- The fixed factory slice supplies at most three exact integers. The
+ordinary binder checks the slot count and initializes destinations in order. -/
+def factoryOperands (values : List Value) : Option (List Core.Module.Functions.Operand) :=
+  if values.length ≤ 3 then values.mapM factoryOperand else none
 
 /-- Only a successful closure result can write the factory destination. -/
 def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
@@ -280,8 +286,8 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
 
-/-- Dispatch an already resolved flat call. Factory binding is confined
-to published ordinary functions and the checked zero/one-integer shape. -/
+/-- Dispatch an already resolved flat call. Factory binding uses the current
+run's recorded descriptors and the bounded fixed integer argument profile. -/
 def invokeFlatCall (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) (callee : Value) (arguments : List Value) :
     Except ModuleFailure CallObservation × Heap :=
@@ -354,9 +360,8 @@ def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.D
       ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall,
         calls ++ [⟨name, observed⟩]⟩
 
-/-- A module argument can use the published zero-argument invocation or
-the checked one-integer escaped invocation selected by the outer helper.
-The returned value and heap are carried to the next argument. -/
+/-- The published zero-argument path and the checked escaped zero/one
+argument paths carry their result and reached heap to the next argument. -/
 def observeArgumentIn (space : Namespace) (context : CallContext) (argument : Argument)
     (allowEscaped : Bool := false) : Except ModuleFailure Value × List CallEvent × Heap :=
   match argument with
@@ -368,7 +373,10 @@ def observeArgumentIn (space : Namespace) (context : CallContext) (argument : Ar
       | .error error => (.ok ⟨.error error, none⟩, context.heap)
       | .ok (callee, values) =>
         match callee, values with
-        | .function _, [] => invokeFlatCall space context .discard callee values
+        | .function closure, [] =>
+          if allowEscaped && context.acceptsEscapedArgument closure 0 then
+            observeDirectCall space (ordinaryCall space context closure [])
+          else invokeFlatCall space context .discard callee values
         | .function closure, [.int value] =>
           if allowEscaped && context.acceptsEscapedArgument closure then
             observeDirectCall space (ordinaryCall space context closure [.literal (.int value)])
