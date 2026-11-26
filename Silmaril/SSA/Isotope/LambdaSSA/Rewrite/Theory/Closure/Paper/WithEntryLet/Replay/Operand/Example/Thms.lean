@@ -28,6 +28,15 @@ theorem movedTarget_eq :
       ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr :=
   EntryLetOperandExample.movedTarget_eq
 
+theorem flatTarget_eq :
+    ofRegion flatStep_typed ≫ (sumIso U U).hom =
+      ofRegion flatRequest_typed ≫ discardArrow U ≫ coprod.inr :=
+  EntryLetOperandExample.flatTarget_eq
+
+/-- Moving the request at the flat table root keeps its recurrent output. -/
+theorem move_recurring_request : Site.here.move flatRecurringRequest = some movedRecurringRequest :=
+  EntryLetOperandExample.move_recurring_request
+
 /-- Forgetting the tag is a structural constructor return. -/
 theorem forget_structural : Extension.Singleton.StructuralValues.HomProperty Seed ((J).map forget) :=
   Extension.Singleton.StructuralValues.branch_mem Seed .unit

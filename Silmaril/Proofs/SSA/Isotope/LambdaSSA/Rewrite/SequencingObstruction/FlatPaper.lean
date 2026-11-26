@@ -832,6 +832,36 @@ theorem unfinishedRequests_ne_bothMoved {r : Region Instruction}
     (observesFlat_eq_of_paper eq env he ⟨marked.label, marked.value, marked.effect, marked.marked⟩).1 hx
   exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env hx' hy))
 
+theorem oneMovedRequest_no_image (q : Region Instruction) :
+    let B := Silmaril.coprod U U
+    ¬ Paper.Eqv [B] (q.substVars discardInput) oneMovedRequest [B] := by
+  intro B eq
+  let input (v : Val) : Env := fun i => if i = 0 then v else .unit
+  have typed (v : Val) (hv : Resumption.Typing.ValueTyped (fun (_ _ : Empty) => False) v B) :
+      EnvTyped [B] (input v) := by
+    intro i A hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact hv
+    | succ i => simp [At] at hi
+  have diagonal (v : Val) :
+      observe (input v) (q.substVars discardInput) = observe unitEnv q := by
+    apply observe_subst
+    intro i
+    cases i <;> rfl
+  let unmarked : Exit := ⟨0, .inr .unit, true, false⟩
+  let marked : Exit := ⟨0, .inr .unit, true, true⟩
+  have left : observe (input (.inl .unit)) oneMovedRequest unmarked :=
+    execute_sound 4 _ _ rfl
+  have right : observe (input (.inr .unit)) oneMovedRequest marked :=
+    execute_sound 4 _ _ rfl
+  have same := (paper_observe eq (input (.inl .unit)) (typed _ (.inl .unit))).symm ▸ left
+  rw [diagonal] at same
+  have same' : observe (input (.inr .unit)) (q.substVars discardInput) unmarked := by
+    rw [diagonal]
+    exact same
+  have contrad := (paper_observe eq (input (.inr .unit)) (typed _ (.inr .unit))) ▸ same'
+  exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ _ contrad right))
+
 private theorem unitEnv_typed : EnvTyped [U] unitEnv := by
   intro i A hi
   cases i with

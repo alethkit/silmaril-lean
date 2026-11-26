@@ -54,6 +54,20 @@ def secondRequestMoved : Region Instruction := sequenceRequests flatRequest move
 
 def bothRequestsMoved : Region Instruction := sequenceRequests movedRequest movedRecurringRequest
 
+/-- The input substitution produced by precomposing with a Unit return. -/
+def discardInput : Nat → Tm Instruction :=
+  Tm.singleSubst .unit ∘ Silmaril.DeBruijn.lift Nat.succ
+
+/-- A native case expansion copies the discarded-input request into both arms. -/
+def duplicatedRequest : Region Instruction :=
+  .case (.var 0) ((flatRecurringRequest.substVars discardInput).renameVars Nat.succ)
+    ((flatRecurringRequest.substVars discardInput).renameVars Nat.succ)
+
+/-- Move the request out of its local CFG in just the first copy. -/
+def oneMovedRequest : Region Instruction :=
+  .case (.var 0) ((movedRecurringRequest.substVars discardInput).renameVars Nat.succ)
+    ((flatRecurringRequest.substVars discardInput).renameVars Nat.succ)
+
 def unaryBlock : Region Instruction := .br 1 (.var 0)
 
 /-- Run the request under a unary binder before the two local transfers. -/
