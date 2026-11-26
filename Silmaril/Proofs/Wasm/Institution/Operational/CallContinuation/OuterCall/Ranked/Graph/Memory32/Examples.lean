@@ -305,7 +305,7 @@ private def ifInput (condition : BitVec 32) : State :=
   ⟨before, outside, values [i32 condition] ++ [.source (.call ⟨0⟩)]⟩
 private def ifFrame (traps : Bool) (condition : BitVec 32) : Frame :=
   (conditional traps).declaration.frame [i32 condition]
-private def underIfReader (c : Config Unit) : Config Unit :=
+private def underReader (c : Config Unit) : Config Unit :=
   ⟨c.store, outside, [.frame 1 c.frame [.label 1 [] c.code]]⟩
 private def selected (condition : BitVec 32) : Wasm.V1.Expr :=
   if condition = 0 then [] else [.call ⟨0⟩]
@@ -314,7 +314,7 @@ private def ifWritten (traps : Bool) := storeWithBytes (ifBase traps) slot memor
 -- Stop at the selected block, then account for the separate native label step.
 private theorem ifSelect (traps : Bool) (condition : BitVec 32) :
     Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput condition).code⟩
-      (underIfReader ⟨ifBase traps, ifFrame traps condition,
+      (underReader ⟨ifBase traps, ifFrame traps condition,
         values saved ++ [.source (.block none (selected condition))] ++ continuation⟩) := by
   apply Relation.ReflTransGen.head
     (b := ⟨ifBase traps, outside, values [i32 condition] ++ [.invoke parentAddr]⟩)
@@ -331,7 +331,7 @@ private theorem ifSelect (traps : Bool) (condition : BitVec 32) :
 
 private theorem ifOpen (traps : Bool) (condition : BitVec 32) :
     Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput condition).code⟩
-      (underIfReader ⟨ifBase traps, ifFrame traps condition,
+      (underReader ⟨ifBase traps, ifFrame traps condition,
         values saved ++ [.label 0 [] (Wasm.V1.Execution.expression (selected condition))] ++ continuation⟩) :=
   (ifSelect traps condition).tail
     (.frame (.label (.context (.pure _ _ (.block none (selected condition))) saved continuation) 1 []) 1 outside)
@@ -344,7 +344,7 @@ private theorem ifReadback {traps : Bool} {condition : BitVec 32} {dst : Config 
     (args := [i32 condition]) (caller := outside) (ifChecked traps) (ifLayout traps) rfl rfl).mp path
 
 example : ∃ out, Runs (ifProgram false) slot (ifInput 1) out ∧
-    underIfReader ⟨ifBase false, ifFrame false 1,
+    underReader ⟨ifBase false, ifFrame false 1,
       values saved ++ [.source (.block none [.call ⟨0⟩])] ++ continuation⟩ =
         render (ifBase false) slot memory out := by
   obtain ⟨out, path, _, eq⟩ := ifReadback (ifSelect false 1)
@@ -355,7 +355,7 @@ private theorem ifFinish {traps : Bool} {condition word : BitVec 32} {s : Store 
       ⟨s, ifFrame traps condition, values saved ++ continuation⟩
       ⟨s, ifFrame traps condition, values [i32 word]⟩) :
     Steps CallFrame.v1NoHost
-      (underIfReader ⟨s, ifFrame traps condition, values saved ++ [.label 0 [] []] ++ continuation⟩)
+      (underReader ⟨s, ifFrame traps condition, values saved ++ [.label 0 [] []] ++ continuation⟩)
       ⟨s, outside, values [i32 word]⟩ := by
   apply Relation.ReflTransGen.head
     (Step.frame (Step.label (Step.context (.pure _ _ (.labelDone 0 [] [])) saved continuation) 1 []) 1 outside)
@@ -373,13 +373,13 @@ example : ∃ out, Runs (ifProgram true) slot (ifInput 0) out ∧
   exact ⟨out, path, eq⟩
 
 private def inIfArm (traps : Bool) (c : Config Unit) : Config Unit :=
-  underIfReader ⟨c.store, ifFrame traps 1, values saved ++ [.label 0 [] c.code] ++ continuation⟩
+  underReader ⟨c.store, ifFrame traps 1, values saved ++ [.label 0 [] c.code] ++ continuation⟩
 
 private theorem inIfArm_steps {traps : Bool} {a b : Config Unit}
     (path : Steps CallFrame.v1NoHost a b) (frame : a.frame = ifFrame traps 1)
     (frame' : b.frame = ifFrame traps 1) :
     Steps CallFrame.v1NoHost (inIfArm traps a) (inIfArm traps b) := by
-  simpa only [inIfArm, underIfReader, frame, frame'] using
+  simpa only [inIfArm, underReader, frame, frame'] using
     ((((path.label 0 []).context saved continuation).label 1 []).frame 1 outside)
 
 private theorem ifInvoke (traps : Bool) :
@@ -434,5 +434,171 @@ example : ∃ out, Runs (ifProgram true) slot (ifInput 1) out ∧
     (Step.pure _ _ (.frameTrap 1 (ifFrame true 1)))
   obtain ⟨out, path, _, eq⟩ := ifReadback unwind
   exact ⟨out, path, eq⟩
+
+-- The void inner block calls the writer. The outer block delivers the i32
+-- local above a saved 4. The continuation subtracts it, then loads at 2 + 1.
+private def blockReader (traps : Bool) : Function :=
+  ⟨(conditional traps).declaration, 1, [i32 4],
+    [.block (some (.int .i32)) [.block none [.ranked (.call (target traps))],
+      .ranked (.numeric (.get ⟨0⟩))],
+      .ranked (.numeric (.bin .i32 .sub)), .load 1]⟩
+
+private def blockProgram (traps : Bool) : Program := ⟨[some (writer traps), some (blockReader traps)]⟩
+private def blockBase (traps : Bool) : Store Unit :=
+  { memories := [untouched, memory], funcs := [writer traps, blockReader traps].map
+      (fun fn => .wasm fn.declaration.type fn.declaration.module fn.v1Func) }
+private theorem blockChecked (traps : Bool) : (blockProgram traps).checkV1 slot = true := by
+  cases traps <;> rfl
+private theorem blockLayout (traps : Bool) : Layout (blockProgram traps) (blockBase traps) slot memory where
+  memory := rfl
+  functions := by
+    intro a fn found
+    rcases a with ⟨_ | _ | n⟩ <;> simp [Program.lookup, blockProgram] at found
+    all_goals subst fn; rfl
+
+example : (Program.mk [some (writer false), some { blockReader false with rank := 0 }]).checkV1 slot =
+    false := rfl
+
+-- The body cannot use the enclosing address without producing its own.
+example : Function.checkV1 { blockReader false with
+    code := [.block (some (.int .i32)) [.load 1], .ranked (.numeric (.bin .i32 .sub))] } slot = false := rfl
+
+example : Function.checkV1 { blockReader false with
+    code := [.block (some (.int .i32)) [], .ranked (.numeric (.bin .i32 .sub))] } slot = false := rfl
+
+-- Returning an i32 through a void block checks the enclosing function result.
+example : Function.checkV1 { blockReader false with
+    code := [.block (some (.int .i64)) [.block none [.ranked (.numeric (.get ⟨0⟩)), .ranked .return_],
+      .ranked .unreachable], .ranked .unreachable] } slot = true := rfl
+
+example : Function.checkV1 { blockReader false with
+    code := [.block none [.ranked .return_], .load 1] } slot = false := rfl
+
+private def blockInput := ifInput 2
+private def blockFrame (traps : Bool) := (blockReader traps).declaration.frame [i32 2]
+private def blockWritten (traps : Bool) := storeWithBytes (blockBase traps) slot memory after
+private def pendingGet : List Wasm.V1.Execution.Admin := [.source (.localGet ⟨0⟩)]
+private def blockTail : List Wasm.V1.Execution.Admin := [.source (.intBinOp .i32 .sub)] ++ continuation
+
+private def inOuterBlock (c : Config Unit) : Config Unit :=
+  underReader ⟨c.store, c.frame, values [i32 4] ++ [.label 1 [] c.code] ++ blockTail⟩
+
+private def inNestedBlocks (c : Config Unit) : Config Unit :=
+  inOuterBlock ⟨c.store, c.frame, [.label 0 [] c.code] ++ pendingGet⟩
+
+private theorem inNestedBlocks_steps {a b : Config Unit} (path : Steps CallFrame.v1NoHost a b) :
+    Steps CallFrame.v1NoHost (inNestedBlocks a) (inNestedBlocks b) :=
+  let blocks := (((path.label 0 []).context [] pendingGet).label 1 []).context [i32 4] blockTail
+  (blocks.label 1 []).frame 1 outside
+
+private theorem outerBlockOpen (traps : Bool) :
+    Steps CallFrame.v1NoHost ⟨blockBase traps, outside, blockInput.code⟩
+      (inOuterBlock ⟨blockBase traps, blockFrame traps, [.source (.block none [.call ⟨0⟩])] ++ pendingGet⟩) := by
+  apply Relation.ReflTransGen.head
+    (b := ⟨blockBase traps, outside, values [i32 2] ++ [.invoke parentAddr]⟩)
+    (Step.context (.call _ _ ⟨0⟩ parentAddr rfl) [i32 2] [])
+  refine Relation.ReflTransGen.head
+    ((blockLayout traps).enter (blockChecked traps) (address := parentAddr)
+      (fn := blockReader traps) rfl (blockLayout traps).initial_shared (saved := []) (args := [i32 2])
+      (tail := []) rfl) ?_
+  exact .single (.frame (.label (.context
+    (.pure _ _ (.block (some (.int .i32)) [.block none [.call ⟨0⟩], .localGet ⟨0⟩]))
+    [i32 4] blockTail) 1 []) 1 outside)
+
+private theorem innerBlockOpen (traps : Bool) :
+    Step CallFrame.v1NoHost
+      (inOuterBlock ⟨blockBase traps, blockFrame traps, [.source (.block none [.call ⟨0⟩])] ++ pendingGet⟩)
+      (inNestedBlocks ⟨blockBase traps, blockFrame traps, [.source (.call ⟨0⟩)]⟩) :=
+  .frame (.label (.context (.label (.context (.pure _ _ (.block none [.call ⟨0⟩])) [] pendingGet)
+    1 []) [i32 4] blockTail) 1 []) 1 outside
+
+private theorem blockReadback {traps : Bool} {dst : Config Unit}
+    (path : Steps CallFrame.v1NoHost ⟨blockBase traps, outside, blockInput.code⟩ dst) :
+    ∃ out, Runs (blockProgram traps) slot blockInput out ∧
+      Ready (blockProgram traps) slot 2 before.size out ∧ dst = render (blockBase traps) slot memory out :=
+  (v1_call_run_iff (root := parentAddr) (fn := blockReader traps) (index := ⟨0⟩)
+    (args := [i32 2]) (caller := outside) (blockChecked traps) (blockLayout traps) rfl rfl).mp path
+
+example : ∃ outer inner, Runs (blockProgram false) slot blockInput outer ∧ Edge (blockProgram false) slot outer inner ∧
+    inOuterBlock ⟨blockBase false, blockFrame false, [.source (.block none [.call ⟨0⟩])] ++ pendingGet⟩ =
+      render (blockBase false) slot memory outer ∧
+    inNestedBlocks ⟨blockBase false, blockFrame false, [.source (.call ⟨0⟩)]⟩ =
+      render (blockBase false) slot memory inner := by
+  obtain ⟨outer, reaches, ready, eq⟩ := blockReadback (outerBlockOpen false)
+  have next := eq ▸ innerBlockOpen false
+  obtain ⟨inner, move, _, targetEq⟩ := (v1_step_iff (blockChecked false) (blockLayout false) ready).mp next
+  exact ⟨outer, inner, reaches, move, eq, targetEq⟩
+
+private theorem blockInvoke (traps : Bool) :
+    Steps CallFrame.v1NoHost ⟨blockBase traps, outside, blockInput.code⟩
+      (inNestedBlocks ⟨blockBase traps, blockFrame traps,
+        MemoryWrite.v1ActivationCode none (callee traps) [] []
+          (Wasm.V1.Execution.expression (writer traps).v1Func.body)⟩) := by
+  apply ((outerBlockOpen traps).tail (innerBlockOpen traps)).trans
+  apply inNestedBlocks_steps
+  apply Relation.ReflTransGen.head (Step.call _ _ ⟨0⟩ childAddr rfl)
+  exact .single ((blockLayout traps).enter (blockChecked traps) (address := childAddr)
+    (fn := writer traps) rfl (blockLayout traps).initial_shared (saved := []) (args := []) (tail := []) rfl)
+
+example : ∃ out, Runs (blockProgram false) slot blockInput out ∧
+    (⟨blockWritten false, outside, values [i32 0x11223344]⟩ : Config Unit) =
+      render (blockBase false) slot memory out := by
+  have write := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost)
+    (immediate := immediate 2) (caller := blockFrame false) (result := none)
+    (callerSaved := []) (callerTail := []) (saved := []) (tail := [])
+    (show Wasm.V1.Execution.frameMemory (blockBase false) (callee false) = some (slot, memory) from rfl)).mpr
+    ⟨.written after, writing, rfl⟩
+  have child := ((Relation.ReflTransGen.single write).tail
+    (Step.frame (.pure _ _ (.labelDone 0 [] [])) 0 (blockFrame false))).tail
+    (Step.pure _ (blockFrame false) (.frameDone 0 (callee false) [] rfl))
+  have resumeInner := ((blockInvoke false).trans (inNestedBlocks_steps child)).tail
+    (Step.frame (.label (.context (.label (.context (.pure _ _ (.labelDone 0 [] [])) [] pendingGet) 1 [])
+      [i32 4] blockTail) 1 []) 1 outside)
+  have get := resumeInner.tail
+    (Step.frame (.label (.context (.label (.localGet _ _ ⟨0⟩ (i32 2) rfl) 1 [])
+      [i32 4] blockTail) 1 []) 1 outside)
+  have resumeOuter := get.tail
+    (Step.frame (.label (.context (.pure _ _ (.labelDone 1 [] [i32 2])) [i32 4] blockTail) 1 []) 1 outside)
+  have sub := resumeOuter.tail
+    (Step.frame (.label (.context (.pure _ _ (.intBinary .i32 .sub 4 2 2 rfl)) [] continuation) 1 []) 1 outside)
+  have load := (MemoryWrite.v1_context_load_step_iff_at (host := CallFrame.v1NoHost)
+    (immediate := immediate 1) (address := 2) (saved := []) (tail := [])
+    ((blockLayout false).frame_memory (blockChecked false) (address := parentAddr) (fn := blockReader false)
+      rfl [i32 2] after)).mpr ⟨.value 0x11223344, MemoryQuery.fact_at (.load _ _ (by decide)), rfl⟩
+  have result := ((sub.tail (Step.frame (Step.label load 1 []) 1 outside)).tail
+    (Step.frame (.pure _ _ (.labelDone 1 [] [i32 0x11223344])) 1 outside)).tail
+    (Step.pure _ _ (.frameDone 1 (blockFrame false) [i32 0x11223344] rfl))
+  obtain ⟨out, reaches, _, eq⟩ := blockReadback result
+  exact ⟨out, reaches, eq⟩
+
+example : ∃ out, Runs (blockProgram true) slot blockInput out ∧
+    (⟨blockWritten true, outside, [.trap]⟩ : Config Unit) = render (blockBase true) slot memory out := by
+  have write := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost)
+    (immediate := immediate 2) (caller := blockFrame true) (result := none)
+    (callerSaved := []) (callerTail := []) (saved := [i32 3, i32 0]) (tail := [.source ((Op.store 2).v1)])
+    (show Wasm.V1.Execution.frameMemory (blockBase true) (callee true) = some (slot, memory) from rfl)).mpr
+    ⟨.written after, writing, rfl⟩
+  have bounds := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost)
+    (immediate := immediate 2) (caller := blockFrame true) (result := none)
+    (callerSaved := []) (callerTail := []) (saved := []) (tail := []) (address := 3) (word := 0)
+    (show Wasm.V1.Execution.frameMemory (blockWritten true) (callee true) = some (slot, updated) from rfl)).mpr
+    ⟨.trap, MemoryWrite.store_trap_iff_at.mpr (by decide), rfl⟩
+  have child := (((Relation.ReflTransGen.single write).tail bounds).tail
+    (Step.frame (.pure _ _ (.labelTrap 0 [])) 0 (blockFrame true))).tail
+    (Step.pure _ _ (.frameTrap 0 (callee true)))
+  have popInner := ((blockInvoke true).trans (inNestedBlocks_steps child)).tail
+    (Step.frame (.label (.context (.label (.context (.pure _ _ (.labelTrap 0 [])) [] pendingGet) 1 [])
+      [i32 4] blockTail) 1 []) 1 outside)
+  have skipGet := popInner.tail
+    (Step.frame (.label (.context (.label (.pure _ _ (.trapTail (.source (.localGet ⟨0⟩)) [])) 1 [])
+      [i32 4] blockTail) 1 []) 1 outside)
+  have popOuter := skipGet.tail
+    (Step.frame (.label (.context (.pure _ _ (.labelTrap 1 [])) [i32 4] blockTail) 1 []) 1 outside)
+  have discard := popOuter.tail
+    (Step.frame (.label (.pure _ _ (.trapValues (i32 4) [] blockTail)) 1 []) 1 outside)
+  have unwind := (discard.tail (Step.frame (.pure _ _ (.labelTrap 1 [])) 1 outside)).tail
+    (Step.pure _ _ (.frameTrap 1 (blockFrame true)))
+  obtain ⟨out, reaches, _, eq⟩ := blockReadback unwind
+  exact ⟨out, reaches, eq⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32

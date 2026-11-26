@@ -27,6 +27,15 @@ theorem Function.store_typed {fn : Function} {stack : List Value} {offset : Fin 
       stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.WellTyped saved rest :=
   Proofs.store_typed checked
 
+/-- A parameterless block checks its body in isolation and delivers its optional result above the saved operands. -/
+theorem Function.block_typed {fn : Function} {saved : List Value} {result : Option NumType}
+    {body rest : List Op} {fallthrough : List NumType}
+    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.block result body :: rest) = true) :
+    fn.checkRegion [] result.toList body = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true :=
+  Proofs.block_typed checked
+
 /-- Both arms have the same declared fallthrough types. The continuation resumes above the saved prefix. -/
 theorem Function.if_typed {fn : Function} {stack : List Value} {result : Option NumType}
     {left right rest : List Op} {fallthrough : List NumType}

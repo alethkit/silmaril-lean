@@ -7,7 +7,7 @@ public import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Defs
 # Ranked V1 source with one shared Memory32
 
 This check reuses the ranked direct-target table and the existing checker for
-numeric, local, call, exit and scalar conditional instructions. Each full-width memory
+numeric, local, call, exit and scalar structured instructions. Each full-width memory
 instruction supplies its own unsigned 32-bit offset. All declared activations
 resolve slot zero to the same allocated memory address.
 -/
@@ -19,11 +19,12 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (Frame FuncAddr MemAddr MemInst Value)
 open Computed
 
-/-- Full-width Memory32 operations and parameterless scalar conditionals. -/
+/-- Full-width Memory32 operations and parameterless scalar blocks and conditionals. -/
 inductive Op where
   | ranked (op : Graph.Op)
   | load (offset : Fin (2 ^ 32))
   | store (offset : Fin (2 ^ 32))
+  | block (result : Option NumType) (body : List Op)
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
 
 mutual
@@ -37,6 +38,7 @@ def Op.supported : Op → Bool
   | .ranked (.numeric _) | .ranked (.set _) | .ranked (.tee _)
   | .ranked (.call _) | .ranked .return_ | .ranked .unreachable => true
   | .ranked _ => false
+  | .block _ body => supportedCode body
   | .if_ _ left right => supportedCode left && supportedCode right
 
 end
@@ -50,6 +52,7 @@ def codeTargets : List Op → List CallTarget
 def Op.targets : Op → List CallTarget
   | .ranked op => op.targets
   | .load _ | .store _ => []
+  | .block _ body => codeTargets body
   | .if_ _ left right => codeTargets left ++ codeTargets right
 
 end
@@ -67,6 +70,7 @@ def Op.v1 : Op → Wasm.V1.Instr
   | .ranked op => op.emit Graph.v1CodeSyntax
   | .load offset => .intLoad .i32 none (immediate offset)
   | .store offset => .intStore .i32 none (immediate offset)
+  | .block result body => .block result (v1Code body)
   | .if_ result left right => .if_ result (v1Code left) (v1Code right)
 
 end
@@ -87,7 +91,7 @@ def Function.v1Func (fn : Function) : Wasm.V1.Func :=
 
 mutual
 
-/-- Parameterless arms start on an empty stack and share their declared result.
+/-- Parameterless regions start on an empty stack and check their declared fallthrough.
 The enclosing function result types continue to govern explicit returns. -/
 def Function.checkRegion (fn : Function) (stack fallthrough : List NumType) : List Op → Bool
   | [] => decide (stack = fallthrough.reverse)
@@ -103,6 +107,8 @@ def Function.checkRegionOp (fn : Function) (stack fallthrough : List NumType)
       [fallthrough] stack fn.declaration.module.types resume op
   | .load _ => Graph.checkCondition stack (fun saved => resume (.int .i32 :: saved))
   | .store _ => Graph.checkCondition stack (fun args => Graph.checkCondition args resume)
+  | .block result body =>
+    fn.checkRegion [] result.toList body && resume (result.toList.reverse ++ stack)
   | .if_ result left right =>
     Graph.checkCondition stack fun saved =>
       fn.checkRegion [] result.toList left &&

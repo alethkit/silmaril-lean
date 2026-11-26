@@ -67,6 +67,7 @@ private theorem op_source {p : Program} {m : MemAddr} (checked : p.checkV1 m = t
   cases op with
   | load offset => exact .load offset slot
   | store offset => exact .store offset slot
+  | block _ body => exact .block (code_sources checked found slot body supported targets)
   | if_ result left right =>
     have checks := Bool.and_eq_true_iff.mp supported
     exact .if_
