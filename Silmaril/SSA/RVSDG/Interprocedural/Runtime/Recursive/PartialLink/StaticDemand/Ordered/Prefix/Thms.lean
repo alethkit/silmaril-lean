@@ -71,12 +71,14 @@ from the plan's guards to the guards computed by the ordered admission. -/
     some ⟨state, guards.1.trans (congrArg (fun g => binding.extendGuard g inputsL scope.localsL) checked.left),
       guards.2.trans (congrArg (fun g => binding.extendGuard g inputsR scope.localsR) checked.right)⟩
 
-/-- Read actual checked capture positions and add the disjoint demand
-slots of a group with its own closed summaries. -/
-@[expose] def Scope.Checked.addGroup {later : MemberSummaries V S} (checked : scope.Checked actions)
-    (binding : GroupBinding Op later imports scope.past) (inputsL inputsR : Tuple m.Val imports)
-    (readyL : binding.family.Ready (binding.read inputsL scope.localsL))
-    (readyR : binding.family.Ready (binding.read inputsR scope.localsR)) :
+/-- Read actual checked capture positions and attach the transport
+certificate for the new group at its disjoint demand slots. -/
+@[expose] def Scope.Checked.attachGroup {later calls : MemberSummaries V S} {familyPast : List (Ports (Ty V S))}
+    (checked : scope.Checked actions)
+    (binding : GroupBinding Op later imports scope.past calls familyPast) (inputsL inputsR : Tuple m.Val imports)
+    (transport : ∀ i, DispatchAt actions (later.at i)
+      (binding.family.guard (binding.read inputsL scope.localsL) i)
+      (binding.family.guard (binding.read inputsR scope.localsR) i)) :
     Option ((scope.addGroup binding inputsL inputsR).Checked actions) :=
   if (Isomorphism.RecursiveCall.Numbered.checkWires
       (checked.state.left.available (entry := inputsL) Known.ordinary) binding.captures).isSome &&
@@ -84,7 +86,7 @@ slots of a group with its own closed summaries. -/
       (checked.state.right.available (entry := inputsR) Known.ordinary) binding.captures).isSome then
     let left := binding.read inputsL scope.localsL
     let right := binding.read inputsR scope.localsR
-    let group := (CheckedPrefix.seed actions binding.family left right readyL readyR).dispatch
+    let group : Dispatch actions later := ⟨binding.family.guard left, binding.family.guard right, transport⟩
     let dispatch := checked.state.dispatch.combine group
     let extendedL := (checked.state.left.lift (Known.oldSlot group.left)).snoc
       (binding.checkedRow checked.state.dispatch.left left)
@@ -94,6 +96,25 @@ slots of a group with its own closed summaries. -/
       congrArg (fun guard => guard.combine group.left) checked.left,
       congrArg (fun guard => guard.combine group.right) checked.right⟩
   else none
+
+/-- Admit a group whose member calls stay within its own table. -/
+@[expose] def Scope.Checked.addGroup {later : MemberSummaries V S} (checked : scope.Checked actions)
+    (binding : GroupBinding Op later imports scope.past) (inputsL inputsR : Tuple m.Val imports)
+    (readyL : binding.family.Ready (binding.read inputsL scope.localsL))
+    (readyR : binding.family.Ready (binding.read inputsR scope.localsR)) :
+    Option ((scope.addGroup binding inputsL inputsR).Checked actions) :=
+  checked.attachGroup binding inputsL inputsR (Dispatch.seed_transport binding.family _ _ readyL readyR)
+
+/-- Admit a group that uses the actual earlier dispatch and its own recursion. -/
+@[expose] def Scope.Checked.addGroupWithEarlier {later : MemberSummaries V S} (checked : scope.Checked actions)
+    (binding : GroupBinding Op later imports scope.past (append scope.table later) scope.past) (inputsL inputsR : Tuple m.Val imports)
+    (readyL : binding.family.ReadyWith (binding.read inputsL scope.localsL)
+      (scope.guardL.combine (binding.family.guard (binding.read inputsL scope.localsL))))
+    (readyR : binding.family.ReadyWith (binding.read inputsR scope.localsR)
+      (scope.guardR.combine (binding.family.guard (binding.read inputsR scope.localsR)))) :
+    Option ((scope.addGroup binding inputsL inputsR).Checked actions) :=
+  checked.attachGroup binding inputsL inputsR
+    (checked.state.dispatch.group_transport binding.family _ _ (checked.left.symm ▸ readyL) (checked.right.symm ▸ readyR))
 
 /-- Use the same admission step with a synthesized local certificate. -/
 @[expose] def Scope.Checked.addDirect (checked : scope.Checked actions)
@@ -158,6 +179,11 @@ linker membership table. -/
       (binding.link_step actions unitId inputsR scope.localsR rest store))
   | scope, _, _, _, .phi binding readyL readyR (rest := rest) next, checked, _ => do
     let added ← checked.addGroup binding inputsL inputsR readyL readyR
+    let receipt ← walk actions unitId inputsL inputsR store next added
+    pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
+      (binding.link_step actions unitId inputsR scope.localsR rest store))
+  | scope, _, _, _, .phiWithEarlier binding readyL readyR (rest := rest) next, checked, _ => do
+    let added ← checked.addGroupWithEarlier binding inputsL inputsR readyL readyR
     let receipt ← walk actions unitId inputsL inputsR store next added
     pure (receipt.relink (binding.link_step actions unitId inputsL scope.localsL rest store)
       (binding.link_step actions unitId inputsR scope.localsR rest store))

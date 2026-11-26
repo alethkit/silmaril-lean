@@ -822,9 +822,23 @@ actual outer wires against the existing typed membership table. Later λ
 bodies can call members from either group with supplied static resolution.
 The extra φ step starts a fresh set of inference routes for subsequent λ
 bindings. A use of a callable defined before that step therefore needs
-supplied resolution. Each family's own static calls stay within its
-member table. Cross-group calls from φ bodies and dynamic dispatch are
-outside this demand admission.
+supplied resolution. Use `Plan.phiWithEarlier` when the later group's
+own bodies also call earlier checked slots. The later family supplies
+summaries closed under its body transfer using both the earlier summaries
+and its own recursive slots. The readiness proofs resolve actual member
+operands and capture witnesses for all formals. The finite-prefix proof
+uses the earlier dispatch certificate for earlier calls and its
+smaller-depth induction for calls within the new family. This admits
+static calls within each group and backward across link order.
+
+The cross-group fixture takes an earlier φ member from a typed capture,
+recurses once in the later φ group, then calls the earlier member.
+GenKill makes the payload formal live only when the export result is
+requested. The blocking capture and recursion counter stay live even
+with empty result demand. Varying an unrelated dead formal preserves
+the exact return, the earlier member's block, and the resumed return
+through both non-tail suffixes.
+[Cross-group fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Groups/EarlierRegression.lean)
 
 `GraphPlan` and `admitGraph` certify paired numbered runtime behavior.
 That certificate has no demand-indexed summaries, so the analysis uses
