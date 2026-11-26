@@ -1,6 +1,8 @@
 module
 
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Thms
+meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Defs
 meta import Silmaril.Languages.Starlark.Modules.Loader.Defs
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
@@ -370,6 +372,112 @@ private def failedImport (test : ImportCase) (warm : Bool) (expected : Modules.E
 #guard failedImport .missing true (.missingExport "prodé.star" "absent") [61, 44]
 #guard failedImport .bodyError false (.runtime .indexTarget) [61, 44, 41, 52, 88, 71, 44]
 #guard failedImport .bodyError true (.runtime .indexTarget) [61, 44, 41, 52, 88, 71, 44]
+
+
+private def wrapperMapping (test : ImportCase) : Mapping ⟨[], ["loaded"], ["relay", "result"]⟩ :=
+  match test with
+  | .bodyError => ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
+      .entry (.string "key") (.plain (.int 8)) .empty⟩
+  | .ok | .missing => ⟨[(.string "extra", starlark%[9])], [(.atom (.string "extra"), int 9)], [],
+      .entry (.string "extra") (.plain (.int 9)) .empty⟩
+
+private def consumerWrapper (test : ImportCase) : Imports.Wrapper where
+  label := "prodé.star"
+  imported := match test with | .ok | .bodyError => "escaped" | .missing => "absent"
+  alias := "loaded"
+  name := "relay"
+  destination := "result"
+  publicImport := by cases test <;> simp [Modules.isPublic, String.startsWith_string_eq_false_iff]
+  legalAlias := by decide
+  legalName := by decide
+  separate := by decide
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := ⟨[("another", starlark%[[71]])], [("another", boxed 71)], [],
+    .cons (.list (.int 71)) .nil, by decide⟩
+  star := some (.list (.cons (.int 17) (.cons (.int 18) .nil)))
+  mapping := some (wrapperMapping test)
+  selects := by cases test <;> exact .enclosing (.enclosing (by decide) (by decide)) .nil
+
+private theorem wrapperCovered (test : ImportCase) :
+    (∃ callee, exports (consumerWrapper test).imported = some callee) ∨
+      (consumerWrapper test).imported ∉ Trace.names (commands false) := by
+  cases test
+  · exact .inl ⟨.nested returned, rfl⟩
+  · exact .inl ⟨.nested returned, rfl⟩
+  · exact .inr (by decide)
+
+example (test : ImportCase) {producer importer : ResolvedModule}
+    (prod : resolve (commands false) #[] = .ok producer)
+    (imp : resolve (consumerWrapper test).commands producer.program = .ok importer)
+    (caller : Lists.State) : (consumerWrapper test).Agrees producer importer (commands false) exports ⟨caller, []⟩ :=
+  Imports.Wrapper.cold_agrees (commands := commands false) (consumerWrapper test) (plan false) prod imp (wrapperCovered test) caller
+
+private def runWrapper (test : ImportCase) (warm : Bool) : Option (Loader.Result Modules.Published) := do
+  let wrapper := consumerWrapper test
+  let producer ← (resolve (commands false)).toOption
+  let importer ← (resolve wrapper.commands producer.program).toOption
+  let manifest := wrapper.graph producer importer
+  let caller : Loader.Session := { runtime := {iterators := [123]} }
+  if warm then
+    match Loader.load importer.program manifest 0 caller with
+    | .ok _ state => some (Loader.load importer.program manifest 1 state)
+    | .error .. => none
+  else
+    some (Loader.load importer.program manifest 1 caller)
+
+private def wrapped (warm : Bool) : Bool :=
+  match runWrapper .ok warm with
+  | some (.ok published final) =>
+    match final.cache.lookup 0, published.exports.lookup "relay", published.exports.lookup "result" with
+    | some producer, some (.function relay), some (.list result) =>
+      match producer.exports.lookup "escaped", producer.exports.lookup "late", producer.exports.lookup "data" with
+      | some (.function escaped), some (.list late), some (.list data) =>
+        match final.runtime.heap[relay]?, final.runtime.heap[escaped]? with
+        | some ⟨.function wrapper, true⟩, some ⟨.function imported, true⟩ =>
+          final.cache.map Prod.fst == [1, 0] && wrapper.declaration == 2 && imported.declaration == 0 &&
+          imported.defaults == [(fileSlot "key", .list data)] && result == late &&
+          published.exports.lookup "loaded" == none && (final.runtime.slots (fileSlot "loaded")).isNone &&
+          final.runtime.heap[late]? == some ⟨.list [.scalar (.int 83)], true⟩ &&
+          final.runtime.iterators == [123] &&
+          (match wrapper.captures, imported.captures with
+           | [alias], [localCapture, globalCapture] =>
+             final.runtime.heap[alias.address]? == some ⟨.binding (some (.function escaped)), true⟩ &&
+             final.runtime.heap[globalCapture.address]? == some ⟨.binding (some (.list late)), false⟩ &&
+             (match final.runtime.heap[localCapture.address]? with
+              | some ⟨.binding (some (.list rebound)), true⟩ =>
+                final.runtime.heap[rebound]? == some ⟨.list [.scalar (.int 52)], true⟩
+              | _ => false)
+           | _, _ => false)
+        | _, _ => false
+      | _, _, _ => false
+    | _, _, _ => false
+  | _ => false
+
+#guard wrapped false
+#guard wrapped true
+
+private def failedWrapper (test : ImportCase) (warm : Bool) (expected : Modules.Error) (retained : List Int) : Bool :=
+  match runWrapper test warm with
+  | some (.error (.initialization 1 error) final) =>
+    let lists := final.runtime.heap.toList.filterMap fun cell => match cell.contents, cell.frozen with
+      | .list [.scalar (.int n)], false => some n
+      | _, _ => none
+    let hasWrapper := final.runtime.heap.any fun cell => match cell.contents, cell.frozen with
+      | .function closure, false => closure.declaration == 2
+      | _, _ => false
+    let reachedWrapper := match test with | .missing => false | _ => true
+    error == expected && final.cache.map Prod.fst == [0] && lists == retained &&
+      hasWrapper == reachedWrapper && (final.runtime.slots (globalSlot "result")).isNone &&
+      (final.runtime.slots (fileSlot "loaded")).isNone && final.runtime.iterators == [123]
+  | _ => false
+
+#guard failedWrapper .missing false (.missingExport "prodé.star" "absent") [61, 44]
+#guard failedWrapper .missing true (.missingExport "prodé.star" "absent") [61, 44]
+#guard failedWrapper .bodyError false (.runtime .indexTarget) [61, 44, 71, 44]
+#guard failedWrapper .bodyError true (.runtime .indexTarget) [61, 44, 71, 44]
 
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

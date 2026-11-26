@@ -14,6 +14,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 open Silmaril.Languages.Starlark.Functions (Program)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
 open Silmaril.Languages.Starlark.Lists (State)
 open Silmaril.Languages.Starlark.Modules.Loader (Session)
 
@@ -82,32 +83,37 @@ theorem cached_publication {exports : Environment} {program : Program} {publishe
   obtain ⟨value, flag, found⟩ := record.live capture member
   exact ⟨value, flag, kept _ _ found⟩
 
-theorem producer_cold {commands : List Modules.Resolve.Command} {linked final : Program}
+theorem producer_cold_extending {commands : List Modules.Resolve.Command} {linked final : Program}
     {code : List Modules.Command} {producer consumer : ResolvedModule} {exports : Environment}
     (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
     (checked : resolve commands linked = .ok producer)
-    (plan : Consumer) (active : List Nat) (permitted : 0 ∉ active) (session : Session)
+    {consumerCommands : List Modules.Resolve.Command} {consumerSeed : Program}
+    (consumerChecked : resolve consumerCommands consumerSeed = .ok consumer)
+    (extension : PreservesDeclarations producer.program consumer.program)
+    (valid : Modules.validateSource consumer.program producer.source = .ok ())
+    {manifest : Modules.Loader.Manifest} (bound : 0 < manifest.size) (entry : manifest[0].source = producer.source)
+    (active : List Nat) (permitted : 0 ∉ active) (session : Session)
     (cold : session.cache.lookup 0 = none) :
     ∃ out, Producer commands producer.source session out ∧
-      Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0) session out ∧
+      Modules.Loader.Runs consumer.program manifest active (.initialize 0) session out ∧
       (reachedSession out).runtime.slots = session.runtime.slots ∧
       KeepsContents session.runtime (reachedSession out).runtime ∧
       ∀ published next, out = .ok published next →
         next.cache = (0, published) :: session.cache ∧
-        PublishedLive exports producer.program published next.runtime ∧
+        PublishedLive exports consumer.program published next.runtime ∧
         ∀ name value, published.exports.lookup name = some value → name ∈ Trace.names commands := by
-  obtain ⟨out, source, native, _, _, kept, live⟩ :=
-    module_agrees_preserving profile checked (fun _ => none) session.runtime
+  obtain ⟨out, source, native, kept, live⟩ :=
+    module_runs_extending profile checked consumerChecked extension (fun _ => none) session.runtime
   have noLoads : ∀ command ∈ producer.source.commands, ∃ top, command = .exec top := by
     rw [(plan_code profile checked).1]
     exact plan_executable profile
-  have valid := (checked_of_resolve checked).2.2.2
-  have ran := loader_exec (manifest := graph producer consumer plan) (active := 0 :: active) (id := 0)
+  have ran := loader_exec (manifest := manifest) (active := 0 :: active) (id := 0)
     native noLoads session.cache
-  have initialized : Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0)
+  have initialized : Modules.Loader.Runs consumer.program manifest active (.initialize 0)
       session (observed 0 producer.source session.runtime session.cache out) := by
     rw [observed_eq 0 producer.source session.runtime session]
-    exact .initialize (by simp [graph]) permitted cold valid ran
+    rw [← entry] at valid ran ⊢
+    exact .initialize bound permitted cold valid ran
   refine ⟨_, .cold cold source, initialized, ?_, ?_, ?_⟩
   · cases out with
     | error => rfl
@@ -123,5 +129,23 @@ theorem producer_cold {commands : List Modules.Resolve.Command} {linked final : 
       cases success
       refine ⟨rfl, live _ _ rfl, fun name value loaded => ?_⟩
       exact (plan_globals profile checked) ▸ exports_declared loaded
+
+theorem producer_cold {commands : List Modules.Resolve.Command} {linked final : Program}
+    {code : List Modules.Command} {producer consumer : ResolvedModule} {exports : Environment}
+    (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
+    (checked : resolve commands linked = .ok producer)
+    (plan : Consumer) (active : List Nat) (permitted : 0 ∉ active) (session : Session)
+    (cold : session.cache.lookup 0 = none) :
+    ∃ out, Producer commands producer.source session out ∧
+      Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0) session out ∧
+      (reachedSession out).runtime.slots = session.runtime.slots ∧
+      KeepsContents session.runtime (reachedSession out).runtime ∧
+      ∀ published next, out = .ok published next →
+        next.cache = (0, published) :: session.cache ∧
+        PublishedLive exports producer.program published next.runtime ∧
+        ∀ name value, published.exports.lookup name = some value → name ∈ Trace.names commands := by
+  exact producer_cold_extending profile checked checked (fun _ _ found => found)
+    (checked_of_resolve checked).2.2.2 (manifest := graph producer consumer plan)
+    (by simp [graph]) (by simp [graph]) active permitted session cold
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

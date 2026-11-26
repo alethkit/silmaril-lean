@@ -1311,14 +1311,24 @@ observations. The child shares the producer's global cell with an
 earlier closure and owns a different captured local. A second-call
 error leaves the earlier factory and ordinary assignment effects.
 
-The UTF-8 adapter hands normalized commands to the same resolver and
-loader. It keeps module IDs in manifest order, so the producer-first
-layout uses the same linked table when the importer only has the
-checked commands above. The suite theorem's source input starts at
-normalized commands and their checked step judgments. Multiple imports,
-consumer declaration emission, arbitrary cache histories and general
-source graphs remain open.
-[Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
+A checked importer can also define a parameterless wrapper that returns a call
+through the file-local import alias, followed by a module assignment from the
+wrapper call. The resolver appends the wrapper at the producer table's size.
+Every producer declaration retains its index, and removing the wrapper from
+the call guard leaves all those producer indices available. Installation captures
+the actual import cell. Activation reads that cell and uses the original
+producer closure record, saved defaults and capture addresses. This handles
+explicit named arguments and the existing checked tuple/list and dict-display
+spreads. The cold and preloaded source rules agree with loader denotation on
+publication and freezing, first error, residual heap, restored caller and cache.
+[Wrapper theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Wrapper/Thms.lean)
+
+The UTF-8 adapter compiles normalized modules in manifest order and feeds the
+final linked table to the loader. The checked source theorems start at normalized
+commands and use the supported operand and body judgments. Defining and calling
+wrappers throughout the finite importer suite, multiple imports, general source
+graphs and arbitrary cache histories remain open.
+[Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ## Finite-manifest loader
 
