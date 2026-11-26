@@ -5,10 +5,12 @@ import Silmaril.SSA.PEG.Simple.While.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Thms
 import Silmaril.SSA.PEG.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Defs
 meta import Silmaril.SSA.PEG.Simple.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Defs
 
@@ -563,10 +565,12 @@ private abbrev vars : List (Ty Unit) := [.count, .bool]
 private def guard : Expr Op vars .bool := .op .positive (.cons (.var .head) .nil)
 
 /-- The old counter feeds its update. The result of the strict probe is discarded. -/
-private def body : Stmt Op false vars vars :=
+private def tokenBody : Token.Body Op vars vars :=
   .seq (.assign (.op .probe (.cons (.var (.tail .head)) .nil)))
     (.seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
       (.project (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))
+
+private def body : Stmt Op false vars vars := tokenBody.source
 
 private def source := whileProgram guard body.enableWhile .head
 private def graph : Graph Op vars [.count] 11 11 := translate source .not
@@ -676,5 +680,125 @@ example : graph.observe model (values 2 false) base = .cons (some ⟨0⟩) .nil 
   refine ⟨observed 2 false, firstPass 2 false, ?_⟩
   rintro ⟨_, run, _⟩
   cases fails.deterministic run
+
+private def tokenModel := Token.model model
+private def tokenGraph : Graph (Token.Opcode Op) vars [.count, .bool] 16 16 :=
+  Token.translate guard tokenBody .head .not
+
+#guard (Structured.rank 16).check tokenGraph
+
+private def tokenRef (i : Fin 16) {t : Ty Unit} (typed : tokenGraph.sort i = t) :
+    Ref tokenGraph.sort t := ⟨i, typed⟩
+
+private def tokenBase : Index 16 := fun _ => 0
+private def tokenKey : Fin 16 := 3
+private def tokenSample (k : Nat) : Index 16 := tokenBase.set tokenKey k
+
+private noncomputable def tokenValues (n : Nat) (permit : Bool) : tokenGraph.Valuation tokenModel :=
+  tokenGraph.denote tokenModel (input n permit)
+    (Token.translate_demandWellFounded guard tokenBody .head .not)
+
+private theorem tokenSolved (n : Nat) (permit : Bool) :
+    tokenGraph.Solves tokenModel (input n permit) (tokenValues n permit) :=
+  tokenGraph.denote_solves tokenModel (input n permit) _
+
+-- Both ordered roots use the same pass, even on the failing input.
+example : Rules.HasNode (tokenGraph.roots.get .head) (.eval tokenKey)
+    (.cons (tokenRef 11 rfl) (.cons (tokenRef 3 rfl) .nil)) := HEq.rfl
+example : Rules.HasNode (tokenGraph.roots.get (.tail .head)) (.eval tokenKey)
+    (.cons (tokenRef 10 rfl) (.cons (tokenRef 3 rfl) .nil)) := HEq.rfl
+
+private theorem tokenCounter (n : Nat) (permit : Bool) (k : Nat) :
+    readRef (tokenValues n permit) (tokenRef 11 (t := .count) rfl) (tokenSample k) =
+      some ⟨n - k⟩ := by
+  have eq := tokenSolved n permit
+  induction k with
+  | zero =>
+    rw [Rules.theta_zero eq (r := tokenRef 11 (t := .count) rfl) (initial := tokenRef 14 rfl)
+      (feedback := tokenRef 6 rfl) (loop := tokenKey) HEq.rfl rfl]
+    exact Rules.at_label eq (r := tokenRef 14 rfl) (label := .param .head) (args := .nil) HEq.rfl _
+  | succ k ih =>
+    have reset : (tokenSample (k + 1)).set tokenKey k = tokenSample k := by
+      funext j
+      by_cases h : j = tokenKey <;> simp [tokenSample, Index.set, h]
+    rw [Rules.theta_succ eq (r := tokenRef 11 (t := .count) rfl) (initial := tokenRef 14 rfl)
+      (feedback := tokenRef 6 rfl) (loop := tokenKey) HEq.rfl rfl,
+      reset, Rules.unary_at eq (r := tokenRef 6 rfl) (arg := tokenRef 11 rfl)
+        (op := .source Op.pred) HEq.rfl, ih]
+    rfl
+
+private theorem tokenPass (n : Nat) (permit : Bool) :
+    readRef (tokenValues n permit) (tokenRef 3 (t := .count) rfl) tokenBase = some ⟨n⟩ := by
+  have eq := tokenSolved n permit
+  rw [Rules.pass_at eq (r := tokenRef 3 rfl) (cond := tokenRef 4 rfl) (loop := tokenKey) HEq.rfl]
+  have stream : (fun j => (readRef (tokenValues n permit) (tokenRef 4 rfl) (tokenSample j)).map ULift.down) =
+      fun j => some (decide (n ≤ j)) := by
+    funext j
+    rw [Rules.unary_at eq (r := tokenRef 4 rfl) (arg := tokenRef 9 rfl) (op := .source Op.not) HEq.rfl,
+      Rules.unary_at eq (r := tokenRef 9 rfl) (arg := tokenRef 11 rfl)
+        (op := .source Op.positive) HEq.rfl, tokenCounter]
+    change some (!decide (0 < n - j)) = some (decide (n ≤ j))
+    by_cases h : n ≤ j
+    · simp [h, Nat.sub_eq_zero_of_le h]
+    · have pos : 0 < n - j := by omega
+      simp [h, pos]
+  have first : firstTrue (fun j => some (decide (n ≤ j))) = some n :=
+    (firstTrue_eq_some_iff_samples _ n).mpr ⟨by simp, fun j lt => by simp [Nat.not_le_of_lt lt]⟩
+  change (firstTrue (fun j => (readRef (tokenValues n permit) (tokenRef 4 rfl) (tokenSample j)).map
+    ULift.down)).map ULift.up = _
+  rw [stream, first]
+  rfl
+
+private theorem tokenData (n : Nat) (permit : Bool) :
+    (Token.observe guard tokenBody .head .not model (input n permit) tokenBase).get .head = some ⟨0⟩ := by
+  change readRef (tokenValues n permit) (tokenRef 1 (t := .count) rfl) tokenBase = _
+  rw [Rules.eval_at (tokenSolved n permit) (r := tokenRef 1 rfl) (source := tokenRef 11 rfl)
+    (count := tokenRef 3 rfl) (loop := tokenKey) HEq.rfl, tokenPass]
+  change monotonize (fun j => readRef (tokenValues n permit) (tokenRef 11 (t := .count) rfl)
+    (tokenSample j)) n = _
+  exact (monotonize_eq_some_iff _ _ _).mpr
+    ⟨by rw [tokenCounter, Nat.sub_self], fun j _ => by rw [tokenCounter]; rfl⟩
+
+private theorem twoTripSource : source.Returns model (input 2 true) ⟨0⟩ :=
+  ⟨input 0 true, .whileStep (next := input 1 true) rfl (body.runLoopFree_enableWhile (input 2 true))
+    (.whileStep (next := input 0 true) rfl (body.runLoopFree_enableWhile (input 1 true))
+      (.whileStop rfl)), rfl⟩
+
+example : Token.observe guard tokenBody .head .not model (input 2 true) tokenBase =
+    .cons (some ⟨0⟩) (.cons (some ⟨true⟩) .nil) :=
+  Token.observe_of_returns guard tokenBody .head .not model _ (fun _ => rfl) tokenBase twoTripSource
+
+example : Token.observe guard tokenBody .head .not model (input 0 false) tokenBase =
+    .cons (some ⟨0⟩) (.cons (some ⟨true⟩) .nil) :=
+  Token.observe_of_returns guard tokenBody .head .not model _ (fun _ => rfl) tokenBase
+    ⟨input 0 false, .whileStop rfl, rfl⟩
+
+-- The ordinary pass and data are still defined at two and zero respectively.
+-- The additional output detects precisely the execution failure.
+example : readRef (tokenValues 2 false) (tokenRef 3 (t := .count) rfl) tokenBase = some ⟨2⟩ ∧
+    Token.observe guard tokenBody .head .not model (input 2 false) tokenBase =
+      .cons (some ⟨0⟩) (.cons none .nil) := by
+  refine ⟨tokenPass 2 false, ?_⟩
+  let observed := Token.observe guard tokenBody .head .not model (input 2 false) tokenBase
+  have bot : observed.get (.tail .head) = none := by
+    cases done : observed.get (.tail .head) with
+    | none => rfl
+    | some token =>
+      have complete : (observed.get (.tail .head)).isSome := by rw [done]; rfl
+      obtain ⟨_, ⟨_, run, _⟩, _⟩ := Token.returns_of_completion guard tokenBody
+        .head .not model (input 2 false) (fun _ => rfl) tokenBase complete
+      cases fails.deterministic run
+  have value := tokenData 2 false
+  change observed.get .head = some ⟨0⟩ at value
+  change observed = _
+  revert value bot
+  cases observed with
+  | cons root rest =>
+    cases rest with
+    | cons done rest =>
+      cases rest
+      intro bot value
+      exact congrArg₂ (fun data token => Tuple.cons (F := fun t => Option (model.Value t))
+        (t := .count) data (.cons token .nil)) value bot
 
 end Silmaril.SSA.PEG.Simple.Structured.Completion.Tests
