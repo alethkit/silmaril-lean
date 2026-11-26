@@ -128,15 +128,19 @@ def observeLookup {α : Type} : Except Error (Option α) → Except Error (Optio
 def contains (heap : Heap) (bucket : Bucket) (key : Value) : Except Error Bool :=
   Option.isSome <$> observeLookup (get heap bucket key)
 
-def equalValues (heap : Heap) (right : Bucket)
+def compareRows (getValue : Value → Except Error (Option Value))
     (compare : Value → Value → Except Error Bool) : List Row → Except Error Bool
   | [] => .ok true
   | row :: later => do
-    match ← observeLookup (get heap right row.key) with
+    match ← observeLookup (getValue row.key) with
     | none => pure false
     | some value =>
-      if ← compare row.value value then equalValues heap right compare later
+      if ← compare row.value value then compareRows getValue compare later
       else pure false
+
+def equalValues (heap : Heap) (right : Bucket)
+    (compare : Value → Value → Except Error Bool) : List Row → Except Error Bool :=
+  compareRows (get heap right) compare
 
 /-- Outer dictionary equality consumes one level for the outer comparison.
 The supplied value comparator receives the remaining depth. -/
