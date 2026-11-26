@@ -38,8 +38,10 @@ theorem rewrite_checked (success : rewrite graph version = some rewritten) :
 whose words are unused by Return. Out-of-range Load ordinals agree too. -/
 theorem rewrite_readAt (success : rewrite graph version = some rewritten) (index : Nat)
     (input : Tuple (Val cells) args) (initial : Heap cells) :
-    readAt rewritten index input PUnit.unit initial = readAt graph index input PUnit.unit initial :=
-  Proofs.rewrite_readAt success index input initial
+    readAt rewritten index input PUnit.unit initial = readAt graph index input PUnit.unit initial := by
+  obtain ⟨_, _, _, replay⟩ := rewrite_checked success
+  exact (DeadStore.rewriteWith_observations replay input (by simp [Forwarding.Disjoint.Certificate.Valid])
+    initial).2 index
 
 theorem rewrite_denote (success : rewrite graph version = some rewritten)
     (input : Tuple (Val cells) args) (initial : Heap cells) :
