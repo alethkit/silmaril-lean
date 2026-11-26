@@ -176,7 +176,9 @@ verifies the existing parser corpus pin, parses the full module, and selects
 the original `Coherence` operator. It resolves and lowers that operator in a
 standalone fixture with rigid inputs `Proc`, `Adr`, `NoVal` and flexible
 `cache`. The gate checks the shared `Proc` bound, separate `Adr` bound,
-and the binding of all four `cache` reads. The Lean examples independently
+and the binding of all four `cache` reads. It also instances that projection
+from a parsed host, checking the replacement bounds, the graph supplied by
+WITH at all four reads, and the host bindings. The Lean examples independently
 check the mathematical denotations of in-memory source cases.
 
 The whole-module check without a dependency registry stops at the first
@@ -224,11 +226,12 @@ whose expanded operand reads `@` from an enclosing EXCEPT reports
 actual. Retained nested primes also report a lowering diagnostic.
 [Collection action API](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Defs.lean)
 
-Source limits include multi-group or multi-name function constructors,
-tuple patterns, Cartesian products, `STRING`, decimal literals, recursion,
-INSTANCE replay in the collection profile, and temporal and proof forms.
+For checked first-order module calls, use the collection selectors in
+`DataElab.Instances`. Source limits include explicit Cartesian product syntax,
+`STRING`, decimal literals, recursion, and temporal and proof forms.
 The resolver diagnoses an `@` outside an active RHS. The parser and resolver
 reject malformed empty index and update forms before lowering.
+[Collection INSTANCE replay](tla-instance-denotation.md)
 
 ## Tagged interpretation
 

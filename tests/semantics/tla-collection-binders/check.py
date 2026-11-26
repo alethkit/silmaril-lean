@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check Coherence from the pinned WriteThroughCache source."""
+"""Check direct and instantiated Coherence from the pinned WriteThroughCache source."""
 
 import os
 from pathlib import Path
@@ -21,7 +21,7 @@ def main():
         raise RuntimeError("review the WriteThroughCache pin after the parser fixture revision change")
     subprocess.run(
         [lake, "build", "--wfail", "+Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs",
-         "+Silmaril.Logic.Temporal.TLA.DataElab.Collections.Defs"],
+         "+Silmaril.Logic.Temporal.TLA.DataElab.Instances.Defs"],
         cwd=ROOT,
         check=True,
     )
