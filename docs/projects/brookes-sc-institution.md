@@ -91,27 +91,48 @@ two models with a refinement arrow in one direction only.
 
 ## Brookes and tree comparisons
 
-To instantiate `Target` on the Brookes closed traces, supply the carrier
-of closed traces at each result type, their refinement preorder, return
-and sequencing, and prove that sequencing is monotone in its first
-argument and pointwise in its continuation. Interpret each `Primitive`
-using the corresponding closed one-step computation with its typed reply
-and ownership guard. Those SC obligations belong to the specialization.
-Compare choice, parallel scheduling, and the effects of environment steps
-using the Brookes core semantics. The current syntax explicitly orders
-primitive calls and has no scheduler or parallel constructor.
+The C1 adapter imports `Silmaril.Semantics.Brookes.Thms` and uses
+`Silmaril.Semantics.Brookes`. A C2 store pairs the world's typed memory
+with an owner map from each mutex to an optional thread. The resulting
+`Target.Carrier A` is `Behavior Store A`, ordered by inclusion of
+`accepts trace result`. Its return and sequencing are `Behavior.ret`
+and `Behavior.bind`. Both monotonicity arguments follow from
+`Behavior.bind_accepts_iff` by keeping the two witness words, their
+intermediate reply, and the reduction of their concatenation while
+transporting the two acceptance proofs by inclusion. The institution only needs this
+monotonicity. C1 also proves the two unit laws and associativity for
+comparisons that use lawful sequencing. [C1 API]
+
+Interpret each typed primitive using `Behavior.atomic` on its pre-store,
+post-store, and reply relation. A load returns the pre-store's cell and
+preserves the store. A write changes just its cell. Acquire requires an
+unowned mutex and sets its owner. Release requires the calling thread to
+own the mutex and clears it. `Behavior.atomic_completes_iff` recovers this
+relation at the singleton observation. External interpretations still
+come from the model. [C1 API]
+
+Order inequations by full open words and terminal replies. The closure
+inserts identity steps and merges adjacent pairs with matching middle
+stores. Gaps within words and at a bind boundary allow interference.
+`Behavior.completes` tests the singleton observation on a whole
+computation. A final-store law from the example target therefore needs
+a separate argument before it can be used as an open-word inequation.
+Parallel composition belongs to C1's unit-result `Command` view, which
+closes ordered shuffles. The current C2 program syntax explicitly orders
+its calls. [C1 design and observations]
 
 For an ITree or CTree comparison, use the dependent event interface to
 encode the call nodes and prove that interpretation commutes with return
 and call, including reply-dependent continuations. The
 [Track A interaction institutions] supply observation-bound sentences,
-a category of bijective-reply relabelings, and a guarded Elgot fold. The SC institution supplies structured program inequations with
-forward syntax translation and reduct by precomposition. An SC arrow
+a category of bijective-reply relabelings, and a guarded Elgot fold. The
+SC institution supplies structured program inequations with forward
+syntax translation and reduct by precomposition. An SC arrow
 has identity reply maps and hence meets the Track A reply-bijectivity
 requirement. A direct adapter can use that category when it is available.
 Specify the observations before relating the richer trees, in particular
-how to treat internal steps, choice, refusal and divergence. The regression target records successful
-outcomes only. Primitive SC and its access designations make no judgement
+how to treat internal steps, choice, refusal and divergence. The
+regression target records successful outcomes only. Primitive SC and its access designations make no judgement
 about races, undefined behavior, fairness or starvation.
 
 ## Check commands
@@ -135,8 +156,11 @@ done
   [DOI](https://doi.org/10.1007/s001650200013)
 - L. Lamport, *How to Make a Multiprocessor Computer That Correctly Executes
   Multiprocess Programs*, 1979. [DOI](https://doi.org/10.1109/TC.1979.1675439)
-- S. Brookes, *A semantics for concurrent separation logic*, 2007.
-  [DOI](https://doi.org/10.1016/j.tcs.2006.12.034)
+- S. Brookes, *Full Abstraction for a Shared-Variable Parallel Language*,
+  LICS 1993, §5. [DOI](https://doi.org/10.1109/LICS.1993.287596)
+- Y. Dvir, O. Kammar, O. Lahav, and G. D. Plotkin, *Two-sorted algebraic
+  decompositions of Brookes’s shared-state denotational semantics*, 2025,
+  §6.1. [arXiv](https://arxiv.org/abs/2501.15104)
 - L.-Y. Xia et al., *Interaction Trees: Representing Recursive and Impure
   Programs in Coq*, 2020. [DOI](https://doi.org/10.1145/3371119)
 - N. Chappe et al., *Choice Trees: Representing Nondeterministic, Recursive,
@@ -147,3 +171,5 @@ done
 [SC interface projection]: https://github.com/hiloopai/silmaril-lean/pull/3559
 [Track A SC machine]: https://github.com/hiloopai/silmaril-lean/pull/3539
 [Track A interaction institutions]: https://github.com/hiloopai/silmaril-lean/pull/3576
+[C1 API]: https://github.com/hiloopai/silmaril-lean/blob/4138dcf9a5fc0f6b47010fae7bdaf743e008e804/Silmaril/Semantics/Brookes/Thms.lean
+[C1 design and observations]: https://github.com/hiloopai/silmaril-lean/pull/3594
