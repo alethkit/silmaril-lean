@@ -30,6 +30,12 @@ local notation "A" => Region.packedInputType I.context.toList
 local notation "B" => Region.packedExitType (List.ofFn (Interface.external (exitInterface I fields)))
 local notation "C" => AtomValues.carrier (κ := κ)
 
+/-- The existing named runner on the source with attached reads observes
+the caller's projection of the original runner. -/
+theorem Admission.observe_rtl (M : Model (κ := κ) Events P.Instr) (a : Admission P I fields source)
+    (x : Ty.denote C A) : a.rtl.observe M x = observe M I fields source x :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.LiveOut.observe_rtl M a x
+
 theorem Admission.packed_tree (M : Model (κ := κ) Events P.Instr) (a : Admission P I fields source)
     (x : Ty.denote C A) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) a.program.code = observe M I fields source x :=

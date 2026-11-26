@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.Institution.Thms
 
 /-! # A write-only register becomes observable through the generated packet -/
 
@@ -13,7 +13,10 @@ open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open Silmaril.Isotope.Semantics (encodeValue)
 open Silmaril.Elgot (iter)
-open Silmaril.Elgot.ITree (Tree HasTrace Trace TraceLE iterate_fixpoint out_ret)
+open Silmaril.Elgot.ITree (Tree HasTrace Trace TraceLE iterate_fixpoint out_ret
+  vis vis_bind diverge hasTrace_vis_exchange_iff)
+open Silmaril.Isotope.Morphism (SignatureMap)
+open CategoryTheory
 
 private abbrev SortName := ULift.{1} Unit
 private abbrev Reg := ULift.{1} (Fin 4)
@@ -57,9 +60,11 @@ private def ports : Interface SortName Reg Label :=
 
 private def fields (_ : Label) : List (Reg × Ty SortName) := [(saved, num)]
 
+private def exitBlocks {F : Type} : List (Label × CFG.Block Reg Label F) :=
+  [(blockLabel, ⟨param, .term (.br exitLabel .unit)⟩)]
+
 private def source (read : Reg) : CFG Reg Label signature.Instr :=
-  ⟨.let1 saved (.val (.var read)) (.term (.br blockLabel .unit)),
-    [(blockLabel, ⟨param, .term (.br exitLabel .unit)⟩)]⟩
+  ⟨.let1 saved (.val (.var read)) (.term (.br blockLabel .unit)), exitBlocks⟩
 
 -- The added exit read is across an internal transfer. It requires the
 -- versioned edge packet to carry a register the old syntax only writes.
@@ -92,22 +97,29 @@ private def inputStore (x : Input) : Reg → Value Runtime := store ports.names 
 private def afterWrite (read : Reg) (x : Input) : Reg → Value Runtime :=
   upd (inputStore x) saved (inputStore x read)
 
-private theorem run_source (read : Reg) (x : Input) :
-    CFG.Cyclic.run (treeModel model.raw) (source read) (inputStore x) =
-      pure (exitLabel, .unit, upd (afterWrite read x) param .unit) := by
-  let step := CFG.Cyclic.step (treeModel model.raw) (source read).blocks
-  let start : CFG.Cyclic.Transfer Reg Label (Value Runtime) := (blockLabel, .unit, afterWrite read x)
-  let finish : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
-    (exitLabel, .unit, upd (afterWrite read x) param .unit)
-  change (pure (inputStore x read) >>= fun v =>
-    iter step (blockLabel, .unit, upd (inputStore x) saved v)) = _
-  rw [pure_bind]
+private theorem run_jump {F : Type} {E : Type → Type}
+    (m : Silmaril.SSA.LambdaRTL.Model F (fun A : Type 1 => Tree E A) (Value Runtime))
+    (env : Reg → Value Runtime) :
+    iter (CFG.Cyclic.step m exitBlocks) (blockLabel, .unit, env) =
+      pure (exitLabel, m.unit, upd env param .unit) := by
+  let step := CFG.Cyclic.step m exitBlocks
+  let start : CFG.Cyclic.Transfer Reg Label (Value Runtime) := (blockLabel, .unit, env)
+  let finish : CFG.Cyclic.Transfer Reg Label (Value Runtime) := (exitLabel, m.unit, upd env param .unit)
   change iter step start = pure finish
   rw [congrFun (iterate_fixpoint step) start]
   rw [show step start = pure (.inr finish) from rfl, pure_bind]
   change iter step finish = pure finish
   rw [congrFun (iterate_fixpoint step) finish]
   rw [show step finish = pure (.inl finish) from rfl, pure_bind]
+  rfl
+
+private theorem run_source (read : Reg) (x : Input) :
+    CFG.Cyclic.run (treeModel model.raw) (source read) (inputStore x) =
+      pure (exitLabel, .unit, upd (afterWrite read x) param .unit) := by
+  change (pure (inputStore x read) >>= fun v =>
+    iter (CFG.Cyclic.step (treeModel model.raw) exitBlocks)
+      (blockLabel, .unit, upd (inputStore x) saved v)) = _
+  rw [pure_bind, run_jump]
   rfl
 
 -- The existing forgetful observation has the same exit and old payload for
@@ -153,5 +165,135 @@ example : ¬ model.Satisfies leftProgram.program rightProgram.program := by
     exact (by decide : (9 : Nat) ≠ 7) (congrArg ULift.down eq)
   rw [left_observation, right_observation] at h
   exact distinct h
+
+/-! ## A noninjective opcode map preserves the ordered exit record -/
+
+private inductive Opcode
+  | first
+  | second
+  | merged
+
+private inductive ReadEvent : Type → Type
+  | read (op : Opcode) (n : Nat) : ReadEvent Nat
+
+private instance : HasTy Opcode (Ty SortName) := ⟨fun _ => num, fun _ => num⟩
+private instance : HasEff Opcode Bool := ⟨fun _ => true⟩
+
+private def effectSignature : FlatInstitution.Signature.{0, 0} SortName where
+  Instr := Opcode
+
+private def readRaw : Opcode → Value Runtime → Tree ReadEvent (Value Runtime)
+  | op, .atom a => vis (.read op a.2.down) (fun reply => pure (atom reply))
+  | _, _ => diverge
+
+private def readModel : Model (κ := SortName) ReadEvent effectSignature.Instr where
+  instructions :=
+    { denote := fun op x => vis (.read op x.down) (fun reply => pure (ULift.up reply))
+      denotePure := fun _ h => Bool.noConfusion h
+      denote_pure := fun _ h => Bool.noConfusion h }
+  raw := readRaw
+  compatible := by
+    dsimp only
+    intro op x
+    change vis (.read op x.down) (fun reply => pure (atom reply)) =
+      ((vis (.read op x.down) (fun reply => pure (ULift.up reply)) : Tree ReadEvent Atom) >>=
+        fun a => pure (atom a.down))
+    simp only [vis_bind, pure_bind]
+
+private def relabel : SignatureMap Opcode Opcode (Ty SortName) (Ty SortName) Bool Bool where
+  instr _ := .merged
+  ty := id
+  eff := id
+  source _ := rfl
+  target _ := rfl
+  effect _ := rfl
+
+private def mergeOpcodes : effectSignature ⟶ effectSignature := ⟨relabel, rfl, rfl⟩
+
+example : ¬ Function.Injective relabel.instr := by
+  intro inj
+  cases inj (show relabel.instr .first = relabel.instr .second from rfl)
+
+private def effectSource (op : Opcode) (overwrite : Bool) : CFG Reg Label effectSignature.Instr :=
+  let jump : CFG.Body Reg Label Opcode := .term (.br blockLabel .unit)
+  ⟨.let1 saved (.app op (.var left))
+    (if overwrite then .let1 saved (.val (.var left)) jump else jump), exitBlocks⟩
+
+private def effectFields (_ : Label) : List (Reg × Ty SortName) :=
+  [(saved, num), (left, num)]
+
+private def effectResult (n : Nat) : Transfer Runtime :=
+  (0, .inl (.pair .unit (.pair (atom n) (.pair (atom 7) .unit))))
+
+private def keepsReply : Admission effectSignature ports effectFields (effectSource .first false) :=
+  (admit (P := effectSignature) ports effectFields (effectSource .first false) (fun _ => edgeType)).get (by decide)
+
+private def overwritesReply : Admission effectSignature ports effectFields (effectSource .second true) :=
+  (admit (P := effectSignature) ports effectFields (effectSource .second true) (fun _ => edgeType)).get (by decide)
+
+-- This renamed fixture independently passes at the same block profile.
+example : (admit (P := effectSignature) ports effectFields
+    ((effectSource .first false).mapOp relabel.instr) (fun _ => edgeType)).isSome = true := by decide
+
+private theorem effect_observation (overwrite : Bool) :
+    observe (P := effectSignature) readModel ports effectFields (effectSource .merged overwrite) sample =
+      vis (.read .merged 7) (fun reply => pure (effectResult (if overwrite then 7 else reply))) := by
+  cases overwrite
+  · change (((vis (.read .merged 7) (fun reply => pure (atom reply)) : Tree ReadEvent (Value Runtime)) >>=
+        fun v => iter (CFG.Cyclic.step (treeModel readModel.raw) exitBlocks)
+          (blockLabel, .unit, upd (inputStore sample) saved v)) >>= _) = _
+    simp only [vis_bind, pure_bind, run_jump]
+    rfl
+  · change (((vis (.read .merged 7) (fun reply => pure (atom reply)) : Tree ReadEvent (Value Runtime)) >>=
+        fun v => pure (inputStore sample left) >>= fun original =>
+          iter (CFG.Cyclic.step (treeModel readModel.raw) exitBlocks)
+            (blockLabel, .unit, upd (upd (inputStore sample) saved v) saved original)) >>= _) = _
+    simp only [vis_bind, pure_bind, run_jump]
+    rfl
+
+private def replyTrace : Trace ReadEvent (Transfer Runtime) :=
+  .exchange (.read .merged 7) 11 (.result (effectResult 11))
+
+private theorem keeps_trace :
+    HasTrace (observe (P := effectSignature) readModel ports effectFields (effectSource .merged false) sample)
+      replyTrace := by
+  rw [effect_observation]
+  simp only [replyTrace, hasTrace_vis_exchange_iff]
+  exact out_ret _
+
+example :
+    HasTrace (region readModel.raw (extend ambient encodedSample)
+      (keepsReply.map mergeOpcodes).program.code) replyTrace :=
+  ((keepsReply.map mergeOpcodes).packed_tree readModel sample ambient).symm ▸ keeps_trace
+
+private def comparison : Sentence effectSignature ports effectFields :=
+  (⟨effectSource .first false, keepsReply⟩, ⟨effectSource .second true, overwritesReply⟩)
+
+private theorem mapped_not_satisfied : ¬ Satisfies readModel (comparison.map mergeOpcodes) := by
+  intro h
+  have order := h sample
+  change TraceLE (observe (P := effectSignature) readModel ports effectFields (effectSource .merged false) sample)
+    (observe (P := effectSignature) readModel ports effectFields (effectSource .merged true) sample) at order
+  have bad := order replyTrace keeps_trace
+  rw [effect_observation] at bad
+  simp only [replyTrace, hasTrace_vis_exchange_iff, HasTrace] at bad
+  have eq := Silmaril.Elgot.ITree.Visible.ret.inj (Part.some_inj.mp ((out_ret (E := ReadEvent)
+    (effectResult 7)).symm.trans bad))
+  simp [effectResult, atom] at eq
+  exact (by decide : (7 : Nat) ≠ 11) (congrArg ULift.down eq)
+
+private abbrev packed := packedComorphism.{0, 0} ports effectFields ReadEvent
+private abbrev renamed := (institution.{0, 0} ports effectFields ReadEvent).I.map mergeOpcodes
+
+-- After merging the opcodes, the programs agree on the request and reply.
+-- The final store projection distinguishes their packed results at reply 11.
+example :
+    ¬ (PackedInstitution.room ReadEvent effectSignature
+        (LambdaSSA.Region.packedInputType ports.context.toList)).Sat (Discrete.mk readModel)
+      ((packed.ρ.app effectSignature).sen (renamed.sen comparison)) :=
+  fun h => mapped_not_satisfied ((packed.satisfaction effectSignature (Discrete.mk readModel) _).mp h)
+
+example : ¬ Satisfies (FlatInstitution.reduct ReadEvent mergeOpcodes readModel) comparison :=
+  fun h => mapped_not_satisfied ((satisfaction mergeOpcodes readModel comparison).mpr h)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.Examples

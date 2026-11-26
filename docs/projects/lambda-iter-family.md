@@ -650,3 +650,36 @@ exit observations agree for every input. The packed observations at
 `(((), 7), 9)` return the distinct live-outs 7 and 9. The checker also
 rejects a unit declaration for the numeric live-out.
 [Checked fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)
+
+### Relabelling typed live-out comparisons
+
+`Cyclic.run_mapOp` exposes the existing cyclic runner reduct law at the
+universes of the typed weak-tree model. It preserves the final store.
+`attach_mapOp` commutes on the written syntax because opcode relabelling
+preserves lookup hits and misses. `project_reduct` uses the same pair and
+unit operations for the caller's ordered register list. Together the laws
+give `observe_mapOp`, an equality of whole weak trees at the same typed
+input record, including the tagged old argument and ordered fields.
+[Runner reduct](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/InstructionMap/Thms.lean)
+· [Attachment and projection](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/InstructionMap/Thms.lean)
+
+`Admission.map` transports an existing certificate through the named
+versioning and elaboration maps at its supplied block profiles. The
+live-out room fixes the input context, the ordered exits, and the typed
+field lists. It uses the same models and reduct functors as the named
+typed-entry room. The attachment comorphism composes with the existing
+named-to-packed comorphism. Both packing orders give equal typed syntax,
+and `toPacked_satisfies_map_iff` preserves and reflects pointwise
+satisfaction in the reduct. The signature maps fix types and the event
+family and preserve bottom Boolean effect. The admission law concerns
+certificate transport at those profiles.
+[Certificate transport and institution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/Institution/Thms.lean)
+
+The fixture identifies two effectful opcodes. Both renamed sources can
+request the same operation with argument 7 and receive reply 11. One
+source keeps the reply and the other overwrites it with 7 before the
+internal jump. Their old unit results agree at that trace, while their
+ordered live-out records are `(11, 7)` and `(7, 7)`. The fixture also
+reruns admission of the renamed reply-carrying graph at the same
+profile.
+[Checked relabelling fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)
