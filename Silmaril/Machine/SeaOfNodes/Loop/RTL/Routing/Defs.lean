@@ -4,7 +4,7 @@ public import Silmaril.Machine.SeaOfNodes.Diamond.RTL.Defs
 public import Silmaril.SSA.SeaOfNodes.Loop.Defs
 public import Silmaril.SSA.RVSDG.Isomorphism.Defs
 
-/-! # Typed word columns and a routed three-payload RTL loop -/
+/-! # Typed word columns and routed all-i64 RTL loops -/
 
 @[expose] public section
 
@@ -19,7 +19,8 @@ open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow Val dataPorts)
 open Silmaril.SSA.SeaOfNodes.Loop (Graph Incoming appendTuple)
 
 abbrev wordPort : PortTy := .value word
-abbrev wordPorts (n : Nat) : List PortTy := List.replicate n wordPort
+abbrev wordSorts (n : Nat) := List.replicate n word
+abbrev wordPorts (n : Nat) : List PortTy := dataPorts (wordSorts n)
 abbrev WordTuple (n : Nat) := Tuple (Val model.value) (wordPorts n)
 abbrev ArgumentColumn (scope arity : Nat) := Wires (wordPorts scope) [] (wordPorts arity)
 
@@ -59,83 +60,143 @@ def extendArguments {args users : List PortTy} (past : List (List PortTy))
     | .arg p => .arg p
     | .output i _ => i.elim0
 
-abbrev inputSorts := [word, word, word, word]
-abbrev carriedSorts := [word, word, word, word]
 abbrev headerSigs : List (List PortTy) := [[wordPort], [wordPort], [wordPort], [.value .predicate]]
 
-/-- Three payload slots can read any argument visible at their predecessor.
-The first argument and the first carried slot are reserved for loop control. -/
-structure Routes where
-  entry : ArgumentColumn 4 3
-  feedback : ArgumentColumn 8 3
+theorem wordPorts_eq_replicate (n : Nat) : wordPorts n = List.replicate n wordPort := by
+  simp [List.map_replicate]
 
-def checkRoutes (entry feedback : List Nat) : Option Routes :=
-  (checkColumn 4 3 entry).bind fun initial =>
-    (checkColumn 8 3 feedback).map fun next => ⟨initial, next⟩
+theorem wordPorts_append (m n : Nat) : wordPorts (m + n) = wordPorts m ++ wordPorts n := by
+  simp only [wordPorts_eq_replicate, List.replicate_add]
 
-def Routes.graph (routes : Routes) : Graph WordOp inputSorts carriedSorts [] headerSigs word where
+def prefixPort {pre tail : List PortTy} {t : PortTy} : Port pre t → Port (pre ++ tail) t
+  | .head => .head
+  | .tail p => .tail (prefixPort p)
+
+def suffixPort {tail : List PortTy} {t : PortTy} :
+    (pre : List PortTy) → Port tail t → Port (pre ++ tail) t
+  | [], p => p
+  | _ :: rest, p => .tail (suffixPort rest p)
+
+/-- The counter occupies slot zero in each tuple. Payload routes may read
+any visible argument. A typed result selects one of the carried payloads. -/
+structure BankRoutes (payloads : Nat) where
+  entry : ArgumentColumn (payloads + 1) payloads
+  feedback : Wires (wordPorts (payloads + 1) ++ wordPorts (payloads + 1)) [] (wordPorts payloads)
+  result : Fin payloads
+
+def checkBankRoutes (payloads : Nat) (entry feedback : List Nat) (result : Nat) :
+    Option (BankRoutes payloads) :=
+  if valid : result < payloads then
+    (checkColumn (payloads + 1) payloads entry).bind fun initial =>
+      (checkColumn ((payloads + 1) + (payloads + 1)) payloads feedback).map fun next =>
+        ⟨initial, wordPorts_append (payloads + 1) (payloads + 1) ▸ next, ⟨result, valid⟩⟩
+  else none
+
+def BankRoutes.resultPort {payloads : Nat} (r : BankRoutes payloads) :
+    Port (wordPorts (payloads + 1)) wordPort :=
+  .tail (argumentPort payloads r.result)
+
+def counterPort (payloads : Nat) :
+    Port (wordPorts (payloads + 1) ++ wordPorts (payloads + 1)) wordPort :=
+  suffixPort (wordPorts (payloads + 1)) .head
+
+def BankRoutes.graph {payloads : Nat} (r : BankRoutes payloads) :
+    Graph WordOp (wordSorts (payloads + 1)) (wordSorts (payloads + 1)) [] headerSigs word where
   preheader := .nil
   header :=
-    let counterPort := argumentPort 8 ⟨4, by decide⟩
     .cons (.const 1) .nil
-      (.cons .sub (.cons (.arg counterPort) (.cons (.output (0 : Fin 1) .head) .nil))
+      (.cons .sub (.cons (.arg (counterPort payloads)) (.cons (.output (0 : Fin 1) .head) .nil))
         (.cons (.const 0) .nil
-          (.cons .ne (.cons (.arg counterPort) (.cons (.output (2 : Fin 3) .head) .nil)) .nil)))
+          (.cons .ne (.cons (.arg (counterPort payloads)) (.cons (.output (2 : Fin 3) .head) .nil)) .nil)))
   phiInputs
-    | .entry => .cons (.arg .head) routes.entry
-    | .backedge => .cons (.output (1 : Fin 4) .head) (extendArguments (extend [] headerSigs) routes.feedback)
+    | .entry => .cons (.arg .head) r.entry
+    | .backedge => .cons (.output (1 : Fin 4) .head) (extendArguments (extend [] headerSigs) r.feedback)
   predicate := .output (3 : Fin 4) .head
-  result := .arg (argumentPort 8 ⟨5, by decide⟩)
+  result := .arg (suffixPort (wordPorts (payloads + 1)) r.resultPort)
 
-def Routes.incomingRegisters (routes : Routes) : Incoming → List Reg
-  | .entry => emitColumn (arity := 4) (routes.graph.phiInputs .entry)
-  | .backedge => emitColumn (arity := 4) (routes.graph.phiInputs .backedge)
+def BankRoutes.incomingRegisters {payloads : Nat} (r : BankRoutes payloads) : Incoming → List Reg
+  | .entry => emitColumn (arity := payloads + 1) (r.graph.phiInputs .entry)
+  | .backedge => emitColumn (arity := payloads + 1) (r.graph.phiInputs .backedge)
 
-def entryParams : List Reg := [.arg 0, .arg 1, .arg 2, .arg 3]
-def bankParams : List Reg := [.arg 4, .arg 5, .arg 6, .arg 7]
+def paramRegs (base arity : Nat) : List Reg := (List.range' base arity).map Reg.arg
 
-def Routes.preheader (routes : Routes) : Block Reg :=
-  ⟨entryParams, [], .jump 1 (routes.incomingRegisters .entry)⟩
+def BankRoutes.preheader {payloads : Nat} (r : BankRoutes payloads) : Block Reg :=
+  ⟨paramRegs 0 (payloads + 1), [], .jump 1 (r.incomingRegisters .entry)⟩
 
-def Routes.header (routes : Routes) : Block Reg :=
-  ⟨bankParams, emitOpsWith (fun p => .arg p.index) routes.graph.header,
-    .cond (register routes.graph.predicate.address) 1 (routes.incomingRegisters .backedge)
-      2 [register routes.graph.result.address]⟩
+def BankRoutes.header {payloads : Nat} (r : BankRoutes payloads) : Block Reg :=
+  ⟨paramRegs (payloads + 1) (payloads + 1), emitOpsWith (fun p => .arg p.index) r.graph.header,
+    .cond (register r.graph.predicate.address) 1 (r.incomingRegisters .backedge)
+      2 [register r.graph.result.address]⟩
 
 def exitBlock : Block Reg := ⟨[.phi], [], .ret [.phi]⟩
 
-def Routes.lowerFunc (routes : Routes) : Func Reg :=
-  ⟨⟨4, 1⟩, 0, [routes.preheader, routes.header, exitBlock]⟩
+def BankRoutes.lowerFunc {payloads : Nat} (r : BankRoutes payloads) : Func Reg :=
+  ⟨⟨payloads + 1, 1⟩, 0, [r.preheader, r.header, exitBlock]⟩
 
-def Routes.lower (routes : Routes) : Prog Reg := ⟨[routes.lowerFunc]⟩
+def BankRoutes.lower {payloads : Nat} (r : BankRoutes payloads) : Prog Reg := ⟨[r.lowerFunc]⟩
 
-/-- Decode the typed columns and run the machine's SSA check on the emitted CFG. -/
-def lowerChecked (entry feedback : List Nat) : Option (Prog Reg) :=
-  (checkRoutes entry feedback).bind fun routes =>
+/-- A zero-payload bank is rejected because it has no payload return port. -/
+def lowerBankChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat) : Option (Prog Reg) :=
+  (checkBankRoutes payloads entry feedback result).bind fun routes =>
     if routes.lowerFunc.WellFormed then some routes.lower else none
 
-/-- Convenient constructors for the concrete four-word native tuples. -/
-def pack (counter first second third : Word) : WordTuple 4 :=
-  .cons counter (.cons first (.cons second (.cons third .nil)))
+def counter {payloads : Nat} (values : WordTuple (payloads + 1)) : Word := values.get .head
 
-def counter (values : WordTuple 4) : Word := values.get .head
+def bindWords (base : Nat) (fr : Frame Reg) : {arity : Nat} → WordTuple arity → Frame Reg
+  | 0, .nil => fr
+  | _ + 1, .cons w rest => bindWords (base + 1) (fr.set (.arg base) w) rest
 
-def first (values : WordTuple 4) : Word := values.get (.tail .head)
+def bindBank {payloads : Nat} (fr : Frame Reg) (values : WordTuple (payloads + 1)) : Frame Reg :=
+  bindWords (payloads + 1) fr values
 
-def bindBank (fr : Frame Reg) (values : WordTuple 4) : Frame Reg :=
-  (((fr.set (.arg 4) (counter values)).set (.arg 5) (first values)).set
-    (.arg 6) (values.get (.tail (.tail .head)))).set (.arg 7) (values.get (.tail (.tail (.tail .head))))
+def testWord {payloads : Nat} (old : WordTuple (payloads + 1)) : Word := ofBool (counter old != 0)
 
-def testWord (old : WordTuple 4) : Word := ofBool (counter old != 0)
-
-def headerFrame (fr : Frame Reg) (old : WordTuple 4) : Frame Reg :=
+def headerFrame {payloads : Nat} (fr : Frame Reg) (old : WordTuple (payloads + 1)) : Frame Reg :=
   (((fr.set (.node 0) 1).set (.node 1) (counter old - 1)).set (.node 2) 0).set (.node 3) (testWord old)
 
 def ArgsMatch {args : List PortTy} (fr : Frame Reg) (input : Tuple (Val model.value) args) : Prop :=
   ∀ p : Port args wordPort, fr.get (.arg p.index) = some (input.get p)
 
-def Routes.nextBank (routes : Routes) (input old : WordTuple 4) : WordTuple 4 :=
+def BankRoutes.nextBank {payloads : Nat} (r : BankRoutes payloads)
+    (input old : WordTuple (payloads + 1)) : WordTuple (payloads + 1) :=
   let args := appendTuple old input
-  routes.graph.latch model .backedge args (routes.graph.header.eval model args PUnit.unit)
+  r.graph.latch model .backedge args (r.graph.header.eval model args PUnit.unit)
+
+def BankRoutes.returnWord {payloads : Nat} (r : BankRoutes payloads) (old : WordTuple (payloads + 1)) : Word :=
+  old.get r.resultPort
+
+/-! The three-payload interface selects the first payload at exit. -/
+
+abbrev inputSorts := wordSorts 4
+abbrev carriedSorts := wordSorts 4
+
+structure Routes where
+  entry : ArgumentColumn 4 3
+  feedback : ArgumentColumn 8 3
+
+def Routes.toBankRoutes (r : Routes) : BankRoutes 3 := ⟨r.entry, r.feedback, 0⟩
+
+def checkRoutes (entry feedback : List Nat) : Option Routes :=
+  (checkColumn 4 3 entry).bind fun initial =>
+    (checkColumn 8 3 feedback).map fun next => ⟨initial, next⟩
+
+abbrev Routes.graph (r : Routes) := r.toBankRoutes.graph
+abbrev Routes.incomingRegisters (r : Routes) := r.toBankRoutes.incomingRegisters
+abbrev entryParams := paramRegs 0 4
+abbrev bankParams := paramRegs 4 4
+abbrev Routes.preheader (r : Routes) := r.toBankRoutes.preheader
+abbrev Routes.header (r : Routes) := r.toBankRoutes.header
+abbrev Routes.lowerFunc (r : Routes) := r.toBankRoutes.lowerFunc
+abbrev Routes.lower (r : Routes) := r.toBankRoutes.lower
+abbrev Routes.nextBank (r : Routes) := r.toBankRoutes.nextBank
+
+def lowerChecked (entry feedback : List Nat) : Option (Prog Reg) :=
+  (checkRoutes entry feedback).bind fun routes =>
+    if routes.lowerFunc.WellFormed then some routes.lower else none
+
+def pack (counter first second third : Word) : WordTuple 4 :=
+  .cons counter (.cons first (.cons second (.cons third .nil)))
+
+def first (values : WordTuple 4) : Word := values.get (.tail .head)
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
