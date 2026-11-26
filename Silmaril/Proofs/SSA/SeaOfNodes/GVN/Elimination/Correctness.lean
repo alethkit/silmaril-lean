@@ -50,7 +50,7 @@ variable {args : List (Ty Data)} {past sigs target : List (List (Ty Data))}
 variable {out : ValueSort Data}
 variable (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
 
-private theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
+theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
     (wire : Origin args (past ++ [head]) t) (locals : Locals (Val m.value) past)
     (next : Tuple (Val m.value) head) :
     (match splitOrigin head wire with

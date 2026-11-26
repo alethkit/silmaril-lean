@@ -15,6 +15,17 @@ universe u v w
 variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))} {out : ValueSort Data}
 variable {flow : Dataflow Op args past sigs}
+/-- Splitting an extended origin reads either its old wire or a port
+of the appended result. -/
+theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
+    (wire : Origin args (past ++ [head]) t) (m : Model.{u,v,w} Op)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (next : Tuple (Val m.value) head) :
+    (match splitOrigin head wire with
+      | .inl prior => Diamond.read m prior entry locals
+      | .inr port => next.get port) = Diamond.read m wire entry (locals.snoc next) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Elimination.read_splitOrigin m entry wire locals next
+
 variable [DecidableEq (ValueSort Data)] [∀ ins out, DecidableEq (Op ins out)]
 
 /-- Every old wire has the same value after applying the returned routing.
