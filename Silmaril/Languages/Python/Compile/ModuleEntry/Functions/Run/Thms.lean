@@ -94,6 +94,19 @@ theorem advance_assertSequenceLength {scope : Source.Scope} (table : Core.Closur
         | some (.function _) => .scalarProfile
         | some _ => .raised .notCallable)) := rfl
 
+theorem lowerInstructions_assertBoolIdentity {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : BoolIdentityTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertBoolIdentity test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertBoolIdentity test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertBoolIdentity {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : BoolIdentityTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertBoolIdentity test :: rest)) =
+      ([], .finished session (boolIdentityCompletion session test)) := rfl
+
 theorem lowerInstructions_assertListConstruction {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
     (test : ListConstructionTest scope) (rest : List (Functions.Action scope)) :
     lowerInstructions tree key (.assertListConstruction test :: rest) =

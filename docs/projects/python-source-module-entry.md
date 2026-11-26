@@ -63,6 +63,22 @@ This path uses the existing explicit seed that already supplies `len`.
 Run the CPython 3.13.5 controls and the fixed original inputs with
 `python3.13 -I scripts/check-python-sequence-length.py --upstream /path/to/pinned/rigorous`.
 
+A message-free assertion can use `bool()` or `bool(scalar)` on the left
+of a single `is` or `is not` link. The checker certifies the optional
+positional operand in the shared scalar profile and the right operand in
+the singleton profile. Seeded execution reads the live module-first
+`bool` binding before preparing the argument. The existing
+`legacyBoolIsinstanceSeed` supplies the exact stock type in both
+placements. A noncallable mask fails after argument preparation. The
+ordinary runner uses its explicit namespace and the same error order.
+
+The stock descriptor uses scalar truth and returns an exact Boolean.
+The receipt records that value before the right operand is evaluated.
+The identity test uses the existing singleton rule. A failure retains
+the caller bindings and both heaps, and skips the tail. Run the exact
+CPython 3.13.5 pin and controls with
+`python3.13 -I scripts/check-python-bool-identity.py --upstream /path/to/pinned/rigorous`.
+
 A message-free module assertion can compare a stock `list` construction
 with an exact flat list literal on either side of equality. The call
 accepts zero arguments or one positional flat list or tuple literal.

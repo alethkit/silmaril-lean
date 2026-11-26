@@ -43,6 +43,11 @@ theorem listConstructorArguments_complete {arguments : List (Source.ArgumentKind
   cases checked <;> simp [listConstructorArguments?]
   all_goals split <;> simp_all
 
+theorem boolCallArgument_positional {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+    (checked : OperandTranslation scope source operand) (scalar : operand.comparable = true) :
+    (boolCallArgument? scope [(.positional, source)]).map Subtype.val = some (some operand) := by
+  simp [boolCallArgument?, operand_complete checked, Except.toOption, scalar]
+
 /-- A checked literal branch contributes the selected actions in order at
 the current lexical child index, ahead of the rest of the module. -/
 theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}

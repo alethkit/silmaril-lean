@@ -10,6 +10,7 @@ import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.SequenceLength
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.BoolIdentity
 
 public section
 
@@ -267,6 +268,41 @@ theorem constructList_ok_iff (space : Namespace) (heap : ListHeap) (argument : L
         reached.allocate contents = (object, updated) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction.constructList_ok_iff
     space heap argument object updated
+
+theorem readBoolCall_missing {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (missing : space.lookupGlobal "bool" = none) :
+    readBoolCall space argument = .error (.raised (.runtime (.nameError "bool"))) := by
+  simp [readBoolCall, missing]
+
+theorem readBoolCall_argument_error {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (callee : Value) (error : Failure)
+    (found : space.lookupGlobal "bool" = some callee)
+    (failed : argument.mapM (evaluateScalar space true) = .error error) :
+    readBoolCall space argument = .error error := by
+  simp [readBoolCall, found, failed, Except.bind]
+
+theorem readBoolCall_stock {scope : Source.Scope} (space : Namespace)
+    (argument : Option (Operand scope)) (value : Option Value)
+    (found : space.lookupGlobal "bool" = some (.builtin .bool))
+    (prepared : argument.mapM (evaluateScalar space true) = .ok value) :
+    readBoolCall space argument = (match scalar? (value.getD .none) with
+      | some scalar => .ok scalar.truth
+      | none => .error .unsupported) := by
+  simp [readBoolCall, found, prepared, Except.bind]
+  cases scalar? (value.getD .none) <;> rfl
+
+theorem run_assertBoolIdentity {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : BoolIdentityTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertBoolIdentity test :: rest) lists =
+      let result := readBoolCall space test.argument
+      let receipt : CallEvent := ⟨"bool", ⟨result.map .bool, none⟩⟩
+      match result.bind (checkBoolIdentityResult space test) with
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap, lists⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest lists
+        { tail with calls := receipt :: tail.calls } :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.BoolIdentity.run_assertBoolIdentity
+    space context lists test rest
 
 theorem constructList_shadow (space : Namespace) (heap : ListHeap) (argument : ListConstructorArgument)
     (value : Value) (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "list" = some value) :
