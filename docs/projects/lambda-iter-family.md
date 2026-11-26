@@ -507,3 +507,31 @@ lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
 lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```
+
+### Packing as an institution comorphism
+
+`PackedInstitution.packingComorphism` has the identity signature functor
+and uses the same model categories and reduct functors as the flat
+institution. A packed sentence compares two written singleton programs
+from unit to the sum of one shared external payload profile. Packing
+preserves that profile and applies `Program.ofCFG` to each written table.
+The packed room evaluates both programs with the existing weak ITree
+order.
+[Packed rooms and sentence map](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution/Defs.lean)
+
+`packSentence_map` is an equality of typed syntax. Its two program
+equalities come from `Program.ofCFG_mapInstr`. The model side of the
+naturality square uses the shared reduct and the identity model functors.
+Packing preserves and reflects satisfaction in each model and semantic
+consequence between translated sentences. The relabelled cyclic
+capture fixture checks the bundled square against the program obtained
+by rerunning closure and checks strict satisfaction in the packed room.
+[Comorphism and laws](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution/Thms.lean)
+· [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+The sentence map is noninjective on typed flat syntax. A graph that exits
+immediately can have an unreachable self-loop carrying either a unit or an
+empty parameter. The two annotations give distinct flat sentences and
+the same written packed program. The witness concerns internal profile
+annotations.
+[Noninjectivity witness](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution.lean)
