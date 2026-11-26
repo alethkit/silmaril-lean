@@ -2,7 +2,9 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Renaming.Defs
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Thms
+public import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Sentence.Defs
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Renaming
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Comparison
 
 /-! # The satisfaction condition for interface-preserving renamings
 
@@ -13,9 +15,11 @@ satisfaction condition of the handled-trace institution, a renamed directed
 sentence holds in a model exactly when the original holds in its reduct.
 
 Injectivity is what the existing trace signatures require of a request
-map. The renamed sentence is built at the same typing index. It is not
-identified here with the sentence maps of the existing equational
-institutions, which also translate types.
+map. The renamed LetCase sentence is built at the same typing index. It is
+the sentence map of the existing LetCase institution at the relabelling,
+and the existing type-changing sentence map at the relabelling. Grammar and
+ranked sentences are renamed by their existing signature maps, and the
+existing emission of sentences commutes with renaming.
 -/
 
 @[expose] public section
@@ -26,7 +30,10 @@ open CategoryTheory Silmaril.Elgot.ITree
 open Silmaril.Logic.Institution (Room)
 open Silmaril.Logic.ITree (Model)
 open Silmaril.Logic.ITree.TraceInstitution (Sat allRepliesModel)
-open Silmaril.Isotope.Institution.Acyclic (CaseEquation)
+open Silmaril.Isotope.Institution (InstrSig)
+open Silmaril.Isotope.Institution.Acyclic (CaseEquation mapOperand mapCaseSignature)
+open Silmaril.Isotope.Institution.Acyclic.Captured (GrammarEquation RankedEquation grammarCase readGrammar
+  numberGrammar grammarCase_map readGrammar_map grammarCase_roundTrip)
 open Isotope.Semantics (BoundEnv)
 open LetCase.LocallyNameless (Derivation)
 open LetCase.Structural.Finite (Context)
@@ -100,5 +107,105 @@ variable (r) in
 theorem reduct_allReplies :
     (allRepliesModel (events Ψ)).reduct (renameEvents r) = allRepliesModel (events (Pulled r)) :=
   reduct_allReplies_proof r
+
+/-! ## Comparison with the existing sentence maps -/
+
+/-- At a relabelling, the existing type-changing sentence map keeps the
+typing index and applies the fold of the existing LetCase institution. -/
+theorem mapCaseSignature_primitive {τ ε : Type} [TypeFormers τ] {P Q : InstrSig τ ε} (f : P ⟶ Q)
+    (e : CaseEquation P) :
+    mapCaseSignature f.toSignatureMap e = ⟨e.1, mapOperand f e.2.1, mapOperand f e.2.2⟩ :=
+  mapCaseSignature_primitive_proof f e
+
+variable (r) in
+/-- The fold of the existing LetCase institution is the structural renaming. -/
+theorem mapOperand_pulled {n : Nat} {γ : Context n} {A : Ty Empty} (a : Operand (Pulled r) γ A) :
+    mapOperand (pulledHom r) a = renameOperand r a :=
+  mapOperand_pulled_proof r a.2
+
+variable (r) in
+/-- The renamed sentence is the sentence map of the existing LetCase
+institution at the relabelling. -/
+theorem renameCase_eq_inst (e : CaseEquation (sig (Pulled r))) :
+    ((Silmaril.Isotope.Institution.LetCase.inst (ε := Bool) Γ₀).map (pulledHom r)).sen e = renameCase r e :=
+  congrArg₂ (fun (x : Operand Ψ e.1.bound e.1.result) (y : Operand Ψ e.1.bound e.1.result) =>
+    (⟨e.1, x, y⟩ : CaseEquation (sig Ψ))) (mapOperand_pulled r e.2.1) (mapOperand_pulled r e.2.2)
+
+variable (r) in
+/-- The renamed sentence is the existing type-changing sentence map at the
+relabelling. The translated index is the original index. -/
+theorem mapCaseSignature_pulled (e : CaseEquation (sig (Pulled r))) :
+    mapCaseSignature (pulledHom r).toSignatureMap e = renameCase r e :=
+  (mapCaseSignature_primitive (pulledHom r) e).trans (renameCase_eq_inst r e)
+
+/-! ## Grammar and ranked sentences -/
+
+variable (r) in
+/-- Rendering a renamed grammar sentence renames the rendered sentence. -/
+theorem grammarCase_renameGrammar (e : GrammarEquation (sig (Pulled r))) :
+    grammarCase (renameGrammar r e) = renameCase r (grammarCase e) :=
+  (grammarCase_map (pulledHom r).toSignatureMap e).trans (mapCaseSignature_pulled r (grammarCase e))
+
+variable (r) in
+/-- Emitting a renamed ranked sentence renames the emitted grammar sentence. -/
+theorem readGrammar_renameRanked (e : RankedEquation (sig (Pulled r))) :
+    readGrammar (renameRanked r e) = renameGrammar r (readGrammar e) :=
+  readGrammar_map (pulledHom r).toSignatureMap e
+
+variable (r) in
+/-- Numbering and renaming in either order emit the same LetCase sentence. -/
+theorem grammarCase_number_rename (e : GrammarEquation (sig (Pulled r))) :
+    grammarCase (readGrammar (numberGrammar (renameGrammar r e))) =
+      grammarCase (readGrammar (renameRanked r (numberGrammar e))) := by
+  rw [grammarCase_roundTrip, readGrammar_renameRanked, grammarCase_renameGrammar, grammarCase_renameGrammar,
+    grammarCase_roundTrip]
+
+/-- The satisfaction condition for renamed grammar sentences. -/
+theorem sat_renameGrammar (injective : Function.Injective r) (N : HandledModel Ψ)
+    (e : GrammarEquation (sig (Pulled r))) :
+    (grammarRoom Ψ).Sat ⟨N⟩ (renameGrammar r e) ↔
+      (grammarRoom (Pulled r)).Sat ⟨N.reduct (renameEvents r)⟩ e :=
+  (Iff.of_eq (congrArg (SatLe N) (grammarCase_renameGrammar r e))).trans
+    (satLe_rename injective N (grammarCase e))
+
+/-- The satisfaction condition for renamed ranked sentences. -/
+theorem sat_renameRanked (injective : Function.Injective r) (N : HandledModel Ψ)
+    (e : RankedEquation (sig (Pulled r))) :
+    (rankedRoom Ψ).Sat ⟨N⟩ (renameRanked r e) ↔
+      (rankedRoom (Pulled r)).Sat ⟨N.reduct (renameEvents r)⟩ e :=
+  (Iff.of_eq (congrArg (fun g => SatLe N (grammarCase g)) (readGrammar_renameRanked r e))).trans
+    (sat_renameGrammar injective N (readGrammar e))
+
+/-- Numbering a renamed grammar sentence and renaming its numbering hold
+in the same models. -/
+theorem sat_number_rename (N : (rankedRoom Ψ).Mod) (e : GrammarEquation (sig (Pulled r))) :
+    (rankedRoom Ψ).Sat N (numberGrammar (renameGrammar r e)) ↔
+      (rankedRoom Ψ).Sat N (renameRanked r (numberGrammar e)) :=
+  Iff.of_eq (congrArg (SatLe N.as) (grammarCase_number_rename r e))
+
+/-- Renaming as a corridor of the grammar rooms. -/
+noncomputable def renameGrammarCorridor (injective : Function.Injective r) :
+    grammarRoom (Pulled r) ⟶ grammarRoom Ψ :=
+  ⟨renameGrammar r, Discrete.functor fun N => Discrete.mk (N.reduct (renameEvents r)),
+    fun N e => sat_renameGrammar injective N.as e⟩
+
+/-- Renaming as a corridor of the ranked rooms. -/
+noncomputable def renameRankedCorridor (injective : Function.Injective r) :
+    rankedRoom (Pulled r) ⟶ rankedRoom Ψ :=
+  ⟨renameRanked r, Discrete.functor fun N => Discrete.mk (N.reduct (renameEvents r)),
+    fun N e => sat_renameRanked injective N.as e⟩
+
+/-- Emission of ranked sentences commutes with renaming, on sentences and
+on models. -/
+theorem read_rename_square (injective : Function.Injective r) :
+    readCorridor (Pulled r) ≫ renameGrammarCorridor injective =
+      renameRankedCorridor injective ≫ readCorridor Ψ :=
+  Room.hom_ext (funext fun e => (readGrammar_renameRanked r e).symm) rfl
+
+/-- Rendering grammar sentences to LetCase commutes with renaming. -/
+theorem grammarCase_rename_square (injective : Function.Injective r) :
+    grammarCaseCorridor (Pulled r) ≫ renameCorridor injective =
+      renameGrammarCorridor injective ≫ grammarCaseCorridor Ψ :=
+  Room.hom_ext (funext fun e => (grammarCase_renameGrammar r e).symm) rfl
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution

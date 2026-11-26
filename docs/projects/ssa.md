@@ -861,13 +861,20 @@ The continuation cannot jump back to its own label.
   morphism of the handled-trace signatures. The free tree of a renamed
   operand is the request translation of the original tree, so a renamed
   sentence holds in a model exactly when the original holds in the
-  reduct. The renamed sentence keeps its typing index. It is not
-  identified with the sentence maps of the existing equational
-  institutions, which also translate types, and no institution over a
-  category of renamings is assembled.
+  reduct. The renamed sentence keeps its typing index. It is the sentence
+  map of the existing LetCase institution at the relabelling, and the
+  existing type-changing sentence map at the relabelling. Grammar and
+  ranked sentences are renamed by their existing signature maps. Every
+  relabelling between finite structural signatures is such a renaming, so
+  LetCase, grammar and ranked sentences form institutions over the
+  category of structural signatures and injective relabellings. Emission
+  of ranked sentences and rendering of grammar sentences are natural in
+  the renaming, and readback is natural up to satisfaction. Signature
+  morphisms that translate types are not morphisms of this category.
   [Sentences, models and rooms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Defs.lean) ·
   [Satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Thms.lean) ·
   [Renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Thms.lean) ·
+  [Institutions over renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Category/Thms.lean) ·
   [Three models and a renaming](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent

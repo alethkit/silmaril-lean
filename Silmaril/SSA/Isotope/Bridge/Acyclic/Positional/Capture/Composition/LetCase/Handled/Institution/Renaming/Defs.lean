@@ -18,6 +18,7 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Hand
 
 open CategoryTheory Silmaril.Elgot.ITree
 open Silmaril.Isotope.Institution.Acyclic (CaseEquation)
+open Silmaril.Isotope.Institution.Acyclic.Captured (GrammarEquation RankedEquation mapGrammar mapRanked)
 open LetCase.LocallyNameless (Derivation)
 open LetCase.Structural.Finite (Context)
 open LetCase.Structural.Reply (Γ₀)
@@ -61,6 +62,34 @@ def renameOperand {n : Nat} {γ : Context n} {A : Ty Empty} (a : Operand (Pulled
 /-- Rename both sides of a typed LetCase equation at the same typing index. -/
 def renameCase (e : CaseEquation (sig (Pulled r))) : CaseEquation (sig Ψ) :=
   ⟨e.1, renameOperand r e.2.1, renameOperand r e.2.2⟩
+
+/-- The renaming as a relabelling of the existing instruction signatures.
+Sources, targets and effects agree by definition. -/
+def pulledHom : sig (Pulled r) ⟶ sig Ψ :=
+  ⟨r, fun _ => rfl, fun _ => rfl, fun _ => rfl⟩
+
+/-- A relabelling of structural signatures keeps every type, so it keeps
+products and the unit. The general instance is stated for abstract
+instruction signatures and is not found at these concrete ones. -/
+instance {Φ Ψ : Type} [LetCase.Structural.Finite.Signature Φ] [LetCase.Structural.Finite.Signature Ψ]
+    (f : sig Φ ⟶ sig Ψ) : f.toSignatureMap.PreservesProducts where
+  unit := rfl
+  product _ _ := rfl
+
+instance {Φ Ψ : Type} [LetCase.Structural.Finite.Signature Φ] [LetCase.Structural.Finite.Signature Ψ]
+    (f : sig Φ ⟶ sig Ψ) : f.toSignatureMap.PreservesSums where
+  empty := rfl
+  coprod _ _ := rfl
+
+/-- Rename a grammar sentence with the existing signature map of grammar
+equations, at the relabelling. -/
+def renameGrammar (e : GrammarEquation (sig (Pulled r))) : GrammarEquation (sig Ψ) :=
+  mapGrammar (pulledHom r).toSignatureMap e
+
+/-- Rename a ranked sentence with the existing signature map of ranked
+equations, at the relabelling. -/
+def renameRanked (e : RankedEquation (sig (Pulled r))) : RankedEquation (sig Ψ) :=
+  mapRanked (pulledHom r).toSignatureMap e
 
 /-- A request keeps its argument and is renamed with its primitive. -/
 def renameRequest : Request (Events (Pulled r)) → Request (Events Ψ)
