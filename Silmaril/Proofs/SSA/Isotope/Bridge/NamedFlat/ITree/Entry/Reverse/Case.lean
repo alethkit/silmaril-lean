@@ -75,7 +75,10 @@ private def profile := (lowered.synthesizeProfile (fun _ => choice)).get (by dec
 example : ∀ i, profile i = .product choice (.product choice .unit) := by decide
 
 private def recompiled : LiveOut.Admission signature ports fields lowered.source :=
-  (lowered.reAdmit (fun _ => choice)).get (by decide)
+  Straight.admitWithCapture lowered (fun _ => choice) (by decide) 0
+    (by decide) (by decide) (by decide)
+
+example : (lowered.reAdmit (fun _ => choice)).isSome = true := by decide
 
 private abbrev Input := Ty.denote (AtomValues.carrier (κ := SortName))
   (Region.packedInputType ports.context.toList)
@@ -86,6 +89,11 @@ private def input (right : Bool) (n : Nat) : Input :=
 private def atom (n : Nat) : Value Runtime := .atom ⟨⟨()⟩, ⟨n⟩⟩
 private def value (right : Bool) (n : Nat) : Value Runtime :=
   if right then .inr (atom n) else .inl (atom n)
+
+example (right : Bool) (n : Nat) :
+    store ports.version.names ports.context (input right n) (⟨0⟩, 0) = value right n :=
+  (Straight.capture_at_version_zero (context := ports.context) 0 (input right n)).trans
+    (by cases right <;> rfl)
 
 private def output (right : Bool) (n : Nat) : Transfer Runtime :=
   let packet := (atom n).pair ((atom n).pair .unit)
@@ -103,6 +111,18 @@ private theorem loweredTable : lowered.source.blocks = table := rfl
 
 private def start (right : Bool) (n : Nat) : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
   (⟨7⟩, value right n, store ports.names ports.context (input right n))
+
+-- The jump carries the actual supplied sum both as its argument and in
+-- the saved record. The capture type and value use the same input slot.
+example (right : Bool) (n : Nat) :
+    CFG.Cyclic.Versioning.encode (treeModel model.raw) (withLiveOut (P := signature) fields lowered.source)
+      (start right n) = (⟨7⟩, .pair (value right n) (.pair (value right n) .unit)) := by
+  have route : CFG.Cyclic.Versioning.destinations
+      (withLiveOut (P := signature) fields lowered.source) (⟨7⟩ : Label) = some [⟨0⟩] := by decide
+  have agrees : (start right n).2.2 ⟨0⟩ = inputEnv ports.context (input right n) 0 := by
+    cases right <;> rfl
+  have packet := Straight.encode_capture lowered model 0 (input right n) (start right n) route agrees
+  cases right <;> exact packet
 
 private def done (right : Bool) (n : Nat) : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
   let σ := upd (start right n).2.2 ⟨1⟩ (value right n)

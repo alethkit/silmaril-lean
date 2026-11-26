@@ -792,9 +792,36 @@ variant needs no saved records, uses a nested case, and agrees with the
 original packed execution for both exits at every supplied sum. A separate
 closed-entry fixture has an internal block with differently typed arms. One
 returns its binder at the second exit and the other passes the original sum
-back to the block. The general checker handles nonempty saved records.
+back to the block.
 
 [Source checks](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Defs.lean)
 · [Admission theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
 · [Ordered exits and nested case](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
 · [Case and back-edge fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Straight/Examples.lean)
+
+### Checked re-admission with a saved entry capture
+
+`Straight.admitWithCapture` covers tables where every destination saves the
+same numbered entry slot and the attached source does not assign that
+register. The actual slot lists exclude the destination parameter. The
+finite source checks still inspect the original bodies, including nested
+cases, at their original types.
+
+The selected input slot supplies the saved field's type. The proof types the
+actual jump packet and the compiler's decoder, then tracks the argument and
+the saved field in scope at their respective current versions. The proof
+also checks that the resulting destination type is the synthesized profile
+from the actual slot list. It derives scoped readback and local typing of
+the generated table from these premises.
+
+`capture_at_version_zero` relates the version-zero store lookup to the tagged
+field of the supplied input. `encode_capture` gives the actual packet at a
+transfer whose destination saves that register and whose carried value
+agrees with the field. The original ordered-exit fixture now uses
+`admitWithCapture` and checks that the transfer carries the supplied sum at
+that slot. Its weak-tree round trip keeps the original input and both exits.
+Tables with multiple saved fields or different saved lists across
+destinations use the general checker.
+
+[Capture admission and packet equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
+· [Original ordered-exit fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)

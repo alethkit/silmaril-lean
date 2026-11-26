@@ -22,6 +22,32 @@ def Scope (cur : V → Nat) (names : Names V n) (ctx : BoundCtx (Ty Base) n)
   ∀ reg i, names reg = some i →
     ∃ j, target (reg, cur reg) = some j ∧ targetCtx.get j = ctx.get i
 
+/-- The optional entry capture has its input type at its current version. -/
+def SavedScope (cur : V → Nat) (capture : Option (V × Ty Base))
+    (names : Names (V × Nat) m) (ctx : BoundCtx (Ty Base) m) : Prop :=
+  ∀ reg A, capture = some (reg, A) →
+    ∃ i, names (reg, cur reg) = some i ∧ ctx.get i = A
+
+/-- Saved fields are read-only in the attached source. The argument binder
+of a destination is independently excluded by the compiler's slot list. -/
+def KeepsCapture (capture : Option (V × Ty Base)) (r : Silmaril.SSA.LambdaRTL.Region V K F) : Prop :=
+  ∀ reg A, capture = some (reg, A) → reg ∉ r.bound
+
+def savedType : Option (V × Ty Base) → Ty Base
+  | none => .unit
+  | some (_, A) => .product A .unit
+
+omit [DecidableEq Base] [HasTy F (Ty Base)] in
+private theorem push_saved {cur : V → Nat} {capture : Option (V × Ty Base)}
+    {names : Names (V × Nat) m} {ctx : BoundCtx (Ty Base) m}
+    (scope : SavedScope cur capture names ctx) (binder : V) (type : Ty Base) (depth : Nat)
+    (fresh : ∀ reg A, capture = some (reg, A) → reg ≠ binder) :
+    SavedScope (Version.setv cur binder (depth + 1)) capture
+      (bindName names (binder, depth + 1)) (.snoc ctx type) := by
+  intro reg A field
+  obtain ⟨i, hit, ty⟩ := scope reg A field
+  exact ⟨i.succ, by simp [Version.setv, bindName, fresh reg A field, hit], ty⟩
+
 omit [DecidableEq Base] [HasTy F (Ty Base)] in
 private theorem push {cur : V → Nat} {names : Names V n} {ctx : BoundCtx (Ty Base) n}
     {target : Names (V × Nat) m} {targetCtx : BoundCtx (Ty Base) m}
@@ -79,6 +105,21 @@ private theorem operand_version {cur : V → Nat}
     exact ⟨.op instr a, by simp [operand, Version.rnOp, hit], by simp [infer, type]⟩
   | inl | inr | abort => cases read
 
+omit [DecidableEq V] in
+private theorem saved_value {cur : V → Nat} {capture : Option (V × Ty Base)}
+    {names : Names (V × Nat) m} {ctx : BoundCtx (Ty Base) m}
+    (scope : SavedScope cur capture names ctx) :
+    ∃ term : Tm Empty F m,
+      value names (Version.pack cur (capture.toList.map Prod.fst)) = some term ∧
+        infer ctx term = some (savedType capture) := by
+  cases capture with
+  | none => exact ⟨.unit, rfl, rfl⟩
+  | some field =>
+    obtain ⟨reg, A⟩ := field
+    obtain ⟨i, hit, ty⟩ := scope reg A rfl
+    exact ⟨.pair (.bv i) .unit,
+      by simp [Version.pack, value, hit], by simp [infer, ty, savedType]⟩
+
 variable [DecidableEq K]
 
 private theorem version_let1 (dest : K → Option (List V)) (live : List V) (cur : V → Nat)
@@ -102,12 +143,12 @@ private theorem version_let2 (dest : K → Option (List V)) (live : List V) (cur
     (Option.some_get _).symm
 
 /-- The branch interface classifies a numbered edge as an exit or as an
-internal jump with an empty saved record. -/
+internal jump with the declared saved record. -/
 def Routes (index : K → Option (Fin labels)) (dest : K → Option (List V))
-    (old new : Fin labels → Ty Base) : Prop :=
+    (capture : Option (V × Ty Base)) (old new : Fin labels → Ty Base) : Prop :=
   ∀ k i, index k = some i →
     (dest k = none ∧ new i = old i) ∨
-      (dest k = some [] ∧ new i = .product (old i) .unit)
+      (dest k = some (capture.toList.map Prod.fst) ∧ new i = .product (old i) (savedType capture))
 
 omit [DecidableEq V] [DecidableEq K] in
 private theorem reify_term (r : Silmaril.SSA.LambdaRTL.Region V K F)
@@ -120,11 +161,13 @@ private theorem reify_term (r : Silmaril.SSA.LambdaRTL.Region V K F)
 /-- The reified terminator scopes each case arm using the version and type
 of its own binder. Both arms start from the same incoming scope. -/
 private theorem version_term (index : K → Option (Fin labels)) (dest : K → Option (List V))
-    (oldTypes newTypes : Fin labels → Ty Base) (routes : Routes index dest oldTypes newTypes)
+    (capture : Option (V × Ty Base)) (oldTypes newTypes : Fin labels → Ty Base)
+    (routes : Routes index dest capture oldTypes newTypes)
     (live : List V) (src : CFG.Term V K F) (d : Nat) (cur : V → Nat)
     (names : Names V n) (ctx : BoundCtx (Ty Base) n)
     (target : Names (V × Nat) m) (targetCtx : BoundCtx (Ty Base) m)
     (scope : Scope cur names ctx target targetCtx)
+    (saved : SavedScope cur capture target targetCtx) (keeps : KeepsCapture capture src.toRegion)
     {old : Flat F labels n} (read : term index names src = some old)
     (checked : checkBody oldTypes ctx old = true) :
     ∃ named next, CFG.Term.ofRegion? (Version.version dest live cur d src.toRegion) = some named ∧
@@ -139,9 +182,12 @@ private theorem version_term (index : K → Option (Fin labels)) (dest : K → O
     · exact ⟨.br label (Version.rn cur arg), .br i e,
         by simp [CFG.Term.toRegion, Version.version, route, CFG.Term.ofRegion?],
         by simp [term, hit, he], by simp [checkBody, hType, same]⟩
-    · exact ⟨.br label (.pair (Version.rn cur arg) .unit), .br i (.pair e .unit),
-        by simp [CFG.Term.toRegion, Version.version, route, CFG.Term.ofRegion?, Version.pack],
-        by simp [term, hit, value, he], by simp [checkBody, infer, hType, packed]⟩
+    · obtain ⟨record, hRecord, tRecord⟩ := saved_value (F := F) saved
+      exact ⟨.br label (.pair (Version.rn cur arg) (Version.pack cur (capture.toList.map Prod.fst))),
+        .br i (.pair e record),
+        by simp [CFG.Term.toRegion, Version.version, route, CFG.Term.ofRegion?],
+        by simp [term, hit, value, he, hRecord],
+        by simp [checkBody, infer, hType, packed, tRecord]⟩
   | case op x left y right ihLeft ihRight =>
     simp only [term, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
     obtain ⟨opOld, hOp, lOld, hLeft, rOld, hRight, rfl⟩ := read
@@ -151,10 +197,17 @@ private theorem version_term (index : K → Option (Fin labels)) (dest : K → O
     | some type =>
       cases type <;> simp only [checkBody, inferred, Bool.false_eq_true, Bool.and_eq_true] at checked
       case coprod A B =>
+        have avoids reg ty (field : capture = some (reg, ty)) :
+            reg ≠ x ∧ reg ≠ y ∧ reg ∉ left.toRegion.bound ∧ reg ∉ right.toRegion.bound := by
+          simpa [CFG.Term.toRegion, Silmaril.SSA.LambdaRTL.Region.bound, and_assoc] using keeps reg ty field
         obtain ⟨l, lFlat, lReified, lRead, lTyped⟩ :=
-          ihLeft (d + 1) _ _ _ _ _ (push scope x A d) hLeft checked.1
+          ihLeft (d + 1) _ _ _ _ _ (push scope x A d)
+            (push_saved saved x A d fun reg ty field => (avoids reg ty field).1)
+            (fun reg ty field => (avoids reg ty field).2.2.1) hLeft checked.1
         obtain ⟨r, rFlat, rReified, rRead, rTyped⟩ :=
-          ihRight (d + 1) _ _ _ _ _ (push scope y B d) hRight checked.2
+          ihRight (d + 1) _ _ _ _ _ (push scope y B d)
+            (push_saved saved y B d fun reg ty field => (avoids reg ty field).2.1)
+            (fun reg ty field => (avoids reg ty field).2.2.2) hRight checked.2
         exact ⟨.case (Version.rnOp cur op) (x, d + 1) l (y, d + 1) r, .case e lFlat rFlat,
           by simp [CFG.Term.toRegion, Version.version, CFG.Term.ofRegion?, lReified, rReified],
           by simp [term, he, lRead, rRead], by simp [checkBody, ty, inferred, lTyped, rTyped]⟩
@@ -162,12 +215,14 @@ private theorem version_term (index : K → Option (Fin labels)) (dest : K → O
 /-- Every supported source constructor reads back and passes local typing
 after the actual versioner has renamed the registers and wrapped the jumps. -/
 theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (List V))
-    (oldTypes newTypes : Fin labels → Ty Base) (routes : Routes index dest oldTypes newTypes)
+    (capture : Option (V × Ty Base)) (oldTypes newTypes : Fin labels → Ty Base)
+    (routes : Routes index dest capture oldTypes newTypes)
     (live : List V) (src : CFG.Body V K F)
     (d : Nat) (cur : V → Nat)
     (names : Names V n) (ctx : BoundCtx (Ty Base) n)
     (target : Names (V × Nat) m) (targetCtx : BoundCtx (Ty Base) m)
     (scope : Scope cur names ctx target targetCtx)
+    (saved : SavedScope cur capture target targetCtx) (keeps : KeepsCapture capture src.toRegion)
     {old : Flat F labels n} (read : body index names src = some old)
     (checked : checkBody oldTypes ctx old = true) :
     ∃ next, body index target (Versioning.versionBody src dest live cur d) = some next ∧
@@ -175,7 +230,8 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
   induction src generalizing n m d cur with
   | term tail =>
     obtain ⟨named, next, parsed, readNext, typed⟩ :=
-      version_term index dest oldTypes newTypes routes live tail d cur names ctx target targetCtx scope read checked
+      version_term index dest capture oldTypes newTypes routes live tail d cur names ctx target targetCtx
+        scope saved keeps read checked
     have actual : Versioning.versionBody (.term tail) dest live cur d = .term named :=
       Option.get_of_eq_some _ (reify_term _ parsed)
     rw [actual]
@@ -188,7 +244,11 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
     | none => simp [checkBody, h] at checked
     | some A =>
       have hTail : checkBody oldTypes (.snoc ctx A) rest = true := by simpa [checkBody, h] using checked
-      obtain ⟨b, hb, ht⟩ := ih (d + 1) _ _ _ _ _ (push scope x A d) restRead hTail
+      have avoids reg ty (field : capture = some (reg, ty)) : reg ≠ x ∧ reg ∉ tail.toRegion.bound := by
+        simpa [CFG.Body.toRegion, Silmaril.SSA.LambdaRTL.Region.bound] using keeps reg ty field
+      obtain ⟨b, hb, ht⟩ := ih (d + 1) _ _ _ _ _ (push scope x A d)
+        (push_saved saved x A d fun reg ty field => (avoids reg ty field).1)
+        (fun reg ty field => (avoids reg ty field).2) restRead hTail
       exact ⟨.let₁ e b, by simp [version_let1, body, he, hb], by simp [checkBody, ty, h, ht]⟩
   | let2 x y op tail ih =>
     simp only [body, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
@@ -199,8 +259,14 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
     | some T =>
       cases T <;> simp only [checkBody, h, Bool.false_eq_true] at checked
       case product A B =>
+        have avoids reg ty (field : capture = some (reg, ty)) :
+            reg ≠ x ∧ reg ≠ y ∧ reg ∉ tail.toRegion.bound := by
+          simpa [CFG.Body.toRegion, Silmaril.SSA.LambdaRTL.Region.bound] using keeps reg ty field
+        have first := push_saved saved x A d fun reg ty field => (avoids reg ty field).1
         obtain ⟨b, hb, ht⟩ := ih (d + 2) _ _ _ _ _
-          (push (push scope x A d) y B (d + 1)) restRead checked
+          (push (push scope x A d) y B (d + 1))
+          (push_saved first y B (d + 1) fun reg ty field => (avoids reg ty field).2.1)
+          (fun reg ty field => (avoids reg ty field).2.2) restRead checked
         exact ⟨.let₂ e b, by simp [version_let2, body, he, hb], by simp [checkBody, ty, h, ht]⟩
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight

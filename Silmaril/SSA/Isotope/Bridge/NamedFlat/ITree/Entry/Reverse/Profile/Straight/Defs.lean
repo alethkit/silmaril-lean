@@ -54,4 +54,12 @@ def checks (R : Fin blocks → Ty κ) : Bool :=
       let b := (attached).blocks[Fin.cast (List.length_map _) i].2
       sourceCheck index types (blockNames b.param) (.snoc context (original i)) b.body
 
+/-- The selected input register has no assignment or case binder in the
+attached entry or block bodies. Packet parameters are checked by the actual
+saved slot lists. -/
+def keepsEntryCapture (slot : Fin n) : Bool :=
+  let reg : Register := ⟨slot.val⟩
+  decide (reg ∉ (attached).entry.toRegion.bound) &&
+    (attached).blocks.all (fun block => decide (reg ∉ block.2.body.toRegion.bound))
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight
