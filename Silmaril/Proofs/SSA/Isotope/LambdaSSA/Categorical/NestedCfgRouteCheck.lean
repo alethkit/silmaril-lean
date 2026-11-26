@@ -45,17 +45,17 @@ theorem synth {a : Tm Φ} {Γ : VCtx (Ty κ)} {A : Ty κ}
       | pair h₁ h₂ => rw [ua _ h₁, ub _ h₂]; rfl
   | let₁ | let₂ | inl | inr | case | abort => contradiction
 
-private theorem strip {a b : Tm Φ} {tag : Bool} (ok : a.routePayload? tag = some b) :
-    a = if tag then .inl b else b := by
-  cases tag
-  · exact Option.some.inj ok
-  · cases a <;> first | contradiction | cases Option.some.inj ok; rfl
+private theorem strip {a b : Tm Φ} {tag : Option CaseTag} (ok : a.routePayload? tag = some b) :
+    a = match tag with | none => b | some t => t.inject b := by
+  cases tag with
+  | none => exact Option.some.inj ok
+  | some t => cases t <;> cases a <;> first | contradiction | cases Option.some.inj ok; rfl
 
 theorem routes {layout : RouteLayout κ} {Γ : VCtx (Ty κ)} {r s : Region Φ}
     (ok : r.checkRoutes? layout Γ = some s) : CheckedRoutes layout Γ s r := by
   induction r generalizing Γ s with
   | br i arg =>
-      cases hit : (layout : List (Ty κ × Bool))[i]? with
+      cases hit : layout[i]? with
       | none => simp [Region.checkRoutes?, hit] at ok
       | some label =>
           obtain ⟨A, tag⟩ := label
@@ -70,11 +70,15 @@ theorem routes {layout : RouteLayout κ} {Γ : VCtx (Ty κ)} {r s : Region Φ}
                 subst B
                 cases Option.some.inj checked
                 obtain ⟨typed, _, uniform⟩ := synth found
-                cases tag
-                · cases strip stripped
-                  exact .plain hit typed uniform
-                · cases strip stripped
-                  exact .left hit typed uniform
+                cases tag with
+                | none =>
+                    have eq : arg = a := strip stripped
+                    subst arg
+                    exact .plain hit typed uniform
+                | some t =>
+                    have eq : arg = t.inject a := strip stripped
+                    subst arg
+                    exact .tagged hit typed uniform
               · contradiction
   | case a l r ihl ihr =>
       cases found : a.synthRouteType? Γ with
@@ -90,7 +94,7 @@ omit [DecidableEq κ] in
 theorem typed {layout : RouteLayout κ} {Γ : VCtx (Ty κ)} {r s : Region Φ}
     (route : CheckedRoutes layout Γ r s) : r.HasType Γ (layout.map Prod.fst) := by
   induction route with
-  | plain hit ht _ | left hit ht _ =>
+  | plain hit ht _ | tagged hit ht _ =>
       refine .br ?_ ht
       simp only [At, List.getElem?_map, hit, Option.map_some]
   | case ht _ _ _ _ yes no => exact .case ht yes no
@@ -108,19 +112,21 @@ omit [DecidableEq κ] in
 theorem model_routes {layout : RouteLayout κ} {Γ : VCtx (Ty κ)} {r s : Region Φ}
     {L K : LCtx (Ty κ)} {Y : V} {left : labelObj M L ⟶ Y} {right : labelObj M K ⟶ Y}
     (route : CheckedRoutes layout Γ r s)
-    (plain : ∀ i A, layout[i]? = some (A, false) →
+    (plain : ∀ i A, layout[i]? = some (A, none) →
       ∃ (hl : At L i A) (hr : At K i A), labelInject M i hl ≫ left = labelInject M i hr ≫ right)
-    (tagged : ∀ i A, layout[i]? = some (A, true) →
-      ∃ (D : Ty κ) (hl : At L i A) (hr : At K i (.coprod A D)),
-        labelInject M i hl ≫ left = (coprod.inl ≫ (M.coprodIso A D).inv) ≫ labelInject M i hr ≫ right) :
+    (tagged : ∀ i A tag, layout[i]? = some (A, some tag) →
+      ∃ (D : Ty κ) (hl : At L i A) (hr : At K i (tag.sumType A D)),
+        labelInject M i hl ≫ left = tag.injection M A D ≫ labelInject M i hr ≫ right) :
     RegionConstructorRoutes M left right Γ r s := by
   induction route with
   | plain hit _ arg =>
       obtain ⟨hl, hr, eq⟩ := plain _ _ hit
       exact .br hl hr arg eq
-  | left hit _ arg =>
-      obtain ⟨_, hl, hr, eq⟩ := tagged _ _ hit
-      exact .inl hl hr arg eq
+  | @tagged _ _ _ _ tag hit _ arg =>
+      obtain ⟨_, hl, hr, eq⟩ := tagged _ _ tag hit
+      cases tag
+      · exact .inl hl hr arg eq
+      · exact .inr hl hr arg eq
   | case _ unique arg _ _ yes no => exact .case unique arg yes no
 
 end ValueMaps

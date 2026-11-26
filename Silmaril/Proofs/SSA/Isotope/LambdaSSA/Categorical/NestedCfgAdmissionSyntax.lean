@@ -17,8 +17,8 @@ open Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.NestedAdmission
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
 omit [HasTy Φ (Ty Empty)] in
-theorem selected {r s : Region Φ} (ok : selectLeft? r = some s) :
-    Region.PruneConstructorTests (r.substVars (Tm.replaceNewest (.inl (.var 0)))) s := by
+theorem selected_tag {tag : CaseTag} {r s : Region Φ} (ok : selectTag? tag r = some s) :
+    Region.PruneConstructorTests (r.substVars (Tm.replaceNewest (tag.inject (.var 0)))) s := by
   cases r with
   | case a l r =>
       cases a <;> try contradiction
@@ -26,9 +26,16 @@ theorem selected {r s : Region Φ} (ok : selectLeft? r = some s) :
       cases i with
       | zero =>
           cases Option.some.inj ok
-          exact .inl (.keep _)
+          cases tag
+          · exact .inl (.keep _)
+          · exact .inr (.keep _)
       | succ => contradiction
   | br | let₁ | let₂ | cfg => contradiction
+
+omit [HasTy Φ (Ty Empty)] in
+theorem selected {r s : Region Φ} (ok : selectLeft? r = some s) :
+    Region.PruneConstructorTests (r.substVars (Tm.replaceNewest (.inl (.var 0)))) s :=
+  selected_tag (tag := .inl) ok
 
 omit [HasTy Φ (Ty Empty)] in
 private theorem entry_tag {r : Region Φ} {tag : Bool} (ok : innerTag? r = some tag) :

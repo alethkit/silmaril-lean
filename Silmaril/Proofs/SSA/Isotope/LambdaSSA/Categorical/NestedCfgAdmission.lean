@@ -251,8 +251,10 @@ private theorem checkedRoutes (D E : Ty Empty) (tag : Bool) {r s : Region Φ}
         (by rw [Category.id_comp, post_pair]) rfl rfl
       rw [Category.id_comp] at eq
       exact eq
-  · intro i A hit
+  · intro i A choice hit
     have bound : i < 4 := (List.getElem?_eq_some_iff.mp hit).1
+    cases choice
+    case inr => interval_cases i <;> cases tag <;> simp [layout] at hit
     interval_cases i
     · cases tag
       · simp [layout] at hit
@@ -285,10 +287,10 @@ private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (L : LC
     rw [← Category.assoc, labelAppendSplit_exit M P (A :: L) l, Category.assoc, coprod.inl_map,
       ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M P (.coprod A D :: L) r]
   have lookupLocal {i : Nat} (h : i < m) :
-      (Finite.layout P L A)[i]? = some (P ⟨i, h⟩, false) := by
+      (Finite.layout P L A)[i]? = some (P ⟨i, h⟩, none) := by
     simp [Finite.layout, List.getElem?_append_left, h]
   have lookupExit (i : Nat) :
-      (Finite.layout P L A)[m + i]? = ((A, true) :: L.map (fun T => (T, false)))[i]? := by
+      (Finite.layout P L A)[m + i]? = ((A, some .inl) :: L.map (fun T => (T, none)))[i]? := by
     simp [Finite.layout, List.getElem?_append_right]
   apply CheckedRoutes.toConstructorRoutes M checked
   · intro i B hit
@@ -307,12 +309,12 @@ private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (L : LC
       | succ j =>
           simp only [List.getElem?_cons_succ, List.getElem?_map] at hit
           obtain ⟨T, get, eq⟩ := Option.map_eq_some_iff.mp hit
-          have h : At L j B := get.trans (congrArg (fun x : Ty Empty × Bool => some x.1) eq)
+          have h : At L j B := get.trans (congrArg (fun x : Ty Empty × Option CaseTag => some x.1) eq)
           refine ⟨exitAt (show At (A :: L) (j + 1) B from h),
             exitAt (show At (.coprod A D :: L) (j + 1) B from h), ?_⟩
           simpa only [Category.id_comp] using exitRoute (i := j + 1) h h (𝟙 (M.obj B))
             (by rw [Category.id_comp, mapLabelHead_succ M L (injectLeft M A D) h])
-  · intro i B hit
+  · intro i B tag hit
     by_cases hi : i < m
     · rw [lookupLocal hi] at hit
       cases hit
@@ -320,8 +322,8 @@ private theorem finite_checked_routes {m : Nat} (P : Fin m → Ty Empty) (L : LC
       rw [lookupExit] at hit
       cases j with
       | zero =>
-          have eq : A = B := congrArg Prod.fst (Option.some.inj hit)
-          subst B
+          obtain ⟨rfl, tagEq⟩ := Prod.mk.inj (Option.some.inj hit)
+          cases Option.some.inj tagEq
           exact ⟨D, exitAt rfl, exitAt rfl, exitRoute (i := 0) rfl rfl (injectLeft M A D)
             (mapLabelHead_zero M L (injectLeft M A D))⟩
       | succ j =>

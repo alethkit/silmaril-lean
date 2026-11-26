@@ -58,6 +58,19 @@ theorem routes {Γ : VCtx (Ty κ)} {L K : LCtx (Ty κ)} {Y : V}
               | inl value =>
                   rw [arg.denotes_eq J M da value]
                   simp only [Category.assoc, ← J.map_comp, route]
+  | inr hl hr arg route =>
+      cases d with
+      | br da =>
+          cases e with
+          | br ea =>
+              rename_i D _ _ hd E _ _ he
+              have dType : D = _ := Option.some.inj (hd.symm.trans hl)
+              have eType : E = _ := Option.some.inj (he.symm.trans hr)
+              subst D E
+              cases ea with
+              | inr value =>
+                  rw [arg.denotes_eq J M da value]
+                  simp only [Category.assoc, ← J.map_comp, route]
   | case uniq term _ _ ihl ihr =>
       cases d with
       | case da dl dr =>

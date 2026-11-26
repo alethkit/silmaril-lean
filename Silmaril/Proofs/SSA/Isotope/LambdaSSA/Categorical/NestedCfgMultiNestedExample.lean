@@ -6,7 +6,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
 import Mathlib.Tactic.FinCases
 
-/-! # Two independently written nested rows exchange tagged replies -/
+/-! # Two independently written nested rows exchange oppositely tagged replies -/
 
 namespace Silmaril.Isotope.LambdaSSA.Semantics.Categorical.NestedCfgMultiNestedExample
 
@@ -42,16 +42,24 @@ private def keep : Fin 3 ↪ Fin 4 :=
 private def types : Fin 3 → Ty Empty := Fin.cases U (fun _ => Pair)
 private def forms : Fin 3 → Bool := Fin.cases true (Fin.cases true (fun _ => false))
 
-private def wide (D E dead : Ty Empty) : Fin 4 → Ty Empty :=
-  Fin.cases (.coprod U D) (Fin.cases dead (Fin.cases (.coprod Pair E) (fun _ => Pair)))
+private def choices : Fin 3 → CaseTag := Fin.cases .inl (Fin.cases .inr (fun _ => .inl))
 
-private def outerGuard (body : Region Op) : Region Op :=
-  .case (.var 0) (body.renameVars (Silmaril.DeBruijn.lift Nat.succ)) (.br 3 .unit)
+private def wide (D E dead : Ty Empty) (tag : CaseTag := .inl) : Fin 4 → Ty Empty :=
+  Fin.cases (.coprod U D) (Fin.cases dead (Fin.cases (tag.sumType Pair E) (fun _ => Pair)))
 
-private def first (wrong : Bool) : Region Op :=
+private def outerGuard (body : Region Op) (tag : CaseTag := .inl) : Region Op :=
+  let arm := body.renameVars (Silmaril.DeBruijn.lift Nat.succ)
+  match tag with
+  | .inl => .case (.var 0) arm (.br 3 .unit)
+  | .inr => .case (.var 0) (.br 3 .unit) arm
+
+private def incomingTag (wrong : Bool) (tag : CaseTag) : CaseTag :=
+  if wrong then (match tag with | .inl => .inr | .inr => .inl) else tag
+
+private def first (wrong : Bool) (tag : CaseTag) : Region Op :=
   .cfg (.br 0 (.var 0)) 1 (fun _ =>
     .case (.op .poll (.var 0))
-      (.br 2 (if wrong then .inr (.var 0) else .inl (.var 0))) (.br 4 (.var 0)))
+      (.br 2 ((incomingTag wrong tag).inject (.var 0))) (.br 4 (.var 0)))
 
 private def second : Region Op :=
   .cfg (.br 0 (.var 0)) 1 (fun _ =>
@@ -60,55 +68,64 @@ private def second : Region Op :=
 private def ordinary : Region Op :=
   .case (.op .resume (.var 0)) (.br 0 (.inl (.var 0))) (.br 4 (.var 0))
 
-private def table (wrong : Bool) : CfgRestriction Op 4 :=
-  ⟨.br 0 (.inl .unit), Fin.cases (outerGuard (first wrong))
-    (Fin.cases (.br 3 .unit) (Fin.cases (outerGuard second) (fun _ => ordinary)))⟩
+private def table (wrong : Bool) (tag : CaseTag := .inl) : CfgRestriction Op 4 :=
+  ⟨.br 0 (.inl .unit), Fin.cases (outerGuard (first wrong tag))
+    (Fin.cases (.br 3 .unit) (Fin.cases (outerGuard second tag) (fun _ => ordinary)))⟩
 
-private abbrev graph (wrong : Bool) := (table wrong).source keep
+private abbrev graph (wrong : Bool) := (table wrong .inr).source keep
 
 private def plan : MultiNested.Plan Op 3 4 :=
-  (MultiNested.check? keep types forms (graph false)).get (by decide)
+  (MultiNested.check? keep types forms (graph false) (tags := choices)).get (by decide)
 
 /-- One step anchors the second nested payload. Its different reply
 then anchors the ordinary slot. -/
 example : (plan.anchors 0).contains 1 = false ∧ (plan.anchors 1).contains 1 = true ∧
     (plan.anchors 1).contains 2 = false ∧ (plan.anchors 2).contains 2 = true := by decide
 
-private theorem entry_typed (wrong : Bool) (D E dead : Ty Empty) :
-    ((table wrong).entry.renameLabels (retainLabelIndex keep)).HasType [] (List.ofFn (wide D E dead) ++ exits) :=
-  (show (table wrong).entry.HasType [] (List.ofFn (fun i => wide D E dead (keep i)) ++ exits) from
+private theorem entry_typed (wrong : Bool) (D E dead : Ty Empty) (tag : CaseTag := .inl) :
+    ((table wrong tag).entry.renameLabels (retainLabelIndex keep)).HasType []
+      (List.ofFn (wide D E dead tag) ++ exits) :=
+  (show (table wrong tag).entry.HasType [] (List.ofFn (fun i => wide D E dead tag (keep i)) ++ exits) from
     .br rfl (.inl .unit)).renameLabels (retainLabelRen keep _ _)
 
-private theorem rows_typed (wrong : Bool) (D E dead : Ty Empty) (badType : wrong = true → E = Pair) (i : Fin 4) :
-    (((table wrong).rows i).renameLabels (retainLabelIndex keep)).HasType
-      [wide D E dead i] (List.ofFn (wide D E dead) ++ exits) := by
-  let L := List.ofFn (fun i => wide D E dead (keep i)) ++ exits
-  have row0 : (first wrong).HasType [U] L := by
+private theorem rows_typed (wrong : Bool) (D E dead : Ty Empty) (badType : wrong = true → E = Pair) (i : Fin 4)
+    (tag : CaseTag := .inl) :
+    (((table wrong tag).rows i).renameLabels (retainLabelIndex keep)).HasType
+      [wide D E dead tag i] (List.ofFn (wide D E dead tag) ++ exits) := by
+  let L := List.ofFn (fun i => wide D E dead tag (keep i)) ++ exits
+  have row0 : (first wrong tag).HasType [U] L := by
     refine .cfg (fun _ => U) (.br rfl (.var rfl)) (fun _ => .case (.op (.var rfl)) ?_ (.br rfl (.var rfl)))
     cases wrong
-    · exact .br rfl (.inl (.var rfl))
+    · cases tag
+      · exact .br rfl (.inl (.var rfl))
+      · exact .br rfl (.inr (.var rfl))
     · have eq := badType rfl
       subst E
-      exact .br rfl (.inr (.var rfl))
+      cases tag
+      · exact .br rfl (.inr (.var rfl))
+      · exact .br rfl (.inl (.var rfl))
   have row2 : second.HasType [Pair] L :=
     .cfg (fun _ => Pair) (.br rfl (.var rfl)) (fun _ =>
       .case (.op (.var rfl)) (.br rfl (.inl (.var rfl))) (.br rfl (.var rfl)))
-  have guard {A T : Ty Empty} {body : Region Op} (typed : body.HasType [A] L) :
-      (outerGuard body).HasType [.coprod A T] L :=
-    .case (.var rfl) (typed.renameVars ((Ren.wk [] (.coprod A T)).lift A)) (.br rfl .unit)
+  have guard {A T : Ty Empty} (side : CaseTag) {body : Region Op} (typed : body.HasType [A] L) :
+      (outerGuard body side).HasType [side.sumType A T] L := by
+    cases side
+    · exact .case (.var rfl) (typed.renameVars ((Ren.wk [] (.coprod A T)).lift A)) (.br rfl .unit)
+    · exact .case (.var rfl) (.br rfl .unit) (typed.renameVars ((Ren.wk [] (.coprod T A)).lift A))
   have deadRow : (Region.br 3 .unit : Region Op).HasType [dead] L := .br rfl .unit
   have ord : ordinary.HasType [Pair] L :=
     .case (.op (.var rfl)) (.br rfl (.inl (.var rfl))) (.br rfl (.var rfl))
-  have ren := retainLabelRen keep (wide D E dead) exits
-  exact Fin.cases ((guard row0).renameLabels ren)
-    (Fin.cases (deadRow.renameLabels ren) (Fin.cases ((guard row2).renameLabels ren)
+  have ren := retainLabelRen keep (wide D E dead tag) exits
+  exact Fin.cases ((guard .inl row0).renameLabels ren)
+    (Fin.cases (deadRow.renameLabels ren) (Fin.cases ((guard tag row2).renameLabels ren)
       (fun _ => ord.renameLabels ren))) i
 
 /-- The wrong inter-nested tag survives exact typing and the outer target
 restriction. The route checker returns unknown. -/
 example : (graph true).HasType [] exits ∧ (CfgRestriction.check? keep exits.length (graph true)).isSome = true ∧
-    MultiNested.compare? keep types forms (graph true) = .unknown :=
-  ⟨.cfg (wide U Pair U) (entry_typed true U Pair U) (rows_typed true U Pair U (fun _ => rfl)), by decide, by decide⟩
+    MultiNested.compare? keep types forms (graph true) (tags := choices) = .unknown :=
+  ⟨.cfg (wide U Pair U .inr) (entry_typed true U Pair U .inr)
+    (fun i => rows_typed true U Pair U (fun _ => rfl) i .inr), by decide, by decide⟩
 
 private def replies (back : Bool) : Op → Value Empty → Nat → Value Empty → Nat → Prop
   | .poll, .unit, 0, .inl (.pair .unit .unit), 1 => True
@@ -118,17 +135,17 @@ private def replies (back : Bool) : Op → Value Empty → Nat → Value Empty �
   | .resume, .pair .unit .unit, 2, .inr (.pair .unit .unit), 3 => True
   | _, _, _, _, _ => False
 
-/-- Written slots zero and two exchange left-tagged transfers. -/
+/-- Written slot zero sends a right injection to slot two, which sends a left injection back. -/
 example : Semantics.Region.Eval (replies true) (fun _ => .unit) (graph false) 0 0 .unit 3 := by
   refine .cfg (.br (.inl .unit)) ?_
-  refine .step (label := 0) (next := 2) (middle := .inl (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
+  refine .step (label := 0) (next := 2) (middle := .inr (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
   · exact .case_inl .var (.cfg (.br .var)
       (.step (label := 0) (next := 3) (by decide)
         (.case_inl (.op .var
           (show replies true Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro))
-          (.br (.inl .var))) (.exit (by decide))))
+          (.br (.inr .var))) (.exit (by decide))))
   · refine .step (label := 2) (next := 0) (middle := .inl .unit) (s₁ := 2) (by decide) ?_ ?_
-    · exact .case_inl .var (.cfg (.br .var)
+    · exact .case_inr .var (.cfg (.br .var)
         (.step (label := 0) (next := 1) (by decide)
           (.case_inl (.op .var
             (show replies true Op.resume (.pair .unit .unit) 1 (.inl .unit) 2 from rfl))
@@ -142,14 +159,14 @@ example : Semantics.Region.Eval (replies true) (fun _ => .unit) (graph false) 0 
 /-- The second nested reply can instead enter ordinary slot three and take the pair exit. -/
 example : Semantics.Region.Eval (replies false) (fun _ => .unit) (graph false) 0 1 (.pair .unit .unit) 3 := by
   refine .cfg (.br (.inl .unit)) ?_
-  refine .step (label := 0) (next := 2) (middle := .inl (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
+  refine .step (label := 0) (next := 2) (middle := .inr (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
   · exact .case_inl .var (.cfg (.br .var)
       (.step (label := 0) (next := 3) (by decide)
         (.case_inl (.op .var
           (show replies false Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro))
-          (.br (.inl .var))) (.exit (by decide))))
+          (.br (.inr .var))) (.exit (by decide))))
   · refine .step (label := 2) (next := 3) (middle := .pair .unit .unit) (s₁ := 2) (by decide) ?_ ?_
-    · exact .case_inl .var (.cfg (.br .var)
+    · exact .case_inr .var (.cfg (.br .var)
         (.step (label := 0) (next := 4) (by decide)
           (.case_inr (.op .var
             (show replies false Op.resume (.pair .unit .unit) 1 (.inr (.pair .unit .unit)) 2 from rfl))
@@ -159,16 +176,16 @@ example : Semantics.Region.Eval (replies false) (fun _ => .unit) (graph false) 0
           (show replies false Op.resume (.pair .unit .unit) 2 (.inr (.pair .unit .unit)) 3 from True.intro))
           (.br .var)) (.exit (by decide))
 
-/-- The wrong tag follows the same first request to slot two and takes its right arm. -/
+/-- The wrong tag follows the same first request to slot two and takes its left arm. -/
 example : Semantics.Region.Eval (replies true) (fun _ => .unit) (graph true) 0 0 .unit 1 := by
   refine .cfg (.br (.inl .unit)) ?_
-  refine .step (label := 0) (next := 2) (middle := .inr (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
+  refine .step (label := 0) (next := 2) (middle := .inl (.pair .unit .unit)) (s₁ := 1) (by decide) ?_ ?_
   · exact .case_inl .var (.cfg (.br .var)
       (.step (label := 0) (next := 3) (by decide)
         (.case_inl (.op .var
           (show replies true Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro))
-          (.br (.inr .var))) (.exit (by decide))))
-  · exact .step (label := 2) (next := 4) (by decide) (.case_inr .var (.br .unit)) (.exit (by decide))
+          (.br (.inl .var))) (.exit (by decide))))
+  · exact .step (label := 2) (next := 4) (by decide) (.case_inl .var (.br .unit)) (.exit (by decide))
 
 section Model
 
@@ -184,22 +201,23 @@ local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
 summands of both nested slots and the omitted outer input type vary. -/
 example (roll : IterationRolling C) :
     ∃ f g : Arrow,
-      CfgDenotesAt J M (wide U Pair U) ((table false).entry.renameLabels (retainLabelIndex keep))
-        (fun i => ((table false).rows i).renameLabels (retainLabelIndex keep)) f ∧
-      CfgDenotesAt J M (wide .empty .empty .empty) ((table false).entry.renameLabels (retainLabelIndex keep))
-        (fun i => ((table false).rows i).renameLabels (retainLabelIndex keep)) g ∧ f = g := by
-  have never : (false : Bool) = true → False := by decide
-  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (wide U Pair U)
-    (entry_typed false U Pair U) (rows_typed false U Pair U (fun _ => rfl))
-  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (wide .empty .empty .empty)
-    (entry_typed false .empty .empty .empty) (rows_typed false .empty .empty .empty (fun h => (never h).elim))
-  have tl : (graph false).HasType [] exits := .cfg (wide U Pair U)
-    (entry_typed false U Pair U) (rows_typed false U Pair U (fun _ => rfl))
-  have tr : (graph false).HasType [] exits := .cfg (wide .empty .empty .empty)
-    (entry_typed false .empty .empty .empty) (rows_typed false .empty .empty .empty (fun h => (never h).elim))
+      CfgDenotesAt J M (wide U Pair U .inr) ((table false .inr).entry.renameLabels (retainLabelIndex keep))
+        (fun i => ((table false .inr).rows i).renameLabels (retainLabelIndex keep)) f ∧
+      CfgDenotesAt J M (wide .empty .empty .empty .inr) ((table false .inr).entry.renameLabels (retainLabelIndex keep))
+        (fun i => ((table false .inr).rows i).renameLabels (retainLabelIndex keep)) g ∧ f = g := by
+  have leftRows := fun i => rows_typed false U Pair U (fun _ => rfl) i .inr
+  have rightRows := fun i => rows_typed false .empty .empty .empty (by intro h; cases h) i .inr
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (wide U Pair U .inr)
+    (entry_typed false U Pair U .inr) leftRows
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (wide .empty .empty .empty .inr)
+    (entry_typed false .empty .empty .empty .inr) rightRows
+  have tl : (graph false).HasType [] exits := .cfg (wide U Pair U .inr)
+    (entry_typed false U Pair U .inr) leftRows
+  have tr : (graph false).HasType [] exits := .cfg (wide .empty .empty .empty .inr)
+    (entry_typed false .empty .empty .empty .inr) rightRows
   have dl : RegionDenotes J M tl f := left.denotes J M
   have dr : RegionDenotes J M tr g := right.denotes J M
-  have ok : MultiNested.compare? keep types forms (graph false) = .certified := by decide
+  have ok : MultiNested.compare? keep types forms (graph false) (tags := choices) = .certified := by decide
   exact ⟨f, g, left, right, MultiNested.compare?_sound J M roll ok dl dr⟩
 
 end Model
@@ -242,8 +260,8 @@ private abbrev graph (wrong : Bool) := (fullTable wrong).source keep
 private theorem fullRows_typed (wrong : Bool) (D E deadOuter deadInner : Ty Empty)
     (badType : wrong = true → deadInner = Pair) (i : Fin 4) :
     (((fullTable wrong).rows i).renameLabels (retainLabelIndex keep)).HasType
-      [wide D E deadOuter i] (List.ofFn (wide D E deadOuter) ++ exits) := by
-  let L := List.ofFn (fun i => wide D E deadOuter (keep i)) ++ exits
+      [wide D E deadOuter .inl i] (List.ofFn (wide D E deadOuter) ++ exits) := by
+  let L := List.ofFn (fun i => wide D E deadOuter .inl (keep i)) ++ exits
   let localLabels := List.ofFn (fun i => innerTypes deadInner (keepLocal i)) ++ L
   have ren := retainLabelRen keepLocal (innerTypes deadInner) L
   have ent : entry.HasType [U] localLabels := .br rfl (.var rfl)

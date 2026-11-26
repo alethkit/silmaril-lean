@@ -66,10 +66,10 @@ private theorem case_types {Γ K : List (Ty Empty)} {a : Tm Φ} {l r : Region Φ
 
 /-- Recover the payload type and tag at a checked transfer in an exact witness. -/
 theorem route_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s : Region Φ}
-    {i : Nat} {A : Ty Empty} (wide flag : Bool) (ok : r.checkRoutes? layout Γ = some s)
-    (target : branchesTo i s = true) (localType : layout[i]? = some (A, flag))
+    {i : Nat} {A : Ty Empty} (wide : Bool) {tag : Option CaseTag} (ok : r.checkRoutes? layout Γ = some s)
+    (target : branchesTo i s = true) (localType : layout[i]? = some (A, tag))
     (typed : (if wide then r else s).HasType Γ K) :
-    if wide && flag then ∃ D, At K i (.coprod A D) else At K i A := by
+    match if wide then tag else none with | none => At K i A | some t => ∃ D, At K i (t.sumType A D) := by
   induction r generalizing Γ s with
   | br j a =>
       cases hit : layout[j]? with
@@ -90,18 +90,21 @@ theorem route_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s 
               subst j
               obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj (hit.symm.trans localType))
               have unique := (Tm.synthRouteType?_sound found).2.1
-              cases tag
-              · cases Option.some.inj payload
-                cases wide <;> exact branch_type unique typed
-              · cases wide
-                · exact branch_type unique typed
-                · have eq : a = .inl b := by
-                    cases a <;> first | contradiction | cases Option.some.inj payload; rfl
-                  subst a
-                  cases typed with
-                  | br lookup ht =>
-                      cases ht with
-                      | inl h => exact ⟨_, (unique _ h) ▸ lookup⟩
+              cases tag with
+              | none =>
+                  cases Option.some.inj payload
+                  cases wide <;> exact branch_type unique typed
+              | some tag =>
+                  cases wide
+                  · exact branch_type unique typed
+                  · have eq : a = tag.inject b := by
+                      cases tag <;> cases a <;> first | contradiction | cases Option.some.inj payload; rfl
+                    subst a
+                    cases tag <;> cases typed with
+                    | br lookup ht =>
+                        cases ht
+                        rename_i h
+                        exact ⟨_, (unique _ h) ▸ lookup⟩
   | case a l r il ir =>
       cases found : a.synthRouteType? Γ with
       | none => simp [Region.checkRoutes?, found] at ok
@@ -121,10 +124,9 @@ theorem route_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s 
 /-- A checked plain transfer fixes its exact target type. -/
 theorem plain_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s : Region Φ}
     {i : Nat} {A : Ty Empty} (wide : Bool) (ok : r.checkRoutes? layout Γ = some s)
-    (target : branchesTo i s = true) (localType : layout[i]? = some (A, false))
+    (target : branchesTo i s = true) (localType : layout[i]? = some (A, none))
     (typed : (if wide then r else s).HasType Γ K) : At K i A := by
-  simpa only [Bool.and_false, Bool.false_eq_true, ite_false] using
-    route_target wide false ok target localType typed
+  cases wide <;> exact route_target _ ok target localType typed
 
 private theorem local_at {α : Type} {m : Nat} (P : Fin m → α) (L : List α) (i : Fin m) :
     (List.ofFn P ++ L)[i.val]? = some (P i) := by
@@ -154,13 +156,13 @@ theorem aligned_inner {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty E
     {d : Nat} (paths : ∀ i, i ∈ anchored commonEntry commonRows d) : S = P := by
   have entryFixed (i : Fin m) (h : branchesTo i commonEntry = true) : S i = P i :=
     Option.some.inj ((local_at S K i).symm.trans
-      (plain_target wide er h (local_at (fun j => (P j, false)) _ i) typedEntry))
+      (plain_target wide er h (local_at (fun j => (P j, none)) _ i) typedEntry))
   have advance (j i : Fin m) (known : S j = P j) (next : branchesTo i (commonRows j) = true) :
       S i = P i := by
     have typed := typedRows j
     rw [known] at typed
     exact Option.some.inj ((local_at S K i).symm.trans
-      (plain_target wide (rr j) next (local_at (fun j => (P j, false)) _ i) typed))
+      (plain_target wide (rr j) next (local_at (fun j => (P j, none)) _ i) typed))
   exact funext fun i => of_worklist entryFixed advance (paths i)
 
 theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}

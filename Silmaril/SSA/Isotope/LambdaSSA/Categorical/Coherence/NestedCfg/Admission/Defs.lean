@@ -30,15 +30,17 @@ abbrev labelIndex := retainLabelIndex keep
 /-- The local repeat may be tagged. The outer repeat is tagged, and the two
 actual exits carry Unit and Unit × Unit unchanged. -/
 def layout (taggedInner : Bool) : RouteLayout Empty :=
-  [(unitTy, taggedInner), (unitTy, true), (unitTy, false), (pairTy, false)]
+  [(unitTy, if taggedInner then some .inl else none), (unitTy, some .inl), (unitTy, none), (pairTy, none)]
 
-/-- Read the known left arm after replacing the newest slot by an injection.
-The spare slot in the original case arm may be used syntactically. -/
-def selectLeft? : Region Φ → Option (Region Φ)
-  | .case (.var 0) l _ =>
-      some ((l.substVars (Tm.liftSubst (Tm.replaceNewest (.inl (.var 0))))).substVars
+/-- Read the known arm after replacing the newest slot by the chosen injection.
+The original sum may occur in the written arm. -/
+def selectTag? (tag : CaseTag) : Region Φ → Option (Region Φ)
+  | .case (.var 0) l r =>
+      some (((tag.select l r).substVars (Tm.liftSubst (Tm.replaceNewest (tag.inject (.var 0))))).substVars
         (Tm.singleSubst (.var 0)))
   | _ => none
+
+def selectLeft? (r : Region Φ) : Option (Region Φ) := selectTag? .inl r
 
 def innerTag? : Region Φ → Option Bool
   | .br 0 (.var 0) => some false
