@@ -19,8 +19,23 @@ inductive Scans {α : Type} (tests : α → Except Error Bool → Prop) (decisiv
       tests item (.ok (!decisive)) → Scans tests decisive rest out →
       Scans tests decisive (item :: rest) out
 
-/-- One nonzero level of comparison. Only sequences of the same kind and
-length scan fields. Their addresses do not determine equality. -/
+/-- Key lookup selects the first entry with the requested canonical code. -/
+inductive LooksUp (key : Key) : List Entry → Option Entry → Prop where
+  | missing : LooksUp key [] none
+  | hit {entry : Entry} {rest : List Entry} : entry.keyCode = key →
+      LooksUp key (entry :: rest) (some entry)
+  | skip {entry : Entry} {rest : List Entry} {out : Option Entry} : entry.keyCode ≠ key →
+      LooksUp key rest out → LooksUp key (entry :: rest) out
+
+/-- Lookup is completed before comparing the selected values. -/
+inductive ComparesEntry (next : Value → Value → Except Error Bool → Prop)
+    (right : List Entry) (left : Entry) : Except Error Bool → Prop where
+  | missing : LooksUp left.keyCode right none → ComparesEntry next right left (.ok false)
+  | found {entry : Entry} {out : Except Error Bool} : LooksUp left.keyCode right (some entry) →
+      next left.value entry.value out → ComparesEntry next right left out
+
+/-- One nonzero level of comparison. The length check precedes the field or
+entry scan. Addresses and insertion positions do not match dictionary keys. -/
 inductive EqualStep (heap : Heap) (next : Value → Value → Except Error Bool → Prop)
     (left right : Value) : Except Error Bool → Prop where
   | scalar {a b : Starlark.Value} {flag : Bool} :
@@ -48,6 +63,21 @@ inductive EqualStep (heap : Heap) (next : Value → Value → Except Error Bool 
       kind.elements heap a = .ok xs → kind.elements heap b = .ok ys → xs.length = ys.length →
       Scans (fun pair => next pair.1 pair.2) false (xs.zip ys) out →
       EqualStep heap next left right out
+  | dictLeftError {a b : Address} {error : Error} :
+      Pair.ofValues left right = .dictionaries a b → dictionaryEntries heap a = .error error →
+      EqualStep heap next left right (.error error)
+  | dictRightError {a b : Address} {xs : List Entry} {error : Error} :
+      Pair.ofValues left right = .dictionaries a b →
+      dictionaryEntries heap a = .ok xs → dictionaryEntries heap b = .error error →
+      EqualStep heap next left right (.error error)
+  | dictLengthMismatch {a b : Address} {xs ys : List Entry} :
+      Pair.ofValues left right = .dictionaries a b →
+      dictionaryEntries heap a = .ok xs → dictionaryEntries heap b = .ok ys → xs.length ≠ ys.length →
+      EqualStep heap next left right (.ok false)
+  | dictEntries {a b : Address} {xs ys : List Entry} {out : Except Error Bool} :
+      Pair.ofValues left right = .dictionaries a b →
+      dictionaryEntries heap a = .ok xs → dictionaryEntries heap b = .ok ys → xs.length = ys.length →
+      Scans (ComparesEntry next ys) false xs out → EqualStep heap next left right out
 
 def EqualAt (heap : Heap) : Nat → Value → Value → Except Error Bool → Prop
   | 0, _, _, out => out = .error .comparisonDepth

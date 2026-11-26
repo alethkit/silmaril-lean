@@ -54,9 +54,9 @@ private def result {α : Type} : Outcome α → Except Error α
     ⟨.tuple [int 0, .tuple 43] none, false⟩,
     ⟨.tuple [int 1, .tuple 43] none, false⟩,
     ⟨.tuple [.tuple 42] none, false⟩,
-    ⟨.tuple [.dict 7, int 1] none, false⟩,
-    ⟨.tuple [int 1, .dict 7] none, false⟩,
-    ⟨.tuple [.dict 7] none, false⟩,
+    ⟨.tuple [.builtin .len, int 1] none, false⟩,
+    ⟨.tuple [int 1, .builtin .len] none, false⟩,
+    ⟨.tuple [.builtin .len] none, false⟩,
     ⟨.dict [], false⟩,
     ⟨.tuple [.tuple 7, .tuple 42] none, false⟩] }
   evaluate state.heap .eq (.tuple 0) (.tuple 1) = .ok false ∧
@@ -68,9 +68,9 @@ private def result {α : Type} : Outcome α → Except Error α
     evaluate state.heap .mem (int 1) (.tuple 5) = .ok true ∧
     evaluate state.heap .notMem (int 1) (.tuple 5) = .ok false ∧
     evaluate state.heap .notMem (int 1) (.tuple 3) = .ok true ∧
-    evaluate state.heap .mem (int 1) (.tuple 4) = .error (.comparisonType (.dict 7) (int 1)) ∧
-    evaluate state.heap .notMem (int 1) (.tuple 4) = .error (.comparisonType (.dict 7) (int 1)) ∧
-    evaluate state.heap .eq (.tuple 6) (.tuple 6) = .error (.comparisonType (.dict 7) (.dict 7)) ∧
+    evaluate state.heap .mem (int 1) (.tuple 4) = .error (.comparisonType (.builtin .len) (int 1)) ∧
+    evaluate state.heap .notMem (int 1) (.tuple 4) = .error (.comparisonType (.builtin .len) (int 1)) ∧
+    evaluate state.heap .eq (.tuple 6) (.tuple 6) = .error (.comparisonType (.builtin .len) (.builtin .len)) ∧
     evaluate state.heap .mem (int 1) (.dict 7) = .error (.membershipTarget (.dict 7))
 
 -- Nine singleton tuple levels plus the scalar use all ten comparisons.
@@ -138,7 +138,7 @@ private def result {α : Type} : Outcome α → Except Error α
     evaluate state.heap .eq (.list 8) (.list 5) = .error (.wrongCellKind 5) ∧
     evaluate state.heap .mem (int 1) (.list 8) = .ok true ∧
     evaluate state.heap .mem (int 1) (.list 5) = .error (.wrongCellKind 5) ∧
-    evaluate state.heap .eq (.list 10) (.list 10) = .error (.comparisonType (.dict 9) (.dict 9))
+    evaluate state.heap .eq (.list 10) (.list 10) = .ok true
 
 -- An alternating chain consumes one budget unit per reached pair, regardless
 -- of the container kind. The list membership receiver does not consume it.
@@ -170,18 +170,19 @@ private def initial : State :=
 private def mark (n : Int) : Expr := .append (.read (.bound events)) (.scalar (.int n))
 
 private def left : Expr := .tuple (.cons (mark 1) .empty)
-private def right : Expr := .tuple (.cons (mark 2) (.cons (.dict .noEntries) .empty))
+private def right : Expr := .tuple (.cons (mark 2) (.cons (.builtin .len) .empty))
 
 private def reached : State :=
   { initial with heap := #[⟨.list [int 1, int 2], false⟩, ⟨.tuple [.scalar .none] (some
       [.openTuple, .scalar .none, .closeTuple]), false⟩,
-    ⟨.dict [], false⟩, ⟨.tuple [.scalar .none, .dict 2] none, false⟩] }
+    ⟨.tuple [.scalar .none, .builtin .len] (some
+      [.openTuple, .scalar .none, .builtin .len, .closeTuple]), false⟩] }
 
 -- A type error after comparing the left tuple against the right tuple's first
 -- scalar must leave both operands evaluated before it is reported.
 private def failure : Expr := .compare .mem left right
 
-example : denote failure initial = .error (.comparisonType (.dict 2) (.tuple 1)) reached := rfl
+example : denote failure initial = .error (.comparisonType (.builtin .len) (.tuple 1)) reached := rfl
 
 -- A failed operand stops the other operand or the comparison, respectively.
 example : denote (.compare .eq (.read (.bound output)) (mark 2)) initial =
@@ -201,12 +202,12 @@ private theorem mark_safe (n : Int) : AtomSafe (mark n) :=
 
 example :
     ∃ final, Functions.denoteBody #[] [] (lower (.atom failure) output).code initial =
-        .error (.comparisonType (.dict 2) (.tuple 1)) final ∧
+        .error (.comparisonType (.builtin .len) (.tuple 1)) final ∧
       StateMatch 0 reached final := by
   have safe : AtomSafe failure :=
     .compare (.tuple (.cons (mark_safe 1) .empty))
-      (.tuple (.cons (mark_safe 2) (.cons (.dict .noEntries) .empty)))
-  have ran : Evaluates #[] [] initial (.atom failure) (.error (.comparisonType (.dict 2) (.tuple 1)) reached) :=
+      (.tuple (.cons (mark_safe 2) (.cons (.builtin .len) .empty)))
+  have ran : Evaluates #[] [] initial (.atom failure) (.error (.comparisonType (.builtin .len) (.tuple 1)) reached) :=
     .atom safe ((eval_iff_denote ..).mpr rfl)
   exact lower_preserves ran (by intro _; rfl) output (visible "output")
 
