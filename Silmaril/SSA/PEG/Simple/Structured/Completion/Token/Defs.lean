@@ -98,11 +98,15 @@ def loopSlots (vars before : List (Ty Data)) :
     Tuple (Port ((.bool :: vars) ++ before)) (.bool :: vars) :=
   (ports (.bool :: vars)).map fun _ p => portLeft p
 
+def loopTest (guard : Expr P vars .bool) (params before : List (Ty Data)) :
+    Simple.Build (Opcode P) params ((.bool :: vars) ++ before) [.bool] :=
+  (expr guard).lower (tail (loopSlots vars before))
+
 def loop (guard : Expr P vars .bool) (body : Body P vars vars) (neg : P [.bool] .bool)
     (init : Tuple (Port before) (.bool :: vars)) :
     Build (Opcode P) params before (.bool :: vars) :=
   let slots := loopSlots vars before
-  let test := (expr guard).lower (params := params) (tail slots)
+  let test := loopTest guard params before
   let step := body.lower (test.code.liftRefs slots)
   ⟨_, .loop init (.seq (.straight test.code) (.straight step.code))
     (step.code.lift (test.refs.get .head)) step.refs (.source neg),

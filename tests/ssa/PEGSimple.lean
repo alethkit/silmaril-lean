@@ -6,11 +6,13 @@ import Silmaril.SSA.PEG.Simple.Structured.Thms
 import Silmaril.SSA.PEG.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Defs
 meta import Silmaril.SSA.PEG.Simple.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Defs
 
@@ -417,10 +419,12 @@ private def triple (acc outer inner : Nat) : Tuple model.Value [.count, .count, 
 private def innerTest : Expr Op [.count, .count, .count] .bool :=
   .op .positive (.cons (.var (.tail (.tail .head))) .nil)
 
-private def innerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+private def innerSlice : Stmt Op false [.count, .count, .count] [.count, .count, .count] :=
   .seq (.assign (.op .add (.cons (.var .head) (.cons (.var (.tail (.tail .head))) .nil))))
     (.seq (.assign (.op .pred (.cons (.var (.tail (.tail (.tail .head)))) .nil)))
       (.project (.cons (.tail .head) (.cons (.tail (.tail (.tail .head))) (.cons .head .nil)))))
+
+private def innerBody := innerSlice.enableWhile
 
 private def innerLoop : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
   .while rfl innerTest innerBody
@@ -429,24 +433,33 @@ private def innerResult (acc : Nat) : Nat → Nat
   | 0 => acc
   | k + 1 => innerResult (acc + (k + 1)) k
 
-private theorem innerExec (acc outer k : Nat) :
-    Exec model innerLoop (triple acc outer k) (some (triple (innerResult acc k) outer 0)) := by
+private theorem innerTrace (acc outer k : Nat) :
+    WhileTrace model innerTest innerBody k (triple acc outer k) (triple (innerResult acc k) outer 0) := by
   induction k generalizing acc with
-  | zero => exact .whileStop rfl
+  | zero => exact .stop rfl
   | succ k ih =>
-    apply Exec.whileStep (next := triple (acc + (k + 1)) outer k) rfl ?_ (ih _)
+    apply WhileTrace.step (next := triple (acc + (k + 1)) outer k) rfl ?_ (ih _)
     exact .seq (next := prependCount (acc + (k + 1)) (triple acc outer (k + 1))) (.assign rfl)
       (.seq (next := prependCount k (prependCount (acc + (k + 1)) (triple acc outer (k + 1))))
         (.assign rfl) .project)
 
+private theorem innerExec (acc outer k : Nat) :
+    Exec model innerLoop (triple acc outer k) (some (triple (innerResult acc k) outer 0)) :=
+  (innerTrace acc outer k).exec
+
 private def outerTest : Expr Op [.count, .count, .count] .bool :=
   .op .positive (.cons (.var (.tail .head)) .nil)
 
+private def outerCapture :
+    Tuple (Port ([.count, .count, .count] : List (Ty Unit))) [.count, .count, .count] :=
+  .cons .head (.cons (.tail .head) (.cons (.tail .head) .nil))
+
+private def outerCommit : Stmt Op false [.count, .count, .count] [.count, .count, .count] :=
+  .seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
+    (.project (.cons (.tail .head) (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))
+
 private def outerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
-  .seq (.project (.cons .head (.cons (.tail .head) (.cons (.tail .head) .nil))))
-    (.seq innerLoop
-      (.seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
-        (.project (.cons (.tail .head) (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))))
+  .seq (.project outerCapture) (.seq innerLoop outerCommit.enableWhile)
 
 private def outerResult (acc : Nat) : Nat → Nat
   | 0 => acc
@@ -470,6 +483,42 @@ private def nestedLoops : Program Op true [.count, .count, .count] .count where
   locals := [.count, .count, .count]
   body := .while rfl outerTest outerBody
   retvar := .head
+
+private def nestedToken : Structured.Token.Nested.Form Op [.count, .count, .count]
+    [.count, .count, .count] .count where
+  guard := outerTest
+  capture := outerCapture
+  childGuard := innerTest
+  childBody := Structured.Token.Body.ofStmt innerSlice
+  commit := Structured.Token.Body.ofStmt outerCommit
+  result := .head
+
+example : nestedToken.source = nestedLoops := rfl
+
+-- The two child traces have lengths two and one. The second starts with
+-- the accumulator returned by the first and a fresh count of one.
+example : WhileTrace model innerTest innerBody 2 (triple 0 2 2) (triple 3 2 0) ∧
+    WhileTrace model innerTest innerBody 1 (triple 3 1 1) (triple 4 1 0) :=
+  ⟨innerTrace 0 2 2, innerTrace 3 1 1⟩
+
+private def nestedTokenBase : Index (nestedToken.program .not).nodes.length := fun _ => 0
+
+private theorem nestedTokenReturns :
+    nestedToken.observe .not model (triple 0 2 0) nestedTokenBase =
+      .cons (some ⟨4⟩) (.cons (some ⟨true⟩) .nil) :=
+  nestedToken.observe_of_returns .not model _ (fun _ => rfl) nestedTokenBase
+    ⟨triple 4 0 0, outerExec 0 2, rfl⟩
+
+example : nestedLoops.Returns model (triple 0 2 0) ⟨4⟩ := by
+  have done : ((nestedToken.observe .not model (triple 0 2 0) nestedTokenBase).get
+      (.tail .head)).isSome := by rw [nestedTokenReturns]; rfl
+  obtain ⟨value, returned, roots⟩ :=
+    nestedToken.returns_of_completion .not model _ (fun _ => rfl) nestedTokenBase done
+  rw [nestedTokenReturns] at roots
+  have eq := congrArg (fun xs : Tuple (fun t => Option (model.Value t)) [.count, .bool] =>
+    xs.get .head) roots
+  cases Option.some.inj eq
+  exact returned
 
 example (acc n : Nat) : structured nestedLoops (triple acc n 0) =
     .cons (some ⟨outerResult acc n⟩) .nil :=
@@ -984,3 +1033,136 @@ example (side : Bool) : branchObserve 0 side (!side) = .cons (some ⟨0⟩) (.co
 end Conditional
 
 end Silmaril.SSA.PEG.Simple.Structured.Completion.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Structured.Token.Nested.Tests
+
+open RVSDG (Tuple)
+open Rules (readRef)
+
+set_option backward.isDefEq.respectTransparency false
+set_option maxHeartbeats 1000000
+
+private inductive Op : InstructionSet Unit
+  | not : Op [.bool] .bool
+  | off : Op [] .bool
+  | bad : Op [] .count
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .not, .cons b .nil => some ⟨!b.down⟩
+    | .off, .nil => some ⟨false⟩
+    | .bad, .nil => none
+
+private def fixture : Form Op [.bool, .bool] [.bool] .bool where
+  guard := .var .head
+  capture := .cons (.tail .head) .nil
+  childGuard := .var .head
+  childBody := .seq (.assign (.op .bad .nil))
+    (.seq (.assign (.op .off .nil)) (.project (.cons .head .nil)))
+  commit := .seq (.assign (.op .off .nil)) (.project (.cons .head (.cons .head .nil)))
+  result := .head
+
+private def input (enter : Bool) : Tuple model.Value [.bool, .bool] := .cons ⟨enter⟩ (.cons ⟨true⟩ .nil)
+private def graph : Graph (Opcode Op) [.bool, .bool] [.bool, .bool] 23 23 := fixture.translate .not
+private def base : Index 23 := fun _ => 0
+
+#guard (Structured.rank 23).check graph
+#guard graph.forest.parent (fixture.childPass .not).id == some (fixture.outerPass .not).id
+
+private def r (i : Fin 23) {t : Ty Unit} (typed : graph.sort i = t) : Ref graph.sort t := ⟨i, typed⟩
+private abbrev tokenModel := Token.model model
+private noncomputable def values : graph.Valuation tokenModel := fixture.values .not model (input true)
+
+private theorem solved : graph.Solves tokenModel (input true) values :=
+  graph.denote_solves tokenModel (input true) (fixture.translate_demandWellFounded .not)
+
+private theorem outerLatch (k : Nat) :
+    readRef values (r 18 (t := .bool) rfl) (base.set 3 k) = some ⟨decide (k = 0)⟩ := by
+  have theta : Rules.HasNode (g := graph) (r 18 (t := .bool) rfl) (.theta 3)
+      (.cons (r 21 rfl) (.cons (r 6 rfl) .nil)) := HEq.rfl
+  cases k with
+  | zero =>
+    have param : Rules.HasNode (g := graph) (r 21 (t := .bool) rfl) (.param .head) .nil := HEq.rfl
+    exact (Rules.theta_zero solved theta rfl).trans (Rules.at_label solved param _)
+  | succ k =>
+    have off : Rules.HasNode (g := graph) (r 6 (t := .bool) rfl) (.op (.source Op.off)) .nil := HEq.rfl
+    exact (Rules.theta_succ solved theta rfl).trans (Rules.at_label solved off _)
+
+private theorem onePass {p : Ref graph.sort .count} {flag latch : Ref graph.sort .bool}
+    {key : Fin 23}
+    (pass : Rules.HasNode (g := graph) p (.pass key) (.cons flag .nil))
+    (neg : Rules.HasNode (g := graph) flag (.op (.source Op.not)) (.cons latch .nil))
+    (latchAt : ∀ j, readRef values latch (base.set key j) = some ⟨decide (j = 0)⟩) :
+    readRef values p base = some ⟨1⟩ := by
+  rw [Rules.pass_at solved pass]
+  have stream : (fun j => (readRef values flag (base.set key j)).map ULift.down) =
+      fun j => some (!decide (j = 0)) := by
+    funext j
+    rw [Rules.unary_at solved neg, latchAt]
+    rfl
+  rw [stream]
+  have first : firstTrue (fun j => some (!decide (j = 0))) = some 1 :=
+    (firstTrue_eq_some_iff_samples _ 1).mpr ⟨rfl, fun j lt => by
+      have zero : j = 0 := by omega
+      subst j
+      rfl⟩
+  rw [first]
+  rfl
+
+private theorem outerPass :
+    readRef values (r 3 (t := .count) rfl) base = some ⟨1⟩ :=
+  onePass (p := r 3 rfl) (flag := r 4 rfl) (latch := r 18 rfl) (key := 3) HEq.rfl HEq.rfl outerLatch
+
+private theorem childLatch (k : Nat) :
+    readRef values (r 16 (t := .bool) rfl) (base.set 9 k) = some ⟨decide (k = 0)⟩ := by
+  have theta : Rules.HasNode (g := graph) (r 16 (t := .bool) rfl) (.theta 9)
+      (.cons (r 19 rfl) (.cons (r 12 rfl) .nil)) := HEq.rfl
+  cases k with
+  | zero =>
+    have capture : Rules.HasNode (g := graph) (r 19 (t := .bool) rfl) (.theta 3)
+      (.cons (r 22 rfl) (.cons (r 6 rfl) .nil)) := HEq.rfl
+    have param : Rules.HasNode (g := graph) (r 22 (t := .bool) rfl) (.param (.tail .head)) .nil := HEq.rfl
+    exact (Rules.theta_zero solved theta rfl).trans
+      ((Rules.theta_zero solved capture rfl).trans (Rules.at_label solved param _))
+  | succ k =>
+    have off : Rules.HasNode (g := graph) (r 12 (t := .bool) rfl) (.op (.source Op.off)) .nil := HEq.rfl
+    exact (Rules.theta_succ solved theta rfl).trans (Rules.at_label solved off _)
+
+-- The child pass remains defined at this invocation. Its completion
+-- marker is a separate observation from that finite pass count.
+example : readRef values (fixture.childPass .not) base = some ⟨1⟩ :=
+  onePass (p := r 9 rfl) (flag := r 10 rfl) (latch := r 16 rfl) (key := 9) HEq.rfl HEq.rfl childLatch
+
+private theorem dataDefined : (fixture.observe .not model (input true) base).get .head = some ⟨false⟩ := by
+  change readRef values (r 1 (t := .bool) rfl) base = _
+  have eval : Rules.HasNode (g := graph) (r 1 (t := .bool) rfl) (.eval 3)
+    (.cons (r 18 rfl) (.cons (r 3 rfl) .nil)) := HEq.rfl
+  rw [Rules.eval_at solved eval, outerPass]
+  change monotonize (fun k => readRef values (r 18 (t := .bool) rfl) (base.set 3 k)) 1 = some ⟨false⟩
+  exact (monotonize_eq_some_iff _ _ _).mpr
+    ⟨outerLatch 1, fun k _ => by rw [outerLatch]; rfl⟩
+
+private theorem stepFails (enter : Bool) : Exec model fixture.step (input enter) none :=
+  .seq .project (.firstFailed (.whileBodyFailed rfl (.firstFailed (.assignFailed rfl))))
+
+-- One outer trip calls the child. Its discarded failure leaves data
+-- defined but prevents the completion token from reaching the root.
+example : (fixture.observe .not model (input true) base).get .head = some ⟨false⟩ ∧
+    (fixture.observe .not model (input true) base).get (.tail .head) = none := by
+  refine ⟨dataDefined, ?_⟩
+  have failed : fixture.source.Fails model (input true) := .whileBodyFailed rfl (stepFails true)
+  cases eq : (fixture.observe .not model (input true) base).get (.tail .head) with
+  | none => rfl
+  | some token =>
+    have complete : ((fixture.observe .not model (input true) base).get (.tail .head)).isSome := by
+      rw [eq]
+      rfl
+    obtain ⟨_, ⟨_, run, _⟩, _⟩ := fixture.returns_of_completion .not model _ (fun _ => rfl) base complete
+    cases failed.deterministic run
+
+-- The same child input would fail if the body were entered.
+example : fixture.observe .not model (input false) base = .cons (some ⟨false⟩) (.cons (some ⟨true⟩) .nil) :=
+  fixture.observe_of_returns .not model _ (fun _ => rfl) base ⟨input false, .whileStop rfl, rfl⟩
+
+end Silmaril.SSA.PEG.Simple.Structured.Token.Nested.Tests

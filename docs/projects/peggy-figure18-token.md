@@ -60,6 +60,8 @@ The data result still equals `0` and the completion root is bottom in both
 directions. Zero-trip runs define both roots with either direction selected
 by the input. [Regressions](../../tests/ssa/PEGSimple.lean)
 
-Nested or discarded loops, arbitrary effect tokens, and the paper's
-multi-result pass syntax are outside this slice. The observation
-records successful completion. Bottom is shared by faults and divergence.
+This slice handles one loop. The [parent/child extension](peggy-figure18-nested-completion.md)
+uses the same marker semantics at each child activation. Arbitrary effect
+tokens and the paper's multi-result pass syntax remain outside these
+results. The observation records successful completion. Bottom is shared
+by faults and divergence.
