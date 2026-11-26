@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Defs
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Thms
 public import Silmaril.SSA.RVSDG.NestedTheta.Partial.Executable.Thms
+public import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Partial.Endpoints.Defs
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Blocks
 
 /-! # Typed finite returns of the numbered operational runner -/
 
@@ -64,5 +66,18 @@ theorem Source.compile_run_iff (source : Source Φ A X Z L E D sigs)
     exact run_iff_of_observe actions
       (WithNestedFeedback.Normalization.compile_observe s coherent env initial) exit final
   | routed s => exact run_iff_of_observe actions (s.agrees coherent env initial) exit final
+
+/-- A finite block of the numbered graph rules out runner success at every
+bound. A `none` result at a bound does not identify a block. -/
+theorem run_eq_none_of_blocked
+    (checked : NestedTheta.ExplicitRuntime.EntryChecked
+      (a := Flat.Serial.payloadData A X Z) (b := Flat.Serial.payloadData L E D) g.toTerm)
+    {input : TyDen A} {initial : σ}
+    {attempt : NestedTheta.OrderedState.Partial.Block
+      (NestedTheta.ExplicitRuntime.ThreadedOp (Wires.Effect Φ)) (TyDen (τ := τ)) σ}
+    (blocked : NestedTheta.ExplicitRuntime.Partial.abnormal (Wires.model (ε := ε)) g
+      (OrderedTheta.point (TwoBlock.TwoExit.enter input) initial) (.blocked attempt))
+    (fuel : Nat) : run actions g fuel input initial = none :=
+  Proofs.run_eq_none_of_blocked actions checked blocked fuel
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation
