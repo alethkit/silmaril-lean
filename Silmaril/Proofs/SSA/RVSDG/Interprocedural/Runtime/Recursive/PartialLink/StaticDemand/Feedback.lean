@@ -37,8 +37,8 @@ theorem prepend_mono {pc : Nat} {less more : List Address} {low high : DemandPla
   simp only [DemandPlan.prepend, transfer, List.mem_append, List.mem_filter] at h ⊢
   exact h.imp (fun h => reads h) (fun ⟨live, kept⟩ => ⟨next live, kept⟩)
 
-private theorem plan_mono (code : Code Op entry past sigs results loops member) {low high : Demand}
-    (more : DemandLE low high) : (code.plan low).live ⊆ (code.plan high).live := by
+theorem plan_mono (code : Code Op entry past sigs results loops member) {low high : Demand}
+    (more : ∀ p, low p = true → high p = true) : (code.plan low).live ⊆ (code.plan high).live := by
   induction code generalizing low high with
   | ret wires =>
     apply prepend_mono (fun _ h => h) (selectWires_mono wires ?_)

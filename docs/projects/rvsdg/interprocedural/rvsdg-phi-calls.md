@@ -753,6 +753,36 @@ A zero capture blocks at store `24`, and resumption runs the two φ
 suffixes and the λ suffix to store `80`.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
+### Ordered static λ bindings
+
+`Ordered.CheckedPrefix.seed` gives the slots of a checked φ family their
+existing summaries and transport proof. `addLambda` checks the new λ's actual
+capture wires against the shared table of typed linker positions. It computes the
+new summary with the shared GenKill plan and checks static dispatch through
+the supplied `Binding.resolved` proofs. The λ's table-indexed calls can
+name only earlier slots. Its new logical slot and physical linker position are
+recorded separately. Callable captures used for dispatch may be absent
+from the ordinary live-input set. [Ordered link admission](https://github.com/hiloopai/silmaril-lean/pull/3585)
+
+`Binding.link_step` matches one actual linker step. The demand certificate
+for the new entry accepts an arbitrary related saved suffix and calls
+the earlier transport proof for earlier slots. Once the actual export
+and common post-link store are identified, `Dispatch.linked_prefixes_agree`
+compares demanded returns, exact stores, typed blocked attempts, and the
+suffix observations after common resumption. This admission uses a
+φ seed and ordered λ additions. It takes static resolution proofs and
+successful-link evidence from the caller. Dynamic targets and automatic
+discovery of the ordered prefix are outside this admission.
+[Ordered demand API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Thms.lean)
+
+The linked λ→λ→φ fixture uses a synthesized seed and two uses of
+`addLambda`. The later λ reads both the earlier λ's linker position and
+the earlier φ member as a capture witness. Result demand flows across
+both applications and leaves the spare formal dead. The actual export
+returns `41` at store `66`, blocks at store `24`, and resumes through
+both λ suffixes and both φ suffixes to store `90`.
+[Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
