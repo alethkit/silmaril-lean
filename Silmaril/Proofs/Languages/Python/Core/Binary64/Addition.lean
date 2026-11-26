@@ -108,7 +108,7 @@ theorem addFinite_comm (left right : F64.Finite) : addFinite? left right = addFi
   cases hl : left.val.toRat? <;> cases hr : right.val.toRat? <;>
     simp [addFinite?, hl, hr, roundSum?, sumSign, add_comm, Bool.and_comm]
 
-private theorem roundExact_zero (negative : Bool) :
+theorem roundExact_zero (negative : Bool) :
     (roundExact? negative 0).map (fun result => result.val.bits) =
       some (if negative then 0x8000000000000000 else 0) := by
   cases negative <;> simp [roundExact?, F64.Finite.ofRaw?] <;> decide

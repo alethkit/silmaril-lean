@@ -583,10 +583,42 @@ def controls(upstream):
     ))
     if full is not None:
         lines = full.splitlines(keepends=True)
-        fixtures.append((full, rejected))
         assert lines[2] == "___assertEqual(4 + 2.0, 6.0)\n"
         assert lines[38] == "___assertEqual(5.0 // 2, 2.0)\n"
-        fixtures.append(("".join(lines[:39]), rejected))
+        assert len(lines) == 53 and lines[-1] == "___assertTrue(isinstance(5.0 % 2.0, float))\n"
+
+        prefix = observations["unchanged thirty-eight-line numeric prefix"]["builtin"]
+        extra = [("float64:4000000000000000", "float", True)] * 3
+        extra += [("int:1", "int", True)] + [("float64:3ff0000000000000", "float", True)] * 3
+        fixture, observed = instance_case(full, "normal", prefix["probes"] + extra, numeric=True)
+        expected_comparisons = prefix["compared"] + [(value, value) for value, _, _ in extra]
+        assert all(profile["compared"] == expected_comparisons and len(profile["receipts"]) == 72
+                   for profile in observed.values())
+        source, guards = fixture
+        guards += """
+#guard (match compile pythonSource with
+  | .ok compiled =>
+    match (compiled.instructions[34]?, compiled.instructions[46]?) with
+    | (some (Compile.ModuleEntry.Functions.Run.Instruction.nestedCall .discard "___assertEqual"
+        [.scalar (.floatDivMod .floorDiv (.floatInt lhs 2)), _]),
+       some (Compile.ModuleEntry.Functions.Run.Instruction.nestedCall .discard "___assertEqual"
+        [.scalar (.floatDivMod .modulo (.floatFloat left right)), _])) =>
+        lhs.val.bits == 0x4014000000000000 && left.val.bits == lhs.val.bits &&
+          right.val.bits == 0x4000000000000000
+    | _ => false
+  | _ => false)
+"""
+        fixtures.append((source, guards))
+        observations["unchanged full numeric pin"] = observed
+
+        fixed = (
+            PROFILES[0],
+            *((placement, f"(Compile.ModuleEntry.Functions.Run.Seeded.legacyTextSeed .{placement})")
+              for placement in ("builtin", "preamble")),
+        )
+        fixture, observed = observe(full, expect(missing, "NameError:___assertTrue"), {"empty": HELPER}, profiles=fixed)
+        fixtures.append(fixture)
+        observations["full numeric pin in fixed profiles"] = observed
         remainder = "".join(lines[45:47])
         assert remainder == "___assertEqual(5 % 2, 1)\n___assertTrue(isinstance(5 % 2, int))\n"
         fixture, observed = instance_case(remainder, "normal", [("int:1", "int", True)], numeric=True)
@@ -595,10 +627,8 @@ def controls(upstream):
         fixtures.append(fixture)
         observations["isolated unchanged integer remainder"] = observed
         observations["first prefix cutoffs"] = {
-            "first_rejected_compiler_prefix": 39,
-            "first_rejected_compiler_diagnostic": "source.scalar.expressionProfile",
-            "source": lines[38].rstrip("\n"),
-            "numeric_seed_completed_through": 38,
+            "first_rejected_compiler_prefix": None,
+            "numeric_seed_completed_through": len(lines),
             "integer_seed_runtime_line": 4,
             "integer_seed_runtime_cutoff": "NameError:float",
         }

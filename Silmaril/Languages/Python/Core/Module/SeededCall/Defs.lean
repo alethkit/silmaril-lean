@@ -157,6 +157,7 @@ inductive Operand (slots : Nat) where
   | intDivMod (op : Core.Closure.IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
   | floatDiv (operands : Core.Binary64.FloatOperands)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -185,16 +186,20 @@ def floatArithmeticResult
     | .conversionOverflow => .raised (.runtime .overflowError)
     | .nonfiniteResult => .unsupported
 
+def floatDivisionResult
+    (result : Except Core.Closure.Failure Silmaril.Numeric.Ieee754.F64.Finite) : Result :=
+  result.map Value.float64 |>.mapError fun
+    | .defined error => .raised (.runtime error)
+    | _ => .unsupported
+
 def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Operand slots → Result
   | .literal value => .ok value
   | .intDivMod op numerator divisor =>
     (op.eval numerator divisor).map Value.int |>.mapError (Failure.raised ∘ .runtime)
   | .intTrueDiv numerator divisor =>
     (Core.Closure.trueDivideInt numerator divisor).map Value.float64 |>.mapError (Failure.raised ∘ .runtime)
-  | .floatDiv operands =>
-    (Core.Closure.trueDivideFloat operands).map Value.float64 |>.mapError fun
-      | .defined error => .raised (.runtime error)
-      | _ => .unsupported
+  | .floatDiv operands => floatDivisionResult (Core.Closure.trueDivideFloat operands)
+  | .floatDivMod op operands => floatDivisionResult (Core.Closure.floatDivMod op operands)
   | .mixedAdd integer floating => floatArithmeticResult (Core.Binary64.mixedAdd integer floating)
   | .floatAdd left right =>
     (Core.Binary64.addFinite? left right).elim (.error .unsupported) (.ok ∘ Value.float64)

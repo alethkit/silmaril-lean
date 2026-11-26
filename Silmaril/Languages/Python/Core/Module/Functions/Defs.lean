@@ -52,6 +52,7 @@ inductive Operand where
   | intDivMod (op : Core.Closure.IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
   | floatDiv (operands : Core.Binary64.FloatOperands)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -64,6 +65,7 @@ def Operand.lower {layout : Layout} : Operand → Executor.Operand layout
   | .readGlobal name => .readGlobal name
   | .intDivMod op numerator divisor => .intDivMod op numerator divisor
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
+  | .floatDivMod op operands => .floatDivMod op operands
   | .floatDiv operands => .floatDiv operands
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .floatAdd left right => .floatAdd left right

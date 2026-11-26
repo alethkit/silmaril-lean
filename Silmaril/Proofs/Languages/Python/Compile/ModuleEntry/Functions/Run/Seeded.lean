@@ -100,6 +100,18 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
     Core.Closure.Executor.Operand.evalIn]
   cases Core.Closure.trueDivideInt numerator divisor <;> rfl
 
+theorem floatDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDivMod op operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDivMod op operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn, Core.Module.SeededCall.floatDivisionResult]
+  cases Core.Closure.floatDivMod op operands <;> rfl
+
 theorem floatDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (operands : Core.Binary64.FloatOperands) :

@@ -41,6 +41,7 @@ inductive Operand (layout : Layout) where
   | intDivMod (op : IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
   | floatDiv (operands : Core.Binary64.FloatOperands)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -235,6 +236,7 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
   | .intDivMod op numerator divisor => (op.eval numerator divisor).map Value.int |>.mapError .defined
   | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
+  | .floatDivMod op operands => (Core.Closure.floatDivMod op operands).map Value.float64
   | .floatDiv operands => (trueDivideFloat operands).map Value.float64
   | .mixedAdd integer floating => Closure.mixedAdd integer floating
   | .floatAdd left right => Closure.floatAdd left right
@@ -369,6 +371,8 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
         ((op.eval numerator divisor).map Value.int |>.mapError .defined)
   | intTrueDiv (numerator divisor : Int) : EvaluatesIn globals heap frame (.intTrueDiv numerator divisor)
       ((trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+      EvaluatesIn globals heap frame (.floatDivMod op operands) ((Core.Closure.floatDivMod op operands).map Value.float64)
   | floatDiv (operands : Core.Binary64.FloatOperands) : EvaluatesIn globals heap frame (.floatDiv operands)
       ((trueDivideFloat operands).map Value.float64)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
