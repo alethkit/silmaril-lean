@@ -17,6 +17,13 @@ universe u v w
 variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)}
 
+/-- The new bank at the end of a producer prefix reads back in port order. -/
+theorem lastBank_read {args head : List (Ty Data)} {past : List (List (Ty Data))}
+    (m : Model.{u, v, w} Op) (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (bank : Tuple (Val m.value) head) :
+    (lastBank past head).read entry (locals.snoc bank) = bank :=
+  Proofs.lastBank_read m entry locals bank
+
 /-- Each numbered child returns the column obtained from its own reaching versions. -/
 theorem Table.arm_results (table : Table Op regs) (edge : Fin table.length) :
     (Table.arm table edge).toGraph.results = Table.incoming table edge :=
