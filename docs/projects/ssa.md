@@ -14,6 +14,9 @@ Every module is in the root `Silmaril` library; there is no executable.
 The [LambdaIter family matrix](lambda-iter-family.md) records the assumptions of
 the semantics comparisons and the forward flat SSA/RTL commuting square.
 
+The [LetIter heap reindexing note](letiter-heap-reindexing.md) describes the typed
+allocation dialect and its finite trace theorem.
+
 ## The calculi and translations
 
 ```mermaid
