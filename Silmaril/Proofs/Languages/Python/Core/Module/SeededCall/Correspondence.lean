@@ -41,6 +41,14 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equal _ _ same => contradiction
     | unequal => rfl
+  | equalNumeric left right same =>
+    cases right with
+    | equalNumeric => rfl
+    | unequalNumeric _ _ different => contradiction
+  | unequalNumeric left right different =>
+    cases right with
+    | equalNumeric _ _ same => contradiction
+    | unequalNumeric => rfl
   | equalText left right same =>
     cases right with
     | equalText => rfl
@@ -94,6 +102,13 @@ private theorem computed (callee : Value) (arguments : List Value) :
         exact .equal _ _ rfl
       · simp [same]
         exact .unequal _ _ same
+    | compareNumeric left right =>
+      rw [invoke, decoded]
+      by_cases same : left.equal right = true
+      · simp [same]
+        exact .equalNumeric _ _ same
+      · simp [same]
+        exact .unequalNumeric _ _ same
     | compareText left right =>
       rw [invoke, decoded]
       by_cases same : left = right

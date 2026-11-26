@@ -4,9 +4,24 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
+import Silmaril.Languages.Python.Core.Binary64.Thms
 
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions
+
+open Silmaril.Numeric.Ieee754 (F64)
+open Silmaril.Numeric.Ieee754.AdjacentRounding (NearestEven)
+open Silmaril.Numeric.Ieee754.RationalRounding (magnitude)
+open Silmaril.Numeric.Ieee754.Binary64Signs (magnitudeBits)
+
+theorem CallValueTranslation.float64_nearestEven {scope : Source.Scope}
+    {source : Source.Expr} {value : F64.Finite}
+    (checked : CallValueTranslation scope source (.float64 value)) :
+    ∃ negative coefficient exponent, decimalCallLiteral? source = some (negative, coefficient, exponent) ∧
+      value.val.signBit = negative ∧
+      NearestEven magnitude (Core.Binary64.decimalMagnitude coefficient exponent) (magnitudeBits value.val.bits).toNat := by
+  cases checked with
+  | float64 literal rounded => exact ⟨_, _, _, literal, Core.Binary64.ofDecimal_nearestEven rounded⟩
 
 theorem lowerArgumentOperand_numeric (scope : Source.Scope) {source : Source.Expr}
     {result : NumericArgument.Result} (checked : NumericArgument.check source = some result) :

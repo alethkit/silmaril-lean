@@ -83,7 +83,7 @@ def outer(seed):
 ''')
         generated = destination.read_text(encoding="utf-8")
         assert ".text [55296]" in generated, generated
-        assert ".floatBits 4607182418800017408" in generated, generated
+        assert ".floatDecimal 0xa (-0x1)" in generated, generated
         assert '.name "λ"' in generated, generated
         check_lean(destination, """
 #guard ((analyze pythonSource).toOption.map (·.scope.access "alias")) == some (some .moduleName)
