@@ -300,14 +300,49 @@ rest of the commands do not run. The executable fixtures also reach
 this error inside a closure call and distinguish it from missing and
 surplus argument errors before body entry.
 
-Whole-module source execution for the wrapper chain still needs to
-identify the root table lookup from the emitted command at its actual
-source site, relate source operand evaluations before dispatch, track
-intervening statement effects, and compose wrapper returns and escape
-with leaf execution and final publication. The module entry bridge
-takes already evaluated positional actuals. Defaults, other argument
-forms, loads, and broader wrapper and leaf bodies remain separate.
+The module entry bridge takes evaluated positional actuals. The source
+site and operand theorems below supply these premises in a bounded
+profile.
 [Binding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Defs.lean) · [Entry theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Checks.lean)
+
+### Root definition sites and call operands
+
+`checked_root_site` relates a normalized root definition at its source
+command position to the ID in the emitted command and the corresponding
+entry in the final declaration table. A linked table and earlier
+commands can determine the starting offset. Children are appended
+before their parent. The admitted suffix can contain name assignments,
+expression statements, and unrelated required-parameter definitions in
+the forwarding chain profile. Successful suffix compilation preserves
+the root entry at the ID its command emitted. The root and other
+admitted definitions use the existing chain acceptance evidence,
+uniform in their incoming table. The setup theorem gives the root
+definition step in the fresh module frame.
+
+The independent operand judgment covers declared global reads, integer
+and string literals, and subscript reads. Its list judgment evaluates
+the callee first and positional actuals left to right. These operands
+retain the frame and heap. A reached callee, receiver, or argument error
+prevents later evaluation and dispatch. The source-site theorem places
+the corresponding call at its checked expression-statement position.
+After successful reads, the independent binder derives each assigned
+parameter or an arity failure. The invocation theorem connects this to
+the exact resolved activation, and transports a supplied callee-body
+execution through caller restoration and the existing denotation via
+`exec_iff_denoteBody`.
+
+Intervening successful name assignments with admitted operands can
+copy the live closure to another binding. Their emitted commands
+occupy the corresponding source segment. Distinct owned module slots
+and binding-only writes preserve the original callee and function heap
+cell. These theorems leave whole-module sequencing and independent
+wrapper/leaf body execution through escape and publication open.
+Assignments to the callee binding, effectful or nested-call operands,
+defaults, other argument forms, loads, and broader bodies are outside
+this proof. The Lean fixtures distinguish operand failures from
+surplus arity and exercise linked code, later unrelated definitions,
+and a copy of the live closure.
+[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Checks.lean) · [Pinned call semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-calls)
 
 ## Finite-manifest loader
 
