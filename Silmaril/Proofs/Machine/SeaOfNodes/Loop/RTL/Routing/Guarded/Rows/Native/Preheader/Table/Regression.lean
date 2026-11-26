@@ -9,6 +9,7 @@ open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (fiberRoom inputModel)
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
+open Silmaril.Machine.RTL.SSA (Behavior)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (encodeTuple inputEnv instruction)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
@@ -188,5 +189,37 @@ example :
       (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory spin))
       (Sentence.eq (Institution.scope exitAccepted) (Institution.scope accepted)) :=
   differs ∘ (Institution.room_equation_at_iff exitAccepted accepted spin mem).mp
+
+example :
+    let observed := Institution.rtlBehaviors input mem targets.1
+    Behavior.returned [7] mem ∈ observed ∧ Behavior.diverges ∉ observed ∧
+      Behavior.returned [7, 7] mem ∉ observed ∧ Behavior.stuck ∉ observed ∧
+      (∀ final, Behavior.trapped final ∉ observed) := by
+  have present := (source.returns_iff_mem_denote model input (7 : Word)).mp ⟨1, counted⟩
+  refine ⟨(Institution.rtl_behavior_iff accepted input mem (.returned [7] mem)).mpr
+    ⟨7, present, rfl, rfl⟩, ?_, ?_, Institution.rtl_no_fault accepted input mem⟩
+  · intro diverged
+    have absent := (Institution.rtl_divOracle_iff accepted input mem).mp diverged
+    exact (Part.eq_none_iff'.mp absent) (Part.dom_iff_mem.mpr ⟨(7 : Word), present⟩)
+  · intro unexpected
+    obtain ⟨_, _, outputs, _⟩ :=
+      (Institution.rtl_behavior_iff accepted input mem (.returned [7, 7] mem)).mp unexpected
+    simp at outputs
+
+example :
+    targets.1.divOracle 0 (words spin) mem ∧
+      (∀ values final, Behavior.returned values final ∉ Institution.rtlBehaviors spin mem targets.1) ∧
+      Behavior.stuck ∉ Institution.rtlBehaviors spin mem targets.1 ∧
+      (∀ final, Behavior.trapped final ∉ Institution.rtlBehaviors spin mem targets.1) := by
+  refine ⟨(Institution.rtl_divOracle_iff accepted spin mem).mpr spinAbsent,
+    ?_, Institution.rtl_no_fault accepted spin mem⟩
+  intro values final returned
+  obtain ⟨value, present, _, _⟩ :=
+    (Institution.rtl_behavior_iff accepted spin mem (.returned values final)).mp returned
+  exact (Part.eq_none_iff'.mp spinAbsent) (Part.dom_iff_mem.mpr ⟨value, present⟩)
+
+example :
+    ¬ (Sentence.eq exitTargets.1 targets.1).Holds (Institution.rtlBehaviors spin mem) :=
+  differs ∘ (Institution.rtl_equation_at_iff exitAccepted accepted spin mem).mp
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
