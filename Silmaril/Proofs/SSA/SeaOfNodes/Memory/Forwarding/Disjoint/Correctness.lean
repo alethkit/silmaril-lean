@@ -85,6 +85,34 @@ private theorem known_store (requested published : Nat) (address : Origin args p
           (readValue value input locals) (covers_read address covered input locals valid)).trans known
     · simp [afterStore, chosen, covered, Known]
 
+private theorem check_exit_at (requested : Nat) (body : Body args past version)
+    {saved : Option (Origin args past .word)}
+    (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells)
+    (valid : certificate.Valid input) (known : Known certificate saved input locals heap)
+    (accepted : checkExitAt certificate requested body saved = true) :
+    let result := body.denote input locals heap
+    result.2.read (cell input certificate.observed) = result.1 := by
+  induction body generalizing heap with
+  | ret memory exported =>
+    cases saved with
+    | none => simp [checkExitAt] at accepted
+    | some value =>
+      have key : originKey value = originKey exported := by simpa [checkExitAt] using accepted
+      have same := Memory.Forwarding.originKey_injective key
+      subst exported
+      exact known
+  | load memory address rest ih =>
+    exact ih _ _ (known_load known (heap.read (readValue address input locals))) accepted
+  | @store _ version memory address value rest ih =>
+    exact ih _ _ (known_store requested (version + 1) address value _ input locals heap valid known) accepted
+
+theorem checkExitWith_reads (graph : Graph args) (storeVersion : Nat)
+    (accepted : checkExitWith graph storeVersion certificate = true)
+    (input : Tuple (Val cells) args) (heap : Heap cells) (valid : certificate.Valid input) :
+    let result := graph.denote input heap
+    result.2.read (cell input certificate.observed) = result.1 :=
+  check_exit_at storeVersion graph (saved := none) input PUnit.unit heap valid trivial accepted
+
 private theorem rewrite_at_denote (requested : Nat) (body : Body args past version) (index : Nat)
     {saved : Option (Origin args past .word)} {rewritten : Body args past version}
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells)

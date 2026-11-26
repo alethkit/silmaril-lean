@@ -71,4 +71,21 @@ def rewrite (graph : Graph args) (candidate : Candidate) (certificate : Certific
     (input : Tuple (Val cells) args) : Option (Graph args) :=
   if certificate.check input then rewriteWith graph candidate certificate else none
 
+def checkExitAt (certificate : Certificate args) (requested : Nat) :
+    {past : List (List ValueSort)} → {version : Nat} →
+    Body args past version → Option (Origin args past .word) → Bool
+  | _, _, .ret _ exported, saved =>
+    match saved with
+    | some value => originKey value == originKey exported
+    | none => false
+  | _, _, .load _ _ rest, saved => checkExitAt certificate requested rest (saved.map raise)
+  | _, version, .store _ address value rest, saved =>
+    checkExitAt certificate requested rest
+      (afterStore certificate requested (version + 1) address value saved)
+
+/-- Check that the exported word is the retained Store operand at the
+exported memory edge, under the supplied address facts. -/
+def checkExitWith (graph : Graph args) (storeVersion : Nat) (certificate : Certificate args) : Bool :=
+  checkExitAt certificate storeVersion graph none
+
 end Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint

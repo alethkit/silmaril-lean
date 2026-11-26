@@ -20,6 +20,15 @@ theorem Certificate.check_iff_valid (certificate : Certificate args) (input : Tu
     certificate.check input = true ↔ certificate.Valid input :=
   Proofs.check_iff_valid certificate input
 
+/-- The exported word supplies the certified cell of the entire exported
+heap, including every covered Store. -/
+theorem checkExitWith_reads (graph : Graph args) (storeVersion : Nat)
+    (accepted : checkExitWith graph storeVersion certificate = true)
+    (input : Tuple (Val cells) args) (heap : Heap cells) (valid : certificate.Valid input) :
+    let result := graph.denote input heap
+    result.2.read (cell input certificate.observed) = result.1 :=
+  Proofs.checkExitWith_reads graph storeVersion accepted input heap valid
+
 /-- A rewrite can be reused at each input satisfying its certificate and
 at every initial heap for those inputs. -/
 theorem rewriteWith_denote (success : rewriteWith graph candidate certificate = some rewritten)
