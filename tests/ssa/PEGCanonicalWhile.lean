@@ -7,6 +7,7 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Thms
 import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.PEG.Rules.Thms
 import Mathlib.Data.Fin.Embedding
@@ -14,6 +15,7 @@ import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
@@ -1262,5 +1264,24 @@ private def scheduledRun :
 
 #guard scheduledRun.isSome
 #guard (schedule true).isNone
+
+open Simple.Revert.Schedule.Automatic (Leaf Found discover)
+
+-- Use the unrelocated leaf. Discovery must pair both loop scopes and
+-- their rows with the original graph's permuted keys and addresses.
+private def inferredRegion :
+    Option {a : Found moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) //
+      Exec model a.gate.val.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, moved.observe model (moved.denote model (input 2) a.gate.val.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let leaf ← Leaf.nested (.nestedOnly Op.not) (graph false) rank
+  let .ok a := discover moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) [leaf] 1000 | none
+  match ran : a.gate.val.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec (fun _ => rfl) (input 2) i exec).2⟩
+  | _ => none
+
+#guard inferredRegion.isSome
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Tests
