@@ -34,6 +34,13 @@ theorem split_return (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: 
     Eqv pe Γ (returnOnce (.case e l r)) (.case e (returnOnce l) (returnOnce r)) [D] :=
   split_return_proof he hl hr
 
+/-- Split the literal return of a binary-let expression. Both sides bind
+the same product, in left-field then right-field order, before the body. -/
+theorem split_let₂ {a b : Tm Φ} (ha : Tm.HasType Γ a (product A B))
+    (hb : Tm.HasType (B :: A :: Γ) b D) :
+    Eqv pe Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D] :=
+  split_let₂_proof ha hb
+
 /-- Use the computed case as the argument to a later primitive; leave the
 body at its original ordered exits under the primitive reply binder. -/
 theorem call_replay (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: Γ) l (instrSrc f))

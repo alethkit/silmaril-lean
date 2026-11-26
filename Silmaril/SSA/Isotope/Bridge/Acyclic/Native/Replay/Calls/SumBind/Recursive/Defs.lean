@@ -8,11 +8,11 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Co
 
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Recursive
 
-/-- Calls, unary lets, ordered pairs, and cases can recur in every operand.
+/-- Calls, unary and binary lets, ordered pairs, and cases can recur in every operand.
 Variables, unit, and constructor-only injections are the remaining forms. -/
 def Admitted {Φ : Type*} : Tm Φ → Prop
   | .op _ a => Admitted a
-  | .let₁ a b | .pair a b => Admitted a ∧ Admitted b
+  | .let₁ a b | .let₂ a b | .pair a b => Admitted a ∧ Admitted b
   | .case e l r => Admitted e ∧ Admitted l ∧ Admitted r
   | a => ConstructorOnly a
 

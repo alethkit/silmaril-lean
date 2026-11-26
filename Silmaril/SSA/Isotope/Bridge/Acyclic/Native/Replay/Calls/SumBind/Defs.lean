@@ -37,6 +37,9 @@ inductive Schedule : VCtx τ → Region Φ → LCtx τ → List (List Φ × Nat)
       {left right : List (List Φ × Nat)}
       (value : At Γ slot (coprod A B)) (hl : Schedule (A :: Γ) l L left)
       (hr : Schedule (B :: Γ) r L right) : Schedule Γ (.case (.var slot) l r) L (left ++ right)
+  | unpackVar {Γ : VCtx τ} {L : LCtx τ} {slot : Nat} {A B : τ} {r : Region Φ}
+      {paths : List (List Φ × Nat)} (value : At Γ slot (product A B))
+      (body : Schedule (B :: A :: Γ) r L paths) : Schedule Γ (.let₂ (.var slot) r) L paths
 
 /-- The three possible terminal routes of a straight-line sum producer,
 with all its requests before the selected arm's requests. -/

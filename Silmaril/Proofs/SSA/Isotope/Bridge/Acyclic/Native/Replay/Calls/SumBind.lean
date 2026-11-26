@@ -63,6 +63,7 @@ theorem Schedule.valueBranches_proof {paths : List (List Φ × Nat)}
   | ret exit value => exact .br exit value
   | call value _ ih => exact .let₁ (.op value.hasType) ih
   | caseVar value _ _ ihl ihr => exact .case (.var value) ihl ihr
+  | unpackVar value _ ih => exact .let₂ (.var value) ih
 
 theorem sound_proof {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
     [CartesianMonoidalCategory V] [SymmetricCategory V]
