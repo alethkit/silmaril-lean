@@ -3,7 +3,9 @@ module
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 import Silmaril.SSA.Peggy.Bridge.Theta.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
+meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
@@ -308,6 +310,61 @@ example : (equation.map rename).translate.Holds (thetaModel markedModel) ↔
 example :
     ((restrictThetaModels Unit).ρ.app markedSignature).mod.obj (Discrete.mk markedModel) =
       Discrete.mk (thetaModel markedModel) := rfl
+
+open RVSDG.LambdaSSA.Theta
+
+private abbrev packet (n a b : Nat) := Operational.pack values (entry n a b)
+private abbrev ssaEnv (n a b : Nat) := Operational.inputEnv values (entry n a b)
+
+example : (Region.LambdaSSA.lower bundle).HasType
+    [Region.LambdaSSA.Packet carried] [Region.LambdaSSA.Packet carried] :=
+  Region.LambdaSSA.lower_hasType bundle
+
+-- Exercise an actual branch to the local header label with the new packet.
+example : Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values)
+    (Isotope.LambdaSSA.Semantics.extend (ssaEnv 2 10 1) (packet 2 10 1))
+    (RVSDG.LambdaSSA.Theta.block (Operational.step bundle.compile).op)
+    (7 : Nat) 0 (packet 1 1 11) 7 :=
+  Operational.block_eval values bundle.compile _ (entry 2 10 1) (entry 1 1 11) true rfl 7
+
+private theorem ssaReturns :
+    Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 2 10 1)
+      (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 11 12) 7 :=
+  (Operational.lower_eval_iff values bundle.compile (entry 2 10 1) 7 7 0 _).mpr
+    ⟨entry 0 11 12, returned, rfl, rfl, rfl⟩
+
+example (idx : Index 1) : ∃ (k : Nat) (final : Tuple total.toPEG.Value (.bool :: carried)),
+    carriedValues final = store 0 11 12 ∧
+    bundle.scalar.TraceObservation total.toPEG
+      (bundledGraph.denote total.toPEG (store 2 10 1) bundle.demandWellFounded) idx k final :=
+  Region.LambdaSSA.firstExit_of_eval bundle total (store 2 10 1) (fun _ => rfl) idx (store 0 11 12) 7
+    ssaReturns
+
+example (idx : Index 1) :
+    Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 2 10 1)
+      (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 11 12) 7 :=
+  (Region.LambdaSSA.lower_eval_iff bundle total (store 2 10 1) (fun _ => rfl) idx 7 7 0 _).mpr
+    ⟨store 0 11 12, observedTuple idx, rfl, rfl, rfl⟩
+
+-- Already false: the header executes once and exits without a backedge.
+example : Isotope.LambdaSSA.Semantics.Region.Eval (Operational.instruction values) (ssaEnv 0 10 1)
+    (Region.LambdaSSA.lower bundle) (7 : Nat) 0 (packet 0 10 1) 7 :=
+  (Operational.eval_iff_runFuel values bundle.compile (entry 0 10 1) (entry 0 10 1) 7).mpr ⟨1, rfl⟩
+
+example (idx : Index 1) : bundledGraph.observe total.toPEG
+    (bundledGraph.denote total.toPEG (store 0 10 1) bundle.demandWellFounded) idx =
+      (store 0 10 1).map (fun _ => some) :=
+  (Region.LambdaSSA.exists_runFuel_iff_observe bundle total (store 0 10 1) (fun _ => rfl) idx
+    (store 0 10 1)).mp ⟨1, rfl⟩
+
+private def runPacket (fuel n a b : Nat) : Option (Nat × Nat × Nat) :=
+  (Region.LambdaSSA.runFuel bundle total fuel (store n a b)).map fun
+    | .cons count (.cons left (.cons right .nil)) => (count.down, left, right)
+
+set_option interpreter.prefer_native false in
+/-- info: (none, some (0, 11, 12), some (0, 10, 1)) -/
+#guard_msgs in
+#eval (runPacket 2 2 10 1, runPacket 3 2 10 1, runPacket 1 0 10 1)
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 
