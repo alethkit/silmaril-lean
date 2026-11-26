@@ -71,6 +71,15 @@ theorem Function.br_if_typed {fn : Function} {stack : List Value} {depth : Label
       fn.checkRegion (Prefix.stackTypes saved) fallthrough rest labels = true :=
   Proofs.br_if_typed checked
 
+/-- The selector is i32 and all listed depths and the default accept the same typed suffix. -/
+theorem Function.br_table_typed {fn : Function} {stack : List Value} {depths : List LabelIdx} {fallback : LabelIdx}
+    {result fallthrough : List NumType} {rest : List Op} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough
+      (.ranked (.brTable depths fallback result) :: rest) labels = true) :
+    ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] ∧
+      Graph.SuffixTyped result saved ∧ ∀ depth ∈ fallback :: depths, labels[depth.toNat]? = some result :=
+  Proofs.br_table_typed checked
+
 /-- The function label follows all explicitly enclosing source labels. -/
 theorem Function.function_label_types (fn : Function) {labels : List (List NumType)} {result : List NumType}
     (target : (labels ++ fn.entryLabels)[labels.length]? = some result) :
