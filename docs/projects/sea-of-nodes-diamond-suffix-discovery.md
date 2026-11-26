@@ -21,14 +21,36 @@ worklist are outside this profile.
 block, whose outgoing packet starts with the word return and includes
 all additional uses. It scans the current typed producer table in
 dependency order for the first eligible add decision, preserving
-the checker's priority at each producer. If that scan fails, it
-chooses the first producer admitted by `Pure.Deletion.delete?`
-with the complete packet. It re-enumerates
+the checker's priority at each producer. If that scan fails it
+scans for exact add reuse, then for the first producer admitted by
+`Pure.Deletion.delete?` with the complete packet. It re-enumerates
 after each edit, so a candidate always belongs to the current table.
 Signed source IDs are unnecessary for this subset. The executed rule
 list and composed partial route are available in the result.
 [Discovery definitions](../../Silmaril/SSA/SeaOfNodes/Pure/SuffixReplay/Discovery/Defs.lean) ·
 [Typed replay and packet semantics](sea-of-nodes-diamond-suffix-replay.md)
+
+Exact add reuse calls `GVN.Pass.eliminateCandidate?` on an add
+candidate. The existing key checks the opcode and ordered typed
+operand wires. Its earlier representative is available at the
+candidate's prefix in this straight-line table. Elimination routes
+both the surviving uses and the complete outgoing packet, then
+removes the redundant add. Equal computed results and reversed
+operand pairs alone give no exact match. The rule is local to the
+post-join suffix, with no cross-block placement or cyclic refinement.
+[Acyclic GVN proof and paper pin](sea-of-nodes/optimization/sea-of-nodes-gvn-pass.md)
+
+Cliff Click's *Global Code Motion/Global Value Numbering*, PLDI ’95,
+§3.1 step 3, gives the replacement-and-removal correspondence.
+Simple chapter 8 leaves GVN to a later chapter. At the same pinned
+revision, chapter 9 compares the node class and ordered input
+identities, and reuses a previously interned node. This pass retains
+its own table-order scheduling and uses the checked earlier-wire
+witness in place of Java hash-table interning.
+[PLDI ’95](https://doi.org/10.1145/207110.207154)
+· [Chapter 8 GVN placeholder](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/Node.java#L243-L257)
+· [Chapter 9 reuse](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter09/src/main/java/com/seaofnodes/simple/node/Node.java#L267-L295)
+· [Chapter 9 ordered equality](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter09/src/main/java/com/seaofnodes/simple/node/Node.java#L433-L450)
 
 The primary measure is the binding count plus the number of add
 operators. Literal folding keeps the binding count and decreases the
@@ -46,8 +68,9 @@ swap lowers the fuel measure directly. `normalize_count` counts
 erasures separately and bounds all edits by the initial measure. One
 extra unit of fuel lets the driver perform the last scan.
 
-`normalize_noEligible` covers the three admitted add rules and unused
-deletion with the complete packet. `normalize_stable` certifies that a
+`reuseAdd?_eq_none_iff` characterizes the exact-key check on adds.
+`normalize_noEligible` covers the three admitted add idealizations,
+exact add reuse and unused deletion with the complete packet. `normalize_stable` certifies that a
 second run makes no further edits. `normalize_agrees` preserves mapped
 reads through the replay route, and `normalize_packet_eq` preserves
 all packet values.
@@ -127,6 +150,19 @@ def ordered := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize lit
 
 example : ordered.rules = [.literalRight, .rightZero, .deleteUnused] ∧
     ordered.state.block.packet.addresses = [.arg 0] := ⟨rfl, rfl⟩
+
+def repeated : Block [word, word] [wordPort] where
+  sigs := [[wordPort], [wordPort]]
+  flow := .cons .add (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil))
+    (.cons .add (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) .nil)
+  packet := .cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil)
+
+def sharedAdd := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize repeated
+
+#eval (sharedAdd.rules, sharedAdd.state.block.packet.addresses)
+
+example : sharedAdd.rules = [.reuseAdd] ∧
+    sharedAdd.state.block.packet.addresses = [.output 0 0, .output 0 0] := ⟨rfl, rfl⟩
 ```
 
 The regression checks that the emitted right-column zero is live
@@ -141,5 +177,10 @@ input literals become unused. Another typed tail exposes an off-spine
 swap on the emitted return through a non-add relay. Left zero enables
 erasure, and a nonzero literal moves right once. Both cases check the
 ordered surviving operands and the full packet on both predecessors.
-A pair of runtime inputs stays in its original order.
+A pair of runtime inputs stays in its original order. For exact reuse,
+the fixture appends a second copy of the actual materialized inner add
+and observes its downstream subtraction and outgoing packet use.
+The surviving add feeds both the original outer add and the new
+subtraction. With reversed operands, both producers stay live and
+the packet reads keep distinct addresses.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/SuffixReplay/Discovery/Regression.lean)
