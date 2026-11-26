@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.NormalizationCongruence
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ContinuationCategory
 
 /-! # Normalization from native rewrite classes to the continuation category -/
 
@@ -18,6 +19,12 @@ input and exit contexts. -/
 theorem SubstitutionEquiv.bindBranchArguments {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
     (h : SubstitutionEquiv Γ r s L) : SubstitutionEquiv Γ r.bindBranchArguments s.bindBranchArguments L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.substitutionEquiv_normalize h
+
+/-- Binding an existing constructor branch argument preserves the guarded
+region's native rewrite class. -/
+theorem ValueBranches.bindBranchArguments_equiv {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) : SubstitutionEquiv Γ r r.bindBranchArguments L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_equiv hr
 
 variable {Γ : VCtx τ} {L K : LCtx τ}
 
