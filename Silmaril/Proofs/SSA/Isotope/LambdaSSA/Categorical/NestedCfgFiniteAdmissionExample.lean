@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Outer.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
@@ -279,6 +279,115 @@ example (roll : IterationRolling C) :
   exact ⟨f, g, dl, dr, NestedAdmission.Finite.compare?_sound J M roll ok dl dr⟩
 
 end Model
+
+namespace OuterMask
+
+private def keepOuter : Fin 1 ↪ Fin 3 :=
+  ⟨fun _ => 1, by intro i j _; exact Subsingleton.elim i j⟩
+
+private def outerTypes (D omitted : Ty Empty) : Fin 3 → Ty Empty :=
+  Fin.cases omitted (Fin.cases (taggedPair D) (fun _ => U))
+
+private def fullEntry := start.renameLabels (retainLabelIndex keepOuter)
+
+private def unusedRow : Region Op := (Region.br 1 .unit).renameLabels (retainLabelIndex keepOuter)
+
+private def forbiddenInner : Region Op := .cfg (.br 3 .unit) 3 (fun _ => .br 6 .unit)
+
+/-- The nested entry targets original outer slot zero, after skipping three
+inner locals. Its retained outer sibling is at slot one. -/
+private def forbiddenRow : Region Op :=
+  .case (.var 0) (forbiddenInner.renameVars (Silmaril.DeBruijn.lift Nat.succ)) (.br 1 (.var 1))
+
+private def fullRows (bad : Bool) : Fin 3 → Region Op :=
+  Fin.cases unusedRow
+    (Fin.cases (if bad then forbiddenRow else (guardedRow false).renameLabels (retainLabelIndex keepOuter))
+      (fun _ => unusedRow))
+
+private def fullGraph (bad : Bool) : Region Op := .cfg fullEntry 3 (fullRows bad)
+
+private theorem fullEntry_typed (D omitted : Ty Empty) :
+    fullEntry.HasType [] (List.ofFn (outerTypes D omitted) ++ boundary false) :=
+  (show start.HasType [] (List.ofFn (fun i => outerTypes D omitted (keepOuter i)) ++ boundary false) from
+    .br rfl (.inl (.pair .unit .unit))).renameLabels (retainLabelRen keepOuter _ _)
+
+private theorem fullRows_typed (D omitted innerOmitted : Ty Empty) (i : Fin 3) :
+    (fullRows false i).HasType [outerTypes D omitted i] (List.ofFn (outerTypes D omitted) ++ boundary false) := by
+  let small := List.ofFn (fun j => outerTypes D omitted (keepOuter j)) ++ boundary false
+  have er (A : Ty Empty) : (Region.br 1 .unit : Region Op).HasType [A] small := .br rfl .unit
+  have ren := retainLabelRen keepOuter (outerTypes D omitted) (boundary false)
+  exact Fin.cases ((er omitted).renameLabels ren)
+    (Fin.cases ((guardedRow_typed false D innerOmitted).renameLabels ren)
+      (fun _ => (er U).renameLabels ren)) i
+
+private theorem rejected_typed : (fullGraph true).HasType [] (boundary false) := by
+  refine .cfg (outerTypes U U) (fullEntry_typed U U) ?_
+  intro i
+  refine Fin.cases (fullRows_typed U U U 0)
+    (Fin.cases ?_ (fun _ => fullRows_typed U U U 2)) i
+  have inner : forbiddenInner.HasType [Pair] (List.ofFn (outerTypes U U) ++ boundary false) :=
+    .cfg (fun _ => U) (.br rfl .unit) (fun _ => .br rfl .unit)
+  exact .case (.var rfl) (inner.renameVars ((Ren.wk [] (taggedPair U)).lift Pair)) (.br rfl (.var rfl))
+
+/-- The bad graph is exactly typed. Outer restriction itself fails when it
+finds the nested entry's transfer into the omitted outer slot. -/
+example : (fullGraph true).HasType [] (boundary false) ∧
+    CfgRestriction.check? keepOuter (boundary false).length (fullGraph true) = none ∧
+    NestedAdmission.Finite.Outer.compare? keepOuter keep types (fullGraph true) (boundary false) = .unknown :=
+  ⟨rejected_typed, rfl, by decide⟩
+
+/-- At runtime the nested entry really enters outer slot zero, whose row
+takes the first actual exit. -/
+example : Semantics.Region.Eval (exitReplies 0) (fun _ => .unit) (fullGraph true) () 0 .unit () := by
+  refine .cfg (.br (.inl (.pair .unit .unit))) ?_
+  refine .step (label := 1) (next := 0) (middle := .unit) (s₁ := ()) (by decide) ?_ ?_
+  · exact .case_inl .var (.cfg (.br .unit) (.exit (by decide)))
+  · exact .step (label := 0) (next := 3) (by decide) (.br .unit) (.exit (by decide))
+
+/-- Both tables contribute local label offsets. The original full graph
+still routes the pair reply to actual exit ordinal two. -/
+example : Semantics.Region.Eval (exitReplies 2) (fun _ => .unit) (fullGraph false) () 2 (.pair .unit .unit) () := by
+  refine .cfg (.br (.inl (.pair .unit .unit))) ?_
+  refine .step (label := 1) (next := 5) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .unit) ?_)
+  refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := ()) (by decide)
+    (.case_inl (.op .var rfl) (.br .var)) ?_
+  exact .step (label := 2) (next := 8) (by decide)
+    (.case_inr (.op .var rfl) (.br .var)) (.exit (by decide))
+
+section Model
+
+variable {V C : Type} [Category V] [Category C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
+
+local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M (boundary false))
+
+/-- The exact original witnesses use full outer and inner tables. Their
+omitted outer types, omitted inner types and outer right summands differ. -/
+example (roll : IterationRolling C) :
+    ∃ f g : Arrow,
+      CfgDenotesAt J M (outerTypes U U) fullEntry (fullRows false) f ∧
+      CfgDenotesAt J M (outerTypes .empty .empty) fullEntry (fullRows false) g ∧ f = g := by
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (outerTypes U U)
+    (fullEntry_typed U U) (fullRows_typed U U U)
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (outerTypes .empty .empty)
+    (fullEntry_typed .empty .empty) (fullRows_typed .empty .empty .empty)
+  have tl : (fullGraph false).HasType [] (boundary false) :=
+    .cfg (outerTypes U U) (fullEntry_typed U U) (fullRows_typed U U U)
+  have tr : (fullGraph false).HasType [] (boundary false) :=
+    .cfg (outerTypes .empty .empty) (fullEntry_typed .empty .empty) (fullRows_typed .empty .empty .empty)
+  have dl : RegionDenotes J M tl f := left.denotes J M
+  have dr : RegionDenotes J M tr g := right.denotes J M
+  have ok : NestedAdmission.Finite.Outer.compare? keepOuter keep types (fullGraph false) (boundary false) =
+      .certified := by decide
+  exact ⟨f, g, left, right, NestedAdmission.Finite.Outer.compare?_sound J M roll ok dl dr⟩
+
+end Model
+
+end OuterMask
 
 end OrderedExits
 
