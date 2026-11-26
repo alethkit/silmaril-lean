@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Defs
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Correctness
 
 public section
@@ -18,6 +19,50 @@ variable {Input Γ extra : List Width} {saved carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat} {prepared : Prepared Input carried result}
+variable {candidate : Candidate Input saved carried result extra}
+variable {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+
+/-- Every captured definition cut is a necessary lower bound, and their
+maximum is sufficient for local operand order. -/
+theorem Candidate.earliestCut_le_iff {cut : Nat} :
+    candidate.earliestCut ≤ cut ↔ ∀ operand ∈ candidate.operands, operand.cut ≤ cut :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.earliestCut_le_iff
+
+/-- The sites used to compute the bound come from the capture's typed references. -/
+theorem findCaptured?_sites {index cursor : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    (found : findCaptured? index cursor origins code = some candidate) :
+    candidate.operands = prefixSites candidate.inputs :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.findCaptured?_sites found
+
+/-- In an actual typed entry prefix, the computed interval includes exactly
+the prefix cuts whose operands are valid and available on the current CFG. -/
+theorem findCaptured?_operandCut_iff {index cut : Nat}
+    {leading : Saved.Prefix Input ((extra ++ [saved]) ++ Input)}
+    {tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]}
+    (split : Saved.splitPrefix? cfg.entry (extra ++ [saved]) = some (leading, tail))
+    (found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate) :
+    candidate.operandCut? cut = true ↔ cut ≤ (extra ++ [saved]).length ∧
+      (Point.mk none cut).Valid cfg ∧
+      ∀ operand ∈ candidate.operands, operand.Valid cfg ∧ operand.AvailableAt cfg ⟨none, cut⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.findCaptured?_operandCut_iff split found
+
+/-- Full checking retains the ordinary and exact Φ use constraints. -/
+theorem checkPrefixCut_legal {cut : Nat} (accepted : checkPrefixCut cfg candidate cut = true) :
+    Legal cfg candidate.operands candidate.uses ⟨none, cut⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.checkPrefixCut_legal accepted
+
+/-- The interval guard preserves the existing append check on every actual capture. -/
+theorem findCaptured?_checkConsumer_eq {index cursor : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    (found : findCaptured? index cursor origins code = some candidate) :
+    checkConsumer cfg candidate =
+      (let _ := targetDecEqWith (saved := saved) (carried := carried) (result := result) (extra := extra)
+       Dominance.Placement.checkCut cfg intermediateBlocks candidate.operands candidate.uses
+         ⟨none, (extra ++ [saved]).length⟩) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.findCaptured?_checkConsumer_eq found
 
 /-- The handoff retains the exact intermediate CFG and resolves its current origin order. -/
 theorem prepareOn?_spec {intermediate : Output Input carried result} {origins : List Nat}
@@ -89,6 +134,15 @@ theorem findCaptured?_immutable {index cut : Nat}
     ∀ (input : Env Input) (values : Env (extra ++ [saved])),
       candidate.inputs.eval (values.append input) = inputs.eval input :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.findCaptured?_immutable found immutable
+
+theorem findCaptured?_earliest_eq_zero {index cursor : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]} {inputs : Operands Input candidate.args}
+    (found : findCaptured? index cursor origins code = some candidate) (immutable : candidate.immutableInputs? = some inputs) :
+    candidate.earliestCut = 0 := by
+  apply Nat.eq_zero_of_le_zero (Candidate.earliestCut_le_iff.mpr fun operand member => ?_)
+  rw [(findCaptured?_immutable found immutable).1 operand member]
+  exact Nat.le_refl 0
 
 /-- The intermediate CFG is exactly the first hoist's replay result. -/
 theorem prepare?_replay_first (accepted : prepare? g first consumerOrigin = some prepared) :

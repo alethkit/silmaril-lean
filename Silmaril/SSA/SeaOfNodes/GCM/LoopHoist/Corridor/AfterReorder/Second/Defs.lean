@@ -34,6 +34,15 @@ structure Candidate (Input : List Width) (saved carried result : Width) (extra :
   operands : List (Point (Label saved carried result extra))
   uses : List (Use (Label saved carried result extra))
 
+/-- First cut after all captured definitions. Immutable inputs contribute
+zero, including the empty operand list. -/
+def Candidate.earliestCut (candidate : Candidate Input saved carried result extra) : Nat :=
+  ((candidate.operands.map Point.cut).max?).getD 0
+
+/-- Operand availability within the saved prefix. Uses are checked separately. -/
+def Candidate.operandCut? (candidate : Candidate Input saved carried result extra) (cut : Nat) : Bool :=
+  decide (candidate.earliestCut ≤ cut ∧ cut ≤ (extra ++ [saved]).length)
+
 /-- Each operand's defining cut in the saved prefix or the immutable inputs. -/
 def prefixSites : {args : List Width} → Operands ((extra ++ [saved]) ++ Input) args →
     List (Point (Label saved carried result extra))
@@ -95,11 +104,18 @@ abbrev targetDecEq : DecidableEq (Target (Label saved carried result)) := target
 def intermediateBlocks : List (Target (Label saved carried result extra)) :=
   [⟨_, .header⟩, ⟨_, .exit⟩]
 
+/-- Check a cut in the saved prefix against the actual ordinary and incoming
+Φ uses, retaining the source terminator slot for each Φ use. -/
+def checkPrefixCut (cfg : Silmaril.MLIR.CF.Cfg TargetOp (Label saved carried result extra) Input [result])
+    (candidate : Candidate Input saved carried result extra) (cut : Nat) : Bool :=
+  let _ := targetDecEqWith (saved := saved) (carried := carried) (result := result) (extra := extra)
+  candidate.operandCut? cut &&
+    GCM.Dominance.Placement.checkCut cfg intermediateBlocks candidate.operands candidate.uses ⟨none, cut⟩
+
+/-- The current replay emitter inserts at the end of the saved prefix. -/
 def checkConsumer (cfg : Silmaril.MLIR.CF.Cfg TargetOp (Label saved carried result extra) Input [result])
     (candidate : Candidate Input saved carried result extra) : Bool :=
-  let _ := targetDecEqWith (saved := saved) (carried := carried) (result := result) (extra := extra)
-  GCM.Dominance.Placement.checkCut cfg intermediateBlocks candidate.operands candidate.uses
-    ⟨none, (extra ++ [saved]).length⟩
+  checkPrefixCut cfg candidate (extra ++ [saved]).length
 
 structure Prepared (Input : List Width) (carried result : Width) where
   intermediate : Output Input carried result
