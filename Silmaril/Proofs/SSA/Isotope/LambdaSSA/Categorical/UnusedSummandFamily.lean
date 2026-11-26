@@ -73,6 +73,11 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
           · exact ihl (ren.lift _) h yes
           · exact ihr (ren.lift _) h no
 
+theorem row_target_unwidened {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
+    (r : Row (Φ := Φ) R L Γ) {i : Fin n} (hit : r.targets i)
+    (typed : (r.region false ρ).HasType Δ (List.ofFn S ++ L)) : S i = R i :=
+  row_target ren r false hit typed
+
 theorem targets_from_typing (p : Program (Φ := Φ) R L Γ)
     (tag : Bool) (he : (p.entry.region tag id).HasType Γ (List.ofFn S ++ L))
     (hb : ∀ i, ((p.blocks i).region tag Nat.succ).HasType (S i :: Γ) (List.ofFn S ++ L)) :

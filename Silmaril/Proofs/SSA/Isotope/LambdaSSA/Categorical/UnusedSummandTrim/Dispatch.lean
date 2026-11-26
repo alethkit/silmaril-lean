@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Readback.Defs
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTrim.Rows
+public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTrim.Rows
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
@@ -39,6 +39,33 @@ variable {V : Type u₁} {C : Type u₂}
   (J : V ⥤ C) [StrongElgotFreydCategory J]
   (M : TypeModel (Ty κ) V) [InstructionModel J M Φ]
 
+set_option backward.isDefEq.respectTransparency false in
+omit [InstructionModel J M Φ] in
+theorem residual_ext {n : Nat} (R : Fin n → Ty κ) (written : Fin n → Prop)
+    (Γ : VCtx (Ty κ)) (nonempty : Nonempty (Subtype written))
+    {X : C} {f g : J.obj (ctxObj M Γ ⊗ Residual M R written) ⟶ X}
+    (agree : ∀ i, J.map (ctxObj M Γ ◁ targetInject M written R i) ≫ f =
+      J.map (ctxObj M Γ ◁ targetInject M written R i) ≫ g) : f = g := by
+  classical
+  let _ := Fintype.ofFinite (Subtype written)
+  let _ := nonempty
+  obtain ⟨m, card⟩ := Nat.exists_eq_succ_of_ne_zero (Fintype.card_ne_zero (α := Subtype written))
+  let e : Fin (m + 1) ≃ Subtype written :=
+    (finCongr card.symm).trans (Fintype.equivFin (Subtype written)).symm
+  let iso := Sigma.reindex e (fun i : Subtype written => M.obj (R i.val))
+  have inj (i : Fin (m + 1)) :
+      finiteLabelInject M (fun j => R (e j).val) i ≫ iso.hom = targetInject M written R (e i) :=
+    Sigma.ι_reindex_hom e (fun j : Subtype written => M.obj (R j.val)) i
+  have eq : J.map (ctxObj M Γ ◁ iso.hom) ≫ f = J.map (ctxObj M Γ ◁ iso.hom) ≫ g := by
+    apply collective_ext J M m Γ (fun j => R (e j).val)
+    intro i
+    simp only [MonoidalCategory.id_tensorHom, ← J.map_comp_assoc,
+      ← MonoidalCategory.whiskerLeft_comp, inj]
+    exact agree (e i)
+  have := congrArg (fun h => J.map (ctxObj M Γ ◁ iso.inv) ≫ h) eq
+  simpa only [← J.map_comp_assoc, ← MonoidalCategory.whiskerLeft_comp, Iso.inv_hom_id,
+    MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp] using this
+
 variable {k : Nat} {R S : Fin (k + 1) → Ty κ} {L : LCtx (Ty κ)} {Γ : VCtx (Ty κ)}
   (p : Program (Φ := Φ) R L Γ)
 
@@ -52,31 +79,6 @@ private noncomputable abbrev entryResidual : J.obj Env ⟶ J.obj (Result ⨿ Loc
 
 private noncomputable abbrev rowResidual (i : Fin (k + 1)) : J.obj Env ⟶ J.obj (Result ⨿ Local) :=
   evalResidual M p.targets J (p.blocks i) (fun _ h => .inr ⟨i, h⟩)
-
-set_option backward.isDefEq.respectTransparency false in
-omit [InstructionModel J M Φ] in
-private theorem residual_ext (nonempty : Nonempty Target)
-    {f g : J.obj (Env ⊗ Local) ⟶ J.obj (Result ⨿ Local)}
-    (agree : ∀ i, J.map (Env ◁ targetInject M p.targets R i) ≫ f =
-      J.map (Env ◁ targetInject M p.targets R i) ≫ g) : f = g := by
-  classical
-  let _ := Fintype.ofFinite Target
-  let _ := nonempty
-  obtain ⟨m, card⟩ := Nat.exists_eq_succ_of_ne_zero (Fintype.card_ne_zero (α := Target))
-  let e : Fin (m + 1) ≃ Target := (finCongr card.symm).trans (Fintype.equivFin Target).symm
-  let iso := Sigma.reindex e (fun i : Target => M.obj (R i.val))
-  have inj (i : Fin (m + 1)) :
-      finiteLabelInject M (fun j => R (e j).val) i ≫ iso.hom = targetInject M p.targets R (e i) :=
-    Sigma.ι_reindex_hom e (fun j : Target => M.obj (R j.val)) i
-  have eq : J.map (Env ◁ iso.hom) ≫ f = J.map (Env ◁ iso.hom) ≫ g := by
-    apply collective_ext J M m Γ (fun j => R (e j).val)
-    intro i
-    simp only [MonoidalCategory.id_tensorHom, ← J.map_comp_assoc,
-      ← MonoidalCategory.whiskerLeft_comp, inj]
-    exact agree (e i)
-  have := congrArg (fun h => J.map (Env ◁ iso.inv) ≫ h) eq
-  simpa only [← J.map_comp_assoc, ← MonoidalCategory.whiskerLeft_comp, Iso.inv_hom_id,
-    MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp] using this
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem from_exact (roll : IterationRolling C) (tag : Bool)
@@ -143,6 +145,6 @@ theorem compare_trimmed (roll : IterationRolling C) {tag tag' : Bool}
       unfold entryResidual
       rw [entry, case_inl_context, case_inl_context]
   | inr nonempty =>
-      rw [residual_ext J M p nonempty (fun i => (step_rows i).trans (step_rows' i).symm)]
+      rw [residual_ext J M R p.targets Γ nonempty (fun i => (step_rows i).trans (step_rows' i).symm)]
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTrim
