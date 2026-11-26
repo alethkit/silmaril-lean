@@ -28,7 +28,7 @@ open Silmaril.Languages.Starlark.Functions (Program)
 open Silmaril.Languages.Starlark.Lists (State)
 
 
-theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exports : ModuleId → Environment}
+theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exports : ModuleId → Tracked}
     {finalCommands : List Modules.Resolve.Command} {whole consumer : ResolvedModule}
     (wholeChecked : resolve finalCommands finalSeed = .ok whole)
     (plan : Consumer) (checked : resolve plan.commands seed = .ok consumer)
@@ -41,11 +41,11 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
     {dependency : Modules.Loader.Result Modules.Published}
     (nativeDependency : Modules.Loader.Runs whole.program manifest (id :: active) (.initialize dependencyId)
       {caller with runtime := enter consumer.source caller.runtime} dependency)
-    (reachedDependency : Reached origin manifest exports dependencyId
+    (reachedDependency : Reached origin whole.program manifest exports dependencyId
       {caller with runtime := enter consumer.source caller.runtime} dependency) :
     ∃ out, Edge plan seed id consumer.source caller.runtime dependency out ∧
       Modules.Loader.Runs whole.program manifest active (.initialize id) caller out ∧
-      Reached origin manifest exports id caller out := by
+      Reached origin whole.program manifest exports id caller out := by
   obtain ⟨same, code, globals, files⟩ := consumer_layout plan checked
   have valid := revalidate (checked_of_resolve checked).2.2.2 (checked_of_resolve wholeChecked).2.2.2
   have complete (out : Modules.Loader.Result Unit)
@@ -82,23 +82,25 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
       have native := complete _ (.failed (runImport independent))
       exact ⟨_, .missing independent, native, ⟨rfl, rfl, rfl, callerKept,
         cache_transport reachedDependency.cache (closure_cells_of_contents (keeps_contents_refl _)) rfl, reachedDependency.retained, fun _ _ impossible => nomatch impossible⟩⟩
-    | found imported tracked admitted =>
-      obtain ⟨linked, address, defining, loaded, ⟨record⟩⟩ := publication.2 _ imported tracked plan.publicName
+    | found imported tracked earlier admitted =>
+      obtain ⟨address, loaded, record⟩ := publication.2 _ imported tracked plan.publicName
       have frame := dependency_frame (plan := plan) globals files reachedDependency.slots reachedDependency.contents
       have fresh : FreshSlots caller.runtime.heap.size reached.runtime :=
         fresh_slots (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Entry.entered_cells consumer.source caller.runtime).1
           reachedDependency.slots
-      obtain ⟨_, _, _, owned, stored⟩ := frame.2 (fileSlot plan.alias) List.mem_cons_self
+      obtain ⟨unique, aliasBlank, pending⟩ :=
+        consumer_pending (plan := plan) checked reachedDependency.slots reachedDependency.contents (value := .function address)
+      have initialLive := initial_live (plan := plan) aliasBlank record
+      obtain ⟨_, _, owned, stored⟩ := aliasBlank
       let bound := reached.runtime.write (fileSlot plan.alias) (.function address)
       let session := {reached with runtime := bound}
       have boundKept : Body.Keeps caller.runtime.heap.size reached.runtime bound :=
         write_keeps_below owned (fresh _ _ owned) (.function address)
       have independent := BindsAlias.found (plan := plan) (state := reached.runtime) loaded
-      have initialLive := initial_live (producer := origin) (program := whole.program) frame record linked
       have table : PreservesDeclarations (compileSuite seed plan.body).2 whole.program := same ▸ extension
       obtain ⟨out, tail, tailRan, tailKept, records, success⟩ := run_suite_preserving wholeChecked (manifest := manifest)
         (active := id :: active) (id := id) plan.separate plan.body seed originPrefix table admitted
-        linked (by simp [initial, track]) session (writes_frame frame (fileSlot plan.alias) (.function address))
+        earlier (by simp [initial, track]) unique session (writes_frame frame (fileSlot plan.alias) (.function address)) pending
         caller.runtime.heap.size (fresh_slots fresh boundKept.1) initialLive
       have native := complete _ (.step (runImport independent) tailRan)
       rw [← observed_eq (before := session)] at native

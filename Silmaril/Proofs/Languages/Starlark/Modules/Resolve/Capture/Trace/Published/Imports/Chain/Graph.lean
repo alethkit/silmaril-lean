@@ -28,16 +28,17 @@ open Silmaril.Languages.Starlark.Lists (State)
 private theorem root_agrees {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     {id : ModuleId} (bound : id < manifest.size) {active : List Nat} (permitted : id ∉ active)
     {commands : List Modules.Resolve.Command} {seed emitted : Program} {code : List Modules.Command}
-    {resolved : ResolvedModule}
-    (profile : Plan (Trace.names commands) (fun _ => none) commands seed code emitted (graph.exports id))
+    {resolved : ResolvedModule} {ordinary : Environment}
+    (profile : Plan (Trace.names commands) (fun _ => none) commands seed code emitted ordinary)
+    (exportedEnv : graph.exports id = rootExports ordinary)
     (checked : resolve commands seed = .ok resolved)
     (prefixTable : PreservesDeclarations resolved.program origin)
     (entry : manifest[id].source = resolved.source)
     (caller : Session) (cold : caller.cache.lookup id = none)
-    (cache : Cache origin manifest graph.exports caller) :
+    (cache : Cache origin graph.linked.program manifest graph.exports caller) :
     ∃ out, TraceRun manifest id caller out ∧
       Modules.Loader.Runs graph.linked.program manifest active (.initialize id) caller out ∧
-      Reached origin manifest graph.exports id caller out := by
+      Reached origin graph.linked.program manifest graph.exports id caller out := by
   have extension : PreservesDeclarations resolved.program graph.linked.program :=
     fun index decl found => graph.includesOrigin index decl (prefixTable index decl found)
   obtain ⟨out, source, native, kept, live⟩ := module_runs_extending profile checked graph.checked extension
@@ -65,8 +66,12 @@ private theorem root_agrees {origin : Program} {manifest : Manifest} (graph : Gr
       fun _ _ old => lookup_prepend_other cold old old _, ?_⟩
     · rw [entry]
       refine ⟨fun _ _ seen => exports_declared seen, fun name callee tracked publicName => ?_⟩
-      obtain ⟨_, address, defining, exported, record, _⟩ := (live _ _ rfl) name callee tracked publicName
-      exact ⟨linked_extends (plan_exports_linked profile checked tracked) prefixTable, address, defining, exported, ⟨record⟩⟩
+      rw [exportedEnv] at tracked
+      unfold rootExports at tracked
+      obtain ⟨entry, found, equal⟩ := Option.map_eq_some_iff.mp tracked
+      subst callee
+      obtain ⟨_, address, _, exported, record, _⟩ := (live _ _ rfl) name entry found publicName
+      exact ⟨address, exported, .regular (linked_extends (plan_exports_linked profile checked found) prefixTable) record⟩
     · intro value next same
       cases same
       simp
@@ -74,10 +79,10 @@ private theorem root_agrees {origin : Program} {manifest : Manifest} (graph : Gr
 theorem agrees_active {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (id : ModuleId) (bound : id < manifest.size) (active : List ModuleId)
     (ordered : ∀ ancestor ∈ active, id < ancestor)
-    (caller : Session) (cache : Cache origin manifest graph.exports caller) :
+    (caller : Session) (cache : Cache origin graph.linked.program manifest graph.exports caller) :
     ∃ out, TraceRun manifest id caller out ∧
       Modules.Loader.Runs graph.linked.program manifest active (.initialize id) caller out ∧
-      Reached origin manifest graph.exports id caller out := by
+      Reached origin graph.linked.program manifest graph.exports id caller out := by
   induction id using Nat.strongRecOn generalizing active caller with
   | ind id ih =>
     have permitted : id ∉ active := fun member => (Nat.lt_irrefl _ (ordered _ member))
@@ -87,11 +92,11 @@ theorem agrees_active {origin : Program} {manifest : Manifest} (graph : Graph or
         fun _ _ same => by cases same; exact hit⟩⟩
     | none =>
       cases graph.nodes id bound with
-      | root profile checked prefixTable entry =>
-        exact root_agrees graph bound permitted profile checked prefixTable entry caller hit cache
+      | root profile exported checked prefixTable entry =>
+        exact root_agrees graph bound permitted profile exported checked prefixTable entry caller hit cache
       | @importer seed plan resolved dep earlier checked prefixTable extension entry label demand =>
         let entered := {caller with runtime := enter resolved.source caller.runtime}
-        have enteredCache : Cache origin manifest graph.exports entered :=
+        have enteredCache : Cache origin graph.linked.program manifest graph.exports entered :=
           cache_transport cache (closure_cells_of_contents (enter_keeps _ _)) rfl
         obtain ⟨loaded, trace, native, reached⟩ := ih dep earlier (Nat.lt_trans earlier bound) (id :: active)
           (fun ancestor member => (List.mem_cons.mp member).elim (fun same => same ▸ earlier)
@@ -102,18 +107,18 @@ theorem agrees_active {origin : Program} {manifest : Manifest} (graph : Graph or
 
 theorem agrees {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (id : ModuleId) (bound : id < manifest.size) (caller : Session)
-    (cache : Cache origin manifest graph.exports caller) :
+    (cache : Cache origin graph.linked.program manifest graph.exports caller) :
     ∃ out, TraceRun manifest id caller out ∧
       Modules.Loader.Runs graph.linked.program manifest [] (.initialize id) caller out ∧
       Modules.Loader.load graph.linked.program manifest id caller = out ∧
-      Reached origin manifest graph.exports id caller out := by
+      Reached origin graph.linked.program manifest graph.exports id caller out := by
   obtain ⟨out, source, native, reached⟩ := agrees_active graph id bound [] (by simp) caller cache
   exact ⟨out, source, native, (Modules.Loader.runs_iff_denote _ _ _ _ _ _).mp native, reached⟩
 
 theorem requests {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (ids : List ModuleId) (bounded : ∀ id ∈ ids, id < manifest.size)
-    (caller : Session) (cache : Cache origin manifest graph.exports caller) :
-    ∃ next, Requests graph ids caller next ∧ Cache origin manifest graph.exports next := by
+    (caller : Session) (cache : Cache origin graph.linked.program manifest graph.exports caller) :
+    ∃ next, Requests graph ids caller next ∧ Cache origin graph.linked.program manifest graph.exports next := by
   induction ids generalizing caller with
   | nil => exact ⟨caller, .done caller, cache⟩
   | cons id rest ih =>

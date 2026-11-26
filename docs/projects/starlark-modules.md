@@ -1357,17 +1357,24 @@ or on the first reached error and residual session. Requests from an
 empty cache establish the same invariant for later mixed cold and
 cached loads.
 
-The chain currently transports regular closures, including direct
-re-exports and checked factory results. A module may define and call
-its own wrappers during initialization. Deriving a downstream call to
-a re-exported wrapper requires a provenance judgment that retains the
-imported callable behind the wrapper's captured file slot, together
-with a decreasing declaration guard across wrapper activations.
-The resolved loader and pinned Go control already exercise that call.
-The checked three-module control calls the original closure through a
-middle re-export and distinguishes cold, root-preloaded and
-middle-preloaded sessions. Multiple dependency order, broader bodies,
-and arbitrary incoming caches remain separate.
+The chain transports regular closures, factory results, and exported
+consumer wrappers. For a wrapper, recursive provenance starts from the
+actual published function address and follows its captured file-local
+cell to the imported closure in the same heap. Each wrapper's declaration
+index is strictly greater than the captured callee's index. Removing the
+active wrapper therefore leaves the lower declaration range required by
+the next activation. Module validation gives distinct write destinations.
+Each importer initializes a blank binding, preserving already-initialized
+capture values as well as function records across cache reuse.
+
+The three-module controls call a published middle wrapper directly and
+through a second wrapper. They check defining globals, saved defaults,
+and a reached error that retains earlier effects and restores the caller
+in cold, root-preloaded and middle-preloaded sessions. The graph allows
+shared dependencies across requests. Each importing module has one
+leading dependency, and its new wrappers are nullary. Multiple dependency
+order, general callable-parameter provenance, broader bodies, and arbitrary
+incoming caches remain open.
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
 
 ## Finite-manifest loader

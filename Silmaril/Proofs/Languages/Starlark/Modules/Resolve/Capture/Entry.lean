@@ -172,6 +172,18 @@ private theorem first_duplicate_none (names : List String) : firstDuplicate name
   | cons first rest ih =>
     by_cases member : first ∈ rest <;> simp [firstDuplicate, member, ih]
 
+theorem validated_module_names {program : Program} {source : Silmaril.Languages.Starlark.Modules.Source}
+    (checked : validateSource program source = .ok ()) : source.globals.Nodup := by
+  unfold validateSource at checked
+  split at checked
+  · cases checked
+  · rename_i absent
+    have noDuplicate : firstDuplicate (source.globals ++ source.fileNames) = none := by
+      cases found : firstDuplicate (source.globals ++ source.fileNames) with
+      | none => rfl
+      | some name => exact (absent name found).elim
+    exact (List.pairwise_append.mp ((first_duplicate_none _).mp noDuplicate)).1
+
 private theorem required_slots (names : List String) : (requiredSignature names).slots = names.map fileSlot := by
   simp [requiredSignature, Signature.slots, Signature.named, Function.comp_def]
 

@@ -11,41 +11,38 @@ open Lists (State)
 open Loader (Manifest ModuleId Session)
 open Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 
-/-- Computed exports for a suite with one imported regular callable.
-A downstream load can use a re-export or a checked factory result. -/
-@[expose] def exportsOf (plan : Consumer) (seed : Program) (imported : Callable) : Environment :=
+/-- The suite publishes any tracked callable in a declared global. -/
+@[expose] def exportsOf (plan : Consumer) (seed : Program) (imported : Callee) : Tracked :=
   let tracked := trackSuite imported seed (initial plan.alias imported) plan.body
-  fun name =>
-    if name ∈ plan.globals then
-      match tracked name with
-      | some (.regular callee) => some callee
-      | _ => none
-    else none
+  fun name => if name ∈ plan.globals then tracked name else none
+
+@[expose] def rootExports (env : Environment) : Tracked :=
+  fun name => (env name).map Callee.regular
 
 /-- The source analysis either identifies a tracked, public callable or
 establishes that the requested name is outside the dependency's globals. -/
 inductive Demand (plan : Consumer) (seed : Program)
-    (dependencyExports : Environment) (dependencySource : Modules.Source) : Environment → Prop where
+    (dependencyExports : Tracked) (dependencySource : Modules.Source) : Tracked → Prop where
   | missing : plan.name ∉ dependencySource.globals → Demand plan seed dependencyExports dependencySource (fun _ => none)
-  | found (callee : Callable) : dependencyExports plan.name = some callee →
+  | found (callee : Callee) : dependencyExports plan.name = some callee →
+      callee.layout.id < seed.size →
       ReadyFor callee seed (initial plan.alias callee) plan.body →
       Demand plan seed dependencyExports dependencySource (exportsOf plan seed callee)
 
 /-- Cached publications keep the original function address and defining
 environment. Exact frozen flags are part of the operational result. -/
-@[expose] def Publication (exports : Environment) (origin : Program)
+@[expose] def Publication (exports : Tracked) (origin program : Program)
     (source : Modules.Source) (published : Modules.Published) (state : State) : Prop :=
   (∀ name value, published.exports.lookup name = some value → name ∈ source.globals) ∧
   ∀ name callee, exports name = some callee → Modules.isPublic name = true →
-    callee.Linked origin ∧ ∃ address defining,
-      published.exports.lookup name = some (.function address) ∧
-      Nonempty (ClosureAt callee.site callee.id defining state address)
+    ∃ address, published.exports.lookup name = some (.function address) ∧
+      callee.At origin program state address
 
-@[expose] def Cache (origin : Program) (manifest : Manifest)
-    (exports : ModuleId → Environment) (session : Session) : Prop :=
+@[expose] def Cache (origin program : Program) (manifest : Manifest)
+    (exports : ModuleId → Tracked) (session : Session) : Prop :=
   ∀ id published, session.cache.lookup id = some published →
     ∃ bound : id < manifest.size,
-      Publication (exports id) origin manifest[id].source published session.runtime
+      Publication (exports id) origin program manifest[id].source published session.runtime
 
 @[expose] def resultSession {α : Type} : Loader.Result α → Session :=
   Imports.reachedSession
@@ -62,20 +59,20 @@ inductive Edge (plan : Consumer) (seed : Program) (id : ModuleId) (source : Modu
       Edge plan seed id source caller (.ok published reached)
         (observed id source caller reached.cache (.error (.missingExport plan.label plan.name) reached.runtime))
   | suite {published : Modules.Published} {reached : Session} {bound : State}
-      (callee : Callable) {out : Modules.Result Unit} :
+      (callee : Callee) {out : Modules.Result Unit} :
       BindsAlias plan published reached.runtime (.ok () bound) →
       SuiteRuns callee seed bound plan.body out →
       Edge plan seed id source caller (.ok published reached) (observed id source caller reached.cache out)
 
 /-- Each reached load restores its caller, preserves earlier cells and
 maintains the cache relation. A success makes its actual publication available. -/
-structure Reached (origin : Program) (manifest : Manifest) (exports : ModuleId → Environment)
+structure Reached (origin program : Program) (manifest : Manifest) (exports : ModuleId → Tracked)
     (id : ModuleId) (caller : Session) (out : Loader.Result Modules.Published) : Prop where
   slots : (resultSession out).runtime.slots = caller.runtime.slots
   bindings : (resultSession out).runtime.bindings = caller.runtime.bindings
   iterators : (resultSession out).runtime.iterators = caller.runtime.iterators
   contents : KeepsContents caller.runtime (resultSession out).runtime
-  cache : Cache origin manifest exports (resultSession out)
+  cache : Cache origin program manifest exports (resultSession out)
   retained : ∀ id value, caller.cache.lookup id = some value → (resultSession out).cache.lookup id = some value
   published : ∀ value next, out = .ok value next → next.cache.lookup id = some value
 
@@ -86,11 +83,12 @@ local notation "Normalized" => Modules.Resolve.Command
 
 /-- Each module has either a checked load-free body or one leading import
 of a lower-numbered module, followed by the checked suite. -/
-inductive Node (origin final : Program) (manifest : Manifest) (exports : ModuleId → Environment)
+inductive Node (origin final : Program) (manifest : Manifest) (exports : ModuleId → Tracked)
     (id : ModuleId) (bound : id < manifest.size) : Prop where
   | root {commands : List Normalized} {seed emitted : Program} {code : List Modules.Command}
-      {resolved : ResolvedModule} :
-      Plan (Trace.names commands) (fun _ => none) commands seed code emitted (exports id) →
+      {resolved : ResolvedModule} {ordinary : Environment} :
+      Plan (Trace.names commands) (fun _ => none) commands seed code emitted ordinary →
+      exports id = rootExports ordinary →
       resolve commands seed = .ok resolved →
       PreservesDeclarations resolved.program origin →
       manifest[id].source = resolved.source →
@@ -113,7 +111,7 @@ structure Graph (origin : Program) (manifest : Manifest) where
   linked : ResolvedModule
   checked : resolve commands seed = .ok linked
   includesOrigin : PreservesDeclarations origin linked.program
-  exports : ModuleId → Environment
+  exports : ModuleId → Tracked
   nodes : ∀ id (bound : id < manifest.size), Node origin linked.program manifest exports id bound
 
 /-- Independent source traces use the actual cached value or the reached
