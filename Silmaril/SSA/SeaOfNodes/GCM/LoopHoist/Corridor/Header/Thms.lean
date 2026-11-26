@@ -43,6 +43,11 @@ theorem Typed.run_eq_of_frames {Labels : List Width → Type} {Result : List Wid
     (fuel : Nat) : target.run evalOp fuel input = source.run evalOp fuel input :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.run_eq_of_frames input entry block fuel
 
+/-- The label-polymorphic swap specializes to the source-header swap. -/
+theorem Typed.swapAt?_source (insertion : Nat) (code : Block TargetOp (SourceLabel carried result) Γ [result]) :
+    Typed.swapAt? insertion code = Header.swapAt? insertion code :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.swapAt_source insertion code
+
 /-- The local swap preserves the branch decision and the complete typed frame
 or return value, for every header environment. -/
 theorem swapAt?_eval {insertion : Nat}

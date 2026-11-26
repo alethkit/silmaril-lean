@@ -22,6 +22,38 @@ def swapNames : Rename (second :: first :: Γ) (first :: second :: Γ)
   | _, .there .here => .here
   | _, .there (.there ref) => .there (.there ref)
 
+/-- Reindex a suffix while retaining each branch slot, target and argument order. -/
+def renameEdge (rename : Rename Γ Δ) (edge : Edge (SourceLabel carried result) Γ) :
+    Edge (SourceLabel carried result) Δ :=
+  ⟨edge.label, renameOperands rename edge.args⟩
+
+def renameTerm (rename : Rename Γ Δ) :
+    Terminator (SourceLabel carried result) [result] Γ →
+      Terminator (SourceLabel carried result) [result] Δ
+  | .br dest => .br (renameEdge rename dest)
+  | .condBr test onTrue onFalse => .condBr (rename test)
+      (renameEdge rename onTrue) (renameEdge rename onFalse)
+  | .ret values => .ret (renameOperands rename values)
+
+def renameSuffix : {Γ Δ : List Width} → Rename Γ Δ →
+    Block TargetOp (SourceLabel carried result) Γ [result] →
+      Block TargetOp (SourceLabel carried result) Δ [result]
+  | _, _, rename, .terminator term => .terminator (renameTerm rename term)
+  | _, _, rename, .letOp op operands rest =>
+    .letOp op (renameOperands rename operands) (renameSuffix (under rename) rest)
+
+/-- At a cut in the surviving prefix, exchange the next two bindings if the
+second one's operands can be read without the first result. -/
+def swapAt? : (insertion : Nat) → {Γ : List Width} →
+    Block TargetOp (SourceLabel carried result) Γ [result] →
+      Option (Block TargetOp (SourceLabel carried result) Γ [result])
+  | 0, _, .letOp firstOp firstArgs (.letOp secondOp secondArgs rest) => do
+    let earlierArgs ← capture? secondArgs
+    pure (.letOp secondOp earlierArgs
+      (.letOp firstOp (renameOperands Var.there firstArgs) (renameSuffix swapNames rest)))
+  | n + 1, _, .letOp op operands rest => (swapAt? n rest).map (.letOp op operands)
+  | _, _, _ => none
+
 namespace Typed
 
 variable {Labels : List Width → Type} {Result : List Width}
@@ -63,21 +95,6 @@ def edgePackets (term : Terminator Labels Result Γ) (env : Env Γ) :
   | .ret _ => []
 
 end Typed
-
-abbrev renameEdge (rename : Rename Γ Δ) (edge : Edge (SourceLabel carried result) Γ) :
-    Edge (SourceLabel carried result) Δ := Typed.renameEdge rename edge
-
-abbrev renameTerm (rename : Rename Γ Δ) :
-    Terminator (SourceLabel carried result) [result] Γ →
-      Terminator (SourceLabel carried result) [result] Δ := Typed.renameTerm rename
-
-abbrev renameSuffix : {Γ Δ : List Width} → Rename Γ Δ →
-    Block TargetOp (SourceLabel carried result) Γ [result] →
-      Block TargetOp (SourceLabel carried result) Δ [result] := Typed.renameSuffix
-
-abbrev swapAt? : Nat → {Γ : List Width} →
-    Block TargetOp (SourceLabel carried result) Γ [result] →
-      Option (Block TargetOp (SourceLabel carried result) Γ [result]) := Typed.swapAt?
 
 /-- Translate a cut in the original binding list into an insertion index after
 deleting binding `index`. The cuts immediately before and after it coincide. -/

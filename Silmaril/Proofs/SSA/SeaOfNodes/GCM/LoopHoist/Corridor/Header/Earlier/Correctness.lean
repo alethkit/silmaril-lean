@@ -73,7 +73,7 @@ theorem swapAt?_order {target : Nat} (swapped : swapAt? target before = some aft
       prefixOps.length = target ∧
       operations before = prefixOps ++ (left :: right :: suffixOps) ∧
       operations after = prefixOps ++ (right :: left :: suffixOps) :=
-  swapAt_typed_order swapped
+  swapAt_typed_order ((Header.Typed.swapAt?_source target before).trans swapped)
 
 theorem moveEarlier?_order {target extraSteps : Nat}
     (moved : moveEarlier? target extraSteps before = some after) :

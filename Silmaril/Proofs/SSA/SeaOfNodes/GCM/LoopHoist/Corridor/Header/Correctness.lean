@@ -169,12 +169,34 @@ theorem run_eq_of_frames {source target : Cfg TargetOp Labels Input Result} (inp
 
 end Typed
 
+private theorem renameSuffix_source (rename : Rename Γ Δ)
+    (code : Block TargetOp (SourceLabel carried result) Γ [result]) :
+    Typed.renameSuffix rename code = renameSuffix rename code := by
+  induction code generalizing Δ with
+  | terminator term => cases term <;> rfl
+  | letOp _ _ _ ih => simp only [Typed.renameSuffix, renameSuffix, ih]
+
+theorem swapAt_source (insertion : Nat) (code : Block TargetOp (SourceLabel carried result) Γ [result]) :
+    Typed.swapAt? insertion code = swapAt? insertion code := by
+  induction insertion generalizing Γ with
+  | zero =>
+    cases code with
+    | terminator => rfl
+    | letOp _ _ rest =>
+      cases rest with
+      | terminator => rfl
+      | letOp _ _ _ => simp only [Typed.swapAt?, swapAt?, renameSuffix_source]
+  | succ _ ih =>
+    cases code with
+    | terminator => rfl
+    | letOp _ _ _ => simp only [Typed.swapAt?, swapAt?, ih]
+
 theorem swapAt?_eval {insertion : Nat}
     {before after : Block TargetOp (SourceLabel carried result) Γ [result]}
     (swapped : swapAt? insertion before = some after) (env : Env Γ) :
     after.eval evalOp (fun term vals => term.eval vals) env =
       before.eval evalOp (fun term vals => term.eval vals) env :=
-  swapAt_typed_eval swapped env
+  swapAt_typed_eval ((swapAt_source insertion before).trans swapped) env
 
 theorem pickAndEmit?_spec
     {emit : Cfg TargetOp (SourceLabel carried result) Input [result] →
