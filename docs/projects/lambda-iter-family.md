@@ -886,3 +886,40 @@ the unit argument used where the recovered atom would be required.
 [Projected admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
 · [Actual slot rule](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
 · [Projection and rejected back edge](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Backward capture demand and installed reference layouts
+
+`CaptureDemand.infer` computes the least set of entry slots demanded at
+each written row. It starts with free entry-slot reads other than the
+block argument, and propagates requirements from each first-match
+internal successor. The finite-height solver materializes row-slot pairs
+on each round. `infer_closed` and `infer_le` prove the local read and
+edge equations' least closed solution. A demanded slot shadowed by a
+parameter rules out every closed plan for carrying the unchanged entry
+value, as stated by `noShadow_iff`. The cycle regression exercises this
+obstruction as well as propagation to a row with no direct read.
+
+The existing `Lowered` certificate is packet-local. Its blocks use the
+original argument for all free reads, so the least extra capture plan is
+empty at every row. `ordered_installed_iff` characterizes exact agreement
+with the actual compiler in that fragment. At every row, the global
+support must be contained in the singleton of that row's parameter.
+In particular, backward analysis does not shrink existing packets.
+Outside the packet-local fragment, a compiler that installs inferred
+layouts would need to share a per-destination layout between branch
+packing, transfer encoding and block decoding, and prove readback for
+the resulting ambient reads.
+
+`admitReference` constructs the installed layouts from the current slot
+rule and checks the existing numbered-slot, nonassignment, edge supply
+and source typing premises. Slot types come from the original context.
+It uses the ordered union of the slots actually saved by some row as the
+entry list. The certified two-destination fixture re-admits at the
+installed layouts `[1, 0]` and `[1]`, although its least demand is empty.
+Its step and packed round trip still use the same caller record.
+`Straight.encode_capture` requires equality between the saved store slot
+and that record field at the transfer.
+
+[Backward analysis and reference admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/CaptureDemand/Thms.lean)
+· [Cycle and shadowing regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/CaptureDemand/Examples.lean)
+· [Certified reference regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)

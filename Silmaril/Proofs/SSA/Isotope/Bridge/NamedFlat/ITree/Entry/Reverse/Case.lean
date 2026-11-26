@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Straight.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.CaptureDemand.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -396,10 +396,15 @@ private def projectedLayouts (i : Fin 2) : List (Fin 2) :=
   if i = 0 then [1, 0] else [1]
 
 private def projectedAdmission : LiveOut.Admission signature projectedPorts noFields (projectedSource false) :=
-  Straight.admitWithProjections (projectedLowered false) (fun _ => .unit)
-    twoSlots projectedLayouts (by decide)
-    (fun i => Fin.cases (List.Sublist.refl twoSlots) (fun _ => .cons_cons 1 (.cons 0 .slnil)) i)
-    (by decide) (by decide) (by decide)
+  (CaptureDemand.admitReference (projectedLowered false) (fun _ => .unit)).get (by decide)
+
+example : CaptureDemand.referenceEntry (projectedLowered false) = [1, 0] ∧
+    List.ofFn (CaptureDemand.referenceLayouts (projectedLowered false)) = [[1, 0], [1]] := by decide
+
+example : List.ofFn (CaptureDemand.ordered (projectedGraph false)
+    (fun j : Fin 2 => (⟨j.val⟩ : Reg)) twoSlots) = [[], []] := by decide
+
+example : (CaptureDemand.admitReference (projectedLowered true) (fun _ => .unit)).isNone = true := by decide
 
 example : CFG.Cyclic.Versioning.registers (projectedGraph false) = [⟨1⟩, ⟨0⟩] := by decide
 example : ∀ i, (projectedLowered false).packetProfile (fun _ => .unit) (by decide) i =
