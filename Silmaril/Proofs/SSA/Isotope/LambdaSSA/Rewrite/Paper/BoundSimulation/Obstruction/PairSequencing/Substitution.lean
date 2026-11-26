@@ -16,7 +16,7 @@ open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer
   (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy Frame FrameTy cfgRun
-  cfgRun_mapOut finish enter step mapOut mapTerminal shiftOut insideMap enter_insideMap
+  cfgRun_mapOut finish enter step mapOut mapOut_loopResult mapTerminal shiftOut insideMap enter_insideMap
   finish_mapTerminalOn step_typed enter_typed mapOut_liftN liftLSubstN_local liftLSubstN_out)
 
 universe u v
@@ -155,10 +155,11 @@ theorem evalRegion_lsubst {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)}
         obtain ⟨i, v⟩ := s
         change enter n (d' i v) = mapTerminal (mapOut k) (enter n (d i v))
         rw [hd i v hs, enter_insideMap]
-    change finish d' (enter n (evalRegion (e.lsubst (liftLSubstN n σ)) env)) =
-      mapOut k (finish d (enter n start))
+    let mark := markFeedback observation n
+    change finish d' (enter n (evalRegion (e.lsubst (liftLSubstN n σ)) env)) mark =
+      mapOut k (finish d (enter n start) mark)
     rw [ihe h, mapOut_liftLSubstN, enter_insideMap]
-    exact finish_mapTerminalOn d d' (mapOut k) rfl (FrameTy R K)
+    exact finish_mapTerminalOn d d' (mapOut k) (mapOut_loopResult k mark) (FrameTy R K)
       (step_typed R K (fun i _ hv => evalRegion_typed (hb i).hasType (h.extend hv)))
       hc (enter n start) (enter_typed R (evalRegion_typed he.hasType h))
 

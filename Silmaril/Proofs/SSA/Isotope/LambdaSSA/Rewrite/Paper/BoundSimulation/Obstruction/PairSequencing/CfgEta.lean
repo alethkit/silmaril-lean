@@ -160,16 +160,16 @@ theorem caseCfg_same {Γ : List (Ty α)} {t : Tm Φ} {A B : Ty α} {l r : Region
     cases hv with
     | inl hv =>
       simp only [caseCfg, evalRegionWith, eq]
-      change _ = cfgRun 2 _ (.jump 0 _)
+      change _ = cfgRun 2 _ (.jump 0 _) (markFeedback observation 2)
       rw [cfgRun_local _ _ (show 0 < 2 by decide)]
-      change _ = cfgRun 2 _ (evalRegion (l.renameLabels (2 + ·)) _)
+      change _ = cfgRun 2 _ (evalRegion (l.renameLabels (2 + ·)) _) (markFeedback observation 2)
       rw [evalRegion_renameLabels]
       exact (cfgRun_shiftOut 2 _ _).symm
     | inr hv =>
       simp only [caseCfg, evalRegionWith, eq]
-      change _ = cfgRun 2 _ (.jump 1 _)
+      change _ = cfgRun 2 _ (.jump 1 _) (markFeedback observation 2)
       rw [cfgRun_local _ _ (show 1 < 2 by decide)]
-      change _ = cfgRun 2 _ (evalRegion (r.renameLabels (2 + ·)) _)
+      change _ = cfgRun 2 _ (evalRegion (r.renameLabels (2 + ·)) _) (markFeedback observation 2)
       rw [evalRegion_renameLabels]
       exact (cfgRun_shiftOut 2 _ _).symm
 

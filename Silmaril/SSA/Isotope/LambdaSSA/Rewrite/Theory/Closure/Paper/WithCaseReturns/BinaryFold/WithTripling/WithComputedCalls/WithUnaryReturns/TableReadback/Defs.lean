@@ -31,16 +31,23 @@ local notation "T" => Paper.WithCaseReturns.BinaryFold.WithTripling.Step (τ := 
 set_option hygiene false in
 local notation "C" => Step (τ := τ) (Φ := Φ) pe
 
-/-- The ordered row family has exactly the input coordinates of
-capturedDispatcher. It is made from the actual unmodified row terms. -/
+/-- The routed row representative with the index in the packed label list. -/
+def orderedRow {n : Nat} (R : Fin n → τ) {X D : τ} {blocks : Fin n → Region Φ}
+    (hb : ∀ i, ValueBranches [R i, X] (blocks i) (List.ofFn R ++ [D]))
+    (j : Fin (List.ofFn R).length) :
+    {r : Region Φ // ValueBranches [product X ((List.ofFn R).get j)] r
+      [coprod D (product X (packedExitType (List.ofFn R)))]} := by
+  let i : Fin n := ⟨j, by simpa using j.isLt⟩
+  exact ⟨Paper.RetainedLet.unpackBody ((blocks i).lsubst (carryExit 1 n)),
+    by simpa [i] using local_route R hb i⟩
+
+/-- Assemble the arrows of the actual rows in label-list order. -/
 def orderedRows {n : Nat} (R : Fin n → τ) {X D : τ} {blocks : Fin n → Region Φ}
     (hb : ∀ i, ValueBranches [R i, X] (blocks i) (List.ofFn R ++ [D]))
     (j : Fin (List.ofFn R).length) :
     ofType T (product X ((List.ofFn R).get j)) ⟶
-      ofType T (coprod D (product X (packedExitType (List.ofFn R)))) := by
-  let i : Fin n := ⟨j, by simpa using j.isLt⟩
-  have t := ofRegion T (local_route R hb i)
-  simpa [i] using t
+      ofType T (coprod D (product X (packedExitType (List.ofFn R)))) :=
+  ofRegion T (orderedRow R hb j).property
 
 /-- The comparison at the guarded original singleton
 interface, with concrete routed entry and dispatcher assembled from the
