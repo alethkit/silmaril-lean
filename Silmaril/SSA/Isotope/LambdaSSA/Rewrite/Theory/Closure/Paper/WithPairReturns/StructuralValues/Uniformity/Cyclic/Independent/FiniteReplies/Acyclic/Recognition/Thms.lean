@@ -16,6 +16,11 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 
 variable {Φ : Type} [Profile Φ] [DecidableEq Φ]
 
+omit [Profile Φ] in
+/-- A successful syntax comparison certifies literal equality of the compared bodies. -/
+theorem sameBody_eq {a b : Region Φ} (h : sameBody a b = true) : a = b :=
+  AcyclicReplyRecognition.sameBody_eq h
+
 /-- Recognition of a bare case table also works in an exactly typed
 surrounding context. The renaming specifies the live sum payload. -/
 theorem table_eqv {Γ : VCtx (Ty Atom)} {s t : ReplyShape} {ρ : Nat → Nat}
