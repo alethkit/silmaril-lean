@@ -91,10 +91,11 @@ inductive Unsupported where
 def supported? (state : Layout.State Input saved carried result extra) : Bool :=
   let header := shape state.cfg AfterReorder.Second.savedHeader
   let inventory := decide (state.reference.origins.length = header.bindings ∧ state.reference.origins.Nodup)
-  match (shape state.cfg none).target .jump, header.target .onTrue, header.target .onFalse, state.cfg.block .exit with
-  | some ⟨_, .header⟩, some ⟨_, .header⟩, some ⟨_, .exit⟩, .terminator (.ret _)
-  | some ⟨_, .header⟩, some ⟨_, .exit⟩, some ⟨_, .header⟩, .terminator (.ret _) => inventory
-  | _, _, _, _ => false
+  inventory &&
+    match (shape state.cfg none).target .jump, header.target .onTrue, header.target .onFalse, state.cfg.block .exit with
+    | some ⟨_, .header⟩, some ⟨_, .header⟩, some ⟨_, .exit⟩, .terminator (.ret _)
+    | some ⟨_, .header⟩, some ⟨_, .exit⟩, some ⟨_, .header⟩, .terminator (.ret _) => true
+    | _, _, _, _ => false
 
 /-- Opt into physical discovery from an existing canonical saved state.
     Unchecked prefixes and unsupported shapes report refusal before the search. -/
