@@ -27,20 +27,20 @@ def LocalId.tagged {kind : ObjectKind} (id : LocalId kind) : TaggedId := ⟨kind
 def TaggedId.localId (id : TaggedId) : LocalId id.kind := ⟨id.slot⟩
 
 /-- An element of `sqlite3.aDb`. Its position in that array can change. -/
-structure BackendSlot where
+structure BackendSlot (Ref : ObjectKind → Type) where
   schemaName : String
-  btree : Option (LocalId .btree)
+  btree : Option (Ref .btree)
 
-structure ConnectionFields where
-  vfs : Option (LocalId .vfs)
-  firstStatement : Option (LocalId .statement)
-  backends : List BackendSlot
+structure ConnectionFields (Ref : ObjectKind → Type) where
+  vfs : Option (Ref .vfs)
+  firstStatement : Option (Ref .statement)
+  backends : List (BackendSlot Ref)
 
 /-- `Vdbe.ppVPrev` names the slot containing the incoming list link. The
 connection for `connectionHead` is the statement's own connection. -/
-inductive StatementLink where
+inductive StatementLink (Ref : ObjectKind → Type) where
   | connectionHead
-  | predecessorNext (predecessor : LocalId .statement)
+  | predecessorNext (predecessor : Ref .statement)
 
 /-- A cache-local header slot, interpreted through the cursor or B-tree's Pager. -/
 structure BufferedPageSlot where
@@ -48,40 +48,40 @@ structure BufferedPageSlot where
   deriving DecidableEq, Repr
 
 /-- The B-tree variant of a VDBE cursor slot, with its inline `BtCursor`. -/
-structure BtreeCursorFields where
-  btree : LocalId .btree
+structure BtreeCursorFields (Ref : ObjectKind → Type) where
+  btree : Ref .btree
   rootPage : Nat
   current : Option BufferedPageSlot
   parents : List BufferedPageSlot
 
-structure StatementFields where
-  connection : LocalId .connection
-  incoming : StatementLink
-  next : Option (LocalId .statement)
+structure StatementFields (Ref : ObjectKind → Type) where
+  connection : Ref .connection
+  incoming : StatementLink Ref
+  next : Option (Ref .statement)
   sql : Option String
-  btreeCursors : List (Option BtreeCursorFields)
+  btreeCursors : List (Option (BtreeCursorFields Ref))
 
 /-- A usable blob borrows its private statement's B-tree cursor in slot zero. -/
-structure BlobFields where
-  connection : LocalId .connection
-  statement : Option (LocalId .statement)
+structure BlobFields (Ref : ObjectKind → Type) where
+  connection : Ref .connection
+  statement : Option (Ref .statement)
   schemaName : String
   column : Nat
   byteOffset : Nat
   byteCount : Nat
 
-inductive BackupNotification where
+inductive BackupNotification (Ref : ObjectKind → Type) where
   | detached
-  | attached (next : Option (LocalId .backup))
+  | attached (next : Option (Ref .backup))
 
 /-- Public backup objects. The destination B-tree is acquired during step. -/
-structure BackupFields where
-  sourceConnection : LocalId .connection
-  sourceBtree : LocalId .btree
-  destinationConnection : LocalId .connection
+structure BackupFields (Ref : ObjectKind → Type) where
+  sourceConnection : Ref .connection
+  sourceBtree : Ref .btree
+  destinationConnection : Ref .connection
   destinationSchema : String
-  destinationBtree : Option (LocalId .btree)
-  notification : BackupNotification
+  destinationBtree : Option (Ref .btree)
+  notification : BackupNotification Ref
 
 /-- Registration order is carried by the kind core's `VfsRoots`. -/
 structure VfsFields where
@@ -113,36 +113,39 @@ structure PageCacheFields where
   dirtyHead : Option BufferedPageSlot
   dirtyTail : Option BufferedPageSlot
 
-structure PagerFields where
-  vfs : LocalId .vfs
-  cache : LocalId .pageCache
-  mainFile : LocalId .file
-  journal : LocalId .file
-  subjournal : LocalId .file
-  backupHead : Option (LocalId .backup)
+structure PagerFields (Ref : ObjectKind → Type) where
+  vfs : Ref .vfs
+  cache : Ref .pageCache
+  mainFile : Ref .file
+  journal : Ref .file
+  subjournal : Ref .file
+  backupHead : Option (Ref .backup)
   pageSize : Nat
 
 /-- A scoped `BtShared` projection for a nonshared backend. -/
-structure BtreeContent where
-  pager : LocalId .pager
+structure BtreeContent (Ref : ObjectKind → Type) where
+  pager : Ref .pager
   pageOne : Option BufferedPageSlot
 
-structure BtreeFields where
-  connection : LocalId .connection
-  content : BtreeContent
+structure BtreeFields (Ref : ObjectKind → Type) where
+  connection : Ref .connection
+  content : BtreeContent Ref
   sourceBackupCount : Nat
 
 /-- The fields carried by the object kind. References classify their target
 kind at the type level. Lifetime and referential integrity are separate. -/
-def ObjectFields : ObjectKind → Type
-  | .connection => ConnectionFields
-  | .statement => StatementFields
-  | .blob => BlobFields
-  | .backup => BackupFields
+def ObjectFields (Ref : ObjectKind → Type) : ObjectKind → Type
+  | .connection => ConnectionFields Ref
+  | .statement => StatementFields Ref
+  | .blob => BlobFields Ref
+  | .backup => BackupFields Ref
   | .vfs => VfsFields
   | .file => FileFields
   | .pageCache => PageCacheFields
-  | .pager => PagerFields
-  | .btree => BtreeFields
+  | .pager => PagerFields Ref
+  | .btree => BtreeFields Ref
+
+/-- The instance used by the slot-based indexed store. -/
+abbrev LocalFields := ObjectFields LocalId
 
 end Silmaril.Machine.SQLite.GlobalState

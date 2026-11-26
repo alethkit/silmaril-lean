@@ -13,7 +13,7 @@ namespace Silmaril.Machine.SQLite.GlobalState.IndexedStore
   Proofs.Machine.SQLite.GlobalState.IndexedStore.lookup_empty id
 
 @[simp] theorem lookup_insert_self (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind)
-    (fields : ObjectFields kind) : (store.insert id fields).lookup id = some fields :=
+    (fields : LocalFields kind) : (store.insert id fields).lookup id = some fields :=
   Proofs.Machine.SQLite.GlobalState.IndexedStore.lookup_insert_self store id fields
 
 @[simp] theorem lookup_erase_self (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind) :
@@ -21,7 +21,7 @@ namespace Silmaril.Machine.SQLite.GlobalState.IndexedStore
   Proofs.Machine.SQLite.GlobalState.IndexedStore.lookup_erase_self store id
 
 theorem lookup_insert_of_ne (store : IndexedStore) {kind otherKind : ObjectKind}
-    (id : LocalId kind) (fields : ObjectFields kind) (other : LocalId otherKind)
+    (id : LocalId kind) (fields : LocalFields kind) (other : LocalId otherKind)
     (different : other.tagged ≠ id.tagged) : (store.insert id fields).lookup other = store.lookup other :=
   Proofs.Machine.SQLite.GlobalState.IndexedStore.lookup_insert_of_ne store id fields other different
 
@@ -29,6 +29,10 @@ theorem lookup_erase_of_ne (store : IndexedStore) {kind otherKind : ObjectKind}
     (id : LocalId kind) (other : LocalId otherKind) (different : other.tagged ≠ id.tagged) :
     (store.erase id).lookup other = store.lookup other :=
   Proofs.Machine.SQLite.GlobalState.IndexedStore.lookup_erase_of_ne store id other different
+
+theorem mem_taggedKeys_iff (store : IndexedStore) (id : TaggedId) :
+    id ∈ store.taggedKeys ↔ (store.lookup id.localId).isSome :=
+  Proofs.Machine.SQLite.GlobalState.IndexedStore.mem_taggedKeys_iff store id
 
 /-- Erasing fields preserves precisely the kinds at the tagged local IDs. -/
 theorem lookup_erasePayloads (store : IndexedStore) (id : TaggedId) :
@@ -43,7 +47,7 @@ theorem hasKind_erasePayloads_iff (store : IndexedStore) (id : TaggedId) (kind :
   Proofs.Machine.SQLite.GlobalState.IndexedStore.hasKind_erasePayloads_iff store id kind
 
 theorem erasePayloads_insert (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind)
-    (fields : ObjectFields kind) :
+    (fields : LocalFields kind) :
     (store.insert id fields).erasePayloads = store.erasePayloads.insert id.tagged kind :=
   Proofs.Machine.SQLite.GlobalState.IndexedStore.erasePayloads_insert store id fields
 
