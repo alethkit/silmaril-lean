@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Defs
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Module
+public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Run
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.Dispatch
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Heap
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Wrapper.Heap
@@ -117,5 +118,21 @@ theorem step_sound {commands : List Command} {linked : Program} {resolved : Reso
         live.binding evaluated prepared bodyOut (by intro assigned h; cases h; exact ran)
       subst out
       cases bodyOut <;> exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr evaluatedCall)⟩
+
+  | @wrapper callee destination body arguments actuals values out root site related operands evaluated calls =>
+    cases calls with
+    | @rejected _ error bound =>
+      have expression := RootCall.checked_invocation_expr checked related operands root.live.binding root.live.cell
+        root.parentCode evaluated bound (.error error state) (by intro assigned impossible; cases impossible)
+      exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
+    | @entered argument out returned =>
+      have bound : Entry.Binds [body.parameter] [argument] (.ok [(fileSlot body.parameter, argument)]) :=
+        .success (.cons .nil)
+      obtain ⟨bodyOut, ran, same⟩ := Defaults.Escape.returns_sound resolved.program
+        (withoutDeclaration available (root.childId + 1)) body root.admitted root.childId root.childCode state argument returned
+      have expression := RootCall.checked_invocation_expr checked related operands root.live.binding root.live.cell
+        root.parentCode evaluated bound bodyOut (by intro assigned equal; cases equal; exact ran)
+      subst out
+      cases bodyOut <;> exact ⟨_, site, .exec (code := .assignExpr _ _) (.assignExpr expression)⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults

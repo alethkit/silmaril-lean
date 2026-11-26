@@ -54,7 +54,7 @@ private theorem write_slots (state : State) (binding : Binding) (value : Value) 
   split <;> try rfl
   split <;> rfl
 
-private theorem write_other_cell (state : State) (binding : Binding) (value : Value) (address : Address)
+theorem write_other_cell (state : State) (binding : Binding) (value : Value) (address : Address)
     (other : state.slots binding ≠ some (.owned address)) :
     (state.write binding value).heap[address]? = state.heap[address]? := by
   unfold State.write

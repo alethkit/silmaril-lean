@@ -565,12 +565,42 @@ check repeated omitted calls, an explicit override, and a reached index
 error that precedes both a later uninitialized operand and surplus
 arity. The pinned Go control also exercises repeated calls after
 rebinding a defining local in a nested function. The checked source
-trace covers module-level defaulted definitions with no captures.
-Nested defaulted definitions, broader defaulted bodies and operands,
-computed callable provenance, keywords and spreads, loads and text
-parsing remain outside the theorem. The existing rejection of
+trace covers module-level defaulted definitions and the bounded
+escaping wrapper below. Broader nested definitions, defaulted bodies
+and operands, computed callable provenance, keywords and spreads,
+loads and text parsing remain outside the theorem. The existing rejection of
 duplicate module bindings also applies.
 [Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/default-call-trace/check.go)
+
+#### Escaping nested defaults
+
+The checked schedule also admits a wrapper with one required parameter.
+The wrapper defines a positional function whose body returns one of its
+own parameters, rebinds the wrapper parameter to an integer, and returns
+the child. Defaults may read the wrapper parameter, index that value
+with a literal integer, or use an integer or singleton integer list
+display. The child body has no captures in this profile.
+
+The source compiler links both declarations at their actual indices.
+On entry the wrapper owns a cell initialized by positional binding and
+a different cell for the unbound child name. Source defaults evaluate
+in that reached frame and run in declaration order. Allocations extend
+the heap. On success the child saves the resulting values, including
+any mutable alias, before the wrapper write. Returning the child
+restores the caller with the same closure cell. The module schedule
+tracks its address across copies and uses its saved values for omitted
+arguments. An explicit operand overrides its own slot. Publication
+freezes values reachable through the saved record.
+
+The failure control allocates the first default before the second
+fails on an index. The earlier allocation remains in the residual
+heap. The child name stays unbound, the local write and subsequent
+module commands are skipped, and there is no publication. Pinned
+Starlark-Go agrees on the results and reached error. The Lean checks
+also inspect the exact residual heap and restored caller. More general
+wrapper bodies, nested chains of defaulted declarations, and captures
+in a defaulted child body need separate source rules.
+[Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Defs.lean) · [Frame and body theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Thms.lean) · [Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/escaping-defaults/check.go)
 
 ## Finite-manifest loader
 
@@ -635,7 +665,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -646,12 +677,13 @@ mixed_leaf="$(pwd)/scripts/starlark/mixed-leaf.go"
 multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
 defaults="$(pwd)/scripts/starlark/positional-defaults/check.go"
 default_trace="$(pwd)/scripts/starlark/default-call-trace/check.go"
+escaping_defaults="$(pwd)/scripts/starlark/escaping-defaults/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
   go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" &&
-  go run "$defaults" && go run "$default_trace")
+  go run "$defaults" && go run "$default_trace" && go run "$escaping_defaults")
 ```
 
 [default-parameters]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
