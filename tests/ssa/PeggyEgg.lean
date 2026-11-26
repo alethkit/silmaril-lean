@@ -12,6 +12,7 @@ import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
+import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -27,6 +28,7 @@ meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
+meta import Silmaril.SSA.Peggy.Worked.EvalScale.Defs
 meta import Mathlib.Tactic.FinCases
 
 namespace Silmaril.SSA.Peggy.Tests
@@ -1271,3 +1273,205 @@ example : sameInfo 1 2 ∧ sameInfo 2 1 :=
     (alias_stable_normal (by decide)) (alias_stable_normal (by decide))
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.NormalForms.Tests
+
+namespace Silmaril.SSA.Peggy.Worked.EvalScale.Tests
+
+open PEG
+open RVSDG (Tuple)
+open EPEG (Classes)
+open EPEG.Saturation.Extension (State)
+
+private inductive Op : List (Ty Unit) → Ty Unit → Type where
+  | zero : Op [] .count
+  | five : Op [] .count
+  | succ : Op [.count] .count
+  | exit : Op [.count] .bool
+  | mul : Op [.count, .count] .count
+  deriving DecidableEq
+
+private abbrev result : List (Ty Unit) := [.count, .count, .count, .count]
+
+private abbrev sort (i : Fin 8) : Ty Unit := if i = 3 then .bool else .count
+
+private def r (i : Fin 8) (ty : sort i = .count) : Ref sort .count := ⟨i, ty⟩
+private def pair (a b : Ref sort .count) : Tuple (Ref sort) [.count, .count] :=
+  .cons a (.cons b .nil)
+
+/-- Figure 6(b) with an explicit exit predicate x ≥ 3 and additional
+observations of the unscaled result and the exit index. -/
+private def graph (varyingFactor : Bool) : Graph Op [] result 8 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair (r 1 rfl) (r 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (r 0 rfl) .nil)
+    | 3 => .ofLabel (.op .exit) (.cons (r 0 rfl) .nil)
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (pair (r 0 rfl) (r 4 rfl))
+    | 6 => .ofLabel (.op .five) .nil
+    | 7 => .ofLabel (.op .mul) (pair (if varyingFactor then r 0 rfl else r 6 rfl) (r 5 rfl))
+  roots := .cons (r 7 rfl) (.cons (r 5 rfl) (pair (r 4 rfl) (r 7 rfl)))
+
+private def source : State Op [] result 8 1 := ⟨graph false, Classes.discrete⟩
+private def exitRef : Ref source.graph.sort .bool := ⟨3, rfl⟩
+private def found : Match source.graph 7 .five .mul :=
+  (Match.atSite source.graph 7 .five .mul).get (by decide)
+
+private def expectedMatch : Match source.graph 7 .five .mul :=
+  ⟨rfl, 0, r 6 rfl, r 5 rfl, r 0 rfl, r 4 rfl, HEq.rfl, HEq.rfl, HEq.rfl⟩
+
+private def phase {n : Nat} (i : Fin n) : Nat :=
+  match i.val with
+  | 9 => 4
+  | 7 => 3
+  | 5 => 2
+  | 4 | 8 => 1
+  | _ => 0
+
+private def rank (n : Nat) : DemandRank n 1 :=
+  [.phase phase, .counter 0,
+    .phase fun i => if i.val = 2 ∨ i.val = 3 then 2 else if i.val = 0 then 1 else 0]
+
+#guard (Match.atSite (graph true) 7 .five .mul).isNone
+#guard (found.plan.run 0).1 == 8
+#guard (found.plan.run 1).1 == 9
+#guard (found.plan.run 2).1 == 10
+#guard found.saturated.classes 7 == found.saturated.classes 9
+#guard refNumbers (found.extract.node 8).args == [6, 0]
+#guard refNumbers (found.extract.node 9).args == [8, 4]
+#guard refNumbers found.extract.roots == [9, 5, 4, 9]
+#guard found.checkExtraction (rank 10)
+#guard !(found.checkExtraction [])
+
+private theorem wf : WellFounded source.graph.Demand :=
+  source.graph.demandWellFounded_of_check (rank 8) (by decide)
+
+private def model (failsAtZero : Bool) : Interpretation.{0,0,0} Op where
+  carrier _ := Unit
+  run
+    | .zero, .nil => some ⟨0⟩
+    | .five, .nil => some ⟨5⟩
+    | .succ, .cons a .nil => some ⟨a.down + 1⟩
+    | .exit, .cons a .nil => some ⟨decide (3 ≤ a.down)⟩
+    | .mul, .cons a (.cons b .nil) =>
+      if failsAtZero && b.down == 0 then none else some ⟨a.down * b.down⟩
+
+private theorem totalLaw : Law (model false) Op.five Op.mul :=
+  ⟨⟨5⟩, rfl, fun _ => rfl⟩
+
+private def clock (k : Nat) : Index 1 := fun _ => k
+
+private theorem reset (idx : Index 1) (k : Nat) : idx.set 0 k = clock k := by
+  funext loop
+  have h : loop = 0 := Subsingleton.elim _ _
+  subst loop
+  rfl
+
+private noncomputable def values (fault : Bool) := source.graph.denote (model fault) .nil wf
+
+private theorem solves (fault : Bool) : source.graph.Solves (model fault) .nil (values fault) :=
+  source.graph.denote_solves (model fault) .nil wf
+
+private theorem counter (fault : Bool) (k : Nat) :
+    Rules.readRef (values fault) (r 0 rfl) (clock k) = some ⟨k⟩ := by
+  induction k with
+  | zero =>
+    exact (Rules.theta_zero (solves fault) (r := r 0 rfl) (initial := r 1 rfl)
+      (feedback := r 2 rfl) (loop := 0) HEq.rfl rfl).trans (solves fault (1, clock 0))
+  | succ k ih =>
+    rw [Rules.theta_succ (solves fault) (r := r 0 rfl) (initial := r 1 rfl)
+      (feedback := r 2 rfl) (loop := 0) HEq.rfl (k := k) rfl, reset]
+    rw [Rules.unary_at (solves fault) (r := r 2 rfl) (arg := r 0 rfl) (op := Op.succ) HEq.rfl, ih]
+    rfl
+
+private theorem predicate (fault : Bool) (k : Nat) :
+    Rules.readRef (values fault) exitRef (clock k) = some ⟨decide (3 ≤ k)⟩ := by
+  rw [Rules.unary_at (solves fault) (r := exitRef) (arg := r 0 rfl) (op := Op.exit) HEq.rfl, counter]
+  rfl
+
+private theorem exitIndex (fault : Bool) (idx : Index 1) :
+    Rules.readRef (values fault) (r 4 rfl) idx = some ⟨3⟩ := by
+  rw [Rules.pass_at (solves fault) (r := r 4 rfl) (cond := exitRef) (loop := 0) HEq.rfl]
+  have samples : (fun j => (Rules.readRef (values fault)
+      exitRef (idx.set 0 j)).map ULift.down) = fun j => some (decide (3 ≤ j)) := by
+    funext j
+    rw [reset, predicate]
+    rfl
+  rw [samples]
+  have first : firstTrue (fun j => some (decide (3 ≤ j))) = some 3 := by
+    apply (firstTrue_eq_some_iff _ _).mpr
+    constructor
+    · exact (monotonize_eq_some_iff _ _ _).mpr ⟨rfl, fun _ _ => rfl⟩
+    · intro j earlier yes
+      have impossible := ((monotonize_eq_some_iff _ _ _).mp yes).1
+      exact (Nat.not_le_of_lt earlier) (of_decide_eq_true (Option.some.inj impossible))
+  rw [first]
+  rfl
+
+private theorem sampled (fault : Bool) (idx : Index 1) :
+    Rules.readRef (values fault) (r 5 rfl) idx = some ⟨3⟩ := by
+  rw [Rules.eval_at (solves fault) (r := r 5 rfl) (source := r 0 rfl) (count := r 4 rfl)
+    (loop := 0) HEq.rfl, exitIndex]
+  change monotonize (fun j => Rules.readRef (values fault) (r 0 rfl) (idx.set 0 j)) 3 = some ⟨3⟩
+  apply (monotonize_eq_some_iff _ _ _).mpr
+  exact ⟨by rw [reset, counter], fun j _ => by rw [reset, counter]; rfl⟩
+
+private theorem scaled (fault : Bool) (idx : Index 1) :
+    Rules.readRef (values fault) (r 7 rfl) idx = some ⟨15⟩ := by
+  have five : Rules.readRef (values fault) (r 6 rfl) idx = some ⟨5⟩ := solves fault (6, idx)
+  rw [binary_at (solves fault) (r := r 7 rfl) (a := r 6 rfl) (b := r 5 rfl) (op := Op.mul)
+    HEq.rfl, five, sampled]
+  cases fault <;> rfl
+
+private theorem observed (idx : Index 1) :
+    source.graph.observe (model false) (values false) idx =
+      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) := by
+  change (show Tuple (fun t => Option ((model false).Value t)) result from
+    .cons (Rules.readRef (values false) (r 7 rfl) idx)
+      (.cons (Rules.readRef (values false) (r 5 rfl) idx)
+        (.cons (Rules.readRef (values false) (r 4 rfl) idx)
+          (.cons (Rules.readRef (values false) (r 7 rfl) idx) .nil)))) = _
+  rw [scaled, sampled, exitIndex]
+
+private theorem ranked : (rank 10).check found.extract = true := by
+  rw [show found = expectedMatch from rfl]
+  decide
+
+private theorem checked : found.checkExtraction (rank 10) = true :=
+  found.check_of_rank (rank 10) ranked
+
+example (idx : Index 1) :
+    found.extract.observe (model false)
+      (found.extract.denote (model false) .nil
+        ((found.selection (rank 10)).demandWellFounded (Bool.and_eq_true_iff.mp checked).1)) idx =
+      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) :=
+  (found.extract_sound (m := model false) (env := .nil) wf Classes.discrete_valid totalLaw
+    (rank 10) checked idx).symm.trans (observed idx)
+
+-- Dropping totality changes the result on the same native counter stream.
+private noncomputable def unsafeSample (k : Nat) : Option (ULift Nat) :=
+  Rules.readRef (values true) (r 0 rfl) (clock k)
+
+private def partialScale (a : ULift Nat) : Option (ULift Nat) :=
+  (model true).run Op.mul (.cons ⟨5⟩ (.cons a .nil))
+
+example : ¬ Law (model true) Op.five Op.mul := by
+  rintro ⟨k, literal, total⟩
+  have fixed : k = ⟨5⟩ := (Option.some.inj literal).symm
+  subst k
+  have bad := total ⟨0⟩
+  cases bad
+
+example (idx : Index 1) :
+    Rules.readRef (values true) (r 7 rfl) idx = some ⟨15⟩ ∧
+      monotonize (fun j => (unsafeSample j).bind partialScale) 3 = none := by
+  refine ⟨scaled true idx, ?_⟩
+  cases yes : monotonize (fun j => (unsafeSample j).bind partialScale) 3 with
+  | none => rfl
+  | some value =>
+    have defined := ((monotonize_eq_some_iff _ _ _).mp yes).2 0 (by decide)
+    rw [unsafeSample, counter] at defined
+    cases defined
+
+end Silmaril.SSA.Peggy.Worked.EvalScale.Tests
