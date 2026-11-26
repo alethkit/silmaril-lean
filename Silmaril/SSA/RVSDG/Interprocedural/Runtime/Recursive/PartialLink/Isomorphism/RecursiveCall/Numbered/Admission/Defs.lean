@@ -31,6 +31,10 @@ def ordinaryPort : Ty V S → Bool
 
 abbrev ordinaryPorts (ports : Ports (Ty V S)) : Bool := ports.all ordinaryPort
 
+/-- Membership before admitting any callable bindings. -/
+abbrev OrdinaryIn (m : Machine.{u, v, w} Op) : Family m :=
+  fun {port} _ => ordinaryPort port = true
+
 /-- A conservative primitive interface. The runtime may read callables,
 but each successful primitive output consists entirely of ordinary ports. -/
 def OrdinaryOutputs (Op : Dialect.{u, v} (ValueSort V S) S) : Prop :=
@@ -341,6 +345,9 @@ structure LambdaKeys (V S : Type u) (Key : Type v) (Capture : Type w) where
 structure DispatchKeys (V S : Type u) (Key : Type v) (Capture : Type w) extends LambdaKeys V S Key Capture where
   groupsL : List (GroupProfile V S Key)
   groupsR : List (GroupProfile V S Key)
+
+def DispatchKeys.empty {Key : Type v} {Capture : Type w} : DispatchKeys V S Key Capture :=
+  ⟨⟨[], []⟩, [], []⟩
 
 def DispatchKeys.seed {Key : Type v} {Capture : Type w} (left right : GroupProfile V S Key) :
     DispatchKeys V S Key Capture :=

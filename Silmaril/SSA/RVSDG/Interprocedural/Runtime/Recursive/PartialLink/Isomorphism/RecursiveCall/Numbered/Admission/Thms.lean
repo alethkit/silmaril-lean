@@ -30,6 +30,12 @@ when using the resulting family to compare runs. -/
     (left right : m.Val (.value (.function args outs))) : Option (PLift (ExportAdmission primitives ids left right)) :=
   if accepted : checkExport keys left right = true then some ⟨checkExport_sound ordinary accepted⟩ else none
 
+/-- Ordinary values form a closed family with empty dispatch tables. -/
+theorem LinkedFamily.empty (ordinary : OrdinaryOutputs Op) (code : OpcodeCode (Instruction Op))
+    (captureCode : CaptureCode m) :
+    LinkedFamily primitives ids code captureCode (OrdinaryIn m) (OrdinaryIn m) .empty :=
+  AdmissionProofs.linked_empty ordinary code captureCode
+
 theorem LinkedFamily.ofGroups_sound [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)}
     [DecidableEq keys.Key] (captureCode : CaptureCode m) (ordinary : OrdinaryOutputs Op) {membersL membersR : List (Function V S)}
     (left : Group m membersL) (right : Group m membersR) (accepted : checkGroupPair keys left right = true) :

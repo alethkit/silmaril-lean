@@ -39,6 +39,35 @@ private theorem closed_with_captures {family : Family m}
     intro _ _ opcode _ _ _ _ output _
     exact ordinary_tuple admits output (ordinary opcode)
 
+theorem linked_empty (ordinary : OrdinaryOutputs Op) (code : OpcodeCode (Instruction Op))
+    (captureCode : CaptureCode m) :
+    LinkedFamily primitives ids code captureCode (OrdinaryIn m) (OrdinaryIn m) .empty := by
+  let admits : HasOrdinary (OrdinaryIn m) := fun _ known => known
+  have closed : Closed primitives (OrdinaryIn m) := closed_with_captures ordinary admits (by
+    intro _ _ _ known
+    cases known)
+  have noLambda {port : Ty V S} {value : m.Val port} (known : OrdinaryIn m value) :
+      lambdaKey code captureCode value = none := by
+    cases value <;> first | rfl | cases known
+  have noGroup {port : Ty V S} {value : m.Val port} (known : OrdinaryIn m value) :
+      memberProfile code value = none := by
+    cases value <;> first | rfl | cases known
+  refine ⟨⟨closed, closed, ?_⟩, admits, admits, ?_, ?_, ?_, ?_⟩
+  · intro _ _ _ _ known _ _
+    cases known
+  · intro _ _ _ known found
+    rw [noLambda known] at found
+    cases found
+  · intro _ _ _ known found
+    rw [noLambda known] at found
+    cases found
+  · intro _ _ _ known found
+    rw [noGroup known] at found
+    cases found
+  · intro _ _ _ known found
+    rw [noGroup known] at found
+    cases found
+
 private theorem member_values (family : Family m) (members : List (Function V S))
     (refs : (slot : Fin members.length) → m.Val members[slot].port)
     (known : ∀ slot, family (refs slot)) : TupleIn family (memberValues members refs) := by

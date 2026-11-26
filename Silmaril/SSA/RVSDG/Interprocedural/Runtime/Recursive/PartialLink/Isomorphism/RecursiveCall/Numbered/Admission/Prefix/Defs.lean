@@ -20,10 +20,10 @@ variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {imports importsL importsR exports : Ports (Ty V S)}
 variable {past pastL pastR sigs sigsL sigsR : List (Ports (Ty V S))}
 
-/-- Align the actual bindings in two modules in link order. The plan
-chooses an initial paired φ seed, later φ and λ extensions, and bindings
-to link without admitting their callable outputs. The types fix the shared
-signatures for each extension. -/
+/-- Align the actual bindings in two modules in link order. Start from
+ordinary values or a paired φ seed, then select φ and λ extensions.
+Skipped bindings still link. The types fix the shared signatures for
+each extension. -/
 inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR exports : Ports (Ty V S)) :
     Bool → {pastL sigsL pastR sigsR : List (Ports (Ty V S))} →
     ModuleTerm Op importsL pastL sigsL exports → ModuleTerm Op importsR pastR sigsR exports → Type (max u v + 1) where
@@ -39,6 +39,12 @@ inductive Plan (Op : Dialect.{u, v} (ValueSort V S) S) (importsL importsR export
       {left : ModuleTerm Op importsL pastL sigsL exports} {rest : ModuleTerm Op importsR (pastR ++ [head]) sigsR exports}
       (next : Plan Op importsL importsR exports seeded left rest) :
       Plan Op importsL importsR exports seeded left (.bind node rest)
+  /-- Begin checking with ordinary values and empty callable tables. -/
+  | start {pastL sigsL pastR sigsR : List (Ports (Ty V S))}
+      {left : ModuleTerm Op importsL pastL sigsL exports}
+      {right : ModuleTerm Op importsR pastR sigsR exports}
+      (next : Plan Op importsL importsR exports true left right) :
+      Plan Op importsL importsR exports false left right
   | seed {pastL sigsL pastR sigsR : List (Ports (Ty V S))} {membersL membersR : List (Function V S)}
       {left : PhiTerm Op importsL pastL membersL} {right : PhiTerm Op importsR pastR membersR}
       {restL : ModuleTerm Op importsL (pastL ++ [memberPorts membersL]) sigsL exports}
@@ -514,6 +520,11 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCod
       let checked ← walk keys captureCode exactValue exactGroup actions ids ordinary unitL unitR inputsL inputsR port
         localsL (localsR.snoc values) storeL middle next (state.skipR values)
       pure ⟨by rw [linkTerm_bind, ran]; exact checked.down⟩
+  | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR, .start next, .unseeded =>
+    let checked := ⟨OrdinaryIn m, OrdinaryIn m, .empty, LinkedFamily.empty ordinary keys captureCode, [], [],
+      Table.empty (OrdinaryIn m) localsL, Table.empty (OrdinaryIn m) localsR⟩
+    walk keys captureCode exactValue exactGroup actions ids ordinary unitL unitR inputsL inputsR port
+      localsL localsR storeL storeR next (.seeded checked)
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .seed (membersL := membersL) (membersR := membersR) (left := left) (right := right) next, .unseeded => do
     let groupL : Group m membersL := ⟨_, left.captures.read inputsL localsL, left.toGraph.definitions⟩

@@ -1889,11 +1889,96 @@ example (right : Bool) :
       crossPort (branchArgs 1) 20 = .ok (.returned (number 44) 43) := by
   cases right <;> cbv
 
-private def lambdaBeforeSeed : OmegaTerm Op crossImports crossExports [[branchFn.port]] :=
-  ⟨.bind (.lambda (lambdaLoop (.arg (.tail .head)))) <|
-    .ret (.cons (.output (0 : Fin 1) .head) .nil)⟩
+private def lambdaOnlyFirst (stale : Bool) : LambdaTerm Op crossImports [[global]] branchFn :=
+  if stale then ⟨[branchFn.port], .cons (.arg (.tail .head)) .nil, _, wrapperCode⟩
+  else ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, sameBody⟩
 
-#guard (inferGraphPlan lambdaBeforeSeed.toGraph lambdaBeforeSeed.toGraph).isNone
+private def lambdaOnlySecond : LambdaTerm Op crossImports [[global], [branchFn.port]] branchFn :=
+  ⟨[branchFn.port], .cons (.output (1 : Fin 2) .head) .nil, _, wrapperCode⟩
+
+private def lambdaOnlyModule (stale : Bool) : OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.lambda (lambdaOnlyFirst stale)) <|
+    .bind (.lambda lambdaOnlySecond) <| .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def lambdaOnlyPlan (stale : Bool) :=
+  inferGraphPlan (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph
+
+private def lambdaOnlyCheck (stale : Bool)
+    (plan : GraphPlan (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+    (lambdaOnlyModule stale).toGraph (lambdaOnlyModule stale).toGraph plan (fn := branchFn) crossPort 20 20
+
+#guard ((lambdaOnlyPlan false).bind (lambdaOnlyCheck false)).isSome
+#guard (lambdaOnlyPlan true).isSome
+#guard ((lambdaOnlyPlan true).bind (lambdaOnlyCheck true)).isNone
+
+-- Linking the stale first λ succeeds and both calls run. Admission rejects
+-- the first λ's imported callable from the ordinary-value starting family.
+example : Executable.run actions 60 73 (lambdaOnlyModule true).toGraph crossInputs
+    crossPort (branchArgs 1) 20 = .ok (.returned (number 15) 29) := by cbv
+
+-- The outer λ has entered its actual captured call at the budget boundary.
+-- Resumption uses the initialized global and then runs the caller's suffix.
+example : (match Executable.run actions 3 73 (lambdaOnlyModule false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 with
+  | .ok (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 60 config).result)
+    | _ => none
+  | _ => none) = some ([0], 23, some (number 16, 31)) := by cbv
+
+private theorem lambdaOnlyIso : (lambdaOnlyModule false).toGraph.RenumberedBy
+    (lambdaOnlyModule false).toGraph crossPositions :=
+  ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+    (Fin.cases (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩)
+      (Fin.cases (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩) (fun i => i.elim0))), rfl⟩
+
+private theorem lambdaOnlyOrder : Ordered Op (renameVertex crossPositions) crossImports crossExports
+    (lambdaOnlyModule false).toGraph.toTerm.region (lambdaOnlyModule false).toGraph.toTerm.region := by
+  simp only [OmegaTerm.toTerm_toGraph]
+  exact .bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩)
+      (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩) (.ret _ _)))
+
+private theorem lambdaOnlyPlanFound : (lambdaOnlyPlan false).isSome = true := by decide +kernel
+
+private def lambdaOnlyInferred := (lambdaOnlyPlan false).get lambdaOnlyPlanFound
+
+private theorem lambdaOnlyAccepted : (lambdaOnlyCheck false lambdaOnlyInferred).isSome = true := by decide +kernel
+
+private def lambdaOnlySource : Config machine Nat [num] :=
+  let first : machine.Val branchFn.port := .closure (.cons (globalValue 0 8) .nil) sameBody.toGraph
+  ⟨Continuation.start (.call (wrapperRef first) (branchArgs 1)), 23⟩
+
+private theorem lambdaOnlyStart :
+    Executable.start actions 73 (lambdaOnlyModule false).toGraph crossInputs crossPort (branchArgs 1) 20 =
+      .ok lambdaOnlySource := by cbv
+
+example : ∃ source target,
+    Executable.start actions 73 (lambdaOnlyModule false).toGraph crossInputs crossPort (branchArgs 1) 20 = .ok source ∧
+    ReflTransGen (Step primitives) source target ∧ target.result = some (number 16, 31) := by
+  have identity (i : Nat) : (73, i) = (73, renameVertex crossPositions i) := by
+    unfold renameVertex
+    split <;> rfl
+  have imports : TupleRelated machine Eq crossInputs crossInputs :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.closure .nil (NestedTheta.Graph.Isomorphic.refl _)) .nil)
+  have arguments : TupleRelated machine Eq (branchArgs 1) (branchArgs 1) :=
+    .cons (.data (m := machine) (ids := Eq) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  have starts := admitGraph_starts instructionKeys actions (respectsGlobals Eq) ordinaryOutputs lambdaOnlyIso
+    lambdaOnlyOrder identity imports lambdaOnlyInferred (fn := branchFn) crossPort arguments rfl 20
+  rw [lambdaOnlyStart] at starts
+  obtain ⟨_, _, closed, admitted⟩ := starts lambdaOnlyAccepted
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 60 lambdaOnlySource
+  have result : (runFor actions 60 lambdaOnlySource).result = some (number 16, 31) := by cbv
+  obtain ⟨target, value, path, got, paired⟩ :=
+    (ClosedFamily.returns (respectsGlobals Eq) closed admitted).1 _ _ _ reached result
+  cases paired with
+  | cons head tail =>
+    cases head
+    cases tail
+    exact ⟨_, target, lambdaOnlyStart, path, got⟩
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
