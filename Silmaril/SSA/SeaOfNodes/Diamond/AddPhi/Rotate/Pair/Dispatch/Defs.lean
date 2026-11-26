@@ -9,8 +9,8 @@ public import Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Collapse.Defs
 namespace Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch
 
 open Pure.ConstantFold (Literals)
-open Pure.SubZero (model word)
-open RVSDG (Tuple extend)
+open Pure.SubZero (model word wordPort)
+open RVSDG (Port Tuple extend)
 
 variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
 
@@ -37,21 +37,44 @@ def Result.Returns (result : Result inputs sigs) (entry : Tuple (Val model.value
   | .residualPhi p => p.Returns entry value
   | .constantAdd p | .captureOnly p => p.Returns entry value
 
-/-- Check priority even when a nonliteral in the other column prevented
-the full row lookup. -/
-def hasConstantColumn (g : AddPhi.Pair.Source inputs sigs) : Bool :=
+/-- The two original Φs in operand order. -/
+inductive Column where
+  | left
+  | right
+  deriving DecidableEq, Repr
+
+def Column.port : Column → Port (dataPorts [word, word]) wordPort
+  | .left => .head
+  | .right => .tail .head
+
+def Column.other : Column → Column
+  | .left => .right
+  | .right => .left
+
+/-- Typed literal facts for individual operands of this predecessor. -/
+def armWords {args : List (Ty Unit)} {past : List (List (Ty Unit))}
+    (known : Literals args past) (arm : Arms.Arm Pure.SubZero.Opcode args past [word, word]) :
+    Column → Option (BitVec 64) :=
+  let facts : Literals args (extend past arm.sigs) := scanLiterals known arm.dataflow
+  fun column => facts (arm.outputs.get column.port)
+
+def equalLiterals? (first second : Option (BitVec 64)) : Option (BitVec 64) := do
+  let left ← first
+  let right ← second
+  if left = right then some left else none
+
+/-- Find equal word literals in each column, independently of the other
+column's operands. Both lookups use the actual predecessor occurrences. -/
+def constantColumns (g : AddPhi.Pair.Source inputs sigs) : Column → Option (BitVec 64) :=
   let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
-  let armWords (arm : Arms.Arm Pure.SubZero.Opcode (dataPorts inputs) (extend [] sigs) [word, word]) :
-      Option (BitVec 64) × Option (BitVec 64) :=
-    let facts : Literals (dataPorts inputs) (extend (extend [] sigs) arm.sigs) :=
-      scanLiterals known arm.dataflow
-    (facts (arm.outputs.get .head), facts (arm.outputs.get (.tail .head)))
-  let sameLiteral : Option (BitVec 64) → Option (BitVec 64) → Bool := fun
-    | some first, some second => first == second
-    | _, _ => false
-  let (firstLeft, firstRight) := armWords (g.arms .first)
-  let (secondLeft, secondRight) := armWords (g.arms .second)
-  sameLiteral firstLeft secondLeft || sameLiteral firstRight secondRight
+  let first := armWords known (g.arms .first)
+  let second := armWords known (g.arms .second)
+  fun column => equalLiterals? (first column) (second column)
+
+/-- Check priority even when a nonliteral prevented the full row lookup. -/
+def hasConstantColumn (g : AddPhi.Pair.Source inputs sigs) : Bool :=
+  let columns := constantColumns g
+  (columns .left).isSome || (columns .right).isSome
 
 /-- Classify the materialization and the immediate right-zero follow-up. -/
 def emit (g : AddPhi.Pair.Source inputs sigs) (x : InputWord inputs)
