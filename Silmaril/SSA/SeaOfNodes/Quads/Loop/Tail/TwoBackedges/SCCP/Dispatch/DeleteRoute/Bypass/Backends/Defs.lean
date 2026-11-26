@@ -25,12 +25,17 @@ structure Targets (p : Program Op regs (.data result)) where
   cf : Bypass.MLIR.CF.Target regs result
   numbered : Numbered.Target p
 
+/-- Use the existing emitters on one shared dispatch certificate. -/
+def emit [BankDecidableEq Word (dataPorts regs)]
+    {p : Program Op regs (.data result)} {facts : Tuple (Fact Word) (dataPorts regs)}
+    (checked : Checked model p facts) : Targets p :=
+  ⟨checked.side, Bypass.MLIR.CF.lower checked, Numbered.lower checked⟩
+
 /-- Run the fixed-point admission check on the original source and facts.
 On success, both emitters consume that one certificate. -/
 def compile [BankDecidableEq Word (dataPorts regs)]
     (p : Program Op regs (.data result)) (facts : Tuple (Fact Word) (dataPorts regs)) :
     Except Refusal (Targets p) :=
-  (admit model p facts).map fun checked =>
-    ⟨checked.side, Bypass.MLIR.CF.lower checked, Numbered.lower checked⟩
+  (admit model p facts).map emit
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Bypass.Backends
