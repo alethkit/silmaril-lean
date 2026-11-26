@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Block.Graph.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Block.Graph.Capture.Defs
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
@@ -79,6 +80,9 @@ example : let _ := sig.typing; NamedFlat.check unsupported inputs (fun _ => pack
 example : (compileGraph sig inputs (fun _ => packet) outputs unsupported).isNone = true := rfl
 example : let _ := sig.typing; NamedFlat.check ambientRead inputs (fun _ => packet) outputs = true := rfl
 example : (compileGraph sig inputs (fun _ => packet) outputs ambientRead).isNone = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.Block.Graph.Capture.compile sig inputs
+    (fun _ => packet) outputs ambientRead).isSome = true := by decide +kernel
 
 private def first : Denote bit := .inl ⟨⟩
 private def second : Denote bit := .inr ⟨⟩

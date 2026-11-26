@@ -121,6 +121,25 @@ theorem graph_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m
     rw [pure_bind] at loop
     exact loop.symm
 
+theorem graphList_entry_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
+    (slots : List (Fin m)) (env : Env α) :
+    region raw env (graphList g slots).entry.erase =
+      (region raw env g.entry.erase >>= fun out =>
+        pure (out.1, if out.1 < blocks then packValue env slots out.2 else out.2)) := by
+  induction slots generalizing g with
+  | nil =>
+    simp only [graphList, packValue, List.foldl_nil, ite_self]
+    exact (bind_pure _).symm
+  | cons slot rest ih =>
+    change region raw env (graphList (graph g slot) rest).entry.erase = _
+    rw [ih]
+    change (region raw env (body g.entry id slot).erase >>= _) = _
+    rw [body_tree raw g.entry id slot (fun _ => rfl), bind_assoc]
+    simp only [pure_bind, carried]
+    apply bind_congr
+    intro out
+    by_cases inside : out.1 < blocks <;> simp [inside, packValue]
+
 theorem graphList_row_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
     (slots : List (Fin m)) (env : Env α) (p : BlockInput α blocks) :
     (region raw (extend env (packValue env slots p.2)) ((graphList g slots).block p.1).erase >>=
