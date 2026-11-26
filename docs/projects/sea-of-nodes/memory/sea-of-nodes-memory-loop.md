@@ -262,6 +262,31 @@ is ruled out even with the same return word.
 [Backend theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
 
+### Interleaved effects at the feedback boundary
+
+The native profile admits dependent Loads and Stores in a single ordered
+body. Each memory edge must name the current whole-heap version, and the
+tail test compares the result word with a fixed typed input. Addresses
+are invariant entry ports in this profile. The boundary law covers
+aliasing among those ports. Computed addresses and arm-local memory
+control inside a loop activation are outside this source profile.
+
+`petri_activation_iff_memref_header` compares the actual coloured
+activation's output with the emitted CF header's successor frame and
+whole buffer. Tag one selects the header and passes the post-store
+buffer. Tag zero selects the exit with the invariant stop word. Each
+activation starts at the same heap and typed operands.
+
+The regression alternates three Loads and three Stores. With distinct
+addresses, the final Load reads the saved word and takes a backedge
+with cells `[0, 7]`. The next activation reads the updated buffer and
+returns with cells `[0, 0]`. With aliasing addresses, the final Load
+sees the clear immediately, selects the exit, and the last Store
+restores the saved word, leaving cells `[7, 99]`. A coloured firing
+completion and a CF header step are separate witnesses.
+[Activation theorem](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
+[Interleaved regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/ActivationRegression.lean)
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
