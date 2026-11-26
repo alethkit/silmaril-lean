@@ -1072,11 +1072,41 @@ regression rejects a well-typed silent self-cycle. The guarded regression
 reaches a backedge with a changed payload and state. It also constructs an infinite replay of
 successful requests with ordinary divergence in the installed feedback.
 A supplied exhaustive `ReplyEnumeration` makes the possible typed
-successors a finite list. Scanning an entire product would still need
-finite configuration coverage and a proof that its acceptance preserves
-the closure, including infinite replay. This slice supplies the
-one-step correspondence.
+successors a finite list.
 [Guarded step and correspondence][ssa-ub-open-guarded-step]
+
+### Soundness of a closed guarded product certificate
+
+`Table.checkProduct` checks a supplied finite list of paired exact
+configurations. The entry pair must be listed. Each listed pair uses the
+acyclic checker's local clauses for the two evaluated requests or the
+ordered exits. Matching requests agree on the opcode and evaluated
+argument. Every typed reply in the exhaustive enumeration must route to
+another listed pair, including pairs of terminal rows. An immediate
+designated exit on the right permits any left head. Other terminal pairs
+must return at the same ordinary exit.
+
+`Table.checkProduct_sound` uses the same deterministic shaped interpreter
+on both exact-readback endpoints at their supplied caller packets and a
+common initial machine state. An equal request sees the same reply or
+fault and its state, or the same in-request divergence. No machine-state
+enumeration is needed in the certificate because the proof synchronizes
+the actual reply state under every admitted interpreter. A hypothetical
+violation at a related pair would have to advance through matched
+successful replies forever. `close_infinite_of_singleton` proves that
+each of those native feedback closures is the ordinary singleton
+divergence observation. Fresh top still requires a reached designated
+exit.
+
+The cyclic fixture pairs two different loop labels and needs the pair with
+the changed incoming packet.
+A second fixture omits the shared successor reached by the later
+payload at the same reply tag. Adding that pair exposes different next
+arguments. Its concrete prefix makes one native runner fault and the
+other diverge. The checker validates supplied relations in the
+request-guarded grammar. Search and completeness are separate from this
+soundness result.
+[Product certificate][ssa-ub-open-guarded-product]
 
 ## Coverage and gaps
 
@@ -1239,5 +1269,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-operand-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Thms.lean
 [ssa-ub-open-caller-interface]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Interface/Thms.lean
 [ssa-ub-open-guarded-step]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Thms.lean
+[ssa-ub-open-guarded-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

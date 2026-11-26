@@ -46,6 +46,15 @@ theorem close_terminal {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Fee
     Feedback.close f p = WithTop.some {o} :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.close_terminal run
 
+/-- If every reachable step along an infinite path is a singleton
+internal transfer, closure has exactly ordinary divergence. -/
+theorem close_infinite_of_singleton {R L : List (Ty κ)} {α : Type w} {σ : Type x}
+    {f : Feedback.Run R L α σ} (path : Nat → Feedback.Point R.length α σ)
+    (localStep : ∀ n, ∃ i a s, path (n + 1) = .block i a s ∧
+      f (path n) = WithTop.some {Outcome.ret (Feedback.internal R L i) a s}) :
+    Feedback.close f (path 0) = WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.close_infinite_of_singleton path localStep
+
 /-- The bounded scan classifies actual feedback with any external label
 interface, retaining the label of each ordinary return. -/
 theorem classify_routed {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
