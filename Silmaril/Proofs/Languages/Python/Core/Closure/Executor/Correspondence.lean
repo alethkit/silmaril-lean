@@ -150,7 +150,7 @@ private theorem rejected_eq (rejected : Rejects table args heap callee failure) 
   | nonCallableBool value => rfl
   | nonCallableFloat value => rfl
   | nonCallableText value => rfl
-  | nonCallableTuple items | nonCallableTupleObject items => rfl
+  | nonCallableTuple items | nonCallableTupleObject items | nonCallableDictionary items => rfl
   | unsupportedCallable kind => rfl
   | missing fn absent => simp [Dispatch.dispatch, Dispatch.resolve_missing absent]
   | mismatch fn entry found different => simp [Dispatch.dispatch, Dispatch.resolve_layout_mismatch found different]
@@ -197,6 +197,10 @@ private theorem rejected_rule (rejected : Dispatch.dispatch table callee args he
     simp [Dispatch.dispatch] at rejected
     subst failure
     exact .nonCallableTupleObject object
+  | dictionary object =>
+    simp [Dispatch.dispatch] at rejected
+    subst failure
+    exact .nonCallableDictionary object
   | exceptionClass kind =>
     simp [Dispatch.dispatch] at rejected
     subst failure

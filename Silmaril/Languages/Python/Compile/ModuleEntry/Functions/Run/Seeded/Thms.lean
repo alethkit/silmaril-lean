@@ -75,6 +75,16 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_innerPreparationError
     outerFound failed
 
+theorem evalDictionaryGet_agrees (space : Namespace) (heap : Heap)
+    (globals : Core.Closure.Executor.GlobalLookup) (test : Core.Module.Dictionary.Get)
+    (same : (fun name => (space.lookupGlobal name).map Value.dictionaryRead) =
+      fun name => (globals name).map Core.Closure.Value.dictionaryRead) :
+    evalDictionaryGet space heap test =
+      ((Core.Closure.evalDictionaryGet heap globals test).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.evalDictionaryGet_agrees space heap globals test same
+
 theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
@@ -706,6 +716,12 @@ theorem run_readAssign {scope : Source.Scope} (space : Namespace) (context : Cal
   cases found : space.lookupGlobal source <;>
     simp [runInstructionsIn, effectWithLists, effect, scalarBinding, evaluateScalar, lowerScalarOperand,
       Core.Module.SeededCall.Operand.eval, found, Except.map, Except.mapError, ModuleFailure.ofCall]
+
+theorem effect_bindDictionary {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : String) (display : List Core.Module.Dictionary.Entry) (lists : ListHeap) :
+    let (object, heap) := context.heap.materializeDictionary display
+    effect space context (.bindDictionary name display : Instruction scope) lists =
+      (⟨.ok (some (name, .dictionary object)), [], none⟩, heap) := rfl
 
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.TupleDispatch.Element}

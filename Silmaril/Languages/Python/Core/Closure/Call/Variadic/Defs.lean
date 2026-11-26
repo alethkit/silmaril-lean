@@ -26,15 +26,15 @@ inductive PositionalInputFailure where
 /-- A checked operand can update the caller state, including on failure. -/
 abbrev ReadOperand (Operand State : Type) := Operand → State → Except Failure Value × State
 
-/-- Expand scalar tuples. Text iteration and tuple elements carrying text
-are outside this positional operand profile. -/
+/-- Expand scalar tuples. Text, dictionaries and tuple elements carrying
+text are outside this positional operand profile. -/
 def expandPositional : Value → Except PositionalInputFailure (List Value)
   | .tuple items | .tupleObject ⟨_, items⟩ =>
     items.mapM fun
       | .scalar value => .ok (Value.ofScalar value)
       | .text _ => .error .unsupportedIterable
   | .none | .int _ | .bool _ | .float64 _ | .exceptionClass _ | .function _ => .error .notIterable
-  | .text _ => .error .unsupportedIterable
+  | .text _ | .dictionary _ => .error .unsupportedIterable
 
 def PositionalOperand.evaluate {Operand State : Type} (read : ReadOperand Operand State)
     (part : PositionalOperand Operand) (state : State) :

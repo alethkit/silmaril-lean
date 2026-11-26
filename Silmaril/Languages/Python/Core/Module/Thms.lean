@@ -13,7 +13,7 @@ theorem scalarDictionaryGet_nil (key fallback : Value) :
 theorem scalarDictionaryGet_snoc (entries : List (Value × Value)) (latestKey latestValue key fallback : Value) :
     scalarDictionaryGet (entries ++ [(latestKey, latestValue)]) key fallback =
       if latestKey.equal key then latestValue else scalarDictionaryGet entries key fallback := by
-  cases matched : latestKey.equal key <;> simp [scalarDictionaryGet, List.reverse_append, matched]
+  cases matched : latestKey.equal key <;> simp [scalarDictionaryGet, dictionaryGet, List.reverse_append, matched]
 
 theorem Identity.scan_iff {ε : Type} (left : Singleton)
     (links : List (IdentityOperator × (Unit → Except ε Singleton))) (result : Except ε Bool) :

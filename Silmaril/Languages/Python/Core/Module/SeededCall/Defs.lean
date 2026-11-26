@@ -72,6 +72,7 @@ inductive Value where
   | listObject (object : Core.Module.ListObject)
   | returnedTuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
+  | dictionary (object : Core.Module.Dictionary.Object)
   | exceptionClass (kind : ExceptionClass)
   | helper (descriptor : Helper)
   | builtin (descriptor : Builtin)
@@ -83,7 +84,7 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .bool value => some (.bool value)
   | .none => some .none
   | .float64 _ | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _
-  | .returnedTuple _ | .tupleObject _ => Option.none
+  | .returnedTuple _ | .tupleObject _ | .dictionary _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -93,6 +94,10 @@ def Value.ofScalar : Core.Module.Value → Value
 def Value.tupleElement? : Value → Option Core.Module.TupleDispatch.Element
   | .text value => some (.text value)
   | value => value.scalar?.map .scalar
+
+def Value.dictionaryRead : Value → Core.Module.Dictionary.ReadValue
+  | .dictionary object => .object object
+  | value => (value.tupleElement?).elim .unsupported .atom
 
 def Value.ofTupleElement : Core.Module.TupleDispatch.Element → Value
   | .scalar value => Value.ofScalar value
@@ -309,13 +314,14 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .isinstance, [.bool _, .builtin .float]
   | .builtin .isinstance, [.int _, .builtin .float] => .isinstance .boolOrIntAgainstFloat
   | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
+  | .helper .assertIs, [.none, .none] => .assertBoolean true
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
   | .builtin .tuple, [.returnedTuple items] => .copyTuple items
   | .builtin .tuple, [.tupleObject object] => .copyTupleObject object
   | .none, _ | .int _, _ | .bool _, _ | .float64 _, _ | .text _, _ | .listObject _, _ | .returnedTuple _, _
-  | .tupleObject _, _ => .nonCallable
+  | .tupleObject _, _ | .dictionary _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the

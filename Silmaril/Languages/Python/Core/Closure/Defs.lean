@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Binary64.Defs
-public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
+public import Silmaril.Languages.Python.Core.Module.Dictionary.Defs
 public import Silmaril.Languages.Python.Core.Text.Defs
 
 /-! # Slot and cell interfaces for lowered Python closures -/
@@ -93,6 +93,7 @@ inductive Value where
   | function (value : Function)
   | tuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
+  | dictionary (object : Core.Module.Dictionary.Object)
   deriving Repr
 
 @[match_pattern] abbrev Value.stockException : Value := .exceptionClass .exception
@@ -106,12 +107,13 @@ def Value.truth : Value → Bool
   | .exceptionClass _ | .function _ => true
   | .tuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
+  | .dictionary object => !object.entries.isEmpty
 
 def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ | .dictionary _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -121,6 +123,10 @@ def Value.ofScalar : Core.Module.Value → Value
 def Value.tupleElement? : Value → Option Core.Module.TupleDispatch.Element
   | .text value => some (.text value)
   | value => value.scalar?.map .scalar
+
+def Value.dictionaryRead : Value → Core.Module.Dictionary.ReadValue
+  | .dictionary object => .object object
+  | value => (value.tupleElement?).elim .unsupported .atom
 
 def Value.ofTupleElement : Core.Module.TupleDispatch.Element → Value
   | .scalar value => Value.ofScalar value
@@ -202,6 +208,7 @@ inductive Failure where
   | danglingCell (identity : CellId)
   | unsupportedTupleElement
   | unsupportedFloatOperand
+  | unsupportedDictionaryOperand
   | unsupportedCallable
   deriving DecidableEq, Repr
 
@@ -210,7 +217,7 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ => Option.none
+  | .none | .float64 _ | .text _ | .exceptionClass _ | .function _ | .tuple _ | .tupleObject _ | .dictionary _ => Option.none
 
 /-- Integer equality is checked before a comparison can consume a float. -/
 def Value.equalInt : Value → Int → Except Failure Value
@@ -218,7 +225,7 @@ def Value.equalInt : Value → Int → Except Failure Value
   | .int value, right => .ok (.bool (decide (value = right)))
   | .bool false, right => .ok (.bool (decide (0 = right)))
   | .bool true, right => .ok (.bool (decide (1 = right)))
-  | .none, _ | .text _, _ | .exceptionClass _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ => .ok (.bool false)
+  | .none, _ | .text _, _ | .exceptionClass _, _ | .function _, _ | .tuple _, _ | .tupleObject _, _ | .dictionary _, _ => .ok (.bool false)
 
 inductive IntegerOp where
   | add
@@ -323,6 +330,27 @@ def Heap.allocate (heap : Heap) (value : Value) : CellId × Heap :=
   let reached := heap.reserve 1
   (identity, { reached with contents := fun address =>
     if address = identity.address then some value else reached.contents address })
+
+/-- Dictionaries allocate even when empty. The allocation table validates
+the exact descriptor before an entry read. Rebinding a name leaves this
+descriptor and its aliases in the table. -/
+def Heap.materializeDictionary (heap : Heap) (display : List Core.Module.Dictionary.Entry) :
+    Core.Module.Dictionary.Object × Heap :=
+  let object : Core.Module.Dictionary.Object := ⟨heap.next, Core.Module.Dictionary.build display⟩
+  (object, (heap.allocate (.dictionary object)).2)
+
+def Heap.dictionaryEntries? (heap : Heap) (object : Core.Module.Dictionary.Object) :
+    Option (List Core.Module.Dictionary.Entry) :=
+  match heap.lookup ⟨object.address⟩ with
+  | some (some (.dictionary saved)) => if saved = object then some saved.entries else none
+  | _ => none
+
+def evalDictionaryGet (heap : Heap) (globals : String → Option Value)
+    (test : Core.Module.Dictionary.Get) : Except Failure Value :=
+  (test.eval (fun name => (globals name).map Value.dictionaryRead) heap.dictionaryEntries?).map
+    Value.ofTupleElement |>.mapError fun
+      | .missingName name => .defined (.nameError name)
+      | .unsupported => .unsupportedDictionaryOperand
 
 /-- Save a positive witness for the evaluated constant. Its heap slot
 records the descriptor itself, so it is distinct from a fresh-object slot

@@ -76,6 +76,23 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
     outerFound, failed, Except.mapError]
 
+theorem evalDictionaryGet_agrees (space : Namespace) (heap : Core.Closure.Heap)
+    (globals : Core.Closure.Executor.GlobalLookup) (test : Core.Module.Dictionary.Get)
+    (same : (fun name => (space.lookupGlobal name).map Value.dictionaryRead) =
+      fun name => (globals name).map Core.Closure.Value.dictionaryRead) :
+    evalDictionaryGet space heap test =
+      ((Core.Closure.evalDictionaryGet heap globals test).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) := by
+  unfold evalDictionaryGet Core.Closure.evalDictionaryGet
+  rw [same]
+  cases test.eval (fun name => (globals name).map Core.Closure.Value.dictionaryRead) heap.dictionaryEntries? with
+  | error error => cases error <;> rfl
+  | ok value =>
+    cases value with
+    | text _ => rfl
+    | scalar value => cases value <;> rfl
+
 theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
