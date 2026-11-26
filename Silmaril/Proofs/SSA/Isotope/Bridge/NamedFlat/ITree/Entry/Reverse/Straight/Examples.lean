@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Straight.Thms
 
-/-! # Checked reversion of a product let followed by an exit or a back edge -/
+/-! # Checked reversion of lets and a sum case with a back edge -/
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.Examples
 
@@ -64,5 +64,45 @@ example {E : Type → Type} (M : Model (κ := SortName) E signature.Instr)
     region M.raw (extend ambient packet) (Program.ofCFGEntry (typed loop)).code =
       region M.raw (extend ambient packet) (admitted loop).program.code :=
   (lowered loop).packed_roundTrip M (typed loop) (admitted loop) PUnit.unit ambient
+
+private inductive SumOp where
+  | seed
+  deriving DecidableEq
+
+private def sumType : Ty SortName := .coprod .unit (.product .unit .unit)
+
+private instance : HasTy SumOp (Ty SortName) := ⟨fun _ => .unit, fun _ => sumType⟩
+private instance : HasEff SumOp Bool := ⟨fun _ => true⟩
+
+private def sumSignature : FlatInstitution.Signature.{0, 0} SortName where
+  Instr := SumOp
+
+private instance : DecidableEq sumSignature.Instr := inferInstanceAs (DecidableEq SumOp)
+
+private def noFields (_ : Label) : List (Register × Ty SortName) := []
+
+-- One arm exits with the left binder. The other keeps the original sum
+-- in scope across a differently typed right binder and feeds it back.
+private def sumLoop : FiniteCFG sumSignature.Instr 1 ports.exits.length ports.slots where
+  entry := .let₁ (.op .seed .unit) (.br 0 (.bv 0))
+  block _ := .case (.bv 0) (.br 2 (.pair (.bv 0) .unit)) (.br 0 (.bv 1))
+
+private theorem sumTyped : sumLoop.HasType ports.context (fun _ => sumType)
+    (LiveOut.exitInterface ports noFields).external :=
+  NamedFlat.check_sound sumLoop ports.context (fun _ => sumType) _ (by decide)
+
+private def sumLowered : Lowered ports noFields sumLoop :=
+  (lowerFresh labels ports.context ports.exits ports.external noFields sumLoop).get (by decide)
+
+private def sumAdmitted : LiveOut.Admission sumSignature ports noFields sumLowered.source :=
+  admit sumLowered (fun _ => sumType) (by decide) (by decide) (by decide)
+
+example : (sumLowered.reAdmit (fun _ => sumType)).isSome = true := by decide
+
+example {E : Type → Type} (M : Model (κ := SortName) E sumSignature.Instr)
+    (ambient : Env (Sigma C)) :
+    region M.raw (extend ambient packet) (Program.ofCFGEntry sumTyped).code =
+      region M.raw (extend ambient packet) sumAdmitted.program.code :=
+  sumLowered.packed_roundTrip M sumTyped sumAdmitted PUnit.unit ambient
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.Examples

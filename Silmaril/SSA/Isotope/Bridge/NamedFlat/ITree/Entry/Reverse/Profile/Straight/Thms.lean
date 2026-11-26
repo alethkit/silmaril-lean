@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Straight.Table
 
-/-! # Admission of straight-line reverse lowering with empty saved records -/
+/-! # Admission of reverse lowering with empty saved records -/
 
 public section
 

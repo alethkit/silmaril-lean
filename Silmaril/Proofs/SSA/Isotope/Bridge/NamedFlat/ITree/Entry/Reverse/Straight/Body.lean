@@ -81,16 +81,6 @@ private theorem operand_version {cur : V → Nat}
 
 variable [DecidableEq K]
 
-private theorem version_br (dest : K → Option (List V)) (live : List V) (cur : V → Nat)
-    (d : Nat) (label : K) (arg : Val V) (saved : Option (List V)) (hit : dest label = saved) :
-    Versioning.versionBody (F := F) (.term (.br label arg)) dest live cur d =
-      .term (.br label (match saved with
-        | none => Version.rn cur arg
-        | some regs => .pair (Version.rn cur arg) (Version.pack cur regs))) := by
-  apply Option.get_of_eq_some
-  simp only [CFG.Body.toRegion, CFG.Term.toRegion, Version.version, hit]
-  cases saved <;> rfl
-
 private theorem version_let1 (dest : K → Option (List V)) (live : List V) (cur : V → Nat)
     (d : Nat) (x : V) (op : Op V F) (tail : CFG.Body V K F) :
     Versioning.versionBody (.let1 x op tail) dest live cur d =
@@ -119,11 +109,61 @@ def Routes (index : K → Option (Fin labels)) (dest : K → Option (List V))
     (dest k = none ∧ new i = old i) ∨
       (dest k = some [] ∧ new i = .product (old i) .unit)
 
+omit [DecidableEq V] [DecidableEq K] in
+private theorem reify_term (r : Silmaril.SSA.LambdaRTL.Region V K F)
+    {tail : CFG.Term V K F} (read : CFG.Term.ofRegion? r = some tail) :
+    CFG.Body.ofRegion? r = some (.term tail) := by
+  cases r with
+  | br | case => exact congrArg (Option.map CFG.Body.term) read
+  | let1 | let2 | join => cases read
+
+/-- The reified terminator scopes each case arm using the version and type
+of its own binder. Both arms start from the same incoming scope. -/
+private theorem version_term (index : K → Option (Fin labels)) (dest : K → Option (List V))
+    (oldTypes newTypes : Fin labels → Ty Base) (routes : Routes index dest oldTypes newTypes)
+    (live : List V) (src : CFG.Term V K F) (d : Nat) (cur : V → Nat)
+    (names : Names V n) (ctx : BoundCtx (Ty Base) n)
+    (target : Names (V × Nat) m) (targetCtx : BoundCtx (Ty Base) m)
+    (scope : Scope cur names ctx target targetCtx)
+    {old : Flat F labels n} (read : term index names src = some old)
+    (checked : checkBody oldTypes ctx old = true) :
+    ∃ named next, CFG.Term.ofRegion? (Version.version dest live cur d src.toRegion) = some named ∧
+      term index target named = some next ∧ checkBody newTypes targetCtx next = true := by
+  induction src generalizing n m d cur with
+  | br label arg =>
+    simp only [term, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
+    obtain ⟨i, hit, exp, hExp, rfl⟩ := read
+    obtain ⟨e, he, ty⟩ := value_version scope arg hExp
+    have hType : infer targetCtx e = some (oldTypes i) := ty.trans (of_decide_eq_true checked)
+    rcases routes label i hit with ⟨route, same⟩ | ⟨route, packed⟩
+    · exact ⟨.br label (Version.rn cur arg), .br i e,
+        by simp [CFG.Term.toRegion, Version.version, route, CFG.Term.ofRegion?],
+        by simp [term, hit, he], by simp [checkBody, hType, same]⟩
+    · exact ⟨.br label (.pair (Version.rn cur arg) .unit), .br i (.pair e .unit),
+        by simp [CFG.Term.toRegion, Version.version, route, CFG.Term.ofRegion?, Version.pack],
+        by simp [term, hit, value, he], by simp [checkBody, infer, hType, packed]⟩
+  | case op x left y right ihLeft ihRight =>
+    simp only [term, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
+    obtain ⟨opOld, hOp, lOld, hLeft, rOld, hRight, rfl⟩ := read
+    obtain ⟨e, he, ty⟩ := operand_version scope op hOp
+    cases inferred : infer ctx opOld with
+    | none => simp [checkBody, inferred] at checked
+    | some type =>
+      cases type <;> simp only [checkBody, inferred, Bool.false_eq_true, Bool.and_eq_true] at checked
+      case coprod A B =>
+        obtain ⟨l, lFlat, lReified, lRead, lTyped⟩ :=
+          ihLeft (d + 1) _ _ _ _ _ (push scope x A d) hLeft checked.1
+        obtain ⟨r, rFlat, rReified, rRead, rTyped⟩ :=
+          ihRight (d + 1) _ _ _ _ _ (push scope y B d) hRight checked.2
+        exact ⟨.case (Version.rnOp cur op) (x, d + 1) l (y, d + 1) r, .case e lFlat rFlat,
+          by simp [CFG.Term.toRegion, Version.version, CFG.Term.ofRegion?, lReified, rReified],
+          by simp [term, he, lRead, rRead], by simp [checkBody, ty, inferred, lTyped, rTyped]⟩
+
 /-- Every supported source constructor reads back and passes local typing
 after the actual versioner has renamed the registers and wrapped the jumps. -/
 theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (List V))
     (oldTypes newTypes : Fin labels → Ty Base) (routes : Routes index dest oldTypes newTypes)
-    (live : List V) (src : CFG.Body V K F) (supported : bodySupported src = true)
+    (live : List V) (src : CFG.Body V K F)
     (d : Nat) (cur : V → Nat)
     (names : Names V n) (ctx : BoundCtx (Ty Base) n)
     (target : Names (V × Nat) m) (targetCtx : BoundCtx (Ty Base) m)
@@ -134,18 +174,12 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
       checkBody newTypes targetCtx next = true := by
   induction src generalizing n m d cur with
   | term tail =>
-    cases tail with
-    | case => cases supported
-    | br label arg =>
-      simp only [body, term, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
-      obtain ⟨i, hit, exp, hExp, rfl⟩ := read
-      obtain ⟨e, he, ty⟩ := value_version scope arg hExp
-      have hType : infer targetCtx e = some (oldTypes i) := ty.trans (of_decide_eq_true checked)
-      rcases routes label i hit with ⟨route, same⟩ | ⟨route, packed⟩
-      · refine ⟨.br i e, ?_, by simp [checkBody, hType, same]⟩
-        simp [version_br dest live cur d label arg none route, body, term, hit, he]
-      · refine ⟨.br i (.pair e .unit), ?_, by simp [checkBody, infer, hType, packed]⟩
-        simp [version_br dest live cur d label arg (some []) route, Version.pack, body, term, hit, value, he]
+    obtain ⟨named, next, parsed, readNext, typed⟩ :=
+      version_term index dest oldTypes newTypes routes live tail d cur names ctx target targetCtx scope read checked
+    have actual : Versioning.versionBody (.term tail) dest live cur d = .term named :=
+      Option.get_of_eq_some _ (reify_term _ parsed)
+    rw [actual]
+    exact ⟨next, readNext, typed⟩
   | let1 x op tail ih =>
     simp only [body, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
     obtain ⟨exp, expRead, rest, restRead, rfl⟩ := read
@@ -154,7 +188,7 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
     | none => simp [checkBody, h] at checked
     | some A =>
       have hTail : checkBody oldTypes (.snoc ctx A) rest = true := by simpa [checkBody, h] using checked
-      obtain ⟨b, hb, ht⟩ := ih supported (d + 1) _ _ _ _ _ (push scope x A d) restRead hTail
+      obtain ⟨b, hb, ht⟩ := ih (d + 1) _ _ _ _ _ (push scope x A d) restRead hTail
       exact ⟨.let₁ e b, by simp [version_let1, body, he, hb], by simp [checkBody, ty, h, ht]⟩
   | let2 x y op tail ih =>
     simp only [body, Option.bind_eq_some_iff, Option.map_eq_some_iff] at read
@@ -165,7 +199,7 @@ theorem version_body (index : K → Option (Fin labels)) (dest : K → Option (L
     | some T =>
       cases T <;> simp only [checkBody, h, Bool.false_eq_true] at checked
       case product A B =>
-        obtain ⟨b, hb, ht⟩ := ih supported (d + 2) _ _ _ _ _
+        obtain ⟨b, hb, ht⟩ := ih (d + 2) _ _ _ _ _
           (push (push scope x A d) y B (d + 1)) restRead checked
         exact ⟨.let₂ e b, by simp [version_let2, body, he, hb], by simp [checkBody, ty, h, ht]⟩
 
