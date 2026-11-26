@@ -482,6 +482,11 @@ globs = ["tests.ssa.PEG", "tests.ssa.PEGSimple", "tests.ssa.PEGRevert"]
 name = "PeggyEggTests"
 globs = ["tests.ssa.PeggyEgg"]
 
+# Check replay-validated optimization through emitted SIMPLE execution.
+[[lean_lib]]
+name = "PeggySimpleValidationTests"
+globs = ["tests.ssa.PeggySimpleValidation"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"

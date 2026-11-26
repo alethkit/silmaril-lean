@@ -109,7 +109,7 @@ private theorem row_bound (code : Code P params [] after) (p : Port after out)
       rw [get_map]
       exact Nat.succ_lt_succ (ih p slot)
 
-private theorem edge_forward (code : Code P params [] after) (outputs : Tuple (Port after) roots)
+theorem edge_forward (code : Code P params [] after) (outputs : Tuple (Port after) roots)
     {a b : Fin after.length} {kind : EdgeKind (Fin 0)}
     (edge : (code.toGraph outputs).Edge a kind b) : a.val < b.val := by
   obtain ⟨slot, _, eq⟩ := edge

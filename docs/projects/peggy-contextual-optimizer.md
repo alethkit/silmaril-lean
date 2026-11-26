@@ -78,12 +78,10 @@ when corresponding unfolded outputs compare equal.
 assumptions. The regression checks the shared and duplicated graphs
 and rejects swapped output slots.
 
-The optimizer and validator stop at the typed PEG observation boundary.
-SIMPLE lowering proves preservation of successful singleton returns,
-and SIMPLE reversion requires a separate checked demand schedule.
-A composed workflow needs that schedule and a result profile matching
-the SIMPLE theorems. [SIMPLE frontend PR](https://github.com/hiloopai/silmaril-lean/pull/3306) ·
-[SIMPLE reversion PR](https://github.com/hiloopai/silmaril-lean/pull/3348)
+The optimizer and validator expose the typed PEG observation boundary.
+The checked SIMPLE pipeline composes this boundary with the loop-free
+frontend and automatic scheduler for successful singleton returns.
+[Pipeline contract and worked example](peggy-simple-validation.md)
 
 ## Checks
 
