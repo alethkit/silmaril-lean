@@ -32,6 +32,12 @@ theorem evaluates_agree (program : Program) (available : List DeclarationId)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.evaluates_agree
     program available bodyMeaning ran
 
+theorem evaluated_length {block : LexicalBlock} {source : List (String × Lowering.Resolve.SourceExpr)}
+    {items : List PlainPositionalDefault} (related : Elaborates block source items)
+    {state final : State} {values : List Lists.Value} (evaluated : Evaluates block state items (.ok values final)) :
+    values.length = source.length :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Lexical.evaluated_length related evaluated
+
 /-- Evaluating the bounded operands only extends the heap and preserves
 the defining slot map, including when a later operand fails. -/
 theorem evaluates_keeps {block : LexicalBlock} {source : List (String × Lowering.Resolve.SourceExpr)}

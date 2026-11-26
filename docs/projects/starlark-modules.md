@@ -738,16 +738,54 @@ installation, preserves the earlier mutation, and prevents publication.
 Lean also inspects the original capture address and the allocation
 from the first default in the residual heap.
 
-The module trace still derives reached frames and stable declaration
-IDs only for its existing shapes. The next obligation is to compose
-local definition steps with a source body judgment that admits nested
-definitions and sequencing, then carry the resulting closure provenance
-into dispatch and publication. The local theorem takes independent
-source elaboration, the compiled declaration lookup, and a reached
-parent frame invariant. Wider default expressions, arbitrary callable
-provenance, keywords and spreads, loads, and text parsing remain outside
-this integration.
-[Local source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+The local theorem takes independent source elaboration, the compiled
+declaration lookup, and a reached parent frame invariant.
+[Local source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Thms.lean)
+
+### Sequencing reached definitions
+
+`Defaults.Nested.Sequence.Elaborates` composes any finite number of
+local definitions and intervening lexical assignments with a final
+return. Each child has the existing bounded straight-line body.
+`compiles` links the full suite to normalized source compilation.
+`collects` derives binder occurrences and `selects` gives the ordered
+free references in the defining block. Later definitions extend the
+code table while preserving earlier IDs. The running table may itself
+be an extension of the emitted table.
+
+`runs` constructs the independent source trace from the elaborated
+suite and the active frame invariant. Every successful prefix supplies
+the reached frame for default evaluation and ordered capture
+installation. The tail starts in the resulting state, where the
+definition's owned binding is live. A reached prefix or default error
+skips all later statements. The theorem matches the full outcome and
+frame with resolved execution and denotation and preserves the caller's
+cells below the activation boundary.
+
+`installation` exposes the exact local binding, function address, and
+default record. `prepare_installed` reuses the checked positional
+binder for a subsequent evaluated callee at that address when the
+record is still live. This gives the exact activation or binder error.
+Establishing that a later source operand selects that same record,
+particularly after aliases and returns, remains a separate provenance
+obligation.
+
+The regression uses an intermediate function that defines siblings
+before and after a defaulted child. It checks escape through a local
+alias, a forwarded cell and a shadowing parameter. A failing default
+retains the earlier allocation and sibling closure and skips the
+later sibling and publication. Lean exercises the inductive rule on
+the normalized intermediate body, and the module outcomes run through
+the existing evaluator and pinned Starlark-Go.
+
+Recursive elaboration of a child's own nested suite and a source
+invocation judgment that derives provenance across escape remain open.
+The existing module theorem covers its separately documented call
+shapes. Module-wide composition of the new sequence and call rules
+through publication, wider operands, arbitrary callable provenance,
+keywords and spreads, loads, and text parsing remain outside this
+integration.
+[Sequence rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

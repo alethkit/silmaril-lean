@@ -87,6 +87,13 @@ theorem total {block : LexicalBlock} {source : List (String × SourceExpr)} {ite
       | error => exact ⟨_, .next first tail, kept, fun _ _ h => nomatch h⟩
       | ok values final => exact ⟨_, .next first tail, kept, fun _ _ h => by cases h; simp [count _ _ rfl]⟩
 
+theorem evaluated_length {block : LexicalBlock} {source : List (String × SourceExpr)}
+    {items : List PlainPositionalDefault} (related : Elaborates block source items)
+    {state final : State} {values : List Value} (evaluated : Evaluates block state items (.ok values final)) :
+    values.length = source.length := by
+  obtain ⟨_, canonical, _, length⟩ := total related state
+  exact length values final (unique canonical evaluated)
+
 theorem evaluates_keeps {block : LexicalBlock} {source : List (String × SourceExpr)}
     {items : List PlainPositionalDefault} (related : Elaborates block source items) {state : State}
     {result : Outcome (List Value)} (evaluated : Evaluates block state items result) :

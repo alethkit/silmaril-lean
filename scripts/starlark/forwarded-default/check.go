@@ -28,10 +28,16 @@ other = [33, 44]
 notice = [0]
 def make(seed):
 %s    def relay(%s):
+        marker = [17]
+        def before():
+            return marker
         def inner(early=[73], saved=x, late=[99]):
             alias = saved
             return alias[x]
-%s        return inner
+        def after():
+            return 41
+        copy = inner
+%s        return copy
     notice[0] = 1
     escaped = relay(%s)
     x = 1
