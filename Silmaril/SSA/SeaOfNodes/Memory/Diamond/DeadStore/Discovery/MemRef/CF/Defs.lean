@@ -77,11 +77,15 @@ def run (program : Program cells args) (input : Tuple (Val cells) args) (guard :
   let (result, final) := program.run (evalBody input) fuel (.cons (BitVec.ofBool guard) .nil) initial
   result.map fun values => (values.get .here, final)
 
-/-- Read the actual destination and block arguments produced by the
-entry terminator after executing its MemRef body. -/
+/-- Execute the emitted entry once, exposing its CF outcome and full buffer. -/
+def entryTransition (program : Program cells args) (input : Tuple (Val cells) args) (guard : Bool)
+    (initial : Buffer cells) : (Silmaril.MLIR.CF.Frame Label ⊕ Env resultTypes) × Buffer cells :=
+  program.entry.eval (evalBody input) (.cons (BitVec.ofBool guard) .nil) initial
+
+/-- Read the destination and block arguments produced by the entry terminator. -/
 def entryDestination (program : Program cells args) (input : Tuple (Val cells) args) (guard : Bool)
     (initial : Buffer cells) : Silmaril.MLIR.CF.Frame Label ⊕ Env resultTypes :=
-  (program.entry.eval (evalBody input) (.cons (BitVec.ofBool guard) .nil) initial).1
+  (entryTransition program input guard initial).1
 
 structure Programs (cells : Nat) (args : List ValueSort) where
   input : Tuple (Val cells) args
