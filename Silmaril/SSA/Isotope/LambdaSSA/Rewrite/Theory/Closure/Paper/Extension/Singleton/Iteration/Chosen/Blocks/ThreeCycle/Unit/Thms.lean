@@ -18,6 +18,18 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "P" => TypeCategory (τ := τ) Φ
 local notation "U" => One (τ := τ) (Φ := Φ)
 
+/-- In the chosen three-phase coordinates, each phase forgets to a literal Unit. -/
+theorem phase_discards :
+    (coprod.inl ≫ (split (τ := τ) (Φ := Φ)).inv ≫ forget = reset) ∧
+    (coprod.inl ≫ coprod.inr ≫ (split (τ := τ) (Φ := Φ)).inv ≫ forget = reset) ∧
+    (coprod.inr ≫ coprod.inr ≫ (split (τ := τ) (Φ := Φ)).inv ≫ forget = reset) :=
+  ⟨by simpa only [Category.assoc] using
+      Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitThreeCycle.zero_forget (τ := τ) (Φ := Φ),
+   by simpa only [Category.assoc] using
+      Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitThreeCycle.one_forget (τ := τ) (Φ := Φ),
+   by simpa only [Category.assoc] using
+      Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitThreeCycle.two_forget (τ := τ) (Φ := Φ)⟩
+
 /-- Discarding the native cycle tags commutes with a round that absorbs
 literal Unit on input and on recurrence. -/
 theorem native_square {B : P} (g : U ⟶ B ⨿ U)
