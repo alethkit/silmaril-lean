@@ -20,6 +20,30 @@ local notation "Seed" => Paper.WithCaseReturns.JoinedStep (τ := τ) (Φ := Φ) 
 local notation "Comp" => Paper.WithCaseReturns.TypeCategory (τ := τ) (Φ := Φ) pe
 local notation "U" => ofType Seed (Silmaril.unit : τ)
 
+/-- Independently written native rows can be replayed when constructor
+discard gives the same erased row. Unit η identifies the projected discard
+with the fold, including when both rows have mixed recursive routing. -/
+theorem unit_fold_of_native_rows
+    (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (includeUnit : ∀ {Γ : VCtx τ} {r s : Region Φ} {L : LCtx τ},
+      Paper.WithUnitEta.Step Γ r s L → S Γ r s L)
+    {B : Paper.TypeCategory (τ := τ) Φ}
+    (left right : Paper.TypeCategory.ofType (Silmaril.unit : τ) ⟶
+      B ⨿ Paper.TypeCategory.ofType (Silmaril.coprod (Silmaril.unit : τ) Silmaril.unit))
+    (g : Paper.TypeCategory.ofType (Silmaril.unit : τ) ⟶ B ⨿ Paper.TypeCategory.ofType (Silmaril.unit : τ))
+    (leftErase : left ≫ coprod.map (𝟙 B) (Paper.TypeCategory.discardArrow _) = g)
+    (rightErase : right ≫ coprod.map (𝟙 B) (Paper.TypeCategory.discardArrow _) = g) :
+    let X := ofType S (Silmaril.unit : τ)
+    let P := Extension.Singleton.projection S
+    let bit := Paper.TypeCategory.ofType (Silmaril.coprod (Silmaril.unit : τ) Silmaril.unit)
+    let projectRow := fun a : Paper.TypeCategory.ofType (Silmaril.unit : τ) ⟶ B ⨿ bit =>
+      P.map a ≫ (PreservesColimitPair.iso P B bit).inv ≫
+        coprod.map (𝟙 (P.obj B)) (Extension.Singleton.sumIso S Silmaril.unit Silmaril.unit).hom
+    iterateChosen S (coprod.desc (projectRow left) (projectRow right)) =
+      coprod.desc (𝟙 X) (𝟙 X) ≫ iterateChosen S (projectStep S g) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitFoldUniformity.unit_fold_of_native_rows
+    S includeUnit left right g leftErase rightErase
+
 /-- Unit η proves the double-step equation in any contextual quotient containing it. -/
 theorem unit_alternate_power_of_seed
     (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)

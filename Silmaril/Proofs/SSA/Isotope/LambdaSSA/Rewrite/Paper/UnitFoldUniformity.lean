@@ -90,6 +90,79 @@ private theorem transported_drop :
   · rw [← Category.assoc, unitSumIso_inl, ← Functor.map_comp, tagL_drop, eta, coprod.inl_desc]
   · rw [← Category.assoc, unitSumIso_inr, ← Functor.map_comp, tagR_drop, eta, coprod.inr_desc]
 
+private theorem unitSumIso_hom_eq :
+    (unitSumIso Seed).hom = (sumIso Seed sunit sunit).inv := by
+  have h := congrArg Iso.inv (projection_mapIso_sumIso Seed sunit sunit)
+  change (F).map (Paper.TypeCategory.sumIso sunit sunit).inv =
+    (c U U).inv ≫ (sumIso Seed sunit sunit).inv at h
+  change (c U U).hom ≫ (F).map (Paper.TypeCategory.sumIso sunit sunit).inv = _
+  rw [h, Iso.hom_inv_id_assoc]
+
+private theorem unitSumIso_inv_eq :
+    (unitSumIso Seed).inv = (sumIso Seed sunit sunit).hom := by
+  apply (cancel_epi (unitSumIso Seed).hom).1
+  rw [Iso.hom_inv_id, unitSumIso_hom_eq, Iso.inv_hom_id]
+
+set_option backward.isDefEq.respectTransparency false in
+include includeUnit in
+theorem unit_fold_of_native_rows {B : P}
+    (left right : U ⟶ B ⨿ T) (g : U ⟶ B ⨿ U)
+    (leftErase : left ≫ coprod.map (𝟙 B) drop = g)
+    (rightErase : right ≫ coprod.map (𝟙 B) drop = g) :
+    let projectRow := fun a : U ⟶ B ⨿ T =>
+      (F).map a ≫ (c B T).inv ≫ coprod.map (𝟙 ((F).obj B)) (sumIso Seed sunit sunit).hom
+    iterateChosen Seed (coprod.desc (projectRow left) (projectRow right)) =
+      coprod.desc (𝟙 QU) (𝟙 QU) ≫ iterateChosen Seed (projectStep Seed g) := by
+  let b : T ⟶ B ⨿ T := (Paper.TypeCategory.sumIso sunit sunit).hom ≫
+    coprod.desc (reset ≫ left) (reset ≫ right)
+  let k : QU ⨿ QU ⟶ QU := coprod.desc (𝟙 QU) (𝟙 QU)
+  let i := unitSumIso Seed
+  have leftEq : tagL ≫ b = reset ≫ left := by
+    change (Paper.TypeCategory.sumCofan sunit sunit).inl ≫
+      (Paper.TypeCategory.sumIso sunit sunit).hom ≫ _ = _
+    rw [← Category.assoc, Paper.TypeCategory.sumCofan_inl_sumIso_hom, coprod.inl_desc]
+  have rightEq : tagR ≫ b = reset ≫ right := by
+    change (Paper.TypeCategory.sumCofan sunit sunit).inr ≫
+      (Paper.TypeCategory.sumIso sunit sunit).hom ≫ _ = _
+    rw [← Category.assoc, Paper.TypeCategory.sumCofan_inr_sumIso_hom, coprod.inr_desc]
+  have native : b ≫ coprod.map (𝟙 B) drop = drop ≫ (reset ≫ g) := by
+    apply BinaryCofan.IsColimit.hom_ext (Paper.TypeCategory.sumCofanIsColimit sunit sunit)
+    · change tagL ≫ (b ≫ _) = tagL ≫ (drop ≫ reset ≫ g)
+      rw [← Category.assoc, leftEq, Category.assoc, leftErase, ← Category.assoc tagL drop,
+        tagL_drop, ← Category.assoc reset reset, reset_idem]
+    · change tagR ≫ (b ≫ _) = tagR ≫ (drop ≫ reset ≫ g)
+      rw [← Category.assoc, rightEq, Category.assoc, rightErase, ← Category.assoc tagR drop,
+        tagR_drop, ← Category.assoc reset reset, reset_idem]
+  let row := fun a : U ⟶ B ⨿ T =>
+    (F).map a ≫ (c B T).inv ≫ coprod.map (𝟙 ((F).obj B)) i.inv
+  let f := coprod.desc (row left) (row right)
+  have eta : (F).map reset = 𝟙 QU := unit_eta_of_include Seed includeUnit
+  have coord : f ≫ coprod.map (𝟙 ((F).obj B)) i.hom = i.hom ≫ projectStep Seed b := by
+    dsimp only [f]
+    apply coprod.hom_ext
+    · rw [coprod.inl_desc_assoc, ← Category.assoc coprod.inl i.hom,
+        show coprod.inl ≫ i.hom = (F).map tagL from unitSumIso_inl Seed]
+      change row left ≫ coprod.map (𝟙 ((F).obj B)) i.hom =
+        (F).map tagL ≫ (F).map b ≫ (c B T).inv
+      rw [← Functor.map_comp_assoc, leftEq, Functor.map_comp, eta, Category.id_comp]
+      simp only [row, Category.assoc, coprod.map_map, Iso.inv_hom_id, coprod.map_id_id, Category.comp_id]
+    · rw [coprod.inr_desc_assoc, ← Category.assoc coprod.inr i.hom,
+        show coprod.inr ≫ i.hom = (F).map tagR from unitSumIso_inr Seed]
+      change row right ≫ coprod.map (𝟙 ((F).obj B)) i.hom =
+        (F).map tagR ≫ (F).map b ≫ (c B T).inv
+      rw [← Functor.map_comp_assoc, rightEq, Functor.map_comp, eta, Category.id_comp]
+      simp only [row, Category.assoc, coprod.map_map, Iso.inv_hom_id, coprod.map_id_id, Category.comp_id]
+  have out : projectStep Seed (reset ≫ g) = projectStep Seed g := by
+    change (F).map (reset ≫ g) ≫ (c B U).inv = _
+    rw [Functor.map_comp, eta, Category.id_comp]
+  have replay := uniformity_of_constructor_square Seed
+    (show Paper.TypeCategory.ConstructorReturn (drop : T ⟶ U) from ⟨.unit, .unit, rfl⟩)
+    b (reset ≫ g) native
+  have answer : iterateChosen Seed f = k ≫ iterateChosen Seed (projectStep Seed g) := by
+    rw [uniformity_of_iso Seed i _ _ coord, replay, ← Category.assoc,
+      show i.hom ≫ (F).map drop = k from transported_drop Seed includeUnit, out]
+  simpa only [f, row, i, unitSumIso_inv_eq] using answer
+
 private noncomputable def swapUnitTags : T ⟶ T :=
   (Paper.TypeCategory.sumIso sunit sunit).hom ≫ coprod.desc tagR tagL
 
@@ -118,47 +191,6 @@ private theorem transported_swap :
   · rw [← Category.assoc, ← Category.assoc, unitSumIso_inr, coprod.inr_desc,
       unitSumIso_inl, ← Functor.map_comp, tagR_swap]
 
-private noncomputable def routedUnitStep {B : P} (b : U ⟶ B ⨿ T) : T ⟶ B ⨿ T :=
-  (Paper.TypeCategory.sumIso sunit sunit).hom ≫ coprod.desc b (b ≫ coprod.map (𝟙 B) swapUnitTags)
-
-private theorem route_left {B : P} (b : U ⟶ B ⨿ T) : tagL ≫ routedUnitStep b = b := by
-  rw [routedUnitStep, ← Category.assoc, show tagL ≫ (Paper.TypeCategory.sumIso sunit sunit).hom = coprod.inl from
-    Paper.TypeCategory.sumCofan_inl_sumIso_hom sunit sunit, coprod.inl_desc]
-
-private theorem route_right {B : P} (b : U ⟶ B ⨿ T) :
-    tagR ≫ routedUnitStep b = b ≫ coprod.map (𝟙 B) swapUnitTags := by
-  rw [routedUnitStep, ← Category.assoc, show tagR ≫ (Paper.TypeCategory.sumIso sunit sunit).hom = coprod.inr from
-    Paper.TypeCategory.sumCofan_inr_sumIso_hom sunit sunit, coprod.inr_desc]
-
-private theorem routed_discard_square {B : P} (b : U ⟶ B ⨿ T) :
-    routedUnitStep (reset ≫ b) ≫ coprod.map (𝟙 B) drop =
-      drop ≫ ((reset ≫ b) ≫ coprod.map (𝟙 B) drop) := by
-  apply BinaryCofan.IsColimit.hom_ext (Paper.TypeCategory.sumCofanIsColimit sunit sunit)
-  · change tagL ≫ (routedUnitStep (reset ≫ b) ≫ _) = tagL ≫ (drop ≫ _)
-    rw [← Category.assoc, route_left, ← Category.assoc tagL drop, tagL_drop]
-    simp only [← Category.assoc, reset_idem]
-  · change tagR ≫ (routedUnitStep (reset ≫ b) ≫ _) = tagR ≫ (drop ≫ _)
-    rw [← Category.assoc, route_right, ← Category.assoc tagR drop, tagR_drop]
-    simp only [Category.assoc, coprod.map_map, Category.id_comp, swap_drop]
-    rw [← Category.assoc reset reset, reset_idem]
-
-set_option backward.isDefEq.respectTransparency false in
-private theorem transported_routing {B : P} (b : U ⟶ B ⨿ T)
-    (g : QU ⟶ (F).obj B ⨿ (QU ⨿ QU))
-    (base : (F).map b ≫ (c B T).inv = g ≫ coprod.map (𝟙 ((F).obj B)) (unitSumIso Seed).hom) :
-    (unitSumIso Seed).hom ≫ projectStep Seed (routedUnitStep b) =
-      coprod.desc g (g ≫ coprod.map (𝟙 ((F).obj B)) (coprod.desc coprod.inr coprod.inl)) ≫
-        coprod.map (𝟙 ((F).obj B)) (unitSumIso Seed).hom := by
-  apply coprod.hom_ext
-  · rw [coprod.inl_desc_assoc, ← Category.assoc, unitSumIso_inl]
-    change (F).map tagL ≫ (F).map (routedUnitStep b) ≫ (c B T).inv = _
-    rw [← Functor.map_comp_assoc, route_left, base]
-  · rw [coprod.inr_desc_assoc, ← Category.assoc, unitSumIso_inr]
-    change (F).map tagR ≫ (F).map (routedUnitStep b) ≫ (c B T).inv = _
-    rw [← Functor.map_comp_assoc, route_right, Functor.map_comp,
-      Category.assoc, ← mapSnd, ← Category.assoc, base, Category.assoc, coprod.map_map,
-      Category.id_comp, transported_swap, Category.assoc, coprod.map_map, Category.id_comp]
-
 set_option backward.isDefEq.respectTransparency false in
 include includeUnit in
 theorem unit_fold_of_shared_choice {B : Q} (g : QU ⟶ B ⨿ (QU ⨿ QU)) :
@@ -167,25 +199,39 @@ theorem unit_fold_of_shared_choice {B : Q} (g : QU ⟶ B ⨿ (QU ⨿ QU)) :
         iterateChosen Seed (g ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 QU) (𝟙 QU))) := by
   let i := unitSumIso Seed
   let k : QU ⨿ QU ⟶ QU := coprod.desc (𝟙 QU) (𝟙 QU)
-  let f := coprod.desc g (g ≫ coprod.map (𝟙 B) (coprod.desc coprod.inr coprod.inl))
+  let swap : QU ⨿ QU ⟶ QU ⨿ QU := coprod.desc coprod.inr coprod.inl
   obtain ⟨a, ha⟩ := (F).map_surjective (X := U) (Y := B.as ⨿ T)
     (g ≫ coprod.map (𝟙 B) i.hom ≫ (c B.as T).hom)
-  let b : U ⟶ B.as ⨿ T := reset ≫ a
-  have base : (F).map b ≫ (c B.as T).inv = g ≫ coprod.map (𝟙 B) i.hom := by
-    rw [show b = reset ≫ a from rfl, Functor.map_comp,
-      unit_eta_of_include Seed includeUnit, Category.id_comp, ha]
+  have base : (F).map a ≫ (c B.as T).inv = g ≫ coprod.map (𝟙 B) i.hom := by
+    rw [ha]
     simp only [Category.assoc, Iso.hom_inv_id, Category.comp_id]
-  have route : f ≫ coprod.map (𝟙 B) i.hom = i.hom ≫ projectStep Seed (routedUnitStep b) :=
-    (transported_routing Seed b g base).symm
-  have target : projectStep Seed (b ≫ coprod.map (𝟙 B.as) drop) = g ≫ coprod.map (𝟙 B) k := by
-    change (F).map (b ≫ coprod.map (𝟙 B.as) drop) ≫ (c B.as U).inv = _
-    rw [Functor.map_comp, Category.assoc, ← mapSnd, ← Category.assoc, base,
-      Category.assoc, coprod.map_map, Category.id_comp, transported_drop Seed includeUnit]
+  let row := fun a : U ⟶ B.as ⨿ T =>
+    (F).map a ≫ (c B.as T).inv ≫ coprod.map (𝟙 B) i.inv
+  have left : row a = g := by
+    dsimp only [row]
+    rw [← Category.assoc, base]
+    simp only [Category.assoc, coprod.map_map, Iso.hom_inv_id, coprod.map_id_id, Category.comp_id]
+  have right : row (a ≫ coprod.map (𝟙 B.as) swapUnitTags) = g ≫ coprod.map (𝟙 B) swap := by
+    dsimp only [row]
+    have compare := mapSnd Seed (Z := B.as) swapUnitTags
+    rw [Functor.map_comp, Category.assoc, ← reassoc_of% compare, ← Category.assoc ((F).map a), base]
+    simp only [Category.assoc, coprod.map_map, Category.id_comp]
+    rw [reassoc_of% transported_swap Seed, Iso.hom_inv_id, Category.comp_id]
+  have target : projectStep Seed (a ≫ coprod.map (𝟙 B.as) drop) = g ≫ coprod.map (𝟙 B) k := by
+    change (F).map (a ≫ coprod.map (𝟙 B.as) drop) ≫ (c B.as U).inv = _
+    rw [Functor.map_comp, Category.assoc, ← mapSnd, ← Category.assoc, base, Category.assoc,
+      coprod.map_map, Category.id_comp, transported_drop Seed includeUnit]
     rfl
-  have replay := uniformity_of_constructor_square Seed
-    (show Paper.TypeCategory.ConstructorReturn (drop : T ⟶ U) from ⟨.unit, .unit, rfl⟩)
-    (routedUnitStep b) (b ≫ coprod.map (𝟙 B.as) drop) (routed_discard_square a)
-  rw [uniformity_of_iso Seed i _ _ route, replay, ← Category.assoc, transported_drop Seed includeUnit, target]
+  have erase :
+      (a ≫ coprod.map (𝟙 B.as) swapUnitTags) ≫ coprod.map (𝟙 B.as) drop =
+        a ≫ coprod.map (𝟙 B.as) drop := by
+    rw [Category.assoc, coprod.map_map, Category.id_comp, swap_drop]
+  have replay := unit_fold_of_native_rows Seed includeUnit a
+    (a ≫ coprod.map (𝟙 B.as) swapUnitTags) (a ≫ coprod.map (𝟙 B.as) drop) rfl erase
+  rw [← unitSumIso_inv_eq Seed] at replay
+  change iterateChosen Seed (coprod.desc (row a) (row (a ≫ coprod.map (𝟙 B.as) swapUnitTags))) =
+    k ≫ iterateChosen Seed (projectStep Seed (a ≫ coprod.map (𝟙 B.as) drop)) at replay
+  simpa only [left, right, target] using replay
 
 set_option backward.isDefEq.respectTransparency false in
 include includeUnit in
