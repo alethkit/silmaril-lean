@@ -75,6 +75,19 @@ theorem alternating_fold_square {A B : Q} (g : A ⟶ B ⨿ A) :
       coprod.desc (𝟙 A) (𝟙 A) ≫ g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.alternating_fold_square pe g
 
+/-- A fold square is uniform when one mode only recurs into itself.
+The other mode can still recur into either mode. -/
+theorem binary_fold_of_closed_mode {A B : Q}
+    (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (closed :
+      coprod.inl ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) ∨
+      coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inr : A ⟶ A ⨿ A)) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.binary_fold_of_closed_mode
+    Seed f g square closed
+
 /-- The alternating reduction uses the same chosen iteration in any contextual quotient. -/
 theorem alternating_fold_iff_double_of_seed
     (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
