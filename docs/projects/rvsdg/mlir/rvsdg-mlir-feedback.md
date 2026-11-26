@@ -74,14 +74,40 @@ Both observations include the complete carry tuple. The
 and a stopping activation, and checks SCF agreement for immediate exit and
 16-bit overflow.
 
-The mixed θ in [#4109][mixed-theta] has a data-only primitive row, but the
-classifier consumes and returns a runtime token. In [#4277][mixed-prefix] the
-θ seed and exit, the carrier conversion, and the ordered continuation all
-retain that token. Those boundary profiles fail `NoState`. The classifier
-also runs in `StateT σ Part` and may update the store or fail to return.
-The mixed finite-return observation includes the final store and exit label.
-An extension to that family needs a target with ordered effect and partial
-execution semantics, with agreement on the threaded store.
+## Ordered CF for a recovered mixed θ
+
+The classifier consumes and returns a live runtime token. The mixed prefix
+also carries that token across its
+carrier conversion and recursive suffix. These profiles fail the stateless
+bridge's `NoState` predicate. Native `SCF.While` takes a total primitive
+evaluator. Its result can express finite fuel exhaustion, while its primitive
+contract has no live store or undefined primitive action.
+[Singleton recovery][mixed-theta] · [Mixed prefix][mixed-prefix] · [Native SCF][native-scf]
+
+The ordered CF bridge takes the recovery fibre that certifies exact re-emission
+of the single numbered θ from #4109. The existing ordered CF contract runs
+its blocks in a shared monad. The target has a typed entry branch,
+a conditional backedge, and a return. Its project-defined bodies retain both
+recovered binding orders and read the old carry in each binding. They evaluate
+the bottom-effect value row separately from the classifier. The classifier
+runs in `StateT σ Part`, and the scheduler passes its returned store to the
+next block on either edge. The body sends only the classifier's restart bit
+and the updated value through CF operands. The live token is the scheduler's
+input and output store.
+[Bridge theorems][mixed-cf] · [Ordered CF contract][cf-ordered] · [#3734][cf-ordered-pr]
+
+The boundary admits one carried value with an explicit isomorphism to a
+`BitVec` of positive width. `MixedTheta.returns_iff` preserves and reflects
+finite return of the generated ordered CFG at the encoded carry and exact
+final store. Fuel exhaustion is separate from an undefined classifier.
+The regression recovers both row orders, exercises two backedges and a
+stopping activation with a changed store, and proves no finite return after
+one restart reaches an undefined classifier. [Regression][mixed-fixture]
+
+This is a Lean integration with project-defined ordered CF bodies and
+standard typed CF terminators. Its proof applies to the recovered singleton θ
+and finite returns. Native SCF emission, the recursive mixed suffix, general
+effects, and infinite traces are outside the admitted interface.
 
 [whole-theta]: ../../../../Silmaril/SSA/RVSDG/MLIR/Graph/Feedback/Theta/Thms.lean
 [peg-scoped]: ../../../../Silmaril/SSA/PEG/Bridge/Theta/Region/MLIR/Scoped/Thms.lean
@@ -91,10 +117,24 @@ execution semantics, with agreement on the threaded store.
 [mixed-theta]: https://github.com/hiloopai/silmaril-lean/pull/4109
 [mixed-prefix]: https://github.com/hiloopai/silmaril-lean/pull/4277
 
+[mixed-cf]: ../../../../Silmaril/SSA/RVSDG/MLIR/CF/MixedTheta/Thms.lean
+[cf-ordered]: ../../../../Silmaril/SSA/MLIR/CF/Ordered/Defs.lean
+[cf-ordered-pr]: https://github.com/hiloopai/silmaril-lean/pull/3734
+[native-scf]: ../../../../Silmaril/SSA/MLIR/SCF/While/Defs.lean
+[mixed-fixture]: ../../../../Silmaril/Proofs/SSA/RVSDG/MLIR/CF/MixedTheta/Regression.lean
+
 ## Verify
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.MLIR.Graph.Feedback.Examples PEGStructuredThetaTests
 make check CHECK_TARGETS="+Silmaril.SSA.RVSDG.MLIR.Graph.Feedback.Examples \
 +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Check.Defs PEGStructuredThetaTests"
+```
+
+The following commands check the mixed θ bridge and its recovery and execution fixture.
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.MLIR.CF.MixedTheta.Regression
+make check CHECK_TARGETS="+Silmaril.Proofs.SSA.RVSDG.MLIR.CF.MixedTheta.Regression \
++Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Check.Defs"
 ```
