@@ -1512,6 +1512,22 @@ return on the other. An extra request would fault under the witness
 handler. The actual loop produces ordinary divergence.
 [Named silent terminal transport][ssa-ub-named-ordered-liveout-silent]
 
+The packet-indexed profile also admits native pure sum dispatch with a
+constructor jump from each arm. The selected arm binds its sum payload and
+can read the incoming packet and fixed caller. The executable scan counts
+full typed label/packet configurations in an exhaustive inventory.
+Exhaustion gives an infinite silent path with a repeated full configuration.
+Silent transfers keep the store and issue no query.
+
+`Silent.Dispatch.Table.observe_entry` identifies the complete decorated
+observation of an exact-readback original CFG with feedback over the
+computed heads, including productive request replay, fault states and
+selected ordered exits. A single guarded row at each written label cannot
+encode all computed heads. The same label can expose an ordered exit for
+one packet and ordinary divergence for another. The reachable product
+still consumes the earlier guarded table interface.
+[Packet-indexed silent dispatch][ssa-ub-packet-dispatch]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1688,6 +1704,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-named-ordered-liveout-reachable]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Reachable/Thms.lean
 [ssa-ub-named-ordered-liveout-silent]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Silent/Thms.lean
 [ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
+[ssa-ub-packet-dispatch]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 
