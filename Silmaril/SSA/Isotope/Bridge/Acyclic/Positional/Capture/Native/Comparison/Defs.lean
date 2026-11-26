@@ -30,7 +30,7 @@ local notation "Term" => LetCase.LocallyNameless.Tm Empty
 open Region.Paper.RetainedLet (returnOnce)
 open Morphism.CaseSSA (erase)
 
-/-- The remaining root obligation is substitution of a pure LetCase expression
+/-- The root obligation for general signatures is substitution of a pure LetCase expression
 whose erasure is not an SSA branch value. The endpoint types and the literal
 substitution are those of native LetCase let β. -/
 def PureLetBetaReplay {α : Type u} {Ψ : Type v} [HasTy Ψ (Ty α)] {ε : Type w} [HasEff Ψ ε]

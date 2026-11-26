@@ -59,7 +59,7 @@ private theorem split_let (ha : Typed Γ a A) (hb : Typed (A :: Γ) b B) :
   let step := UnaryReturn.Step.fuse ha hb
   (Extension.Eqv.extra step.typed.1 step.typed.2 (unary_seed step)).symm
 
-private theorem return_refl (ha : Typed Γ a A) : ReturnEq Γ a a A :=
+theorem return_refl (ha : Typed Γ a A) : ReturnEq Γ a a A :=
   .refl (UnaryReturn.returnOnce_valueBranches ha).hasType
 
 private theorem post_return {L : LCtx (Ty α)} {r k : Region Φ}
@@ -116,7 +116,7 @@ private theorem erase_under₂ {n : Nat} (t : CaseTm Φ (n + 2)) :
     erase t.underTwoBinders = (erase t).rename (lift (lift Nat.succ)) :=
   Morphism.CaseSSA.erase_rename _ _ (Fin.cases rfl (Fin.cases rfl (fun _ => rfl))) t
 
-private theorem let_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A)
+theorem let_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A)
     (hb : Typed (A :: Γ) b B) (hb' : Typed (A :: Γ) b' B)
     (e : ReturnEq Γ a a' A) (k : ReturnEq (A :: Γ) b b' B) :
     ReturnEq Γ (.let₁ a b) (.let₁ a' b') B :=
@@ -138,7 +138,7 @@ private theorem pair_split (ha : Typed Γ a A) (hb : Typed Γ b B) :
   ordered (.extra (UnaryReturn.returnOnce_valueBranches (.pair ha hb)).hasType
     (WithPairReturns.pairSequence_typed ha hb).hasType (.inr (.seq ha hb)))
 
-private theorem pair_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A)
+theorem pair_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A)
     (hb : Typed Γ b B) (hb' : Typed Γ b' B)
     (e : ReturnEq Γ a a' A) (k : ReturnEq Γ b b' B) :
     ReturnEq Γ (.pair a b) (.pair a' b') (Ty.product A B) := by
@@ -150,7 +150,7 @@ private theorem pair_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A)
     moved (.refl tail))
   exact (pair_split ha hb).trans (both.trans (pair_split ha' hb').symm)
 
-private theorem let₂_congr (ha : Typed Γ a (Ty.product A B)) (ha' : Typed Γ a' (Ty.product A B))
+theorem let₂_congr (ha : Typed Γ a (Ty.product A B)) (ha' : Typed Γ a' (Ty.product A B))
     (hb : Typed (B :: A :: Γ) b D) (hb' : Typed (B :: A :: Γ) b' D)
     (e : ReturnEq Γ a a' (Ty.product A B)) (k : ReturnEq (B :: A :: Γ) b b' D) :
     ReturnEq Γ (.let₂ a b) (.let₂ a' b') D := by
@@ -162,21 +162,21 @@ private theorem let₂_congr (ha : Typed Γ a (Ty.product A B)) (ha' : Typed Γ 
   exact (operand (Continuation.split_let₂ ha hb)).trans
     (move.trans (right.symm.trans (operand (Continuation.split_let₂ ha' hb')).symm))
 
-private theorem inl_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A) (e : ReturnEq Γ a a' A) :
+theorem inl_congr (ha : Typed Γ a A) (ha' : Typed Γ a' A) (e : ReturnEq Γ a a' A) :
     ReturnEq Γ (.inl a) (.inl a') (Ty.coprod A B) := by
   have tail : HasType (A :: Γ) (.br 0 (.inl (.var 0)) : Region Φ) [Ty.coprod A B] :=
     .br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))
   exact (operand (Continuation.split_inl ha)).trans
     ((bind_congr ha ha' e (.refl tail)).trans (operand (Continuation.split_inl ha')).symm)
 
-private theorem inr_congr (ha : Typed Γ a B) (ha' : Typed Γ a' B) (e : ReturnEq Γ a a' B) :
+theorem inr_congr (ha : Typed Γ a B) (ha' : Typed Γ a' B) (e : ReturnEq Γ a a' B) :
     ReturnEq Γ (.inr a) (.inr a') (Ty.coprod A B) := by
   have tail : HasType (B :: Γ) (.br 0 (.inr (.var 0)) : Region Φ) [Ty.coprod A B] :=
     .br (ℓ := 0) rfl (.inr (.var (i := 0) rfl))
   exact (operand (Continuation.split_inr ha)).trans
     ((bind_congr ha ha' e (.refl tail)).trans (operand (Continuation.split_inr ha')).symm)
 
-private theorem case_congr {e e' l l' r r' : Tm Φ}
+theorem case_congr {e e' l l' r r' : Tm Φ}
     (he : Typed Γ e (Ty.coprod A B)) (he' : Typed Γ e' (Ty.coprod A B))
     (hl : Typed (A :: Γ) l D) (hl' : Typed (A :: Γ) l' D)
     (hr : Typed (B :: Γ) r D) (hr' : Typed (B :: Γ) r' D)
@@ -205,13 +205,13 @@ private theorem let_eta (ha : Typed Γ a A) : ReturnEq Γ (.let₁ a (.var 0)) a
     (.let₁ ha (.paper (.cfgEta (.native (.letValue (.var (i := 0) rfl)
       (.br (ℓ := 0) rfl (.var (i := 0) rfl)))))))
 
-private theorem case_beta_left {l r : Tm Φ} (ha : Typed Γ a A) (hl : Typed (A :: Γ) l D)
+theorem case_beta_left {l r : Tm Φ} (ha : Typed Γ a A) (hl : Typed (A :: Γ) l D)
     (hr : Typed (B :: Γ) r D) : ReturnEq Γ (.case (.inl a) l r) (.let₁ a l) D :=
   (operand (Continuation.split_return (.inl ha) hl hr)).trans
     ((Extension.Eqv.paper (.cfgEta (.native (.base (.caseInl ha (UnaryReturn.returnOnce_valueBranches hl).hasType
       (UnaryReturn.returnOnce_valueBranches hr).hasType))))).trans (split_let ha hl).symm)
 
-private theorem case_beta_right {l r : Tm Φ} (ha : Typed Γ a B) (hl : Typed (A :: Γ) l D)
+theorem case_beta_right {l r : Tm Φ} (ha : Typed Γ a B) (hl : Typed (A :: Γ) l D)
     (hr : Typed (B :: Γ) r D) : ReturnEq Γ (.case (.inr a) l r) (.let₁ a r) D :=
   (operand (Continuation.split_return (.inr ha) hl hr)).trans
     ((Extension.Eqv.paper (.cfgEta (.native (.base (.caseInr ha (UnaryReturn.returnOnce_valueBranches hl).hasType
@@ -221,14 +221,16 @@ private theorem return_value (ha : Tm.BranchValue Γ a A) :
     ReplayEqv pe Γ (returnOnce a) (.br 0 a) [A] :=
   .paper (.cfgEta (.native (.letValue ha (.br (ℓ := 0) rfl (.var (i := 0) rfl)))))
 
-private theorem unit_eta (ha : Typed Γ a Ty.unit) : ReturnEq Γ (.let₁ a .unit) a Ty.unit := by
-  have slot : Tm.BranchValue (Ty.unit :: Γ) (.var 0 : Tm Φ) Ty.unit := .var (i := 0) rfl
-  have η := WithUnitEta.branch_unit_eta slot (rfl : At [Ty.unit] 0 (Ty.unit : Ty α))
+theorem unit_branch (h : Tm.BranchValue Γ a Ty.unit) :
+    ReplayEqv pe Γ (.br 0 .unit) (.br 0 a) [Ty.unit] := by
+  have η := WithUnitEta.branch_unit_eta h (rfl : At [Ty.unit] 0 (Ty.unit : Ty α))
   have includeUnit {Δ : VCtx (Ty α)} {K : LCtx (Ty α)} {r s : Region Φ} :
       WithUnitEta.Step Δ r s K → ReplaySeed pe Δ r s K :=
     fun e => .inr (.inl (.inl (.inl (.inl (.inl (.inl (.inl (.inr e))))))))
-  have step := WithProjectionReturnsAndUnitEta.WithBranchBinding.mapSeed includeUnit η
-  exact (split_let ha .unit).trans (.let₁ ha ((return_value .unit).trans step))
+  exact WithProjectionReturnsAndUnitEta.WithBranchBinding.mapSeed includeUnit η
+
+theorem unit_eta (ha : Typed Γ a Ty.unit) : ReturnEq Γ (.let₁ a .unit) a Ty.unit :=
+  (split_let ha .unit).trans (.let₁ ha ((return_value .unit).trans (unit_branch (.var (i := 0) rfl))))
 
 private theorem bind_let {c : Tm Φ} (ha : Typed Γ a A) (hb : Typed (A :: Γ) b B)
     (hc : Typed (B :: Γ) c D) :
@@ -316,7 +318,7 @@ private theorem pair_eta (ha : Typed Γ a (Ty.product A B)) :
     ((split_let ha rebuild).trans (.let₁ ha ((operand (Continuation.split_let₂ (.var (i := 0) rfl) fields.hasType)).trans
       ((Extension.Eqv.let₂ (.var (i := 0) rfl) (return_value fields)).trans eta))))
 
-private theorem case_eta (ha : Typed Γ a (Ty.coprod A B)) :
+theorem case_eta (ha : Typed Γ a (Ty.coprod A B)) :
     ReturnEq Γ (.case a (.inl (.var 0)) (.inr (.var 0))) a (Ty.coprod A B) := by
   let S := Ty.coprod A B
   have scr : Tm.BranchValue (S :: Γ) (.var 0 : Tm Φ) S := .var (i := 0) rfl
@@ -398,18 +400,78 @@ private theorem pair_beta {c : Tm Φ} (ha : Typed Γ a A) (hb : Typed Γ b B)
     ((Extension.Eqv.let₁ ha (.let₁ next β)).trans
       ((Extension.Eqv.let₁ ha (split_let next hc).symm).trans (split_let ha (.let₁ next hc)).symm)))
 
+/-- Substitute term comparisons through all exact constructors. Renaming under
+each binder preserves its newest slot and weakens both compared images. -/
+private theorem subst_return {Δ : VCtx (Ty α)} {σ υ : Nat → Tm Φ} (h : Typed Γ a A)
+    (hσ : Tm.Subst.HasType Γ Δ σ) (hυ : Tm.Subst.HasType Γ Δ υ)
+    (e : ∀ ⦃i T⦄, At Γ i T → ReturnEq Δ (σ i) (υ i) T) :
+    ReturnEq Δ (a.subst σ) (a.subst υ) A := by
+  have liftEq {Ξ Ξ' : VCtx (Ty α)} {θ η : Nat → Tm Φ} (T : Ty α)
+      (he : ∀ ⦃i A⦄, At Ξ i A → ReturnEq Ξ' (θ i) (η i) A) :
+      ∀ ⦃i A⦄, At (T :: Ξ) i A → ReturnEq (T :: Ξ') (Tm.liftSubst θ i) (Tm.liftSubst η i) A := by
+    intro i X hi
+    cases i with
+    | zero => exact return_refl (.var hi)
+    | succ i => exact (he hi).renameVars (Ren.wk Ξ' T)
+  induction h generalizing Δ σ υ with
+  | var hi => exact e hi
+  | unit => exact return_refl .unit
+  | op ht ih => exact op_congr _ (ht.subst hσ) (ht.subst hυ) (ih hσ hυ e)
+  | let₁ ha hb ia ib =>
+    exact let_congr (ha.subst hσ) (ha.subst hυ) (hb.subst (hσ.lift _)) (hb.subst (hυ.lift _))
+      (ia hσ hυ e) (ib (hσ.lift _) (hυ.lift _) (liftEq _ e))
+  | let₂ ha hb ia ib =>
+    exact let₂_congr (ha.subst hσ) (ha.subst hυ) (hb.subst ((hσ.lift _).lift _)) (hb.subst ((hυ.lift _).lift _))
+      (ia hσ hυ e) (ib ((hσ.lift _).lift _) ((hυ.lift _).lift _) (liftEq _ (liftEq _ e)))
+  | pair ha hb ia ib =>
+    exact pair_congr (ha.subst hσ) (ha.subst hυ) (hb.subst hσ) (hb.subst hυ) (ia hσ hυ e) (ib hσ hυ e)
+  | inl ha ih => exact inl_congr (ha.subst hσ) (ha.subst hυ) (ih hσ hυ e)
+  | inr ha ih => exact inr_congr (ha.subst hσ) (ha.subst hυ) (ih hσ hυ e)
+  | case he hl hr ie il ir =>
+    exact case_congr (he.subst hσ) (he.subst hυ)
+      (hl.subst (hσ.lift _)) (hl.subst (hυ.lift _)) (hr.subst (hσ.lift _)) (hr.subst (hυ.lift _))
+      (ie hσ hυ e) (il (hσ.lift _) (hυ.lift _) (liftEq _ e)) (ir (hσ.lift _) (hυ.lift _) (liftEq _ e))
+  | abort ha ih => exact abort_congr (ha.subst hσ) (ha.subst hυ) (ih hσ hυ e)
+
+theorem let_beta_branch (h : Tm.BranchValue Γ a A) (k : Typed (A :: Γ) b B) :
+    ReturnEq Γ (.let₁ a b) (b.subst (Tm.singleSubst a)) B :=
+  (split_let h.hasType k).trans (.paper (.cfgEta (.native
+    (.letValue h (UnaryReturn.returnOnce_valueBranches k).hasType))))
+
+theorem let₂_beta_branch {c : Tm Φ} (ha : Tm.BranchValue Γ a A) (hb : Tm.BranchValue Γ b B)
+    (hk : Typed (B :: A :: Γ) c D) :
+    ReturnEq Γ (.let₂ (.pair a b) c) (c.subst (Tm.consSubst b (Tm.singleSubst a))) D :=
+  (operand (Continuation.split_let₂ (.pair ha.hasType hb.hasType) hk)).trans
+    (.paper (.productBeta (.let₂Beta ha hb (UnaryReturn.returnOnce_valueBranches hk).hasType)))
+
+/-- If the producer replays to a typed branch value, native value β and
+substitution congruence give β at the original producer and body. -/
+theorem let_beta_of_value (h : Typed Γ a A) (k : Typed (A :: Γ) b B)
+    {c : Tm Φ} (hc : Tm.BranchValue Γ c A) (e : ReturnEq Γ a c A) :
+    ReturnEq Γ (.let₁ a b) (b.subst (Tm.singleSubst a)) B := by
+  have substEq : ∀ ⦃i T⦄, At (A :: Γ) i T → ReturnEq Γ (Tm.singleSubst c i) (Tm.singleSubst a i) T := by
+    intro i T ht
+    cases i with
+    | zero =>
+      cases Option.some.inj ht
+      exact e.symm
+    | succ i => exact return_refl (.var ht)
+  exact (let_congr h hc.hasType k k e (return_refl k)).trans
+    ((let_beta_branch hc k).trans (subst_return k (Tm.Subst.HasType.single hc.hasType) (Tm.Subst.HasType.single h) substEq))
+
+theorem erase_instantiate_single {n : Nat} (a : CaseTm Φ n) (b : CaseTm Φ (n + 1)) :
+    erase (b.instantiate a) = (erase b).subst (Tm.singleSubst (erase a)) := by
+  rw [Morphism.CaseSSA.erase_instantiate]
+  congr 1
+  funext i
+  cases i <;> rfl
+
 private theorem let_beta_value {n : Nat} {β : BoundCtx (Ty α) n} {a : CaseTm Φ n}
     {b : CaseTm Φ (n + 1)} (ha : Tm.BranchValue β.toList (erase a) A)
     (hb : CaseType Φ Γ₀ (β.snoc A) b B) :
     ReturnEq β.toList (erase (.let₁ a b)) (erase (b.instantiate a)) B := by
-  have step := Extension.Eqv.paper (Seed := ReplaySeed pe)
-    (.cfgEta (.native (.letValue ha (UnaryReturn.returnOnce_valueBranches (erase_hasType hb)).hasType)))
-  rw [Morphism.CaseSSA.erase_instantiate]
-  have substitute : (fun i => Nat.casesOn i (erase a) Tm.var) = Tm.singleSubst (erase a) := by
-    funext i
-    cases i <;> rfl
-  rw [substitute]
-  exact (split_let ha.hasType (erase_hasType hb)).trans step
+  rw [erase_instantiate_single]
+  exact let_beta_branch ha (erase_hasType hb)
 
 private theorem let_beta (beta : PureLetBetaReplay (Ψ := Φ) (α := α) pe)
     {n : Nat} {β : BoundCtx (Ty α) n} {a : CaseTm Φ n} {b : CaseTm Φ (n + 1)}

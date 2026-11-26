@@ -6,6 +6,8 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Model.Thms
 public import Silmaril.SSA.Isotope.LetCase.Structural.Finite.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Native.Comparison.Semantics
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Native.Comparison.Replay
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Native.Comparison.Pure
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Native.Comparison.PureContext
 
 /-! # Two-program comparison for checked captured ranked graphs -/
 
@@ -94,6 +96,23 @@ theorem Table.packed_replay_of_equiv (beta : PureLetBetaReplay (Ψ := Φ) (α :=
     ReplayEqv pe β.toList (p.packedSSA i a) (q.packedSSA j b) [packedExitType L] :=
   (p.packed_replay_iff_reified (pe := pe) q hp hq i j a b).mpr (reify_equiv_of_pureLetBeta beta _ _ eq)
 
+open Region.Paper.RetainedLet (returnOnce)
+
+/-- A case rebuilding a sum of units with literal payloads is a valid
+substituend for any exactly typed continuation. -/
+theorem unit_case_letBeta {k : Tm Φ} {Γ : VCtx (Ty α)} {D : Ty α}
+    (h : Tm.HasType Γ (.var 0 : Tm Φ) (Ty.coprod Ty.unit Ty.unit))
+    (hk : Tm.HasType (Ty.coprod Ty.unit Ty.unit :: Γ) k D) :
+    ReplayEqv pe Γ (returnOnce (.let₁ (.case (.var 0) (.inl .unit) (.inr .unit)) k))
+      (returnOnce (k.subst (Tm.singleSubst (.case (.var 0) (.inl .unit) (.inr .unit))))) [D] :=
+  unit_case_beta_proof h hk
+
+/-- For atom-free types, constructor specialization proves pure let β for
+any continuation when the effect marking excludes pure primitive calls. -/
+theorem PureLetBetaReplay.of_noPureInstructions {Ψ : Type v} [HasTy Ψ (Ty Empty)] [HasEff Ψ ε]
+    (noPure : ∀ f : Ψ, ¬ IsPure pe f) : PureLetBetaReplay (α := Empty) (Ψ := Ψ) pe :=
+  pureLetBetaReplay_proof noPure
+
 end Replay
 
 section Finite
@@ -106,6 +125,18 @@ open scoped LetCase.Structural.Finite LetSeq.StraightLine.Structural
 variable {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {d n m : Nat} {β : Context d} {L : List Types}
   (p : Table Φ β L n) (q : Table Φ β L m) (hp : p.check = true) (hq : q.check = true)
   (i : Fin (n + 1)) (j : Fin (m + 1)) (a : Operand Φ β (p.types i)) (b : Operand Φ β (q.types j))
+
+/-- The finite trace signature marks all primitive calls as effectful, so
+every pure let β instance has a proof in the existing SSA replay closure. -/
+theorem finite_pureLetBetaReplay : PureLetBetaReplay (α := Empty) (Ψ := Φ) false :=
+  PureLetBetaReplay.of_noPureInstructions (fun _ hf => Bool.noConfusion hf)
+
+/-- Native finite-signature LetCase derivations transport through the actual
+guarded reifier, including pure let β on computed expressions. -/
+theorem reify_equiv_finite {t u : LetCase.LocallyNameless.Tm Empty Φ d} {A : Types}
+    (dt : Derivation Φ Γ₀ β t A) (du : Derivation Φ Γ₀ β u A) (eq : Equiv false Γ₀ β t u A) :
+    ReplayEqv false β.toList ((Code.ofLetCase dt).guardedSSA 0) ((Code.ofLetCase du).guardedSSA 0) [A] :=
+  reify_equiv_of_pureLetBeta finite_pureLetBetaReplay dt du eq
 
 /-- Inhabited finite inputs and primitive interfaces admit the existing
 ordered typed trace separator on the original packed CFGs. -/
@@ -130,6 +161,13 @@ theorem Table.packed_replay_iff_equiv (input : StructuralContext β)
     ReplayEqv false β.toList (p.packedSSA i a) (q.packedSSA j b) [packedExitType L] ↔
       Equiv false Γ₀ β (p.toLetCase hp i a).1 (q.toLetCase hq j b).1 (packedExitType L) :=
   ⟨p.equiv_of_packed_replay q hp hq i j a b input, p.packed_replay_of_equiv q hp hq i j a b beta⟩
+
+/-- At inhabited finite inputs, native SSA replay and native LetCase
+derivability compare the original packed graphs and their actual emitted terms. -/
+theorem Table.packed_replay_iff_equiv_finite (input : StructuralContext β) :
+    ReplayEqv false β.toList (p.packedSSA i a) (q.packedSSA j b) [packedExitType L] ↔
+      Equiv false Γ₀ β (p.toLetCase hp i a).1 (q.toLetCase hq j b).1 (packedExitType L) :=
+  p.packed_replay_iff_equiv q hp hq i j a b input finite_pureLetBetaReplay
 
 end Finite
 
