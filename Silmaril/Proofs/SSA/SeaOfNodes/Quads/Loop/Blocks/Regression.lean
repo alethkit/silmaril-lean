@@ -1,50 +1,11 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks.Example.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks
 
-open RVSDG (Port Tuple)
-open Diamond (ValueSort Model dataPorts)
-
-private abbrev num : ValueSort Unit := .data ()
-private abbrev regs : List (ValueSort Unit) := [num, num, num, num, num, .predicate]
-private abbrev ports := dataPorts regs
-
-private inductive Arithmetic : Diamond.Signature Unit where
-  | copy : Arithmetic [num] num
-  | add : Arithmetic [num, num] num
-  | pred : Arithmetic [num] num
-  | positive : Arithmetic [num] .predicate
-
-private def arithmetic : Model Arithmetic where
-  value _ := Nat
-  run
-    | .copy, .cons x .nil => x
-    | .add, .cons x (.cons y .nil) => Nat.add x y
-    | .pred, .cons x .nil => Nat.pred x
-    | .positive, .cons x .nil => ⟨!(Nat.beq x 0)⟩
-
-private def counter : Port ports (.value num) := .head
-private def x : Port ports (.value num) := .tail .head
-private def y : Port ports (.value num) := .tail (.tail .head)
-private def saved : Port ports (.value num) := .tail (.tail (.tail .head))
-private def stride : Port ports (.value num) := .tail (.tail (.tail (.tail .head)))
-private def again : Port ports (.value .predicate) := .tail (.tail (.tail (.tail (.tail .head))))
-
-private def program : Program Arithmetic regs num where
-  preheader := .jump [⟨_, _, x, .add, .cons y (.cons stride .nil)⟩]
-  header := .branch
-    [ ⟨_, _, saved, .copy, .cons x .nil⟩
-    , ⟨_, _, x, .copy, .cons y .nil⟩
-    , ⟨_, _, y, .add, .cons saved (.cons y .nil)⟩
-    , ⟨_, _, counter, .pred, .cons counter .nil⟩
-    , ⟨_, _, again, .positive, .cons counter .nil⟩ ] again y
-
-private def bank (n a b scratch increment : Nat) (test : Bool) : Bank (regs := regs) arithmetic :=
-  .cons n (.cons a (.cons b (.cons scratch (.cons increment (.cons ⟨test⟩ .nil)))))
-
-private def input (n : Nat) : Bank (regs := regs) arithmetic := bank n 99 5 0 2 false
+open Example
 
 -- The preheader creates x; the feedback defines both x and y in the
 -- header's own producer scope. The untouched slot reads a pending port.
