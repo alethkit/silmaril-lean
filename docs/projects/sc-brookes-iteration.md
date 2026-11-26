@@ -78,14 +78,14 @@ must-termination are outside this observation model.
   semantics*, FoSSaCS 2025, 377–398. Section 6.1 gives the single-sorted
   return-bearing carrier and Kleisli extension. [DOI][two-sorted-doi] ·
   [arXiv v3][two-sorted]
-- Sergey Goncharov, Christoph Rauch, Lutz Schröder and Julian Jakob,
+- Sergey Goncharov, Lutz Schröder, Christoph Rauch and Julian Jakob,
   *Unguarded Recursion on Coinductive Resumptions*, LMCS 14(3), 2018.
   Section 5 gives complete Elgot iteration and the construction from
   ω-continuous monads. [DOI][elgot] · [Publisher PDF][elgot-pdf]
 
 The core crosswalk records hashes for the first two sources. The LMCS PDF
 cited here has SHA-256
-`464873d59bbcc3d9407b5d4db2cbbed9ecc1c0175f824b1160d900a3b9f622a3`.
+`cae43f18e77550eafe726b475a9998098c047b45ebb00763df6c2d6284b8fc81`.
 
 ## Checks
 
@@ -103,4 +103,4 @@ lake env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/brookes
 [two-sorted-doi]: https://doi.org/10.1007/978-3-031-90897-2_18
 [two-sorted]: https://arxiv.org/pdf/2501.15104v3
 [elgot]: https://doi.org/10.23638/LMCS-14(3:10)2018
-[elgot-pdf]: https://lmcs.episciences.org/4903/pdf
+[elgot-pdf]: https://lmcs.episciences.org/4784/pdf
