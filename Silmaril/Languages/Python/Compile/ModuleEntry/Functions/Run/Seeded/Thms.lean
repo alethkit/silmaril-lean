@@ -22,6 +22,18 @@ open Core.Closure (Function Heap)
 open Core.Module (ListHeap ListObject)
 open Core.Closure.Executor (Fault labelledIn)
 
+/-- Invoke both live descriptors, recording the Boolean before the assertion helper result. -/
+theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallContext}
+    {outer inner className : String} (value : Int)
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (classBinding : space.lookupGlobal className = some (.builtin .int)) :
+    observeNestedCallIn space context .discard outer
+      [.call inner [.literal (.int value), .readGlobal className]] =
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_intInstance
+    value helper probe classBinding
+
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
     (numerator divisor : Int) :

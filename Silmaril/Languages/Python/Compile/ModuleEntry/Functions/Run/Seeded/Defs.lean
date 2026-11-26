@@ -50,7 +50,7 @@ def legacyBoolCallableSeed (placement : SeedPlacement) : Namespace :=
   | .builtin => { seed with builtins := identity :: builtins }
   | .preamble => { seed with moduleGlobals := identity :: seed.moduleGlobals, builtins := builtins }
 
-/-- Opt into the Boolean identity helper and the three stock
+/-- Opt into the Boolean identity helper and the checked stock
 `isinstance` cases. The existing `int` descriptor also names the type. -/
 def legacyBoolIsinstanceSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement

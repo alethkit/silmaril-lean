@@ -213,14 +213,15 @@ def CallableProbe.result : CallableProbe → Bool
   | .len => true
   | .integer => false
 
-/-- The three value and stock type pairs used by the restricted instance check. -/
+/-- Exact Boolean and integer values against the two stock type descriptors. -/
 inductive InstanceProbe where
   | boolAgainstBool
   | boolAgainstInt
   | intAgainstBool
+  | intAgainstInt
 
 def InstanceProbe.result : InstanceProbe → Bool
-  | .boolAgainstBool | .boolAgainstInt => true
+  | .boolAgainstBool | .boolAgainstInt | .intAgainstInt => true
   | .intAgainstBool => false
 
 /-- Decoding identifies the admitted typed call shapes. In particular,
@@ -269,6 +270,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .isinstance, [.bool _, .builtin .bool] => .isinstance .boolAgainstBool
   | .builtin .isinstance, [.bool _, .builtin .int] => .isinstance .boolAgainstInt
   | .builtin .isinstance, [.int _, .builtin .bool] => .isinstance .intAgainstBool
+  | .builtin .isinstance, [.int _, .builtin .int] => .isinstance .intAgainstInt
   | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>

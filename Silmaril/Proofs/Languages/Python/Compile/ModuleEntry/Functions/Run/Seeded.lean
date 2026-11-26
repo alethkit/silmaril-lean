@@ -13,6 +13,29 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Core.Closure (Function)
 
+theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallContext}
+    {outer inner className : String} (value : Int)
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (classBinding : space.lookupGlobal className = some (.builtin .int)) :
+    observeNestedCallIn space context .discard outer
+      [.call inner [.literal (.int value), .readGlobal className]] =
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) := by
+  have tested : Core.Module.SeededCall.invokeObserved (.builtin .isinstance) [.int value, .builtin .int] =
+      ⟨.ok (.bool true), none⟩ := by
+    change Core.Module.SeededCall.CallObservation.mk
+      (Core.Module.SeededCall.invoke (.builtin .isinstance) [.int value, .builtin .int]) none = _
+    rw [Core.Module.SeededCall.invoke_isinstance_int_int]
+  have asserted : Core.Module.SeededCall.invokeObserved (.helper .assertTrue) [.bool true] =
+      ⟨.ok .none, none⟩ := by
+    change Core.Module.SeededCall.CallObservation.mk
+      (Core.Module.SeededCall.invoke (.helper .assertTrue) [.bool true]) none = _
+    rw [Core.Module.SeededCall.invoke_assertTrue_true]
+  simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
+    Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.Operand.evalList,
+    lowerCallOperand, helper, probe, classBinding, invokeArgumentIn, invokeNestedTarget, acceptObservation,
+    acceptCall, tested, asserted, Except.bind, Except.map, Except.mapError]
+
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (numerator divisor : Int) :

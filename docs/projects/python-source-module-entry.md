@@ -147,9 +147,14 @@ completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The unchanged line 2, `___assertTrue(isinstance(4 + 2, int))`, checks.
-With the Boolean helper and stock type descriptors supplied, execution
-reaches the existing unsupported `isinstance(int, int)` case. The first
+The first three unchanged lines complete when the Boolean helper and
+stock type descriptors are supplied. On line 2,
+`___assertTrue(isinstance(4 + 2, int))` records exact Boolean `True`
+before the outer helper's `None` receipt. The dispatch compares the live
+stock descriptors, so aliases work and a stock `bool` class mask produces
+exact `False`. This instance profile covers exact integer and Boolean
+values against the stock `int` and `bool` classes.
+Line 4 reaches the missing `float` class in these namespaces. The first
 rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`.
 The full file still reports `expressionProfile`.
 Run the mixed addition differential with
