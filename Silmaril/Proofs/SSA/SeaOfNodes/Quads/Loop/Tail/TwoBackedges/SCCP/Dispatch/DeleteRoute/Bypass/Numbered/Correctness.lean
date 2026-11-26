@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Bypass.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.GuardedTheta.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Join.Finite.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Join.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Thms
@@ -13,11 +14,11 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Bypass.Numbered.Proofs
 
-open SeaOfNodes.Diamond (Model Signature Ty Val ValueSort dataPorts sortValue)
+open SeaOfNodes.Diamond (Model Signature Val ValueSort dataPorts sortValue)
 open SeaOfNodes.Diamond.SCCP (Fact TupleCovers)
 open SeaOfNodes.Loop.SCCP (BankDecidableEq)
-open RVSDG (Tuple Wires Locals)
-open RVSDG.NestedTheta (Term Kind Graph iterate)
+open RVSDG (Tuple)
+open RVSDG.NestedTheta (Term Graph iterate)
 open Join (Block model)
 open Join.Finite (lastBank lastBank_read)
 open Tail.Diamond (bodyPorts thenBase thenBase_eval)
@@ -39,13 +40,6 @@ private theorem activation_eval (checked : Checked m p facts) (bank : Bank (regs
     (activation checked).eval m bank = p.header.eval m ((bypass checked 2).body.eval m bank) :=
   List.foldl_append
 
-omit [BankDecidableEq m.value (dataPorts regs)] in
-private theorem test_packet (bank : Bank (regs := regs) m) :
-    (model m).run (.route (.test p.again (.take 1) (.take 0))) bank =
-      RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank := by
-  by_cases test : (bank.get p.again).down = true <;>
-    simp [model, Join.Choice.eval, RVSDG.Theta.bodyResult, test]
-
 theorem thetaBody_run (checked : Checked m p facts) (fuel : Nat) (bank : Bank (regs := regs) m) :
     (thetaBody checked).run (model m) fuel bank =
       let next := (activation checked).eval m bank
@@ -61,72 +55,7 @@ theorem thetaBody_run (checked : Checked m p facts) (fuel : Nat) (bank : Bank (r
   · intro wires locals
     change some ((lastBank _ (bodyPorts regs)).read bank (locals.snoc
       ((model m).run (.route (.test p.again (.take 1) (.take 0))) (wires.read bank locals)))) = _
-    rw [lastBank_read m, test_packet (p := p)]
-
-private theorem continue_run (checked : Checked m p facts) (fuel : Nat) (bank : Bank (regs := regs) m) :
-    (arm checked 1).run (model m) fuel bank =
-      (iterate ((thetaBody checked).run (model m) fuel) (fun tag => tag.down.val == 1)
-        fuel bank).map (fun next => .cons (next.get p.result) .nil) := by
-  let finish (next : Bank (regs := regs) m) :=
-    Tuple.cons (SeaOfNodes.Diamond.read m ((lastBank [] (dataPorts regs)).get p.result)
-      bank (Locals.snoc PUnit.unit next)) .nil
-  change (iterate ((thetaBody checked).run (model m) fuel) (fun tag => tag.down.val == 1)
-    fuel ((initial regs).read bank PUnit.unit)).bind (fun next => some (finish next)) = _
-  rw [read_initial m]
-  cases iterate ((thetaBody checked).run (model m) fuel) (fun tag => tag.down.val == 1) fuel bank with
-  | none => rfl
-  | some next =>
-    change some (finish next) = some (.cons (next.get p.result) .nil)
-    dsimp only [finish]
-    rw [← read_get]
-    exact congrArg (fun values : Bank (regs := regs) m =>
-      some (Tuple.cons (values.get p.result) .nil : Tuple (Val m.value) [.value out]))
-      (lastBank_read (past := []) m bank PUnit.unit next)
-
-private def guardedObservation (checked : Checked m p facts) (fuel : Nat) (bank : Bank (regs := regs) m) :=
-  if (bank.get p.again).down then (arm checked 1).run (model m) fuel bank
-  else some (Tuple.cons (bank.get p.result) .nil)
-
-private theorem guard_eval (checked : Checked m p facts) {past : List (List (Ty Data))}
-    (wires : Wires (dataPorts regs) past (dataPorts regs)) (fuel : Nat)
-    (input : Bank (regs := regs) m) (locals : Locals (Val m.value) past) :
-    (guard checked wires).eval (model m) fuel input locals =
-      guardedObservation checked fuel (wires.read input locals) := by
-  let bank := wires.read input locals
-  let routed : Tuple (Val m.value) (bodyPorts regs) :=
-    (model m).run (.route (.test p.again (.take 1) (.take 0))) bank
-  let gamma : Kind (Join.Opcode Op) (bodyPorts regs) [.value out] := .base (.gamma 0)
-  change (gamma.eval (model m) fuel (fun i x => (arm checked i).run (model m) fuel x)
-    ((lastBank past (bodyPorts regs)).read input (locals.snoc routed))).bind
-    (fun value => some ((lastBank (past ++ [bodyPorts regs]) [.value out]).read
-      input ((locals.snoc routed).snoc value))) = _
-  rw [lastBank_read m]
-  rw [show routed = _ from test_packet (p := p) bank]
-  have pick : gamma.eval (model m) fuel
-      (fun i x => (arm checked i).run (model m) fuel x)
-      (RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank) =
-      guardedObservation checked fuel bank := by
-    unfold guardedObservation
-    cases (bank.get p.again).down <;> rfl
-  rw [pick]
-  change _ = guardedObservation checked fuel bank
-  cases guardedObservation checked fuel bank with
-  | none => rfl
-  | some value =>
-    change some ((lastBank (past ++ [bodyPorts regs]) [.value out]).read input
-      ((locals.snoc (RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank)).snoc value)) = _
-    rw [lastBank_read m]
-
-private theorem graph_guard (checked : Checked m p facts) (fuel : Nat) (input : Bank (regs := regs) m) :
-    (lower checked).run (model m) fuel input =
-      guardedObservation checked fuel (p.header.eval m (p.preheader.eval m input)) := by
-  rw [lower, ← Graph.run_toTerm, Term.toTerm_toGraph]
-  unfold lowerTerm Term.run
-  erw [thenBase_eval (observe := guardedObservation checked fuel)
-    (agrees := fun wires locals => guard_eval checked wires fuel input locals)]
-  have reads := Block.lowerFrom_eval (past := []) (entryBlock p) .jump m input PUnit.unit (initial regs)
-  rw [read_initial m] at reads
-  exact congrArg (guardedObservation checked fuel) (reads.trans (entry_eval (p := p) input))
+    rw [lastBank_read m, GuardedTheta.test_packet p.again]
 
 private theorem bypass_header (checked : Checked m p facts) (fuel : Nat) (old : Bank (regs := regs) m) :
     (bypass checked).runFrom m (fuel + 1) 1 old =
@@ -162,17 +91,17 @@ private theorem iterate_feedback (checked : Checked m p facts) (fuel θFuel : Na
 theorem lower_run (checked : Checked m p facts) (fuel : Nat) (input : Bank (regs := regs) m) :
     (lower checked).run (model m) fuel input =
       ((bypass checked).runFrom m (2 * fuel + 2) 0 input).map (fun value => .cons value .nil) := by
-  rw [graph_guard]
+  change (GuardedTheta.lowerTerm (entryBlock p) p.again p.result (thetaBody checked)).toGraph.run
+    (model m) fuel input = _
+  rw [GuardedTheta.lower_run, entry_eval (p := p)]
   change _ = ((bypass checked).runFrom m (2 * fuel + 1) 1 (p.preheader.eval m input)).map _
   rw [bypass_header]
   let next := p.header.eval m (p.preheader.eval m input)
-  change guardedObservation checked fuel next =
-    (if (next.get p.again).down then (bypass checked).runFrom m (2 * fuel) 2 next
-      else some (next.get p.result)).map (fun value => .cons value .nil)
   by_cases test : (next.get p.again).down = true
-  · simpa only [guardedObservation, test, ite_true] using
-      (continue_run checked fuel next).trans (iterate_feedback checked fuel fuel next)
-  · simp only [guardedObservation, ite_eq_right test]
+  · simpa only [show ((p.header.eval m (p.preheader.eval m input)).get p.again).down = true from test,
+      ite_true] using iterate_feedback checked fuel fuel next
+  · have stopped : ((p.header.eval m (p.preheader.eval m input)).get p.again).down ≠ true := test
+    simp only [ite_eq_right stopped]
     rfl
 
 theorem lower_run_original (checked : Checked m p facts) {input : Bank (regs := regs) m}
@@ -193,8 +122,10 @@ theorem lower_exit (checked : Checked m p facts) (fuel : Nat) (input : Bank (reg
     (stop : ((p.header.eval m (p.preheader.eval m input)).get p.again).down = false) :
     (lower checked).run (model m) fuel input =
       some (.cons ((p.header.eval m (p.preheader.eval m input)).get p.result) .nil) := by
-  rw [graph_guard]
-  simp [guardedObservation, stop]
+  change (GuardedTheta.lowerTerm (entryBlock p) p.again p.result (thetaBody checked)).toGraph.run
+    (model m) fuel input = _
+  rw [GuardedTheta.lower_run, entry_eval (p := p)]
+  simp [stop]
 
 theorem run_count_iff (checked : Checked m p facts) {input : Bank (regs := regs) m}
     (covered : TupleCovers facts input) (fuel : Nat) (value : sortValue m.value out) :

@@ -135,20 +135,27 @@ private theorem block_eval {Γ : List Width} (block : SourceBlock Op regs out si
         (block.terminator.select model (block.body.eval model old))) :=
   block_eval_with fullJump_agrees block scope env old ok
 
-variable (p : Program src entry)
-
-theorem entry_eval (input : Bank (regs := regs) model) :
-    (lower p).entry.eval evalOp (fun term env => term.eval env) (encodeValues input) =
+theorem source_entry_eval (input : Bank (regs := regs) model) :
+    (lowerSource src entry).entry.eval evalOp (fun term env => term.eval env) (encodeValues input) =
       .inl (destinationFrame ((src entry).body.eval model input)
         ((src entry).terminator.select model ((src entry).body.eval model input))) :=
   block_eval _ _ _ _ (entryNames_agree input)
+
+theorem source_site_eval (input bank : Bank (regs := regs) model) (id : Fin size) :
+    ((lowerSource src entry).block (.site id)).eval evalOp (fun term env => term.eval env)
+        ((encodeValues bank).append (encodeValues input)) =
+      .inl (destinationFrame ((src id).body.eval model bank)
+        ((src id).terminator.select model ((src id).body.eval model bank))) :=
+  block_eval _ _ _ _ (blockNames_agree (encodeValues input) bank)
+
+variable (p : Program src entry)
 
 theorem site_eval (input bank : Bank (regs := regs) model) (id : Fin size) :
     ((lower p).block (.site id)).eval evalOp (fun term env => term.eval env)
         ((encodeValues bank).append (encodeValues input)) =
       .inl (destinationFrame ((src id).body.eval model bank)
         ((src id).terminator.select model ((src id).body.eval model bank))) :=
-  block_eval _ _ _ _ (blockNames_agree (encodeValues input) bank)
+  source_site_eval input bank id
 
 /-- Every source exit makes one additional CF visit. This induction works
 for both full and projected source-to-CF frame relations. -/
@@ -235,11 +242,16 @@ theorem from_run (input : Bank (regs := regs) model) (fuel : Nat) (id : Fin size
   runBlock_eq_of_frames (lower p) input siteFrame .exit (fun id old => site_eval p input old id) rfl
     fuel id old _ _ (site_eval p input old id)
 
+theorem lowerSource_run (fuel : Nat) (input : Bank (regs := regs) model) :
+    (lowerSource src entry).run evalOp (fuel + 1) (encodeValues input) =
+      (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
+  runBlock_eq_of_frames (lowerSource src entry) input siteFrame .exit
+    (fun id old => source_site_eval input old id) rfl fuel entry input _ _ (source_entry_eval input)
+
 theorem lower_run (fuel : Nat) (input : Bank (regs := regs) model) :
     (lower p).run evalOp (fuel + 1) (encodeValues input) =
       (src.runFrom model fuel entry input).map (fun value => Env.cons (valueBits value) .nil) :=
-  runBlock_eq_of_frames (lower p) input siteFrame .exit (fun id old => site_eval p input old id) rfl
-    fuel entry input _ _ (entry_eval p input)
+  lowerSource_run fuel input
 
 theorem split_frame (input old : Bank (regs := regs) model) :
     ((lower p).block (.site p.header)).eval evalOp (fun term env => term.eval env)
