@@ -231,7 +231,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
         congrArg V1.FuncType.results declared
       cases ready.2.2 with
       | callIndirect contract tailContract =>
-        exact ⟨ready.1, allocated, contract.memory callee found, by simp, arguments,
+        exact ⟨ready.1, allocated, found, contract.memory, by simp, arguments,
           by simpa only [resultTypes, same] using tail, tailContract⟩
   | @wasm bytes saved site callee phase next ops labels move =>
     obtain ⟨labelsReady, linked, found, declared, _, _, admitted, tail, contract⟩ := ready
@@ -247,10 +247,10 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
           | done valueTypes => exact valueTypes
         have delivered := typed.trans (congrArg V1.FuncType.results declared)
         exact ⟨labelsReady, by simpa only [List.map_append, delivered] using tail, contract⟩
-  | @memory bytes written saved callee phase next ops labels move =>
-    obtain ⟨labelsReady, allocated, checked, _, admitted, tail, contract⟩ := ready
-    have admittedNext := MemoryCallee.ready_step checked move admitted
-    cases next <;> try exact ⟨labelsReady, allocated, checked, by simp, admittedNext, tail, contract⟩
+  | @memory bytes written saved site callee phase next ops labels move =>
+    obtain ⟨labelsReady, allocated, registered, linked, _, admitted, tail, contract⟩ := ready
+    have admittedNext := MemoryCallee.ready_step linked registered move admitted
+    cases next <;> try exact ⟨labelsReady, allocated, registered, linked, by simp, admittedNext, tail, contract⟩
     case done out =>
       cases out with
       | trap => exact ⟨labelsReady, trivial⟩
