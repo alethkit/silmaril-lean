@@ -17,6 +17,19 @@ open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
 
+/-- Constructor rows replay at two arbitrary exact slot maps on the same
+frame, preserving the shared emit prefix and typed exit. -/
+theorem CompactTerminal.selected_of_frame_rows {X : Ty Empty} {frame : ReplyFrame X} {L : List (Ty Empty)}
+    {n m : Nat} (e : Finite.Expr n) (out : Finite.Expr m)
+    (slots : Fin n → ReplyFrame.Slot frame) (otherSlots : Fin m → ReplyFrame.Slot frame)
+    (pos : Position L) (emits : List Bool)
+    (rows : ∀ {Γ : List (Ty Empty)} (v : ReplyFrame.Value Γ frame),
+      e.eval (fun j => ((slots j).read v).1) = out.eval (fun j => ((otherSlots j).read v).1)) :
+    selectedEq (selectTerminal pos e (fun j => (slots j).term) emits)
+      (selectTerminal pos out (fun j => (otherSlots j).term) emits) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CompactTerminalReplay.selected_of_frame_rows
+    e out slots otherSlots pos emits rows
+
 /-- A recognized compact terminal reduces natively at its original framed
 input, ordered emit prefix, and typed exit. -/
 theorem CompactTerminal.selected_of_infer {X : Ty Empty} {frame : ReplyFrame X}

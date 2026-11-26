@@ -149,10 +149,14 @@ local instance {L : List (Ty Empty)} : DecidableEq (Reply.Exits.Exit L) :=
   inferInstanceAs (DecidableEq (Σ i : Fin L.length, Kleisli.value (L.get i)))
 
 /-- Search typed exit payloads and the full tagged trace on each input. -/
+def normalDifference? {L : List (Ty Empty)} {n : Nat} (p q : Finite.Normal L n) :
+    Option {env : Finite.Assignment n // p.traceTree env ≠ q.traceTree env} :=
+  (assignments n).findSome? fun env =>
+    if h : p.traceTree env ≠ q.traceTree env then some ⟨env, h⟩ else none
+
 def difference? {L : List (Ty Empty)} {n : Nat} (p q : CanonicalLive L n) :
     Option {env : Finite.Assignment n // p.normal.traceTree env ≠ q.normal.traceTree env} :=
-  (assignments n).findSome? fun env =>
-    if h : p.normal.traceTree env ≠ q.normal.traceTree env then some ⟨env, h⟩ else none
+  normalDifference? p.normal q.normal
 
 end AssignmentSearch
 

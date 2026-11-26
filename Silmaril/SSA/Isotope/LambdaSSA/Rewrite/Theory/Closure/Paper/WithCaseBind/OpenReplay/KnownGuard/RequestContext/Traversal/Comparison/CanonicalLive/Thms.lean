@@ -16,6 +16,14 @@ open Paper.WithCaseBind.OpenReplay
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 local instance canonicalLiveThmsHasTy : HasTy signature.Instr (Ty Empty) := signature.hasTy
+/-- Interpret the actual packed selected tree in the validated model for
+the selected seed. The table grammar is reflected in its witnessed normal form. -/
+theorem readTree_map_outcomes {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n)
+    (env : Finite.Assignment n) :
+    ((CanonicalLive.payloadDenote.map (ScopedTarget.packed (X := replyContext n) (L := L)
+      p.selected.elaborate)).of (replyInput n env)).outcomes = p.witnessed.normal.outcomes env :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CanonicalLiveSelected.readTree_map_outcomes p env
+
 /-- The validated payload model evaluates the actual selected packed arrow. -/
 theorem map_outcomes {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) (env : Finite.Assignment n) :
     ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes = p.normal.outcomes env :=
