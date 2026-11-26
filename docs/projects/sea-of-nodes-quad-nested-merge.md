@@ -835,6 +835,56 @@ from `(1, 1)` with result-register value `75`. The original source, CF,
 and θ runners return `152` at `25/26/3` and exhaust at `24/25/2`.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/MLIR/CF/Phi/Regression.lean)
 
+### Reconstruct and validate the two outer-tail CF packets
+
+The admitted outer join has two distinct predecessor blocks.
+`Readback.predecessor_key_injective` specializes the coverage certificate
+to those occurrences. `Readback.other_slot_excluded` inspects the raw
+emitted successor and shows that a second slot of either predecessor
+cannot enter the outer tail. In the direct-false fixture the header's
+true slot targets the inner split and its false slot targets the outer
+tail. The underlying pure quad CF emitter uses one final version map
+for both arms of a conditional, so a repeated destination in that
+emitter carries the same operand list on both arms.
+[CF terminator emitter](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Defs.lean)
+
+`Readback.edge` recovers each actual typed CF edge from
+`PhiView.toBlockArgs`. `edge_is_actual` gives equality of the whole
+successor, including the destination and the ordered scoped operands.
+`checkBanks_iff` characterizes validation of both complete value packets
+in their respective post-body environments. `numbered_readBank`
+identifies the reconstructed bank with the actual numbered outer γ
+on a reached occurrence. The existing CF and numbered θ comparison
+continues to provide finite-return and absence laws at independent bounds.
+[Readback laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/MLIR/CF/Phi/Readback/Thms.lean)
+
+Build the two imports with `lake build --wfail`, prefixing each module
+with `+`. Paste into `QuadOuterPhiReadback.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadOuterPhiReadback.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.MLIR.CF.Phi.Readback.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.MLIR.CF.Phi.Readback.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.MLIR.CF.Phi.Readback.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.MLIR.CF.Phi.Readback.Example
+
+#eval rebuiltBanks
+#eval checks
+#eval gammaMatches
+#eval directTargets
+```
+
+The original 152 fixture gives result-register values `15` and `150`
+at predecessor slots `(6, 0)` and `(7, 0)`. The packet check returns
+`(true, false, false)` for the two source banks, the true bank with its
+first two word slots reordered, and the two banks swapped between
+predecessors. Both reconstructed banks match the actual γ output.
+The raw direct-false successors target blocks `2` and `7`, in that order.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/MLIR/CF/Phi/Readback/Regression.lean)
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
