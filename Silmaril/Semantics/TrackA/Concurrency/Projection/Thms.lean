@@ -51,8 +51,9 @@ theorem conflicts_eq (i j : Fin ys.length) :
   Proofs.Semantics.TrackA.Concurrency.Projection.conflicts_eq p i j
 
 omit [DecidableEq T] [DecidableEq L] in
-/-- An atomic reads-from edge between retained events is unchanged when
-the observation covers intervening overwrites. -/
+/-- Compare the raw `atomicSync` Boolean on retained action labels under
+overwrite coverage. Interpret `true` as reads-from only for a write and
+read in index order (`i < j`) in a generated SC history. -/
 theorem atomicSync_eq (covers : p.CoversOverwrites) (i j : Fin ys.length) :
     atomicSync ys i j ys[i.val].action ys[j.val].action =
       atomicSync xs (p.index i) (p.index j) xs[(p.index i).val].action xs[(p.index j).val].action :=
