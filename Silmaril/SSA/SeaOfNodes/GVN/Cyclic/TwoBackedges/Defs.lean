@@ -10,10 +10,11 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges
 
-open Diamond (Model Val ValueSort dataPorts)
+open Diamond (Model Ty Val ValueSort dataPorts)
 open Pure.SubZero (word wordPort)
-open Pure.ConstantFold.Comparison (Opcode)
+open Pure.ConstantFold.Comparison (Opcode model)
 open Quads (write)
+open Quads.Loop.Blocks (Bank)
 open Quads.Loop.Tail.TwoBackedges (Program)
 open RVSDG (Port Tuple)
 
@@ -21,6 +22,12 @@ abbrev WordSlot (regs : List (ValueSort Unit)) := Port (dataPorts regs) wordPort
 
 abbrev Keys (regs : List (ValueSort Unit)) :=
   Tuple (Val (WordNumber.numbering (dataPorts regs)).value) (dataPorts regs)
+
+/-- Interpret every word key in the original bank of this acyclic path. -/
+def Keys.Reads {regs : List (ValueSort Unit)} (anchor : Bank (regs := regs) model)
+    {ports : List (Ty Unit)} (keys : Tuple (Val (WordNumber.numbering (dataPorts regs)).value) ports)
+    (values : Tuple (Val model.value) ports) : Prop :=
+  ∀ port : Port ports wordPort, (keys.get port).eval anchor = values.get port
 
 /-- Run the same quad evaluator on word keys. Predicate results cannot
 feed a word producer in this opcode family. The checker examines both
@@ -59,6 +66,16 @@ def check (p : Program Opcode regs word) (representative member replacement : Wo
     feedbackMatches p representative member true &&
     feedbackMatches p representative member false &&
     exitMatches p representative member replacement
+
+/-- A property of header banks established by entry and preserved by each
+actual feedback occurrence after the ordered header assignments. -/
+structure Invariant (p : Program Opcode regs word) (holds : Bank (regs := regs) model → Prop) : Prop where
+  entry (input : Bank (regs := regs) model) : holds (p.preheader.eval model input)
+  feedback (side : Bool) (old : Bank (regs := regs) model) : holds old →
+    holds ((p.feedback side).eval model (p.header.eval model old))
+
+def redirect (p : Program Opcode regs word) (replacement : WordSlot regs) : Program Opcode regs word :=
+  {p with result := replacement}
 
 /-- Redirect only the return operand. Keep the full bank and both feedback blocks. -/
 def rewrite? (p : Program Opcode regs word) (representative member replacement : WordSlot regs) :
