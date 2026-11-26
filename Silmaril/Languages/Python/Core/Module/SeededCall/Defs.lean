@@ -19,6 +19,7 @@ inductive ExceptionClass where
   | nameError
   | unboundLocalError
   | typeError
+  | valueError
   | zeroDivisionError
   | overflowError
   deriving DecidableEq, Repr
@@ -45,6 +46,7 @@ def Raised.classify : Raised → ExceptionClass
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
   | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
   | .runtime .multiplicationTypeError | .runtime .tupleArgumentNotIterable => .typeError
+  | .runtime .zeroSliceStep => .valueError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
   | .runtime .overflowError => .overflowError
 

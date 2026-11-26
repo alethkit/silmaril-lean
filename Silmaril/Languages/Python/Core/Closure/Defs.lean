@@ -150,6 +150,7 @@ inductive RuntimeError where
   | positionalArity (expected actual : Nat)
   | notCallable
   | tupleArgumentNotIterable
+  | zeroSliceStep
   | additionTypeError
   | multiplicationTypeError
   | assertionError

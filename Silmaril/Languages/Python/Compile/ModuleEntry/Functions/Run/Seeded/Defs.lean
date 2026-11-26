@@ -772,6 +772,14 @@ def observeTupleIdentityCall (space : Namespace) (context : CallContext)
     | .ok result => (acceptObservation destination name result, heap)
     | .error error => (⟨.error error, []⟩, heap)
 
+def checkTextSliceGuard (space : Namespace) (test : TextSlice.Guard) : Except Failure Unit :=
+  (test.eval space.lookupGlobal (fun
+    | .text value => some value
+    | _ => none)).mapError fun
+      | .missingName name => .raised (.runtime (.nameError name))
+      | .zeroStep => .raised (.runtime .zeroSliceStep)
+      | .outsideTextProfile | .reachedRaise => .unsupported
+
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=
   match instruction with
@@ -792,6 +800,8 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
   | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
   | .assertTupleChain test =>
     (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
+  | .textSliceGuard test =>
+    (⟨((checkTextSliceGuard space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
   | .assertVarNames receiver needle =>
     (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
   | .publish name function =>
