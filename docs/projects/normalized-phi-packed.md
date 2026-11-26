@@ -434,3 +434,32 @@ second tick replies with `11`. The finishing primitive requests
 `tick 11 11` and its typed reply `23` is the returned payload in both
 relabelled evaluators.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+### Checked reverse lowering to mutable RTL
+
+The φ entry bridge passes the actual admitted flat table to the
+[packet-local reverse checker](https://github.com/hiloopai/silmaril-lean/pull/3818).
+The reverse runner reads the same typed input slots in the same order,
+under supplied RTL register names. Its sole declared exit occupies
+position zero, matching the numbered φ return.
+
+The reverse interface expects the explicit return operand
+`(old payload, ordered live-out record)`. The flat branch must write a
+pair, with a unit record for an empty live-out list. The reverse checker
+also checks packet locality and exact readback after attaching the RTL
+live-out reads. This detects a field-order mismatch even when the
+affected fields have the same type. Its accepted fragment uses
+straight-line lets, supported operands, and jumps.
+
+`Admitted.observe_reverse` composes the independent predecessor-snapshot
+observation theorem with equality for the emitted mutable RTL run and
+its projected final store. `Admitted.observe_reverse_roundTrip` also
+uses a successful ordinary re-admission of that RTL, at its supplied
+internal packet types.
+[Bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Reverse/Thms.lean)
+
+The fixture runs two φ blocks and swaps `7` and `9` across the second
+edge. Both the emitted RTL and its actual admitted reversion request
+`tick 9 7` and return the reply with ordered live-outs `9, 7`.
+Reversing the selected fields is rejected by exact readback.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Reverse/Swap.lean)
