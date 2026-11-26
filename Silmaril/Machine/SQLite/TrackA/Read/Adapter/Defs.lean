@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.Machine.SQLite.TrackA.Read.Defs
-public import Silmaril.Semantics.TrackA.Interaction.Defs
+public import Silmaril.Machine.SQLite.TrackA.Read.Interaction.Defs
 
 @[expose] public section
 
@@ -10,11 +9,7 @@ namespace Silmaril.Machine.SQLite.TrackA.Read.Adapter
 open Silmaril.Formats.Sqlite
 open Silmaril.Machine.SqliteVfs
 open Silmaril.Semantics.TrackA.Interaction (Signature ITree Coalgebra)
-
-abbrev VfsSignature : Signature := ⟨Request, Response⟩
-
-def exchanges (trace : Trace) : List VfsSignature.Exchange :=
-  trace.map fun exchange => ⟨exchange.request, exchange.response⟩
+open Read.Interaction (VfsSignature vfsExchanges)
 
 structure Acquire where
   target : PageRead.SlotId
@@ -40,9 +35,6 @@ def leafCall (request : Acquire) (leaf : File.View → Read.Result) : SeekCall :
 def stagedCall (request : Acquire) (key : Int64) : SeekCall :=
   leafCall request (fun view => Read.seekLeaf view request.page.number key)
 
-def vmCall (request : Acquire) (key : Int64) : SeekCall :=
-  leafCall request (fun view => Read.runLeaf view request.page.number key)
-
 def pagerTree (call : SeekCall) : ITree PagerSignature LeafResult where
   State := Option Acquired
   root := fun _ => none
@@ -50,39 +42,32 @@ def pagerTree (call : SeekCall) : ITree PagerSignature LeafResult where
     | none => .vis call.request some
     | some reply => .ret (call.resume reply)
 
-/-- Replace the Pager call with its cache check and any required VFS read.
-The VFS reply is accepted by the Pager before the original continuation runs. -/
-def lower (call : SeekCall) (cache : PageRead.Cache) : ITree VfsSignature LeafResult where
-  State := Option ReadReply
-  root := fun _ => none
-  unfold state :=
-    let target := call.request.target
-    let page := call.request.page
-    match state with
-    | some reply =>
-        let result := PageRead.accept page.size reply
-        let after := match result with
-          | .ok bytes => cache.install target page bytes
-          | .error _ => cache
-        .ret (call.resume ⟨result, after⟩)
-    | none =>
-        match PageRead.CacheHit.lookup cache target page with
-        | some bytes => .ret (call.resume ⟨.ok bytes, cache⟩)
-        | none =>
-            match cache target with
-            | some .vacant =>
-                if page.Admitted then .vis page.request some
-                else .ret (call.resume ⟨.error .invalidPage, cache⟩)
-            | _ => .ret (call.resume ⟨.error .unavailableSlot, cache⟩)
+inductive TwoSeeks where
+  | first
+  | second (firstResult : LeafResult)
+  | done (firstResult secondResult : LeafResult)
+
+/-- Both acquisitions are answered by the same handler. -/
+def pagerTwice (call : SeekCall) : ITree PagerSignature (LeafResult × LeafResult) where
+  State := TwoSeeks
+  root := fun _ => .first
+  unfold
+    | .first => .vis call.request fun reply => .second (call.resume reply)
+    | .second first => .vis call.request fun reply => .done first (call.resume reply)
+    | .done first second => .ret (first, second)
+
+/-- The cache passed to each Pager call is the cache returned by the last call. -/
+abbrev PagerState (Backing : Type) := Backing × PageRead.Cache × Trace
 
 /-- Handler state carries the actual file and completed exchanges. -/
 abbrev Recorded (Backing : Type) := Backing × Trace
 
-def handlePager {Backing : Type} (backing : Handler Backing) (cache : PageRead.Cache) :
-    Coalgebra.Handler PagerSignature (Recorded Backing) :=
-  fun (file, trace) request =>
-    let acquired := PageRead.Acquire.acquire backing file cache request.target request.page
-    (⟨acquired.result, acquired.cache⟩, acquired.file, trace ++ acquired.trace)
+def handlePager {Backing : Type} (backing : Handler Backing) :
+    Coalgebra.Handler PagerSignature (PagerState Backing) :=
+  fun (file, cache, trace) request =>
+    let (acquired, after, nextCache) :=
+      Read.Interaction.pagerHandler backing (file, cache) (request.target, request.page)
+    (⟨acquired.result, acquired.cache⟩, after, nextCache, trace ++ acquired.trace)
 
 def handleVfs {Backing : Type} (backing : Handler Backing) :
     Coalgebra.Handler VfsSignature (Recorded Backing) :=
@@ -90,19 +75,17 @@ def handleVfs {Backing : Type} (backing : Handler Backing) :
     let (reply, after) := backing file request
     (reply, after, trace ++ [⟨request, reply⟩])
 
-/-- The interpreted tree reaches its return with the observed file and trace
-in the handler state, and its result and cache in the return value. -/
-def Returns {S : Signature} {Backing : Type} (tree : ITree S LeafResult)
-    (handler : Coalgebra.Handler S (Recorded Backing)) (file : Backing)
-    (outcome : Read.Outcome Backing) : Prop :=
+/-- The handled tree reaches the stated return and handler poststate. -/
+def Returns {S : Signature} {State Result : Type} (tree : ITree S Result)
+    (handler : Coalgebra.Handler S State) (before after : State) (result : Result) : Prop :=
   let interpreted := tree.unfold.handle (T := VfsSignature) handler
-  ∃ final, interpreted.Silent (tree.root (), file, []) (final, outcome.file, outcome.exchanges) ∧
-    interpreted (final, outcome.file, outcome.exchanges) = .ret (outcome.result, outcome.cache)
+  ∃ final, interpreted.Silent (tree.root (), before) (final, after) ∧
+    interpreted (final, after) = .ret result
 
 /-- The open tree can reach a completed return with these request/reply pairs. -/
 def Observes {Backing : Type} (tree : ITree VfsSignature LeafResult)
     (outcome : Read.Outcome Backing) : Prop :=
-  Silmaril.Semantics.TrackA.Interaction.Trace.finite (exchanges outcome.exchanges)
+  Silmaril.Semantics.TrackA.Interaction.Trace.finite (vfsExchanges outcome.exchanges)
     (.returned (outcome.result, outcome.cache)) ∈ tree.unfold.observes (tree.root ())
 
 end Silmaril.Machine.SQLite.TrackA.Read.Adapter
