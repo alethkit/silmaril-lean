@@ -73,8 +73,7 @@ provide that UB order or its sequencing laws. [Effect system][effects]
 ## Checks
 
 ```sh
-lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Thms
-lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/IsotopeUndefinedBehaviour.lean
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
