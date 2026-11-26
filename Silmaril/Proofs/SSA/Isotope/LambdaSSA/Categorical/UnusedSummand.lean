@@ -9,7 +9,7 @@ import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Square.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.ReplaceNewest.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
@@ -278,6 +278,67 @@ private theorem taken_tag_row (D : Fin (k + 1) → Ty κ) (i : Fin (k + 1))
   rw [J.map_id, Category.id_comp, Category.assoc] at compared
   exact compared
 
+theorem taken_tag_postmap (D : Fin (k + 1) → Ty κ) {K' : LCtx (Ty κ)}
+    (out : Result ⟶ labelObj M K')
+    {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}
+    (entryRoute : ∀ ⦃ts : entry.HasType Γ (List.ofFn P ++ K)⦄
+      ⦃tw : entry'.HasType Γ (List.ofFn (family P (some D)) ++ K')⦄
+      ⦃a : J.obj Env ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj Env ⟶ J.obj (labelObj M (List.ofFn (family P (some D)) ++ K'))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      b ≫ J.map (labelAppendSplit M (List.ofFn (family P (some D))) K') =
+        a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+          J.map (coprod.map out (embedLabels M P D)))
+    (rowRoutes : ∀ i
+      ⦃ts : (rows i).HasType (P i :: Γ) (List.ofFn P ++ K)⦄
+      ⦃tw : (rows' i).HasType (family P (some D) i :: Γ) (List.ofFn (family P (some D)) ++ K')⦄
+      ⦃a : J.obj (ctxObj M (P i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj (ctxObj M (family P (some D) i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn (family P (some D)) ++ K'))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      J.map (Env ◁ (coprod.inl ≫ (M.coprodIso (P i) (D i)).inv)) ≫
+        b ≫ J.map (labelAppendSplit M (List.ofFn (family P (some D))) K') =
+          a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+            J.map (coprod.map out (embedLabels M P D)))
+    {f : J.obj Env ⟶ J.obj Result}
+    {g : J.obj Env ⟶ J.obj (labelObj M K')}
+    (small : CfgDenotesAt J M P entry rows f)
+    (wide : CfgDenotesAt J M (family P (some D)) entry' rows' g) : g = f ≫ J.map out := by
+  let S := family P (some D)
+  let h := embedLabels M P D
+  let hf := finiteEmbedding M P D
+  let cut := labelAppendSplit M (List.ofFn P) K
+  let cut' := labelAppendSplit M (List.ofFn S) K'
+  obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
+  obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
+  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map out h) := entryRoute se we
+  have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
+      all ≫ J.map cut ≫ J.map (coprod.map out h) := by
+    apply collective_ext J M k Γ P
+    intro i
+    rw [MonoidalCategory.id_tensorHom]
+    have sh := sc.restrict i
+    have wh := wc.restrict i
+    rw [MonoidalCategory.id_tensorHom] at sh wh
+    have slide : J.map (Env ◁ finiteLabelInject M P i) ≫ J.map (Env ◁ hf) =
+        J.map (Env ◁ tag M P D i) ≫ J.map (Env ◁ finiteLabelInject M S i) := by
+      rw [← J.map_comp, ← J.map_comp, ← MonoidalCategory.whiskerLeft_comp,
+        ← MonoidalCategory.whiskerLeft_comp, finite_embed]
+    rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
+      ← Category.assoc _ all, sh]
+    exact rowRoutes i (sb i) (wb i)
+  have square :
+      (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
+          J.map (coprod.map out h) =
+        J.map (Env ◁ h) ≫ J.map (Env ◁ labelObjToFinite M S) ≫ all' ≫ J.map cut' := by
+    rw [← Category.assoc (J.map (Env ◁ h)), ← J.map_comp,
+      ← MonoidalCategory.whiskerLeft_comp, embedding_toFinite, MonoidalCategory.whiskerLeft_comp,
+      J.map_comp]
+    simp only [Category.assoc]
+    rw [← row_eq]
+  unfold cfgDispatchArrow
+  rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
+  simpa only [Category.assoc] using cfgDispatch_of_exit_state_square J out h (e ≫ J.map cut) _ _ square
+
 theorem taken_tag_of_squares (D : Fin (k + 1) → Ty κ)
     {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}
     (entryRoute : ∀ ⦃ts : entry.HasType Γ (List.ofFn P ++ K)⦄
@@ -301,41 +362,9 @@ theorem taken_tag_of_squares (D : Fin (k + 1) → Ty κ)
     {f g : J.obj Env ⟶ J.obj Result}
     (small : CfgDenotesAt J M P entry rows f)
     (wide : CfgDenotesAt J M (family P (some D)) entry' rows' g) : f = g := by
-  let S := family P (some D)
-  let h := embedLabels M P D
-  let hf := finiteEmbedding M P D
-  let cut := labelAppendSplit M (List.ofFn P) K
-  let cut' := labelAppendSplit M (List.ofFn S) K
-  obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
-  obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
-  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := entryRoute se we
-  have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
-      all ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := by
-    apply collective_ext J M k Γ P
-    intro i
-    rw [MonoidalCategory.id_tensorHom]
-    have sh := sc.restrict i
-    have wh := wc.restrict i
-    rw [MonoidalCategory.id_tensorHom] at sh wh
-    have slide : J.map (Env ◁ finiteLabelInject M P i) ≫ J.map (Env ◁ hf) =
-        J.map (Env ◁ tag M P D i) ≫ J.map (Env ◁ finiteLabelInject M S i) := by
-      rw [← J.map_comp, ← J.map_comp, ← MonoidalCategory.whiskerLeft_comp,
-        ← MonoidalCategory.whiskerLeft_comp, finite_embed]
-    rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
-      ← Category.assoc _ all, sh]
-    exact rowRoutes i (sb i) (wb i)
-  have square :
-      (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
-          J.map (coprod.map (𝟙 Result) h) =
-        J.map (Env ◁ h) ≫ J.map (Env ◁ labelObjToFinite M S) ≫ all' ≫ J.map cut' := by
-    rw [← Category.assoc (J.map (Env ◁ h)), ← J.map_comp,
-      ← MonoidalCategory.whiskerLeft_comp, embedding_toFinite, MonoidalCategory.whiskerLeft_comp,
-      J.map_comp]
-    simp only [Category.assoc]
-    rw [← row_eq]
-  unfold cfgDispatchArrow
-  rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
-  simpa only [Category.assoc] using cfgDispatch_of_state_square J h (e ≫ J.map cut) _ _ square
+  have mapped := taken_tag_postmap J M D (𝟙 Result) entryRoute rowRoutes small wide
+  rw [J.map_id, Category.comp_id] at mapped
+  exact mapped.symm
 
 theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) P K Γ)
     (rows : ∀ i, Row (Φ := Φ) P K (P i :: Γ)) (raw : Fin (k + 1) → Region Φ)
