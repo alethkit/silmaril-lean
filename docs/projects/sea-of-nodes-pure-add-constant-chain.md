@@ -44,9 +44,10 @@ bound `1`, then checks the exact rewritten operands of a multiplication
 that reads both original additions. It checks a wrapping result, a
 different runtime result, and refusal for a subtraction in the left
 position, an unknown outer right wire, and a two-literal inner add.
-The source slice covers one rewrite on explicit literals. Doubling,
-general spine rotation, ordering by node ID, and Phi-of-constants
-push-through remain separate.
+The source slice covers one rewrite on explicit literals. The
+[doubling rule](sea-of-nodes-pure-doubling.md) shares the same insertion
+and routing. General spine rotation, ordering by node ID, and
+Phi-of-constants push-through remain open.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Pure/ConstantFold/AddChain/Regression.lean) ·
 [Chapter 8 coverage](sea-of-nodes-pure-sub-self.md#chapter-8-rule-coverage)
 

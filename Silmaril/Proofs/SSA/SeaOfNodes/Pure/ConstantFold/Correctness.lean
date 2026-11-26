@@ -54,7 +54,7 @@ private theorem literalInputs_sound (agree : known.Agrees entry locals) {ports :
     change Tuple.cons (Diamond.read m wire entry locals) (Wires.read rest entry locals) = _
     rw [agree wire knownWire, ih knownRest]
 
-private theorem replacement_sound (agree : known.Agrees entry locals) {op : Op ins out}
+theorem replacement_sound (agree : known.Agrees entry locals) {op : Op ins out}
     (rule : Rule m op) (operands : Wires args past (dataPorts ins)) {literal : Op [] out}
     (found : rule.replacement? known operands = some literal) :
     m.run op (operands.read entry locals) = m.run literal .nil := by
