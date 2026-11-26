@@ -3,6 +3,7 @@ module
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Return.Deletion.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
 
@@ -252,5 +253,96 @@ theorem a_same_class_slot_with_a_different_exit_key_is_ineligible :
   ⟨rfl, rfl, rfl, rfl⟩
 
 end AutomaticReturn
+
+section DeadHeaderWrite
+
+private def recomputeTwin : Quad Opcode regs := binary .add resultTwin aTwin x
+
+/-- The completion recomputes the scratch word before its first read.
+The delayed form keeps the false edge's original read before recomputation. -/
+private def feedbackOverwriteFixture (delayFalse : Bool) : Program Opcode regs word :=
+  let p := carriedFixture false
+  { p with feedback := fun side =>
+    if delayFalse && !side then p.feedback side ++ [recomputeTwin] else recomputeTwin :: p.feedback side }
+
+private def reducedHeader : Program Opcode regs word :=
+  { Discovery.Return.optimize (feedbackOverwriteFixture false) with header := [binary .add resultA a x] }
+
+theorem returned_lane_is_redirected_and_one_header_assignment_is_removed :
+    let p := feedbackOverwriteFixture false
+    let redirected := Discovery.Return.optimize p
+    redirected.result = a ∧ redirected.header.length = 2 ∧
+      Discovery.Return.Deletion.afterReturn? p 1 = some reducedHeader ∧
+      reducedHeader.header.length = 1 ∧ reducedHeader.result = a :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem deletion_keeps_both_full_feedback_packets_from_the_original :
+    let p := feedbackOverwriteFixture false
+    let onTrue := p.preheader.eval model (input true)
+    let onFalse := p.preheader.eval model (input false)
+    (∃ packet, p.step model onTrue = .inr (true, packet) ∧
+      reducedHeader.step model onTrue = .inr (true, packet)) ∧
+    (∃ packet, p.step model onFalse = .inr (false, packet) ∧
+      reducedHeader.step model onFalse = .inr (false, packet)) := by
+  let p := feedbackOverwriteFixture false
+  have accepted : Discovery.Return.Deletion.afterReturn? p 1 = some reducedHeader :=
+    returned_lane_is_redirected_and_one_header_assignment_is_removed.2.2.1
+  have step (side : Bool) :
+      reducedHeader.step model (p.preheader.eval model (input side)) =
+        p.step model (p.preheader.eval model (input side)) :=
+    Discovery.Return.Deletion.afterReturn?_step_of_arrives accepted
+      (Program.Arrives.entry (p := p) (m := model) (input := input side))
+  exact ⟨⟨_, rfl, (step true).trans rfl⟩, ⟨_, rfl, (step false).trans rfl⟩⟩
+
+theorem emitted_deletion_returns_on_both_routes :
+    reducedHeader.source.runFrom model 4 0 (input false) = none ∧
+      reducedHeader.source.runFrom model 5 0 (input true) = some 7#64 ∧
+      reducedHeader.source.runFrom model 5 0 (input false) = some (-1 : BitVec 64) := by
+  have accepted : Discovery.Return.Deletion.afterReturn? (feedbackOverwriteFixture false) 1 = some reducedHeader :=
+    returned_lane_is_redirected_and_one_header_assignment_is_removed.2.2.1
+  exact ⟨(Discovery.Return.Deletion.afterReturn?_run_eq accepted 4 (input false)).trans rfl,
+    (Discovery.Return.Deletion.afterReturn?_run_eq accepted 5 (input true)).trans rfl,
+    (Discovery.Return.Deletion.afterReturn?_run_eq accepted 5 (input false)).trans rfl⟩
+
+theorem unchanged_feedback_wiring_still_needs_the_header_assignment :
+    let p := carriedFixture false
+    (Discovery.Return.optimize p).result = a ∧ Discovery.Return.Deletion.afterReturn? p 1 = none :=
+  ⟨rfl, rfl⟩
+
+private def falsePacketWords (p : Program Opcode regs word) : Option (BitVec 64 × BitVec 64) :=
+  match p.step model (p.preheader.eval model (input false)) with
+  | .inr (false, packet) => some (packet.get resultTwin, packet.get bTwin)
+  | _ => none
+
+theorem refuses_the_actual_false_edge_read_before_a_later_overwrite :
+    let p := feedbackOverwriteFixture true
+    let redirected := Discovery.Return.optimize p
+    let dest := Quads.slot resultTwin
+    redirected.result = a ∧
+      Discovery.Return.Deletion.safeThrough dest false (redirected.feedback true) = true ∧
+      Discovery.Return.Deletion.safeThrough dest false (redirected.feedback false) = false ∧
+      Discovery.Return.Deletion.afterReturn? p 1 = none ∧
+      falsePacketWords redirected = some (3, 8) ∧
+      falsePacketWords (Discovery.Return.Deletion.erase redirected 1) = some (3, 4) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+private def packetOnlyFixture : Program Opcode regs word :=
+  let p := feedbackOverwriteFixture false
+  { p with feedback := fun side => if side then p.feedback true else [stop] }
+
+theorem refuses_a_slot_live_only_in_the_false_full_packet :
+    let p := packetOnlyFixture
+    let redirected := Discovery.Return.optimize p
+    let dest := Quads.slot resultTwin
+    redirected.result = a ∧
+      Discovery.Return.Deletion.safeThrough dest false (redirected.feedback true) = true ∧
+      Discovery.Return.Deletion.safeThrough dest true (redirected.feedback false) = true ∧
+      Discovery.Return.Deletion.safeThrough dest false (redirected.feedback false) = false ∧
+      Discovery.Return.Deletion.afterReturn? p 1 = none ∧
+      falsePacketWords redirected = some (9, 3) ∧
+      falsePacketWords (Discovery.Return.Deletion.erase redirected 1) = some (5, 3) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+end DeadHeaderWrite
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
