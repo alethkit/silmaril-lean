@@ -47,11 +47,13 @@ private def doneName : Reg := ⟨4⟩
 private def backName : Reg := ⟨5⟩
 private def header : Key := ⟨17⟩
 
+private def tickBody (next : Key) : CFG.Body Reg (Option Key) Opcode :=
+  .term (.case (.app .tick (.pair (.var x) (.var y)))
+    doneName (ret (.var doneName)) backName (br next))
+
 private def headerBlock : Block Reg Key Opcode :=
   ⟨[⟨x, [(none, .var seedX), (some header, .var y)]⟩,
-    ⟨y, [(none, .var seedY), (some header, .var x)]⟩],
-    .term (.case (.app .tick (.pair (.var x) (.var y)))
-      doneName (ret (.var doneName)) backName (br header))⟩
+    ⟨y, [(none, .var seedY), (some header, .var x)]⟩], tickBody header⟩
 
 private def source : Graph Reg Key Opcode := ⟨.term (br header), [(header, headerBlock)]⟩
 
@@ -114,21 +116,29 @@ private def originalStore : Store := fun name =>
 
 private def writePair (store : Store) (a b : Nat) : Store := upd (upd store x (atom a)) y (atom b)
 
-private def response (store : Store) : Nat ⊕ Unit → State
+private def response (next : Key) (store : Store) : Nat ⊕ Unit → State
   | .inl result => (.returned (atom result), upd store doneName (atom result))
-  | .inr _ => (.jump (some header) header, upd store backName .unit)
+  | .inr _ => (.jump (some header) next, upd store backName .unit)
 
-private theorem tick_step (pred : Option Key) (store : Store) (a b : Nat)
-    (assigned : assign (treeModel instr) pred store headerBlock.rows store = writePair store a b) :
-    stepTree instr source (.jump pred header, store) =
-      vis (.tick a b) (fun reply => pure (.inr (response (writePair store a b) reply))) := by
-  rw [step_jump _ _ _ _ _ (block := headerBlock) rfl, assigned]
-  simp [CFG.Cyclic.Phi.execute, headerBlock, CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval,
+private theorem tick_step_of (graph : Graph Reg Key Opcode) (next : Key)
+    (pred : Option Key) (store : Store) (a b : Nat) {block : Block Reg Key Opcode}
+    (found : graph.blocks.lookup header = some block) (body : block.body = tickBody next)
+    (assigned : assign (treeModel instr) pred store block.rows store = writePair store a b) :
+    stepTree instr graph (.jump pred header, store) =
+      vis (.tick a b) (fun reply => pure (.inr (response next (writePair store a b) reply))) := by
+  rw [step_jump _ _ _ _ _ found, assigned, body]
+  simp [CFG.Cyclic.Phi.execute, tickBody, CFG.Body.exec, CFG.Term.exec, Op.eval, Val.eval,
     treeModel, instr, writePair, upd, x, y, atom, ← bind_pure_comp, bind_assoc, vis_bind]
   funext reply
   cases reply <;> simp [response, br, ret, CFG.Term.exec, Val.eval, upd, atom]
 
-private theorem resume_transfer (p : State) :
+private theorem tick_step (pred : Option Key) (store : Store) (a b : Nat)
+    (assigned : assign (treeModel instr) pred store headerBlock.rows store = writePair store a b) :
+    stepTree instr source (.jump pred header, store) =
+      vis (.tick a b) (fun reply => pure (.inr (response header (writePair store a b) reply))) :=
+  tick_step_of source header pred store a b rfl rfl assigned
+
+private theorem resume_transfer {source : Graph Reg Key Opcode} (p : State) :
     resume (stepTree instr source) (pure (.inr p)) =
       resume (stepTree instr source) (stepTree instr source p) := by
   rw [resume_body]
@@ -159,5 +169,101 @@ private theorem packed_swap :
     HasTrace (packedObservation closedRight instr (plan.renameStore originalStore)) swappedTrace := by
   rw [← packed_same, packedObservation_eq_sourceObservation]
   exact source_swap
+
+private def init : Key := ⟨16⟩
+private def latch : Key := ⟨18⟩
+
+private def jumpBlock (target : Key) : Block Reg Key Opcode := ⟨[], .term (br target)⟩
+
+private def distinctHeader : Block Reg Key Opcode :=
+  ⟨[⟨x, [(some latch, .var y), (some init, .var seedX)]⟩,
+    ⟨y, [(some latch, .var x), (some init, .var seedY)]⟩], tickBody latch⟩
+
+-- The latch precedes the unaffected predecessor in table order, so the
+-- split must keep its original position in each incoming row.
+private def distinctSource : Graph Reg Key Opcode :=
+  ⟨.term (br init), [(latch, jumpBlock header), (header, distinctHeader), (init, jumpBlock header)]⟩
+
+private def distinctPlan : Plan Reg Reg Key (Option Key) := { plan with predecessor := some latch }
+private def distinctTarget : Graph Reg (Option Key) Opcode := distinctPlan.rewrite distinctSource
+private theorem distinctChecked : Checked distinctPlan distinctSource distinctTarget :=
+  distinctPlan.check_sound (by decide)
+
+example : distinctTarget.predecessors (plan.label header) =
+    [some plan.forward, some (plan.label init)] := by decide
+
+example :
+    (distinctTarget.blocks.lookup (plan.label header)).map (fun block =>
+      CFG.Cyclic.Phi.arguments (some (plan.label init)) block.rows) =
+      some [.var (plan.register seedX), .var (plan.register seedY)] := by decide
+
+private def parallel : Graph Reg Key Opcode :=
+  { distinctSource with blocks :=
+      [(latch, ⟨[], .term (.case (.app .tick (.pair (.var x) (.var y)))
+        ⟨20⟩ (br header) ⟨21⟩ (br header))⟩), (header, distinctHeader), (init, jumpBlock header)] }
+
+example : distinctPlan.hasEdge parallel = true ∧
+    distinctPlan.check parallel (distinctPlan.rewrite parallel) = false := by decide
+
+-- The unnamed entry can also be split, including its incoming φ column.
+private def entryPlan : Plan Reg Reg Key (Option Key) := { plan with predecessor := none }
+
+example : sourceObservation instr source originalStore =
+    sourceObservation instr (entryPlan.rewrite source) (entryPlan.renameStore originalStore) :=
+  source_eq (entryPlan.check_sound (by decide)) instr originalStore
+
+private def blockProfile (headerIndex : Nat) (index : Nat) : Ty SortName :=
+  .product (if index = headerIndex then pairPacket else .unit) (.product num (.product num pairPacket))
+
+private def distinctAdmittedLeft := (Certified.admit distinctSource [seedX, seedY]
+  [(latch, [x, y]), (header, []), (init, [seedX, seedY])] captures profile
+  (fun i => blockProfile 1 i.val) exits).get (by decide)
+
+private def distinctAdmittedRight := (Certified.admit distinctTarget ([seedX, seedY].map plan.register)
+  [(plan.forward, [plan.register x, plan.register y]), (plan.label latch, [plan.register x, plan.register y]),
+    (plan.label header, []), (plan.label init, [plan.register seedX, plan.register seedY])]
+  renamedCaptures profile (fun i => blockProfile 2 i.val) exits).get (by decide)
+
+private def distinctClosedLeft := (close distinctAdmittedLeft).get (by decide)
+private def distinctClosedRight := (close distinctAdmittedRight).get (by decide)
+
+private theorem distinctAlignment :
+    InputAlignment distinctPlan profile profile exits exits captures renamedCaptures :=
+  ⟨⟨rfl, rfl⟩, fun _ => rfl⟩
+
+private theorem distinct_packed_same (store : Store) :
+    packedObservation distinctClosedLeft instr store =
+      packedObservation distinctClosedRight instr (distinctPlan.renameStore store) :=
+  packed_eq distinctChecked instr distinctClosedLeft distinctClosedRight distinctAlignment store
+
+private theorem straight_step (pred : Option Key) (target next : Key) (store : Store)
+    (found : distinctSource.blocks.lookup target = some (jumpBlock next)) :
+    stepTree instr distinctSource (.jump pred target, store) =
+      pure (.inr (.jump (some target) next, store)) := by
+  rw [step_jump _ _ _ _ _ found]
+  simp [jumpBlock, assign, CFG.Cyclic.Phi.execute, CFG.Body.exec, CFG.Term.exec, br]
+
+private theorem distinct_source_swap :
+    HasTrace (sourceObservation instr distinctSource originalStore) swappedTrace := by
+  have entry : entryTree instr distinctSource originalStore =
+      pure (.inr (.jump none init, originalStore)) := by
+    simp [entryTree, distinctSource, CFG.Cyclic.Phi.execute, CFG.Body.exec, CFG.Term.exec, br]
+  rw [sourceObservation_eq_resume, entry, resume_transfer, straight_step none init header _ rfl,
+    resume_transfer, tick_step_of distinctSource latch (some init) originalStore 2 5
+      (block := distinctHeader) rfl rfl rfl, swappedTrace]
+  simp only [resume, vis_bind, hasTrace_vis_exchange_iff, pure_bind, Sum.elim_inr]
+  rw [← resume_body]
+  change HasTrace (resume (stepTree instr distinctSource)
+    (stepTree instr distinctSource (.jump (some header) latch,
+      upd (writePair originalStore 2 5) backName .unit))) _
+  rw [straight_step (some header) latch header _ rfl, resume_transfer,
+    tick_step_of distinctSource latch (some latch) _ 5 2 (block := distinctHeader) rfl rfl rfl]
+  simp only [resume, vis_bind]
+  exact hasTrace_vis_request _ _
+
+private theorem distinct_packed_swap :
+    HasTrace (packedObservation distinctClosedRight instr (distinctPlan.renameStore originalStore)) swappedTrace := by
+  rw [← distinct_packed_same, packedObservation_eq_sourceObservation]
+  exact distinct_source_swap
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Split.Examples

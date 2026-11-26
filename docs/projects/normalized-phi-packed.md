@@ -197,32 +197,48 @@ The local proof yields inclusion for the actual pure packed dispatchers
 at every seed.
 [Fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Examples.lean)
 
-## Checked self-edge splitting
+## Checked edge splitting
 
 A split plan supplies a register equivalence, a block-label embedding, a
-chosen header, and a fresh forwarding label outside the embedding's image.
-The rewrite redirects just the header's self-edge, replaces just its incoming
-predecessor key, and inserts the forwarding block in the original
-predecessor's position in the table. The forwarding block has no φ rows or
-register writes. The executable checker validates both normalized graphs,
-an existing self-edge, and exact agreement with the computed rewrite.
+destination, an entry or named predecessor, and a fresh forwarding label
+outside the embedding's image. The self-edge plan remains the default.
+The rewrite redirects just the chosen predecessor–destination pair and
+inserts a block with no φ rows or register writes. It places the new block
+at the old predecessor's row position, before the renamed predecessor
+or at the front for an entry edge. The affected φ column changes key
+and every other key undergoes only label renaming.
 [Syntax and checker](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Split/Defs.lean)
 
-A checked result constructs both block-local simulations. The split side
-follows one extra silent transfer and reaches the same predecessor snapshot
-under the register equivalence. The row proof preserves each key lookup
-and evaluates each renamed operand against the same pre-assignment snapshot.
-Each direction matches requests and their typed replies through the shared
-primitive interpretation. Both trace inclusions yield equality of the
-weak trees. [Simulation endpoint](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Thms.lean)
-· [Block-local rule](https://github.com/hiloopai/silmaril-lean/pull/3635)
+The checker requires both graphs to be normalized and the candidate to equal
+the computed rewrite of an existing internal edge. A predecessor means
+either the unnamed entry or one named block. Two branches from one
+predecessor to the same internal destination fail normalization, including
+branches in different case arms. An explicit return has no destination
+block. The checker splits the sole branch for the chosen pair.
+[Normalization](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Defs.lean)
 
-The packed equality additionally uses two independent certified admissions,
-successful pure closures, and a typed witness aligning capture names, slot
-types, and the sole exit type. The fixture rejects a stale predecessor key
-and checks a two-row swap on the split loop. A continuing reply to
-`tick 2 5` reaches `tick 5 2` in the split packed evaluator. The cyclic
-versioner's global register packet carries two extra version-zero slots
-for the split fixture. Those slots are included in the matching capture
-profiles, and the source SSA certificate declares only the two seed inputs.
-[Fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+A checked result constructs both block-local simulations. The split side
+follows one extra silent transfer with the same renamed predecessor store.
+The row theorem preserves each operand under register renaming. The
+assignment proof evaluates all operands on the fixed pre-assignment
+snapshot. Both directions use the shared primitive interpretation and
+preserve visible requests and replies, so trace inclusion in both directions
+gives equality of the weak trees.
+[Row theorem](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Split/Thms.lean)
+· [Packed endpoint](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Thms.lean)
+
+Packed equality uses independent certified admissions and pure closures.
+The typed alignment requires identical positional capture types and sole
+exit type, and each target capture name must be the renamed source name at
+the same position. The input store is transported by the register
+equivalence. Internal block profiles are checked independently, including
+the new forwarding block's profile.
+
+The packed regression splits a distinct latch's backedge. The latch's old
+column precedes an unaffected named predecessor in table order and keeps
+that position. The unaffected predecessor supplies `tick 2 5`. After a
+continuing reply the split backedge supplies `tick 5 2` through simultaneous
+assignment. Other checks cover an entry split and reject a stale key and
+parallel branches. The fixtures supply any version-zero slots required by
+the cyclic versioner's packet layout in both capture profiles.
+[Fixtures](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)

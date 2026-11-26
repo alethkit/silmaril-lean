@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.Defs
 public import Silmaril.SSA.LambdaRTL.Nameless.Defs
 
-/-! # Rename and split one normalized φ self-edge -/
+/-! # Rename and split one normalized φ edge -/
 
 @[expose] public section
 
@@ -12,14 +12,16 @@ namespace Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.Split
 universe v w
 variable {V W K J : Type w} {F : Type v}
 
-/-- Register and block alignment for a split of the chosen header's self-edge.
-The forwarding label is outside the image of the original block labels. -/
+/-- Register and block alignment for a split of an incoming edge to `header`.
+A predecessor of `none` selects the unnamed entry. The default selects the
+header's self-edge. The forwarding label is outside the original label image. -/
 structure Plan (V W K J : Type w) where
   register : V ≃ W
   label : K ↪ J
   header : K
   forward : J
   fresh : ∀ k, label k ≠ forward
+  predecessor : Option K := some header
 
 /-- Transport a source store along the register equivalence. -/
 def Plan.renameStore (plan : Plan V W K J) {α : Type w} (store : V → α) : W → α :=
@@ -27,12 +29,12 @@ def Plan.renameStore (plan : Plan V W K J) {α : Type w} (store : V → α) : W 
 
 variable (plan : Plan V W K J) [DecidableEq K]
 
-/-- Whether a pending edge is the selected self-edge. -/
+/-- Whether a pending edge is the selected edge. -/
 def Plan.selected (source : Option K) (target : K) : Prop :=
-  source = some plan.header ∧ target = plan.header
+  source = plan.predecessor ∧ target = plan.header
 
 instance (source : Option K) (target : K) : Decidable (plan.selected source target) :=
-  inferInstanceAs (Decidable (source = some plan.header ∧ target = plan.header))
+  inferInstanceAs (Decidable (source = plan.predecessor ∧ target = plan.header))
 
 /-- Replace the destination of just the selected branch. -/
 def Plan.route (source : Option K) (target : Option K) : Option J :=
@@ -63,18 +65,27 @@ def Plan.renameBlock (key : K) (block : Block V K F) : Block W J F :=
 
 def Plan.forwardBlock : Block W J F := ⟨[], .term (br (plan.label plan.header))⟩
 
-/-- Insert the forwarding block at the old predecessor's position in the
-table, immediately before the renamed header. This preserves incoming row
-order while replacing the old self-edge key. The new block writes no registers. -/
+/-- The forwarding block occupies the old predecessor's row position. -/
+def Plan.forwardAt (pred : Option K) : List (J × Block W J F) :=
+  if pred = plan.predecessor then [(plan.forward, plan.forwardBlock)] else []
+
+/-- Insert the forwarding block immediately before the renamed predecessor,
+or at the front for an entry edge. The selected φ column keeps its position
+when its key changes from the old predecessor to the forwarding label. -/
 def Plan.rewrite (source : Graph V K F) : Graph W J F :=
   ⟨plan.renameBody (plan.route none) source.entry,
-    source.blocks.flatMap fun (key, block) =>
-      let renamed := (plan.label key, plan.renameBlock key block)
-      if key = plan.header then [(plan.forward, plan.forwardBlock), renamed] else [renamed]⟩
+    plan.forwardAt none ++ source.blocks.flatMap fun (key, block) =>
+      plan.forwardAt (some key) ++ [(plan.label key, plan.renameBlock key block)]⟩
 
-def Plan.hasBackedge (source : Graph V K F) : Bool :=
-  (source.blocks.lookup plan.header).any fun block =>
-    block.body.targets.contains (some plan.header)
+/-- Check that the chosen predecessor has a branch to the destination.
+Normalization separately ensures there is at most one such occurrence. -/
+def Plan.hasEdge (source : Graph V K F) : Bool :=
+  let body := plan.predecessor.elim (some source.entry) fun key =>
+    (source.blocks.lookup key).map Block.body
+  body.any fun pred => pred.targets.contains (some plan.header)
+
+/-- Compatibility name for the edge test on plans selecting a backedge. -/
+abbrev Plan.hasBackedge (source : Graph V K F) : Bool := plan.hasEdge source
 
 deriving instance DecidableEq for Row
 deriving instance DecidableEq for Block
@@ -83,15 +94,22 @@ deriving instance DecidableEq for Graph
 variable [DecidableEq V] [DecidableEq W] [DecidableEq J]
 
 /-- Check both graphs' normalization and that the candidate is precisely the
-rename-and-split rewrite of an existing self-edge. -/
+rename-and-split rewrite of one existing internal edge. A repeated branch to
+the same target from the same predecessor fails normalization, even when the
+repetition is in two arms of a conditional. Explicit returns are not targets. -/
 def Plan.check [DecidableEq F] (source : Graph V K F) (target : Graph W J F) : Bool :=
-  source.check && plan.hasBackedge source && target.check && decide (target = plan.rewrite source)
+  source.check && plan.hasEdge source && target.check && decide (target = plan.rewrite source)
 
 /-- The syntax checks are separate from global and typed target admission. -/
 structure Checked (source : Graph V K F) (target : Graph W J F) : Prop where
   sourceNormalized : source.check = true
-  backedge : plan.hasBackedge source = true
+  edge : plan.hasEdge source = true
   targetNormalized : target.check = true
   rewritten : target = plan.rewrite source
+
+/-- Compatibility accessor for plans selecting a backedge. -/
+theorem Checked.backedge {source : Graph V K F} {target : Graph W J F}
+    (checked : Checked plan source target) : plan.hasBackedge source = true :=
+  checked.edge
 
 end Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.Split
