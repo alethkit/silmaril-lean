@@ -20,7 +20,10 @@ local notation "JoinedEqv" => Paper.Extension.Eqv Old
 
 variable {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
 
-theorem ofJoined (h : JoinedEqv Γ r s L) : Eqv Γ r s L := by
+variable {Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+
+theorem ofSeed (h : Paper.Extension.Eqv Seed Γ r s L) :
+    Paper.Extension.Eqv (AddBinding Seed) Γ r s L := by
   induction h with
   | paper h => exact .paper h
   | extra hr hs h => exact .extra hr hs (.inl h)
@@ -39,22 +42,33 @@ private theorem ofBranch {a : Tm Φ} {ℓ : Nat} {A : τ} (hℓ : At L ℓ A) (h
     Eqv Γ (.br ℓ a) (.let₁ a (.br ℓ (.var 0))) L :=
   .extra (.br hℓ ha) (.let₁ ha (.br hℓ (.var rfl))) (.inr (.bind hℓ ha))
 
-private theorem joinedValues (h : Old Γ r s L) : ValueBranches Γ r L ∧ ValueBranches Γ s L :=
+theorem joinedValues (h : Old Γ r s L) : ValueBranches Γ r L ∧ ValueBranches Γ s L :=
   h.elim Paper.WithProjectionReturns.Step.valueBranches (fun h => by
     cases h
     exact ⟨.br rfl .unit, .br rfl (.var rfl)⟩)
 
-theorem eqv_normalize (h : Eqv Γ r s L) : JoinedEqv Γ r.bindBranchArguments s.bindBranchArguments L := by
+theorem normalize_seed (h : Seed Γ r s L) (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
+    Paper.Extension.Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L := by
+  have step : Paper.Extension.Eqv Seed Γ r s L := .extra hr.hasType hs.hasType h
+  exact (Paper.Extension.Eqv.paper (.cfgEta (.native hr.bindBranchArguments_equiv.symm))).trans
+    (step.trans (.paper (.cfgEta (.native hs.bindBranchArguments_equiv))))
+
+theorem eqv_normalize_of_guardedSeed
+    (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
+    (h : Paper.Extension.Eqv (AddBinding Seed) Γ r s L) :
+    Paper.Extension.Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L := by
   apply h.bindBranchArguments_into
   intro Γ r s L step
   rcases step with h | h
-  · exact Paper.WithProjectionReturnsAndUnitEta.BranchNormalization.bindBranchArguments_congr (.extra
-      (joinedValues h).1.hasType
-      (joinedValues h).2.hasType h)
+  · obtain ⟨hr, hs⟩ := guarded h
+    exact normalize_seed h hr hs
   · cases h with
     | bind hℓ ha =>
       exact .let₁ ha (.paper (.cfgEta (.native
         (ValueBranches.bindBranchArguments_equiv (.br hℓ (.var rfl))))))
+
+theorem eqv_normalize (h : Eqv Γ r s L) : JoinedEqv Γ r.bindBranchArguments s.bindBranchArguments L :=
+  eqv_normalize_of_guardedSeed joinedValues h
 
 theorem bindBranchArguments_eqv (hr : HasType Γ r L) : Eqv Γ r r.bindBranchArguments L := by
   induction hr with

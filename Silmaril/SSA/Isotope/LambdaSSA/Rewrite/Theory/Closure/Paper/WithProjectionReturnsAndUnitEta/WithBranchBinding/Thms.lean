@@ -22,9 +22,44 @@ local notation "JoinedEqv" => Extension.Eqv Old
 
 variable {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
 
+section Seed
+
+variable {Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+
+/-- Include any seed's contextual closure after adjoining the typed branch rule. -/
+theorem ofSeed (h : Extension.Eqv Seed Γ r s L) : Extension.Eqv (AddBinding Seed) Γ r s L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.ofSeed h
+
+/-- Constructor β replays a guarded seed step in the same closure after normalization. -/
+theorem normalize_seed (h : Seed Γ r s L) (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
+    Extension.Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.normalize_seed h hr hs
+
+/-- A seed with guarded endpoints absorbs the branch rule on normalized representatives. -/
+theorem eqv_normalize_of_guardedSeed
+    (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
+    (h : Extension.Eqv (AddBinding Seed) Γ r s L) :
+    Extension.Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.eqv_normalize_of_guardedSeed guarded h
+
+/-- Adjoining the typed branch rule to a guarded seed preserves and reflects its guarded equality. -/
+theorem guarded_eqv_iff_of_guardedSeed
+    (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
+    (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
+    Extension.Eqv (AddBinding Seed) Γ r s L ↔ Extension.Eqv Seed Γ r s L :=
+  ⟨fun h => (Extension.Eqv.paper (.cfgEta (.native hr.bindBranchArguments_equiv))).trans
+    ((eqv_normalize_of_guardedSeed guarded h).trans
+      (.paper (.cfgEta (.native hs.bindBranchArguments_equiv.symm)))), ofSeed⟩
+
+end Seed
+
+/-- The projection-return and unit-η generators have guarded endpoints. -/
+theorem joinedSeed_valueBranches (h : Old Γ r s L) : ValueBranches Γ r L ∧ ValueBranches Γ s L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.joinedValues h
+
 /-- Include the original joined relation. -/
 theorem ofJoined (h : JoinedEqv Γ r s L) : Eqv Γ r s L :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.ofJoined h
+  ofSeed h
 
 /-- A branch may evaluate its argument in a let before jumping. -/
 theorem ofBranch {a : Tm Φ} {ℓ : Nat} {A : τ} (hℓ : At L ℓ A) (ha : Tm.HasType Γ a A) :
@@ -48,8 +83,7 @@ theorem eqv_iff_normalized (hr : HasType Γ r L) (hs : HasType Γ s L) :
 /-- The branch rule identifies no additional guarded representatives. -/
 theorem guarded_eqv_iff (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
     Eqv Γ r s L ↔ JoinedEqv Γ r s L :=
-  ⟨fun h => (Extension.Eqv.paper (.cfgEta (.native hr.bindBranchArguments_equiv))).trans
-    ((eqv_normalize h).trans (.paper (.cfgEta (.native hs.bindBranchArguments_equiv.symm)))), ofJoined⟩
+  guarded_eqv_iff_of_guardedSeed joinedSeed_valueBranches hr hs
 
 def normalize (q : RawRegionClass (Φ := Φ) Γ L) : GuardedRegionClass (Φ := Φ) Γ L :=
   Quotient.liftOn q (fun r => Quot.mk _ ⟨r.val.bindBranchArguments, r.property.bindBranchArguments⟩)
