@@ -14,7 +14,9 @@ public section
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite.CommonRequest
 
 open Isotope.LetCase.LocallyNameless (Equiv HasType Tm)
+open Kleisli (value)
 open LambdaSSA.Region (packedExitType)
+open LetIter.Semantics.Categorical (boundEnv)
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
 local notation "J" => Kleisli.J (m := Trace)
@@ -57,6 +59,10 @@ theorem NormalSource.afterRequest {L : List Sorts} {n : Nat} (p : NormalSource L
       (if env test then (if right then p.arms.trueRight else p.arms.trueLeft)
         else (if right then p.arms.falseRight else p.arms.falseLeft)).outcomes ((env.without test).push b) :=
   after_request_proof p test env right b
+
+theorem bitSlots_matches (n : Nat) (env : Assignment n) :
+    (bitSlots n).Matches (boundEnv value (packedAssignment n env)) env :=
+  bitSlots_matches_proof n env
 
 theorem programOutcomes_eq (H : Sorts) (L : List Sorts) {n : Nat} (test : Fin (n + 1))
     (p : Source (H :: L) n) (env : Assignment (n + 1)) :

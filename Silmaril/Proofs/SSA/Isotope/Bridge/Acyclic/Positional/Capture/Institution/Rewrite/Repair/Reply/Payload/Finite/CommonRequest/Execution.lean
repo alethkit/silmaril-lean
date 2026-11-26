@@ -22,7 +22,7 @@ set_option backward.isDefEq.respectTransparency false
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
 local notation "U" => (Ty.unit : Sorts)
 
-private theorem slots_match (n : Nat) (env : Assignment n) :
+theorem bitSlots_matches_proof (n : Nat) (env : Assignment n) :
     (bitSlots n).Matches (boundEnv value (packedAssignment n env)) env := by
   induction n with
   | zero => exact fun i => i.elim0
@@ -48,8 +48,8 @@ private theorem packed_normal_run (H : Sorts) (L : List Sorts) {n : Nat} (test :
   have ret (x : Exits.Exit (H :: L)) : finish x.packed = pure x.packed :=
     Exits.run_router model (rfl : At (H :: L) 0 H) (H :: L) (LambdaSSA.Ren.id (H :: L))
       .base ρ x.1 (labelAt_get (H :: L) x.1) x.2
-  have keptMatches : kept.Matches ρ' rest := fun i => slots_match _ env (test.succAbove i)
-  have read := run_readPayload ρ (slots test).1 (slots test).2 (env test) (slots_match _ env test)
+  have keptMatches : kept.Matches ρ' rest := fun i => bitSlots_matches_proof _ env (test.succAbove i)
+  have read := run_readPayload ρ (slots test).1 (slots test).2 (env test) (bitSlots_matches_proof _ env test)
   let l := requestOperand p.request false
     (p.arms.falseLeft.render.operand kept.bind) (p.arms.falseRight.render.operand kept.bind)
   let r := requestOperand p.request false
