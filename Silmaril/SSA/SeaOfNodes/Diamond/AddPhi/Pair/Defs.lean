@@ -42,6 +42,13 @@ def armLiterals? (known : Literals args past) (arm : Arms.Arm Pure.SubZero.Opcod
     Option Operands :=
   literalInputs? (scanLiterals known arm.dataflow) arm.outputs
 
+/-- Recover the two typed literal rows in the original Region order. -/
+def literalRows? (g : Source inputs sigs) : Option (Operands × Operands) := do
+  let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
+  let first ← armLiterals? known (g.arms .first)
+  let second ← armLiterals? known (g.arms .second)
+  return (first, second)
+
 def Operands.left (row : Operands) : BitVec 64 := row.get .head
 
 def Operands.right (row : Operands) : BitVec 64 := row.get (.tail .head)
@@ -68,9 +75,7 @@ def emit (g : Source inputs sigs) (first second : Operands) : Result inputs sigs
 the caller's admission guard to the two rows. -/
 def rewriteWith? (admit : Operands → Operands → Bool) (g : Source inputs sigs) :
     Option (Result inputs sigs) := do
-  let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
-  let first ← armLiterals? known (g.arms .first)
-  let second ← armLiterals? known (g.arms .second)
+  let (first, second) ← literalRows? g
   if admit first second then some (emit g first second) else none
 
 /-- Fold the direct add when its source precedence checks admit both rows. -/

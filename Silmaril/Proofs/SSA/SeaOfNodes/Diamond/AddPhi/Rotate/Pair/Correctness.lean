@@ -17,7 +17,7 @@ variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
 variable {g : AddPhi.Pair.Source inputs sigs} {x : InputWord inputs}
 variable {target : Program inputs sigs [word]}
 
-private theorem residual_sum_eq (value : BitVec 64) (row : AddPhi.Pair.Operands) :
+theorem residual_sum_eq (value : BitVec 64) (row : AddPhi.Pair.Operands) :
     residualAdd.eval model (.cons value (.cons (AddPhi.Pair.add row) .nil)) =
       spine.eval model (.cons value row) := by
   cases row with
