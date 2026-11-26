@@ -9,10 +9,10 @@ public section
 namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
 
 open LambdaSSA (FiniteCFG)
-open LambdaSSA.Semantics (Env extend)
+open LambdaSSA.Semantics (Env)
 open LambdaSSA.Semantics.Interaction (Primitive region)
 open Silmaril.Elgot.ITree.Finite (Event)
-open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (Atom PacketType PrimitiveSignature)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (Atom PacketType PrimitiveSignature Slot)
 open NamedFlat.Capture (packEnv)
 
 universe u w
@@ -21,18 +21,24 @@ variable {F : Type} {E : Type w → Type w} {α : Type u} {blocks exits captures
   {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
   {source : FiniteCFG F blocks exits captures}
 
-/-- Evaluating the written operand makes its one request and evaluates
-the structural residual at that reply. Products preserve the original
-weak observation order. -/
-theorem Operand.preserves_run {Γ : List PacketType} {op : F} {ty : PacketType}
-    (arg : Operand sig Γ op ty) (instr : Primitive E F α) (env : Env α) :
+/-- Typed weakening and the raw shift used under the outer reply binder
+refer to the same original slot after the schedule. -/
+theorem Requests.slots_position {Γ Δ : List PacketType} {ty : PacketType}
+    (requests : Requests sig Γ Δ) (slot : Slot Γ ty) :
+    position (requests.slots slot) = requests.shift (position slot) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.slots_position
+    requests slot
+
+/-- The original operand and its scheduled lets have equal complete
+weak trees, with product effects in the evaluator's left-to-right order. -/
+theorem Operand.preserves_run {Γ : List PacketType} {ty : PacketType}
+    (arg : Operand sig Γ ty) (instr : Primitive E F α) (env : Env α) :
     LambdaSSA.Semantics.Interaction.term instr env arg.written =
-      (instr op (evalOperand (readSlots position env) arg.argument) >>= fun reply =>
-        LambdaSSA.Semantics.Interaction.term instr (extend env reply) (operand position arg.residual)) :=
+      LambdaSSA.Semantics.Interaction.term instr env arg.schedule.term :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.operand_run
     instr env arg
 
-/-- Inserting the inner reply preserves the written entry and its actual
+/-- Inserting the scheduled replies preserves the written entry and its actual
 old block iteration as complete weak trees. -/
 theorem Lifted.preserves_run (lifted : Lifted sig context source) (instr : Primitive E F α) (env : Env α) :
     region instr env source.erase = region instr env lifted.code.erase :=
