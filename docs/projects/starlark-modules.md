@@ -817,15 +817,50 @@ addresses. The shadowing variant uses the intermediate parameter's
 cell. Lean and pinned Go check both variants and rejection of a
 duplicate grandchild parameter through the existing validator.
 
-The recursive theorem covers straight-line lexical assignments,
-returns and nested definitions with the bounded positional default
-operands. Syntax validation remains in checked module resolution.
-Composing the reached steps into execution of the recursive suite,
-tracking escaped closure provenance through source call operands,
-and integrating those calls with module dispatch and publication
-remain open. Wider operands, arbitrary callable provenance, keywords
-and spreads, loads, and text parsing are outside this integration.
+Syntax validation remains in checked module resolution.
 [Recursive source rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Whole-suite execution after activation
+
+`Defaults.Nested.Sequence.Recursive.runs` composes the recursive
+elaboration with the same independent source execution judgment as the
+shallow sequence. It derives each reached definition's lookup in the
+final table and supplies its captures from the current frame. The
+definition executes its defaults in source order, binds its name to the
+new closure with those saved values, and advances to the tail. A
+reached prefix or default error keeps the exact residual state. The
+full sequence theorem returns the same outcome, frame and heap as
+resolved execution and denotation. A child body can have its own
+recursively elaborated suite and is deferred until activation.
+
+`runs_activated` constructs the owned and captured frame by activating
+the emitted declaration with bound arguments and live captured cells.
+It proves the suite agreement there and restores caller bindings and
+slots while preserving the caller's pre-existing heap cells. The
+caller and the defining activation can differ. The theorem takes the
+capture installation evidence, live cells and already-bound arguments.
+
+For a single owned-name copy immediately after a successful definition,
+`reads_installed_alias` derives the source read of the installed binding
+and the later read of its alias. Both name operands return the same
+function address, with the same declaration, captures and saved
+defaults in the heap. Later calls through arbitrary expressions and
+provenance through unrelated assignments or escape remain separate.
+
+The Lean and pinned Go regression returns the recursively defined
+relay through a local alias and reaches the grandchild through it.
+Lean checks the forwarded addresses and the retained relay
+closure and earlier list allocation after an index error. That error
+skips the rest of the suite and the later module invocations.
+
+The proof covers straight-line lexical assignments, returns and
+nested definitions with the bounded positional default operands.
+Connecting argument preparation and escaped callee provenance to calls
+inside the independent suite, and integrating the resulting trace
+with module dispatch and publication, remain open. Wider operands,
+arbitrary callable provenance, keywords and spreads, loads, and text
+parsing are outside this integration.
+[Execution theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Alias operand theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

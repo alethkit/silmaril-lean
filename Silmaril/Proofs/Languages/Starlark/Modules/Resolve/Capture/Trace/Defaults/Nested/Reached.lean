@@ -19,7 +19,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (State Outcome Capture Cell)
-open Silmaril.Languages.Starlark.Lists.Iteration (Flow)
+open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
 theorem plan_of_body {parent : LexicalBlock} {source : Defaults.Body.Definition}
     (target : source.name ∈ parent.owned) {locals : List String}
@@ -177,43 +177,45 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Defaults.Body.Defin
   apply Defaults.Body.declaration_slots
   simpa using congrArg List.length (Defaults.Lexical.translates plan.lexical).1
 
-private theorem installed_record {parent : LexicalBlock} {source : Defaults.Body.Definition}
-    (plan : Plan parent source) {state final : State} {floor : Nat} {parentFree : List FreeName}
+private theorem installed_record {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+    {items : List PlainPositionalDefault} (targetOwned : name ∈ parent.owned)
+    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items) {state final : State} {floor : Nat} {parentFree : List FreeName}
     (frame : Defaults.Body.Frame parent parentFree floor state) {values : List Silmaril.Languages.Starlark.Lists.Value}
-    (evaluated : Defaults.Lexical.Evaluates parent state plan.defaults (.ok values final))
+    (evaluated : Defaults.Lexical.Evaluates parent state items (.ok values final))
     (id : DeclarationId) (captures : List Capture) :
-    DefinitionResult plan id captures state
-      (.ok .next (Defaults.install (fileSlot source.name) id captures
-        ((source.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final)) := by
-  have kept := Defaults.Lexical.evaluates_keeps plan.lexical evaluated
-  obtain ⟨target, before, frozen, _, slot, cell⟩ := frame.owned source.name plan.target
-  have targetSlot : final.slots (fileSlot source.name) = some (.owned target) := kept.1 ▸ slot
+    SiteResult parent name parameters items id captures state
+      (.ok .next (Defaults.install (fileSlot name) id captures
+        ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final)) := by
+  have kept := Defaults.Lexical.evaluates_keeps lexical evaluated
+  obtain ⟨target, before, frozen, _, slot, cell⟩ := frame.owned name targetOwned
+  have targetSlot : final.slots (fileSlot name) = some (.owned target) := kept.1 ▸ slot
   have oldBound := (Array.getElem?_eq_some_iff.mp cell).choose
   have targetCell : final.heap[target]? = some ⟨.binding before, frozen⟩ := kept.2 _ _ oldBound cell
   have finalBound : target < final.heap.size := (Array.getElem?_eq_some_iff.mp targetCell).choose
-  let name := fileSlot source.name
-  let record := (source.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values
+  let binding := fileSlot name
+  let record := (parameters.optional.map (fileSlot ∘ Prod.fst)).zip values
   let grown := { final with heap := final.heap.push (⟨.function ⟨id, captures, record⟩, false⟩ : Cell) }
   have grownCell : grown.heap[target]? = some ⟨.binding before, frozen⟩ :=
     by simpa [grown, Array.getElem?_push, Nat.ne_of_lt finalBound] using targetCell
-  have written : (grown.write name (.function final.heap.size)).bindingValue name =
+  have written : (grown.write binding (.function final.heap.size)).bindingValue binding =
       .ok (.function final.heap.size) := by
     have valid : target < grown.heap.size := (Array.getElem?_eq_some_iff.mp grownCell).choose
-    simp only [State.write, show grown.slots name = some (.owned target) from targetSlot, grownCell,
+    simp only [State.write, show grown.slots binding = some (.owned target) from targetSlot, grownCell,
       State.bindingValue, Silmaril.Languages.Starlark.Lists.Slot.address,
       Array.getElem?_setIfInBounds_self_of_lt valid]
-  have stored : (grown.write name (.function final.heap.size)).heap[final.heap.size]? =
+  have stored : (grown.write binding (.function final.heap.size)).heap[final.heap.size]? =
       some ⟨.function ⟨id, captures, record⟩, false⟩ := by
-    simp only [State.write, show grown.slots name = some (.owned target) from targetSlot, grownCell]
+    simp only [State.write, show grown.slots binding = some (.owned target) from targetSlot, grownCell]
     exact (Array.getElem?_setIfInBounds_ne (Nat.ne_of_lt finalBound)).trans Array.getElem?_push_size
   exact .installed evaluated rfl written stored
 
-theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
-    (plan : Plan parent source) {id : DeclarationId} {captures : List Capture}
+theorem site_result_frame {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items) {id : DeclarationId} {captures : List Capture}
     {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
-    {out : Outcome Flow} (result : DefinitionResult plan id captures state out) :
-    Defaults.Body.Frame parent free floor (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) ∧
-      Defaults.Body.Keeps floor state (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) := by
+    {out : Outcome Flow} (result : SiteResult parent name parameters items id captures state out) :
+    Defaults.Body.Frame parent free floor (finishState out) ∧
+      Defaults.Body.Keeps floor state (finishState out) := by
   have extendsHeap {next : State} (preserved : Defaults.Body.Keeps state.heap.size state next) :
       Defaults.Body.Extends state next :=
     ⟨preserved.1, fun address cell found => preserved.2 address cell (Array.getElem?_eq_some_iff.mp found).choose found⟩
@@ -222,14 +224,44 @@ theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
     exact ⟨Defaults.Body.extend_frame frame (extendsHeap kept), Defaults.Body.extends_keeps floor (extendsHeap kept)⟩
   | @installed values next evaluated ran exactState _ _ =>
     subst next
-    have kept := extendsHeap (Defaults.Lexical.evaluates_keeps plan.lexical ran)
+    have kept := extendsHeap (Defaults.Lexical.evaluates_keeps lexical ran)
     have before := Defaults.Body.extend_frame frame kept
     have grown := Defaults.Body.extend_push evaluated
-      ⟨.function ⟨id, captures, (source.parameters.optional.map (fileSlot ∘ Prod.fst)).zip values⟩, false⟩
+      ⟨.function ⟨id, captures, (parameters.optional.map (fileSlot ∘ Prod.fst)).zip values⟩, false⟩
     have after := Defaults.Body.extend_frame before grown
-    obtain ⟨written, retained⟩ := Defaults.Body.written_frame plan.target (.function evaluated.heap.size) after
+    obtain ⟨written, retained⟩ := Defaults.Body.written_frame target (.function evaluated.heap.size) after
     exact ⟨written, Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor kept)
       (Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor grown) retained)⟩
+
+theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
+    (plan : Plan parent source) {id : DeclarationId} {captures : List Capture}
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
+    {out : Outcome Flow} (result : DefinitionResult plan id captures state out) :
+    Defaults.Body.Frame parent free floor (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) ∧
+      Defaults.Body.Keeps floor state (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) :=
+  site_result_frame plan.target plan.lexical frame result
+
+theorem reached_site {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items)
+    (program : Program) (available : List DeclarationId) (id : DeclarationId)
+    (declaration : Declaration) (found : program[id]? = some declaration)
+    (signature : declaration.signature = parameters.signature (items.map PlainPositionalDefault.value))
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
+    (captures : List Capture) (supplied : Installs state declaration.free captures) :
+    ∃ out, Defaults.Lexical.Defines parent (fileSlot name) id declaration.free parameters items state out ∧
+      Exec program available state (.define (fileSlot name) id) out ∧
+      denoteBody program available (.define (fileSlot name) id) state = out ∧
+      SiteResult parent name parameters items id captures state out := by
+  obtain ⟨out, sourceStep, ran, meaning, saved⟩ := Defaults.Lexical.defines_total program available
+    (fileSlot name) id parameters declaration lexical found signature state captures supplied
+  refine ⟨out, sourceStep, ran, meaning, ?_⟩
+  cases sourceStep with
+  | failed evaluated => exact .failed evaluated (Defaults.Lexical.evaluates_keeps lexical evaluated)
+  | @installed final values actual evaluated used =>
+    obtain ⟨reached, savedValues, savedEvaluation, equal⟩ := saved _ rfl
+    rw [equal]
+    exact installed_record target lexical frame savedEvaluation id captures
 
 theorem reached {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source)
     {before after : List Binding} {parentFree : List FreeName}
@@ -243,14 +275,8 @@ theorem reached {parent : LexicalBlock} {source : Defaults.Body.Definition} (pla
       denoteBody program available (.define (fileSlot source.name) id) state = out ∧
       DefinitionResult plan id captures state out := by
   obtain ⟨captures, supplied, cells⟩ := installs plan selected frame
-  obtain ⟨out, sourceStep, ran, meaning, saved⟩ := Defaults.Lexical.defines_total program available
-    (fileSlot source.name) id source.parameters plan.declaration plan.lexical found rfl state captures supplied
-  refine ⟨captures, out, supplied, cells, sourceStep, ran, meaning, ?_⟩
-  cases sourceStep with
-  | failed evaluated => exact .failed evaluated (Defaults.Lexical.evaluates_keeps plan.lexical evaluated)
-  | @installed final values actual evaluated used =>
-    obtain ⟨reached, savedValues, savedEvaluation, equal⟩ := saved _ rfl
-    rw [equal]
-    exact installed_record plan frame savedEvaluation id captures
+  obtain ⟨out, sourceStep, ran, meaning, result⟩ := reached_site plan.target plan.lexical program available id
+    plan.declaration found rfl frame captures supplied
+  exact ⟨captures, out, supplied, cells, sourceStep, ran, meaning, result⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested
