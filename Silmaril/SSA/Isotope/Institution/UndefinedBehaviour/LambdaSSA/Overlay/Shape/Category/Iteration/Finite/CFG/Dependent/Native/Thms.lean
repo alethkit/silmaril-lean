@@ -11,12 +11,26 @@ public section
 
 namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native
 
-open Syntax (Primitives emptyBindings Bindings.push model)
+open Syntax (Expr Primitives emptyBindings Bindings.push model)
 
 universe u v w
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {X : Syntax.Ty} {R L : List Syntax.Ty}
 variable {captures seeds results states : Nat}
+
+/-- The exact syntax comparison also certifies independently proposed tables. -/
+theorem sameRegion_eq {Φ : Type u} [DecidableEq Φ] {r t : LambdaSSA.Region Φ} (h : sameRegion r t = true) : r = t :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.sameRegion_eq h
+
+/-- The native router implements the same request and ordered reply map. -/
+theorem packedRequestTo_agrees {Γ : List Syntax.Ty} (f : Φ) (arg : Expr Γ (instrSrc f))
+    (reply : instrTrg f = LambdaSSA.Region.packedExitType R)
+    (target : Fin R.length → Fin L.length) (typed : ∀ i, L.get (target i) = R.get i)
+    (M : Shape.Model.{u,0,v,w} Φ Γ) (s : M.raw.σ) :
+    Shape.denote (Dependent.packedRequestTo f arg reply target typed) M s =
+      Shape.denote (.native (packedRequestTo f arg reply target typed)) M s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.packedRequestTo_agrees
+    f arg reply target typed M.raw s
 
 /-- A successful readback re-emits the original typed region exactly. -/
 theorem recognized_eq [DecidableEq Φ] {raw : Typed Φ [X] L} {readback : Readback Φ X R L}

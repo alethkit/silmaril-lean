@@ -55,22 +55,24 @@ private theorem cast_packet {A B : Syntax.Ty} (typed : A = B) (prim : Primitives
   cases typed
   rfl
 
-private theorem observe_packedRequest (prim : Primitives Φ states) (env : Bindings Γ)
-    (f : Φ) (arg : Expr Γ (instrSrc f)) (typed : instrTrg f = packedExitType R) (s : Fin states) :
-    denote (packedRequest f arg typed) (model prim env).raw s =
+theorem observe_packedRequestTo (prim : Primitives Φ states) (env : Bindings Γ)
+    (f : Φ) (arg : Expr Γ (instrSrc f)) (typed : instrTrg f = packedExitType R)
+    (target : Fin R.length → Fin L.length) (routed : ∀ i, L.get (target i) = R.get i)
+    (s : Fin states) :
+    denote (packedRequestTo f arg typed target routed) (model prim env).raw s =
       match prim f (arg.eval env) s with
       | .ret a t =>
         let p := unpack (cast (congrArg Syntax.Payload typed) a)
-        WithTop.some {Outcome.ret p.1 p.2.val t}
+        WithTop.some {Outcome.ret (target p.1) p.2.val t}
       | .fault t => WithTop.some {Outcome.fault t}
       | .diverge => WithTop.some {Outcome.diverge} := by
-  rw [packedRequest, bindOne, denote]
+  rw [packedRequestTo, bindOne, denote]
   erw [observe_request prim env f arg s]
   cases prim f (arg.eval env) s with
   | ret a t =>
     refine (return_bind (0 : Fin 1) a.val t _).trans ?_
     rw [denote_push, cast_packet]
-    exact observe_routePacket prim env id (fun _ => rfl) (cast (congrArg Syntax.Payload typed) a) t
+    exact observe_routePacket prim env target routed (cast (congrArg Syntax.Payload typed) a) t
   | fault t => exact fault_bind t _
   | diverge => exact diverge_bind _
 
@@ -85,7 +87,8 @@ theorem observe_packedRequest_bind (prim : Primitives Φ states)
       | .fault t => WithTop.some {Outcome.fault t}
       | .diverge => WithTop.some {Outcome.diverge} := by
   change (denote (packedRequest f arg typed) (model prim env).raw s).bind _ = _
-  rw [observe_packedRequest]
+  unfold packedRequest
+  rw [observe_packedRequestTo]
   cases prim f (arg.eval env) s with
   | ret a t =>
     let p := unpack (cast (congrArg Syntax.Payload typed) a)

@@ -86,7 +86,7 @@ theorem close_branch {f : Feedback.Run R L α σ} {p : Feedback.Point R.length �
     · exact (branch_only run).mp edge ▸ out
   · exact fun out => .inr ⟨_, (branch_only run).mpr rfl, out⟩
 
-private theorem close_terminal {f : Feedback.Run R L α σ} {p : Feedback.Point R.length α σ}
+theorem close_terminal {f : Feedback.Run R L α σ} {p : Feedback.Point R.length α σ}
     {o : Outcome L.length α σ} (run : f p = WithTop.some {Feedback.external R L o}) :
     Feedback.close f p = WithTop.some {o} := by
   have noStep (q) : ¬ Feedback.Step f p q := by
