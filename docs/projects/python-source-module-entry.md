@@ -267,21 +267,19 @@ missing assertion helper after producing the exact Boolean flags.
 of the stock truth helper. Run the CPython 3.13.5 controls and exact
 pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
 
-The exceptional cleanup prerequisite checks scalar suites of passes,
-literal or name-read assignments, and assertions over the same atoms.
-It supports a finally-only statement and a single bare handler. Both
-adapters run those suites through the existing scalar runners. A reached
-defined error skips the else suite and selects the bare handler if present.
-Cleanup starts from the reached state. Normal cleanup restores the pending
-completion and a cleanup error replaces it. Profile failures stop outside
-Python exception transfer. The proofs bound ordinary execution by the
-number of scalar actions and preserve the seeded heaps and receipts.
+Checked exceptional cleanup admits suites of passes, literal or name-read
+assignments, and assertions over the same atoms. A checked `try` can have a
+`finally` suite, a single bare handler, or both. Both module runners commit
+successful actions in order. A reached Python error skips `else` and selects
+the bare handler when present. Cleanup starts from the reached namespace.
+Normal cleanup restores the pending completion and a cleanup error replaces it.
+Profile failures stop outside Python exception transfer.
 
-The adapters expose the reached completion independently of module
-instruction settlement. Installing the source rule needs a module
-continuation that can enter cleanup from a failed suite and publish all
-reached bindings with the final completion. The historical reached-raise
-cutoffs also need explicit raise lowering or typed exception lookup.
+Both runners settle the reached bindings before returning the final completion.
+The scalar suites preserve both heaps, keep seeded builtins and earlier call
+receipts, and emit no call receipts of their own. The two historical
+`raise Exception(text)` inputs still need exact exception construction through
+live lookup. Typed handlers also need checked exception-class resolution.
 Run the CPython 3.13.5 transfer and cutoff controls with
 `python3.13 -I scripts/check-python-exceptional-cleanup.py --upstream /path/to/pinned/rigorous`.
 

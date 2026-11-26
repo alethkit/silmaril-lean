@@ -20,10 +20,6 @@ def ordinarySuite {scope : Source.Scope} (table : CodeTable) (session : Session)
   | .ready reached _ => ⟨reached, .error .scalarProfile⟩
   | .calling _ _ => ⟨session, .error .scalarProfile⟩
 
-def Completion.isPythonError : Completion → Bool
-  | .raised _ | .assertionError => true
-  | _ => false
-
 def ordinary {scope : Source.Scope} (table : CodeTable) (session : Session)
     (plan : Plan (ModuleEntry.Action scope)) : Outcome Session Completion :=
   Functions.ExceptionalTry.run (ordinarySuite table) Completion.isPythonError session plan
@@ -36,16 +32,12 @@ def seededSuite {scope : Source.Scope} (context : Seeded.CallContext) (incoming 
     (actions.map .scalar) incoming.lists
   ⟨{ result with calls := incoming.calls ++ result.calls }, result.completion⟩
 
-def ModuleFailure.isPythonError : Seeded.ModuleFailure → Bool
-  | .raised _ => true
-  | _ => false
-
 def seeded {scope : Source.Scope} (context : Seeded.CallContext) (incoming : Seeded.Observation)
     (plan : Plan (ModuleEntry.Action scope)) : Seeded.Observation :=
   match incoming.completion with
   | .error _ => incoming
   | .ok () =>
-    let result := Functions.ExceptionalTry.run (seededSuite context) ModuleFailure.isPythonError incoming plan
+    let result := Functions.ExceptionalTry.run (seededSuite context) Seeded.ModuleFailure.isPythonError incoming plan
     { result.reached with completion := result.completion }
 
 

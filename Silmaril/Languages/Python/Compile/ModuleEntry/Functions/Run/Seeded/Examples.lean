@@ -4,7 +4,6 @@ import Batteries.Data.Except
 import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Thms
 import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Thms
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs
-meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Defs
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 meta import Silmaril.Languages.Python.Core.Module.Functions.Defs
@@ -145,22 +144,38 @@ private def exceptionalCleanupEvidence : Bool := Id.run do
   let statement := Source.Stmt.try_
     [.assign "body" (.integer 7), .assign "afterFailure" (.name "bodyMissing")]
     [] [] [.assign "copied" (.name "body")]
-  let .ok tree := Source.analyze ⟨[statement]⟩ | return false
-  let some plan := Functions.ExceptionalTry.check tree.scope statement | return false
-  let table : Core.Closure.Executor.CodeTable := fun _ => none
+  let .ok compiled := Run.compile ⟨[statement, .assign "tail" (.integer 9)]⟩ | return false
   let heap : Core.Closure.Heap := ⟨1, fun slot => if slot = 0 then some (.int 23) else none⟩
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
-  let ordinary := Run.ExceptionalTry.ordinary table { Run.seed .empty heap with lists } plan.val
-  let seeded := Run.ExceptionalTry.seeded { table, heap, fuel := 1000 } ⟨.empty, .ok (), [], heap, lists⟩ plan.val
-  return ordinary.completion == .error (.raised (.nameError "bodyMissing")) &&
-    (ordinary.reached.globals "copied").map seededValue == some (.int 7) &&
-    (ordinary.reached.globals "afterFailure").isNone && ordinary.reached.lists == lists &&
-    ordinary.reached.heap.next == heap.next && (ordinary.reached.heap.contents 0).map seededValue == some (.int 23) &&
+  let (events, state) := Run.runPrefix compiled.table 10
+    (.ready { Run.seed .empty heap with lists } compiled.instructions)
+  let .finished ordinary completion := state | return false
+  let seeded := run .empty compiled heap (lists := lists)
+  return events.isEmpty && completion == .raised (.nameError "bodyMissing") &&
+    (ordinary.globals "copied").map seededValue == some (.int 7) &&
+    (ordinary.globals "afterFailure").isNone && (ordinary.globals "tail").isNone &&
+    ordinary.lists == lists && ordinary.heap.next == heap.next &&
+    (ordinary.heap.contents 0).map seededValue == some (.int 23) &&
     seeded.completion == .error (.raised (.runtime (.nameError "bodyMissing"))) &&
     seeded.residual.moduleGlobals == [("copied", .int 7), ("body", .int 7)] &&
     seeded.residual.builtins.isEmpty && seeded.calls.isEmpty && seeded.lists == lists &&
     seeded.heap.next == heap.next && (seeded.heap.contents 0).map seededValue == some (.int 23)
 
 #guard exceptionalCleanupEvidence
+
+private def exceptionalProfileFailureEvidence : Bool := Id.run do
+  let .ok tree := Source.analyze ⟨[.pass]⟩ | return false
+  let outsideProfile := ModuleEntry.Action.assertion (scope := tree.scope) (.binary .add (.integer 1) .none_)
+  let failIfReached := ModuleEntry.Action.assertion (scope := tree.scope) .none_
+  let plan : Functions.ExceptionalTry.Plan (ModuleEntry.Action tree.scope) :=
+    ⟨[outsideProfile], some [failIfReached], [], [failIfReached]⟩
+  let ordinary := Run.runPrefix (fun _ => none) 2
+    (.ready (Run.seed .empty) [.exceptionalTry plan, .scalar failIfReached])
+  let .finished _ .scalarProfile := ordinary.2 | return false
+  let seeded := runInstructions .empty [.exceptionalTry plan, .scalar failIfReached]
+  return ordinary.1.isEmpty && seeded.completion == .error .unsupported && seeded.calls.isEmpty &&
+    seeded.residual.moduleGlobals.isEmpty
+
+#guard exceptionalProfileFailureEvidence
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

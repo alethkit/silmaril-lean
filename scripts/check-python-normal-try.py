@@ -207,15 +207,27 @@ after = 9
     assert execute(source, expected) == "AssertionError:empty"
     fixtures.append((source, guard_pair(expected, ".assertionError", "AssertionError:empty")))
 
-    rejected = (
-        ("try:\n    reached = missing\nexcept:\n    caught = True\n", {"caught": True}, "normal"),
-        ("try:\n    pass\nexcept:\n    handler = True\nelse:\n    reached = missing\nfinally:\n    cleaned = True\n",
-         {"cleaned": True}, "NameError:missing"),
-        ("try:\n    pass\nexcept Missing:\n    handler = True\n", {}, "normal"),
-    )
-    for source, expected, status in rejected:
-        assert execute(source, expected) == status
-        fixtures.append((source, """#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
+    source = "try:\n    reached = missing\nexcept:\n    caught = True\n"
+    expected = {"caught": True}
+    assert execute(source, expected) == "normal"
+    fixtures.append((source, guard_pair(expected, ".normal", "normal")))
+
+    source = """try:
+    pass
+except:
+    handler = True
+else:
+    reached = missing
+finally:
+    cleaned = True
+"""
+    expected = {"cleaned": True}
+    assert execute(source, expected) == "NameError:missing"
+    fixtures.append((source, guard_pair(expected, '.raised (.nameError "missing")', "NameError:missing")))
+
+    source = "try:\n    pass\nexcept Missing:\n    handler = True\n"
+    assert execute(source, {}) == "normal"
+    fixtures.append((source, """#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
   | .error (.source (.scalar .statementProfile)) => true
   | _ => false)"""))
     return fixtures

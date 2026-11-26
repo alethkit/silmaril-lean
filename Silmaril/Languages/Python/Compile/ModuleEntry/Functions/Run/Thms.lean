@@ -71,14 +71,15 @@ theorem advance_scalarResultAssign {scope : Source.Scope} (table : Core.Closure.
     (value : Core.Module.Value) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (.assign name reference (.scalarResult value)) :: rest)) =
       ([], .ready (session.bindGlobal name (embed value)) rest) := by
-  simp only [advance, evaluate_scalarResult]
+  simp only [advance, scalarStep, evaluate_scalarResult, Except.map]
 
 theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module.Functions.Session)
     (value : Core.Module.Value) (expected : Bool) (rest : List (Instruction scope)) :
     assertOperand session (.scalarResult value) expected rest =
       (if value.truth = expected then .ready session rest else .finished session .assertionError) := by
-  simp only [assertOperand, evaluate_scalarResult]
-  cases value <;> rfl
+  have truth : Core.Module.Functions.truth (embed value) = value.truth := by cases value <;> rfl
+  by_cases holds : value.truth = expected <;>
+    simp [assertOperand, checkAssertion, evaluate_scalarResult, Except.bind, truth, holds]
 
 theorem advance_textSliceGuard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (test : TextSlice.Guard) (rest : List (Instruction scope)) :
@@ -101,7 +102,7 @@ theorem advance_readAssign {scope : Source.Scope} (table : Core.Closure.Executor
       ([], match session.globals source with
         | some value => .ready (session.bindGlobal name value) rest
         | none => .finished session (.raised (.nameError source))) := by
-  cases found : session.globals source <;> simp [advance, evaluate, found]
+  cases found : session.globals source <;> simp [advance, scalarStep, evaluate, found, Except.map]
 
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
@@ -124,13 +125,13 @@ theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.E
     (reference : GlobalReference scope name) (selected : Operand scope) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (.assign name reference selected.conditionalResult) :: rest)) =
       advance table (.ready session (.scalar (.assign name reference selected) :: rest)) := by
-  simp only [advance, evaluate_conditionalResult]
+  simp only [advance, scalarStep, evaluate_conditionalResult]
 
 theorem advance_conditionalAssert {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (selected : Operand scope) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (.assertion selected.conditionalResult) :: rest)) =
       advance table (.ready session (.scalar (.assertion selected) :: rest)) := by
-  simp only [advance, assertOperand, evaluate_conditionalResult]
+  simp only [advance, scalarStep, checkAssertion, evaluate_conditionalResult]
 
 /-- Scalar actions emit a prefix of scalar instructions and consume no code
 keys. Both runners receive the same instructions and linked rows. -/
@@ -179,7 +180,7 @@ theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.E
     (session : Core.Module.Functions.Session) (value : Bool) (rest : List (Instruction scope)) :
     advance table (.ready session (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest)) =
       ([], if value then .ready session rest else .finished session .assertionError) := by
-  cases value <;> simp [Action.inLiteralArm, advance, assertOperand, evaluate, Core.Module.Functions.truth] <;> rfl
+  cases value <;> simp [Action.inLiteralArm, advance, scalarStep, checkAssertion, evaluate, Core.Module.Functions.truth, Except.map] <;> rfl
 
 theorem advance_adjacentKeywordDiscard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : String) (value : Int)
