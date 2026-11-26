@@ -229,7 +229,13 @@ gives the exact update for original saved identities. [Definitions][layout-defs]
 
 `emit?_placement` certifies the current captured binding and cut on the
 actual CFG. `physicalOperands_eval` identifies the values read through the
-map. `emit?_invariant` preserves that correspondence, the entry's successor
+map. `physicalSites_available` and `atLayout_operands_available` give a
+standalone availability fact for any successfully captured binding's
+resolved operand sites — valid and available at any named (non-entry) read
+point, such as the loop's actual header or exit — independent of any
+pending insertion request. This does not resolve a general header-local
+operand (`findCaptured?` still refuses those), rewrite any use inventory,
+or call the corridor chooser. `emit?_invariant` preserves that correspondence, the entry's successor
 slots and exact evaluated entry packet. The actual labeled blocks are shared
 with append, so the header's branch slots and incoming Φ operands retain
 their reference order. `run_spec` identifies the exact append result for
