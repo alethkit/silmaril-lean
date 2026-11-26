@@ -207,11 +207,12 @@ private theorem read_origin_cast {args args' : List (Diamond.Ty Width)}
 private theorem graph_header {captures bank : Nat} {entrySigs sigs : List (List PortTy)}
     {src : Width.Source captures bank entrySigs sigs} {g : MLIR.Program captures bank (table entrySigs) (table sigs)}
     (ok : graph src = some g) :
-    headerFlow src = some g.header ∧ g.predicate = headerOrigin src.predicate := by
+    headerFlow src = some g.header ∧ g.predicate = headerOrigin src.predicate ∧
+      g.result = headerOrigin src.result := by
   obtain ⟨entry, _, ok⟩ := Option.bind_eq_some_iff.mp ok
   obtain ⟨header, hit, eq⟩ := Option.bind_eq_some_iff.mp ok
   cases eq
-  exact ⟨hit, rfl⟩
+  exact ⟨hit, rfl, rfl⟩
 
 theorem header_read {captures bank : Nat} {entrySigs sigs : List (List PortTy)}
     {src : Width.Source captures bank entrySigs sigs} {g : MLIR.Program captures bank (table entrySigs) (table sigs)}
@@ -252,7 +253,7 @@ theorem header_match {old new tests : Nat} {entrySigs sigs : List (List PortTy)}
     (ok : graph (mapCaptures mapping source).primary = some g)
     (input : WordTuple new) (carried : WordTuple old) : HeaderMatch sys input carried := by
   refine ⟨?_, ?_⟩
-  · rw [(graph_header ok).2]
+  · rw [(graph_header ok).2.1]
     exact congrArg ULift.down (header_read ok input carried _)
   · intro i
     unfold livePacket
@@ -339,6 +340,30 @@ private theorem wordEnv_bankEnv {n : Nat} (words : WordTuple n) :
 
 open Silmaril.SSA.SeaOfNodes.MLIR.Lowering (Scope lowerCode lowerCode_eval inputs_agree)
 open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+
+theorem header_exit {old new tests : Nat} {entrySigs sigs : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entrySigs sigs tests}
+    {g : MLIR.Program new old (table entrySigs) (table sigs)} {wires : Live new old (table sigs)}
+    (sys : Setup mapping source g wires) (ok : graph (mapCaptures mapping source).primary = some g)
+    (input : WordTuple new) (carried : WordTuple old) (returned : Silmaril.Machine.Lir.Word)
+    {before ready : Silmaril.Machine.RTL.Frame Silmaril.Machine.SeaOfNodes.Diamond.RTL.Reg}
+    {mem : Silmaril.Machine.Lir.Memory}
+    (cut : Family.ExitCut (mapCaptures mapping source) sys.rtl input carried before ready mem returned) :
+    ((sys.cf.block .header).eval evalOp (fun term env => term.eval env)
+      ((wordEnv carried).append (wordEnv input))) = .inl ⟨.exit, .cons returned .nil⟩ := by
+  have header := MLIR.header_frame g wires sys.plan (wordEnv input) (sourceInputs (wordEnv carried))
+  rw [wordEnv_bankEnv] at header
+  dsimp only at header
+  let args := appendTuple (sourceInputs (wordEnv carried)) (sourceInputs (wordEnv input))
+  let ls := g.header.eval Loop.MLIR.CF.model args PUnit.unit
+  have zero : (Diamond.read Loop.MLIR.CF.model g.predicate args ls).down = false := by
+    rw [(graph_header ok).2.1]
+    exact (congrArg ULift.down (header_read ok input carried _)).trans cut.zero
+  have result : Diamond.read Loop.MLIR.CF.model g.result args ls = returned := by
+    rw [(graph_header ok).2.2]
+    exact (header_read ok input carried _).trans cut.result_eq
+  rw [zero, result] at header
+  exact header
 
 private theorem bankOperands_eval {args : List (Diamond.Ty Width)} {past : List (List (Diamond.Ty Width))}
     {Δ widths : List Width} {scope : Scope args past Δ} {env : Env Δ}

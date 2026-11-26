@@ -976,8 +976,8 @@ as the RTL entry at the pulled capture valuation. `header_match` proves
 the guard and every live word agree at any shared bank. Pass the native
 feedback path to `prefix_correct`; it derives a fresh agreement on each
 visit and establishes the same simultaneous Φ packet and RTL memory
-frame as the original prefix proof. The result covers the entry and
-continuing feedback visits. General exit equivalence remains open.
+frame as the original prefix proof. The result covers entry and
+continuing feedback visits. The exit theorem below composes with it.
 [Prefix API][cf-producer]
 
 ```lean
@@ -1013,11 +1013,72 @@ live scope missing the computed word, and shows that the first snapshot
 fails against the second real RTL dispatcher frame.
 [Checked regression][table-regression]
 
+### Take the first exit after a feedback prefix
+
+`Producer.Exit.after_prefix` uses the same checked compiler, starting
+RTL frame relation, and native slot choices. A native return at the
+final header determines the taken exit. The theorem records both
+actual backend paths and the positional explicit-Φ latches for the
+preceding feedback visits. The RTL header’s zero successor (block 1,
+slot 1) reads the exact result register from the completed producer
+frame, sends it to block 2, and rebinds only the exit parameter. CF
+takes the false arm with one i64 block argument and returns it from
+the exit block. The RTL branch and return preserve the entire memory.
+[Exit API][cf-exit]
+
+`Producer.Exit.check` validates the exact ordered RTL exit operand and
+singleton return block. A different register of the same type fails
+the check. Capture, carried and producer indices survive the typed
+translation. Ordinary native admission restricts the exit result to an
+old bank word or an admitted computed row result. The structural
+profile has a single signed-guard header exit and one i64 return.
+[Definitions][cf-exit-defs]
+
+`Producer.Exit.returns` starts at entry from a native `ReturnsAlong`
+witness. It proves the emitted CF and RTL bounded runs return the
+same word, and the canonical translated λSSA Region returns its packed
+word at exit zero with the full memory preserved. Add one CF block for
+entry and two for the final header/exit. RTL adds the preheader count
+plus one for entry and the header producer count plus two for the
+final branch and return. The feedback costs remain positional as above.
+[Exit API][cf-exit]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {live : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source live) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {value : Word}
+    (path : source.ReturnsAlong (mapping.pull input) slots
+      (source.primary.initial model (mapping.pull input)) value) :
+    compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
+  (Family.MLIR.Prefix.Producer.Exit.returns compiled input mem path
+    (fun _ => Silmaril.Machine.RTL.packValues (words input)) rfl).2.1
+```
+
+In the resized fixture the two feedback visits latch `[0, 1, 5]`
+and `[1, 5, 1]`. The next header computes `1 + 5` and takes the exit.
+The regression checks word `6` at 16 RTL instructions and 8 CF blocks
+and at λSSA exit zero. The exit check refuses the first capture as the
+operand in place of the sum.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
-  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -1055,3 +1116,5 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [cf-dispatch]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Thms.lean
 [cf-prefix]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Thms.lean
 [cf-producer]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Thms.lean
+[cf-exit]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Thms.lean
+[cf-exit-defs]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Defs.lean

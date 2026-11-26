@@ -141,6 +141,25 @@ def Fallthrough (prog : Prog Reg) (first count : Nat) (ready : Frame Reg) (mem :
   ∀ offset < count, step prog ⟨⟨0, first + offset, 0⟩, ready, [], mem⟩ =
     .running ⟨⟨0, first + offset + 1, 0⟩, ready, [], mem⟩
 
+/-- The false header successor carries one word to block 2. Producer
+steps use the old arguments, and the branch rebinds just the exit parameter. -/
+structure ExitCut (prog : Prog Reg) (input : WordTuple captures) (carried : WordTuple bank)
+    (before ready : Frame Reg) (mem : Memory) (value : Word) : Prop where
+  produced : StepsNWithin prog [] sigs.length
+    ⟨⟨0, 1, 0⟩, before, [], mem⟩ ⟨⟨0, 1, sigs.length⟩, ready, [], mem⟩
+  zero : (read model p.primary.predicate (appendTuple carried input)
+    (p.primary.header.eval model (appendTuple carried input) PUnit.unit)).down = false
+  result_eq : read model p.primary.result (appendTuple carried input)
+    (p.primary.header.eval model (appendTuple carried input) PUnit.unit) = value
+  guard : ready.get (register p.primary.predicate.address) = some 0
+  operand : (prog.block? 0 1).bind (fun block => block.term.args[1]?) =
+    some (2, [register p.primary.result.address])
+  packet : ready.readAll [register p.primary.result.address] = some [value]
+  rebound : ArgsMatch ready (appendTuple carried input)
+  branch : step prog ⟨⟨0, 1, sigs.length⟩, ready, [], mem⟩ =
+    .running ⟨⟨0, 2, 0⟩, ready.set .phi value, [], mem⟩
+  returned : step prog ⟨⟨0, 2, 0⟩, ready.set .phi value, [], mem⟩ = .returned [value] mem
+
 /-- Evidence from one actual continuing header and its selected feedback edge. -/
 structure FeedbackCut (prog : Prog Reg) (input : WordTuple captures) (carried : WordTuple bank)
     (before ready latched : Frame Reg) (mem : Memory) (slot : Fin (tests + 1))
