@@ -68,6 +68,15 @@ private theorem same_slots (state : State) (binding : Binding) (value : Value) :
   split <;> try rfl
   split <;> rfl
 
+theorem write_keeps_below {state : State} {binding : Binding} {slot floor : Nat}
+    (owned : state.slots binding = some (.owned slot)) (fresh : floor ≤ slot) (value : Value) :
+    Body.Keeps floor state (state.write binding value) := by
+  refine ⟨same_slots state binding value, fun address cell low found => ?_⟩
+  refine (RootCall.write_other_cell state binding value address ?_).trans found
+  intro hit
+  have equal : slot = address := by simpa [owned] using hit
+  omega
+
 private theorem written_cell {state : State} {binding : Binding} {address : Nat} {old : Option Value}
     {frozen : Bool} (value : Value) (owned : state.slots binding = some (.owned address))
     (stored : state.heap[address]? = some ⟨.binding old, frozen⟩) :

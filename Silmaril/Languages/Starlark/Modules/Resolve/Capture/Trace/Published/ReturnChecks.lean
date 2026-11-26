@@ -1,6 +1,8 @@
 module
 
-import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Thms
+meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Defs
+meta import Silmaril.Languages.Starlark.Modules.Loader.Defs
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Defs
@@ -206,5 +208,132 @@ example (bad : Bool) {resolved : ResolvedModule} (checked : resolve (commands ba
     cell "after" == some ⟨.binding none, false⟩ && (final.slots (globalSlot "alias")).isNone &&
     final.iterators == [123]
   | _, _ => false
+
+open Imports
+
+private inductive ImportCase where
+  | ok | bodyError | missing
+
+private def importName : ImportCase → String
+  | .ok | .bodyError => "escaped"
+  | .missing => "absent"
+
+private def importsMapping (test : ImportCase) : Mapping (block "loaded" "result" "late") :=
+  match test with
+  | .bodyError =>
+    ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
+      .entry (.string "key") (.plain (.int 8)) .empty⟩
+  | .ok | .missing =>
+    ⟨[(.string "extra", starlark%[9])], [(.atom (.string "extra"), int 9)], [],
+      .entry (.string "extra") (.plain (.int 9)) .empty⟩
+
+private def consumer (test : ImportCase) : Consumer where
+  label := "producer.star"
+  name := importName test
+  alias := "loaded"
+  destination := "result"
+  tail := "late"
+  legal := by decide
+  publicName := by cases test <;> simp [importName, Modules.isPublic, String.startsWith_string_eq_false_iff]
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := ⟨[("another", starlark%[[71]])], [("another", boxed 71)], [],
+    .cons (.list (.int 71)) .nil, by decide⟩
+  star := some (.list (.cons (.int 17) (.cons (.int 18) .nil)))
+  mapping := some (importsMapping test)
+  rhs := starlark%[[199]]
+  rhsCode := boxed 199
+  rhsReads := []
+  suffix := .list (.int 199)
+
+private theorem covered (test : ImportCase) : Covered exports (commands false) (consumer test) := by
+  cases test
+  · exact .inl rfl
+  · exact .inl rfl
+  · exact .inr (by decide)
+
+example (test : ImportCase) {producer importer : ResolvedModule}
+    (prod : resolve (commands false) #[] = .ok producer)
+    (imp : resolve (consumer test).commands producer.program = .ok importer)
+    (caller : Lists.State) :
+    Agrees (commands false) producer importer (consumer test) exports ⟨caller, []⟩ :=
+  cold_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test) caller
+
+example (test : ImportCase) {producer importer : ResolvedModule}
+    (prod : resolve (commands false) #[] = .ok producer)
+    (imp : resolve (consumer test).commands producer.program = .ok importer)
+    (caller : Lists.State) :
+    ∃ preload, Producer (commands false) producer.source ⟨caller, []⟩ preload ∧
+      Loader.load producer.program (graph producer importer (consumer test)) 0 ⟨caller, []⟩ = preload ∧
+      ∀ published reached, preload = .ok published reached →
+        reached.cache = [(0, published)] ∧ Agrees (commands false) producer importer (consumer test) exports reached :=
+  preloaded_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test) caller
+
+private def runImport (test : ImportCase) (warm : Bool) : Option (Loader.Result Modules.Published) := do
+  let producer ← (resolve (commands false)).toOption
+  let importer ← (resolve (consumer test).commands producer.program).toOption
+  let manifest := graph producer importer (consumer test)
+  let caller : Loader.Session := { runtime := {iterators := [123]} }
+  if warm then
+    match Loader.load producer.program manifest 0 caller with
+    | .ok _ state => some (Loader.load producer.program manifest 1 state)
+    | .error .. => none
+  else
+    some (Loader.load producer.program manifest 1 caller)
+
+private def imported (warm : Bool) : Bool :=
+  match runImport .ok warm with
+  | some (.ok published final) =>
+    match final.cache.lookup 0, published.exports.lookup "result", published.exports.lookup "late" with
+    | some producer, some (.list result), some (.list consumerLate) =>
+      match producer.exports.lookup "escaped", producer.exports.lookup "data", producer.exports.lookup "late" with
+      | some (.function escaped), some (.list original), some (.list producerLate) =>
+        match final.runtime.heap[escaped]? with
+        | some ⟨.function closure, true⟩ =>
+          let lists := final.runtime.heap.toList.filterMap (fun cell => match cell.contents with
+            | .list [.scalar (.int n)] => some n
+            | _ => none)
+          final.cache.map Prod.fst == [1, 0] && result == producerLate && result != consumerLate &&
+          published.exports.lookup "loaded" == none &&
+          final.runtime.heap[result]? == some ⟨.list [.scalar (.int 83)], true⟩ &&
+          final.runtime.heap[consumerLate]? == some ⟨.list [.scalar (.int 199)], true⟩ &&
+          closure.defaults == [(fileSlot "key", .list original)] &&
+          (match closure.captures with
+           | [localCapture, globalCapture] =>
+             (match final.runtime.heap[localCapture.address]? with
+             | some ⟨.binding (some (.list rebound)), true⟩ =>
+               final.runtime.heap[rebound]? == some ⟨.list [.scalar (.int 52)], true⟩
+             | _ => false) &&
+             final.runtime.heap[globalCapture.address]? == some ⟨.binding (some (.list producerLate)), false⟩
+           | _ => false) &&
+          lists.count 31 == 1 && lists.count 44 == 2 && final.runtime.iterators == [123] &&
+          (final.runtime.slots (fileSlot "loaded")).isNone
+        | _ => false
+      | _, _, _ => false
+    | _, _, _ => false
+  | _ => false
+
+#guard imported false
+#guard imported true
+
+private def failedImport (test : ImportCase) (warm : Bool) (expected : Modules.Error) (retained : List Int) : Bool :=
+  match runImport test warm with
+  | some (.error (.initialization 1 error) final) =>
+    let lists := final.runtime.heap.toList.filterMap fun cell => match cell.contents, cell.frozen with
+      | .list [.scalar (.int n)], false => some n
+      | _, _ => none
+    error == expected && final.cache.map Prod.fst == [0] && lists == retained &&
+      (final.runtime.slots (fileSlot "loaded")).isNone && final.runtime.iterators == [123]
+  | _ => false
+
+-- The producer's unreachable operand/body allocations remain in both heaps.
+-- Only the body failure reaches the consumer's argument and first body allocations.
+#guard failedImport .missing false (.missingExport "producer.star" "absent") [61, 44]
+#guard failedImport .missing true (.missingExport "producer.star" "absent") [61, 44]
+#guard failedImport .bodyError false (.runtime .indexTarget) [61, 44, 71, 44]
+#guard failedImport .bodyError true (.runtime .indexTarget) [61, 44, 71, 44]
+
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

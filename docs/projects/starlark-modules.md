@@ -1270,13 +1270,46 @@ freeze.
 The checked profile still starts from a load-free normalized module.
 Only a terminal return of a tracked local transfers callable
 provenance, and the returned declaration's body uses the existing suite
-profile. The loader bridge must carry the published name, declaration
-link and reachable closure record through cache lookup and import
-binding in the shared heap. It must resolve the imported file-local
-callee while preserving the original captured and defining-module
-addresses. General carriers, untracked dispatch and broader command
-and body forms remain open.
+profile. The [checked import profile](#checked-callable-imports) carries an
+escaped closure through a single producer-to-consumer load. General
+carriers, untracked dispatch and broader command and body forms remain
+open.
 [Return theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/escaped-checked/check.go)
+
+## Checked callable imports
+
+The checked graph has a load-free normalized producer and one
+normalized consumer. The consumer renames a single public import, calls
+it through its file-local slot, then executes one ordinary assignment.
+The producer emits the shared declaration table. The consumer's checked
+elaboration preserves the full table and derives its imported slot and
+module globals from source order.
+
+Cold loading derives the published value from the producer's
+independent source trace. The producer restores the consumer's frame
+and retains the original cells, with freezing allowed to update cell
+flags. The import reads the reached export and binds the same function
+address. The checked invocation uses the record's saved defaults,
+captured addresses and linked declaration. The warm theorem first
+derives the actual producer load and cache entry, then transports that
+same publication through allocation of the consumer's frame. Its
+dependency step is a real cache hit.
+
+The independent producer, alias lookup and call rules determine the
+same result, exports, heap and cache as the loader denotation. A
+missing export stops before the call and keeps the producer cached.
+A reached body error keeps earlier allocations and the producer
+publication, restores the caller thread and skips the consumer
+publication. Lean and pinned Go controls exercise cold and warm calls
+that read producer globals in the presence of a same-spelled consumer
+global, saved defaults and live captured locals. They also exercise
+missing export and body errors.
+
+This composition covers one dependency edge and one imported callable
+invocation with the existing checked operands and body profile. A
+source certificate for arbitrary cached modules, broader consumer
+sequences, multiple imports or general source graphs remains open.
+[Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ## Finite-manifest loader
 
