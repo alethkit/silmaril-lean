@@ -32,7 +32,7 @@ private theorem entry_eval (graph : Graph args) (entryBody : Option (Memory.Grap
     enter (entryBody.map (lowerMemory cells)) input initial) = _
   cases guard <;> simp [Projection.ofBool]
 
-private theorem arm_eval (graph : Graph args) (entryBody : Option (Memory.Graph args))
+theorem arm_eval (graph : Graph args) (entryBody : Option (Memory.Graph args))
     (input : Tuple (Val cells) args) (arrival : Slot) (env : Env entryTypes) (initial : Buffer cells) :
     Block.eval (evalBody input) ((lowerDiamond cells graph entryBody).block (Label.arm arrival)) env initial =
       let selected := observe (graph.arm (graph.merge.predecessor arrival)) input initial
