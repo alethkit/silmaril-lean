@@ -34,7 +34,7 @@ private theorem exit_read (exit : Exit regs outs) (m : Model.{u, v, w} Op)
     exact congrArg (fun value => Tuple.cons (F := Val m.value) value .nil)
       (read_get m current entry locals result).symm
 
-private theorem lowerFrom_eval (block : Block Op regs) (exit : Exit regs outs)
+theorem lowerFrom_eval (block : Block Op regs) (exit : Exit regs outs)
     (m : Model.{u, v, w} Op) (entry : Tuple (Val m.value) args)
     (locals : Locals (Val m.value) past) (current : Wires args past (dataPorts regs)) :
     (block.lowerFrom current exit).eval (model m) entry locals =
@@ -58,7 +58,7 @@ private theorem prepend_results {head : List (Ty Data)} {sigs : List (List (Ty D
   cases rest
   rfl
 
-private theorem lowerFrom_results (block : Block Op regs) (exit : Exit regs outs)
+theorem lowerFrom_results (block : Block Op regs) (exit : Exit regs outs)
     (current : Wires args past (dataPorts regs)) :
     (block.lowerFrom current exit).toGraph.results = exit.select (block.versions current) := by
   induction block generalizing past with

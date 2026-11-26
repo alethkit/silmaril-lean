@@ -9,8 +9,8 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Join
 
-open RVSDG (Tuple)
-open Diamond (ValueSort Signature Model Val dataPorts Merge Projection)
+open RVSDG (Locals Tuple Wires)
+open Diamond (Ty ValueSort Signature Model Val dataPorts Merge Projection)
 
 universe u v w
 variable {Data : Type u} {Op : Signature.{u, v} Data}
@@ -20,6 +20,21 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data}
 theorem predecessor_selected (merge : Merge) (condition : Bool) :
     merge.predecessor (selected merge condition) = Projection.ofBool condition :=
   Proofs.predecessor_selected merge condition
+
+/-- The lowered block's result wires come from its final version map. -/
+theorem Block.lowerFrom_results {args outs : List (Ty Data)} {past : List (List (Ty Data))}
+    (block : Block Op regs) (exit : Exit regs outs) (current : Wires args past (dataPorts regs)) :
+    (block.lowerFrom current exit).toGraph.results = exit.select (block.versions current) :=
+  Proofs.lowerFrom_results block exit current
+
+/-- A block computes the source bank from any typed reaching-version map. -/
+theorem Block.lowerFrom_eval {args outs : List (Ty Data)} {past : List (List (Ty Data))}
+    (block : Block Op regs) (exit : Exit regs outs)
+    (m : Model.{u, v, w} Op) (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (current : Wires args past (dataPorts regs)) :
+    (block.lowerFrom current exit).eval (model m) entry locals =
+      exit.select (block.eval m (current.read entry locals)) :=
+  Proofs.lowerFrom_eval block exit m entry locals current
 
 /-- The numbered child graph returns the independently computed incoming column. -/
 theorem Program.arm_results (p : Program Op regs out) (i : Fin 2) :
