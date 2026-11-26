@@ -217,9 +217,9 @@ private theorem BodyPath.step {a b : Continuation.State Nat} (path : BodyPath a)
     (move : Continuation.Edge mem host (program.active 7) [.int .i32] a b) : BodyPath b :=
   path.tail (.continuation move)
 
-private theorem BodyPath.calleeStep {bytes next : ByteArray} {a b : MemoryCallee.Phase}
+private theorem BodyPath.calleeStep {bytes next : ByteArray} {a b : MemoryCallee.Phase Nat}
     (path : BodyPath ⟨bytes, .memory saved indirect target a afterLookup, []⟩)
-    (move : MemoryCallee.Edge mem indirect target bytes a next b) :
+    (move : MemoryCallee.Edge mem host indirect target bytes a next b) :
     BodyPath ⟨next, .afterMemory saved indirect target afterLookup b, []⟩ :=
   path.step (.memory move)
 

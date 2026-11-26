@@ -160,7 +160,7 @@ inductive Phase (H : Type) where
   | block (label : Label H) (args : List Value) (arm : List (Op H))
   | invoke (saved : List Value) (site : Site H) (args : List Value) (ops : List (Op H))
   | wasm (saved : List Value) (site : IndirectSite) (callee : WasmTarget) (phase : Graph.Phase) (ops : List (Op H))
-  | memory (saved : List Value) (site : IndirectSite) (callee : MemoryTarget) (phase : MemoryCallee.Phase) (ops : List (Op H))
+  | memory (saved : List Value) (site : IndirectSite) (callee : MemoryTarget) (phase : MemoryCallee.Phase H) (ops : List (Op H))
   | trapped (saved : List Value) (rest : List Admin)
   | frameResult (result : Result)
   | done (result : Result)
@@ -184,7 +184,7 @@ def Phase.afterWasm {H : Type} (saved : List Value) (site : IndirectSite) (calle
   | phase => .wasm saved site callee phase ops
 
 def Phase.afterMemory {H : Type} (saved : List Value) (site : IndirectSite) (callee : MemoryTarget)
-    (ops : List (Op H)) : MemoryCallee.Phase → Phase H
+    (ops : List (Op H)) : MemoryCallee.Phase H → Phase H
   | .done (.values vs) => .source (saved ++ vs) ops
   | .done .trap => .trapped saved (code ops)
   | phase => .memory saved site callee phase ops
@@ -259,8 +259,8 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ site.signature.results) ops ∧ Contract mem host ops
   | .memory saved site callee phase ops => callee.Allocated base ∧
-      site.memoryLookup callee.address = some callee.fn ∧ site.MemoryLinked mem ∧
-      (∀ out, phase ≠ .done out) ∧ MemoryCallee.Ready mem site callee phase ∧
+      site.memoryLookup callee.address = some callee.fn ∧ site.MemoryLinked mem host ∧
+      (∀ out, phase ≠ .done out) ∧ MemoryCallee.Ready mem host site callee phase ∧
       Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ callee.fn.declaration.results) ops ∧ Contract mem host ops
   | .trapped _ _ => True
@@ -371,7 +371,7 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
       Edge mem host active results ⟨bytes, .wasm saved site callee phase ops, labels⟩
         ⟨bytes, .afterWasm saved site callee ops next, labels⟩
   | memory {bytes written saved site callee phase next ops labels}
-      (move : MemoryCallee.Edge mem site callee bytes phase written next) :
+      (move : MemoryCallee.Edge mem host site callee bytes phase written next) :
       Edge mem host active results ⟨bytes, .memory saved site callee phase ops, labels⟩
         ⟨written, .afterMemory saved site callee ops next, labels⟩
   | returned {bytes next saved site args ops vs labels} (live : mem.Live next)

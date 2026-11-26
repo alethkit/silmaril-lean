@@ -17,7 +17,7 @@ import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee.Proofs
 
-open Execution.Runtime (Frame FuncInst Result Value)
+open Execution.Runtime (Callout EvalCtx Frame FuncInst Result Value)
 open Wasm.Lime1.Execution
 open CallContinuation
 open CallContinuation.OuterCall (CallTarget Declaration)
@@ -26,7 +26,7 @@ open CallContinuation.OuterCall.Computed
 
 set_option backward.isDefEq.respectTransparency false
 
-variable {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget} {site : IndirectSite}
+variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H} {callee : MemoryTarget} {site : IndirectSite}
   {caller : Frame} {saved : List Value} {tail : List Admin} {bytes : ByteArray} {dst : Config H}
 
 local notation "resultCount" => callee.fn.declaration.results.length
@@ -276,7 +276,7 @@ private theorem erase_iff {args stack : List Value} {rest : List Admin} (active 
     exact ⟨_, lime_trap_front_iff.mpr ⟨kept, removed, cut, after, split, suffix, nonempty, rfl⟩,
       by simp [config, render, MemoryWrite.limeActivationCode, List.append_assoc]⟩
 
-theorem stays {phase : Phase} (notDone : ∀ out, phase ≠ .done out)
+theorem stays {phase : Phase H} (notDone : ∀ out, phase ≠ .done out)
     {types : List Wasm.Lime1.FuncType} {n : Nat} {cont : Wasm.Lime1.Expr} {out : List Admin} :
     ¬ PureStep types [.label n cont (values saved ++ render callee phase ++ tail)] out := by
   have frameStays {k : Nat} {fr : Frame} {body : List Admin} :
@@ -288,7 +288,7 @@ theorem stays {phase : Phase} (notDone : ∀ out, phase ≠ .done out)
       (lime_label_stays (types := types) (n := n) (cont := cont) (out := out)
         (stack := saved ++ args) (head := .invoke callee.address) (rest := tail) rfl
         (by simp) (by simp) (by simp))
-  | body | child | trapped | exit => simpa only [render, List.append_assoc, List.singleton_append] using frameStays
+  | body | child | hostInvoke | trapped | exit => simpa only [render, List.append_assoc, List.singleton_append] using frameStays
   | done out => exact (notDone out rfl).elim
 
 private theorem call_iff {args stack operands : List Value} {target : CallTarget}
@@ -313,7 +313,7 @@ private theorem call_iff {args stack operands : List Value} {target : CallTarget
       simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]⟩
 
 private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
-    (link : site.MemoryIndirect base callee index signature) :
+    (link : site.MemoryIndirect mem host callee index signature) :
     (site.memorySite index signature).Linked base callee.fn.declaration.module := by
   refine ⟨link.tableAt, link.signatureAt, rfl, ?_, ?_⟩
   · intro address fn found
@@ -329,7 +329,7 @@ private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
 
 private theorem indirect_iff {args stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
     {selector : BitVec 32} {rest : List Graph.Memory32.Op}
-    (link : site.MemoryIndirect base callee index signature) :
+    (link : site.MemoryIndirect mem host callee index signature) :
     Step CallFrame.limeNoHost (cfg bytes (.body args (stack ++ [Value.int .i32 selector])
       (.callIndirect index signature :: rest))) dst ↔
       ∃ target, (site.memorySite index signature).Lookup base selector target ∧
@@ -352,21 +352,11 @@ private theorem indirect_iff {args stack : List Value} {index : TypeIdx} {signat
   · rintro ⟨target, lookup, rfl⟩
     exact ⟨_, resolve.mpr ⟨target, lookup, rfl⟩, rfl⟩
 
-private theorem indirect_target {index : TypeIdx} {signature : Wasm.V1.FuncType} {selector : BitVec 32}
-    {target : IndirectTarget H} (link : site.MemoryIndirect base callee index signature)
-    (lookup : (site.memorySite index signature).Lookup base selector (some target)) :
-    ∃ child, target = .memory child ∧ child.fn.rank < callee.fn.rank := by
+private theorem indirect_rank {index : TypeIdx} {signature : Wasm.V1.FuncType} {selector : BitVec 32}
+    {child : MemoryTarget} (link : site.MemoryIndirect mem host callee index signature)
+    (lookup : (site.memorySite index signature).Lookup base selector (some (.memory child))) :
+    child.fn.rank < callee.fn.rank := by
   cases lookup with
-  | host entry allocated =>
-    obtain ⟨fn, found, registered⟩ := link.entries _ (List.mem_of_getElem? entry)
-    rw [allocated] at found
-    cases found
-    obtain ⟨_, _, wasmAllocation, _⟩ := registered rfl
-    unfold MemoryTarget.Allocated Site.Allocated at *
-    rw [allocated] at wasmAllocation
-    cases wasmAllocation
-  | wasm _ found _ _ =>
-    simp [IndirectSite.memorySite, Graph.Program.lookup] at found
   | memory entry found allocated typed =>
     obtain ⟨fn, seen, registered⟩ := link.entries _ (List.mem_of_getElem? entry)
     unfold MemoryTarget.Allocated at allocated
@@ -376,9 +366,55 @@ private theorem indirect_target {index : TypeIdx} {signature : Wasm.V1.FuncType}
     change site.memoryLookup _ = _ at found
     rw [found] at same
     cases same
-    exact ⟨_, rfl, smaller⟩
+    exact smaller
 
-private theorem child_context {args stack : List Value} {child : MemoryTarget} {phase : Phase}
+private def activationContext (callee : MemoryTarget) (args saved : List Value) (tail : List Admin) :
+    EvalCtx Wasm.Lime1.Instr :=
+  let arity := callee.fn.declaration.results.length
+  .seq saved (.frame arity (callee.fn.declaration.frame args)
+    (.seq [] (.label arity [] .hole) [])) tail
+
+private def hostContext (callee : MemoryTarget) (args saved stack : List Value) (tail : List Admin)
+    (rest : List Graph.Memory32.Op) : EvalCtx Wasm.Lime1.Instr :=
+  (activationContext callee args saved tail).comp (.seq stack .hole (code rest))
+
+private theorem pending_eq {args stack operands : List Value} {target : Site H} {rest : List Graph.Memory32.Op} :
+    cfg bytes (.hostInvoke args stack target operands rest) =
+      target.pending (mem.store bytes) caller (hostContext callee args saved stack tail rest) operands := by
+  simp [config, render, Site.pending, hostContext, activationContext, EvalCtx.plug_comp, EvalCtx.plug,
+    values, List.append_assoc]
+
+private theorem host_iff {args stack operands : List Value} {target : Site H} {rest : List Graph.Memory32.Op}
+    (allocated : target.Allocated base) (typed : target.Arguments operands)
+    (contract : target.Contract mem host) (live : mem.Live bytes) :
+    Step host (cfg bytes (.hostInvoke args stack target operands rest)) dst ↔
+      (∃ written vs, mem.Live written ∧ target.TypedResult (.values vs) ∧
+        host target.code (mem.store bytes) operands (.returned (mem.store written) (.values vs)) ∧
+        dst = cfg written (.body args (stack ++ vs) rest)) ∨
+      (∃ written, mem.Live written ∧ host target.code (mem.store bytes) operands (.returned (mem.store written) .trap) ∧
+        dst = cfg written (.trapped args stack (code rest))) ∨
+      (host target.code (mem.store bytes) operands .diverged ∧
+        dst = cfg bytes (.hostInvoke args stack target operands rest)) := by
+  have move := Site.step_iff (dst := dst) (outer := caller) (bytes := bytes)
+    (context := hostContext callee args saved stack tail rest) allocated contract live typed
+  rw [← pending_eq] at move
+  simp only [hostContext, activationContext, EvalCtx.plug_comp, EvalCtx.plug, List.map_nil,
+    List.nil_append, List.append_nil] at move
+  constructor
+  · intro step
+    rcases move.mp step with ⟨written, out, nextLive, valid, answer, rfl⟩ | diverged
+    · cases out with
+      | values vs =>
+        exact .inl ⟨written, vs, nextLive, valid, answer, by simp [config, render, result, values]⟩
+      | trap => exact .inr (.inl ⟨written, nextLive, answer, by simp [config, render, result, values]⟩)
+    · exact .inr (.inr diverged)
+  · rintro (⟨written, vs, nextLive, valid, answer, rfl⟩ | ⟨written, nextLive, answer, rfl⟩ | diverged)
+    · exact move.mpr (.inl ⟨written, .values vs, nextLive, valid, answer,
+        by simp [config, render, result, values]⟩)
+    · exact move.mpr (.inl ⟨written, .trap, nextLive, trivial, answer, by simp [config, render, result, values]⟩)
+    · exact move.mpr (.inr diverged)
+
+private theorem child_context {args stack : List Value} {child : MemoryTarget} {phase : Phase H}
     {rest : List Graph.Memory32.Op} (notDone : ∀ out, phase ≠ .done out) :
     Step CallFrame.limeNoHost (cfg bytes (.child args stack child phase rest)) dst ↔
       ∃ mid,
@@ -389,11 +425,11 @@ private theorem child_context {args stack : List Value} {child : MemoryTarget} {
     (fun _ => stays (callee := child) (saved := stack) (tail := code rest) notDone)
   simpa only [config, render, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append] using keep
 
-private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
+private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
-    (ready : Ready mem site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
+    (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
     (move : Step CallFrame.limeNoHost (cfg bytes phase) dst) :
-    ∃ nextBytes next, Edge mem site callee bytes phase nextBytes next ∧ dst = cfg nextBytes next := by
+    ∃ nextBytes next, Edge mem host site callee bytes phase nextBytes next ∧ dst = cfg nextBytes next := by
   induction phase generalizing callee caller saved tail bytes dst with
   | invoke args => exact ⟨_, _, .enter, (enter_iff allocated ready).mp move⟩
   | body args stack ops =>
@@ -445,9 +481,16 @@ private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
           refine ⟨_, _, .indirectTrap lookup, ?_⟩
           simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]
         | some target =>
-          obtain ⟨child, rfl, smaller⟩ := indirect_target link lookup
-          refine ⟨_, _, .callIndirect lookup smaller typed, ?_⟩
-          simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]
+          cases target with
+          | host target =>
+            exact ⟨_, _, .callIndirectHost lookup typed, by
+              simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]⟩
+          | wasm =>
+            cases lookup with
+            | wasm _ found _ _ => simp [IndirectSite.memorySite, Graph.Program.lookup] at found
+          | memory child =>
+            exact ⟨_, _, .callIndirect lookup (indirect_rank link lookup) typed, by
+              simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]⟩
       | _ => contradiction
   | child args stack child phase rest ih =>
     obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
@@ -455,6 +498,12 @@ private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
     obtain ⟨written, next, step, rfl⟩ := ih found childAllocated childReady live childActive inside
     refine ⟨_, _, .child step, ?_⟩
     simp only [config, after_child_render, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
+  | hostInvoke args stack target operands rest =>
+    have located : CalloutAt (config mem caller saved tail callee bytes (.hostInvoke args stack target operands rest))
+        (target.callout (hostContext callee args saved stack tail rest) operands) := by
+      rw [pending_eq]
+      exact ⟨rfl, ready.2.1, by simpa [Site.callout] using congrArg List.length ready.2.2.1⟩
+    exact (located.not_internal move).elim
   | trapped args stack rest =>
     by_cases active : stack ≠ [] ∨ rest ≠ []
     · obtain ⟨kept, removed, cut, after, split, suffix, nonempty, eq⟩ := (erase_iff active).mp move
@@ -470,58 +519,70 @@ private theorem read {phase : Phase} (linked : site.MemoryLinked mem)
   | exit args out => exact ⟨_, _, .frameDone, (leave_frame_iff ready.2).mp move⟩
   | done out => exact (notDone out rfl).elim
 
-private theorem sound {phase next : Phase} {written : ByteArray} (linked : site.MemoryLinked mem)
+private theorem sound {phase next : Phase H} {written : ByteArray} (linked : site.MemoryLinked mem host)
     (registered : site.memoryLookup callee.address = some callee.fn)
-    (allocated : callee.Allocated base) (ready : Ready mem site callee phase) (live : mem.Live bytes)
-    (move : Edge mem site callee bytes phase written next) : Step CallFrame.limeNoHost (cfg bytes phase) (cfg written next) := by
+    (allocated : callee.Allocated base) (ready : Ready mem host site callee phase) (live : mem.Live bytes)
+    (move : Edge mem host site callee bytes phase written next) : Step host (cfg bytes phase) (cfg written next) := by
   induction move generalizing caller saved tail with
-  | enter => exact (enter_iff allocated ready).mpr rfl
-  | get found => exact (get_iff found).mpr rfl
-  | load edge => exact (load_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩)
-  | loadTrap edge => exact (load_iff (linked.checked _ registered)).mpr (.inr ⟨edge, rfl⟩)
+  | enter => exact Step.of_internal ((enter_iff allocated ready).mpr rfl)
+  | get found => exact Step.of_internal ((get_iff found).mpr rfl)
+  | load edge => exact Step.of_internal ((load_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩))
+  | loadTrap edge => exact Step.of_internal ((load_iff (linked.checked _ registered)).mpr (.inr ⟨edge, rfl⟩))
   | store edge =>
-    exact (store_iff (linked.checked _ registered) live).mpr
-      (.inl ⟨_, edge, mem.live_same_size live (MemoryWrite.closed_at edge), rfl⟩)
-  | storeTrap edge => exact (store_iff (linked.checked _ registered) live).mpr (.inr ⟨edge, rfl⟩)
-  | size => exact (size_iff (linked.checked _ registered)).mpr rfl
-  | grow _ edge => exact (grow_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩)
-  | growFail => exact (grow_iff (linked.checked _ registered)).mpr (.inr rfl)
-  | call link _ => exact (call_iff link).mpr rfl
+    exact Step.of_internal ((store_iff (linked.checked _ registered) live).mpr
+      (.inl ⟨_, edge, mem.live_same_size live (MemoryWrite.closed_at edge), rfl⟩))
+  | storeTrap edge => exact Step.of_internal ((store_iff (linked.checked _ registered) live).mpr (.inr ⟨edge, rfl⟩))
+  | size => exact Step.of_internal ((size_iff (linked.checked _ registered)).mpr rfl)
+  | grow _ edge => exact Step.of_internal ((grow_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩))
+  | growFail => exact Step.of_internal ((grow_iff (linked.checked _ registered)).mpr (.inr rfl))
+  | call link _ => exact Step.of_internal ((call_iff link).mpr rfl)
   | @callIndirect callee child bytes args operandsSaved operands index signature selector rest lookup _ _ =>
     have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+    apply Step.of_internal
     refine (indirect_iff link).mpr ⟨_, lookup, ?_⟩
     simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]
   | @indirectTrap callee bytes args stack index signature selector rest lookup =>
     have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+    apply Step.of_internal
     refine (indirect_iff link).mpr ⟨none, lookup, ?_⟩
     simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]
-  | child move ih =>
+  | @callIndirectHost callee target bytes args operandsSaved operands index signature selector rest lookup _ =>
+    have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
+    apply Step.of_internal
+    refine (indirect_iff link).mpr ⟨_, lookup, ?_⟩
+    simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, List.append_assoc]
+  | hostReturned nextLive valid answer =>
+    exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inl ⟨_, _, nextLive, valid, answer, rfl⟩)
+  | hostTrapped nextLive answer =>
+    exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inr (.inl ⟨_, nextLive, answer, rfl⟩))
+  | hostDiverged answer =>
+    exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inr (.inr ⟨answer, rfl⟩))
+  | @child parent child bytes written args stack phase next rest move ih =>
     obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
-    refine (child_context childActive).mpr ⟨_, ih found childAllocated childReady live, ?_⟩
-    simp only [config, after_child_render, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
+    have inside := ih (caller := parent.fn.declaration.frame args) (saved := stack) (tail := code rest)
+      found childAllocated childReady live
+    simpa only [config, render, after_child_render, List.append_assoc, List.singleton_append] using
+      Step.context (.frame (.label inside parent.fn.declaration.results.length [])
+        parent.fn.declaration.results.length caller) saved tail
   | @erase callee bytes args stack kept removed before cut rest split suffix active =>
     have nonempty : stack ≠ [] ∨ before ≠ [] := by
       rcases active with removed | cut
       · exact .inl (fun h => removed ((List.append_eq_nil_iff.mp (split.symm.trans h)).2))
       · exact .inr (fun h => cut ((List.append_eq_nil_iff.mp (suffix.symm.trans h)).1))
-    exact (erase_iff nonempty).mpr ⟨kept, _, _, rest, split, suffix, active, rfl⟩
+    exact Step.of_internal ((erase_iff nonempty).mpr ⟨kept, _, _, rest, split, suffix, active, rfl⟩)
   | @labelDone callee bytes args vs =>
+    apply Step.of_internal
+    change Step CallFrame.limeNoHost _ _
     simpa [config, render, result, MemoryWrite.limeActivationCode, List.append_assoc] using
       (leave_label_iff (args := args) (out := .values vs) (bytes := bytes) (mem := mem) (caller := caller)
         (callee := callee) (saved := saved) (tail := tail)).mpr rfl
   | @labelTrap callee bytes args =>
+    apply Step.of_internal
+    change Step CallFrame.limeNoHost _ _
     simpa [config, render, result, MemoryWrite.limeActivationCode, values, List.append_assoc] using
       (leave_label_iff (args := args) (out := .trap) (bytes := bytes) (mem := mem) (caller := caller)
         (callee := callee) (saved := saved) (tail := tail)).mpr rfl
-  | frameDone => exact (leave_frame_iff ready.2).mpr rfl
-
-theorem step_iff {phase : Phase} (linked : site.MemoryLinked mem)
-    (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
-    (ready : Ready mem site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
-    Step CallFrame.limeNoHost (cfg bytes phase) dst ↔
-      ∃ written next, Edge mem site callee bytes phase written next ∧ dst = cfg written next :=
-  ⟨read linked registered allocated ready live notDone, fun ⟨_, _, edge, eq⟩ =>
-    eq.symm ▸ sound linked registered allocated ready live edge⟩
+  | frameDone => exact Step.of_internal ((leave_frame_iff ready.2).mpr rfl)
 
 private theorem code_absent (s : Store H) (ops : List Graph.Memory32.Op) (stack : List Value) :
     Execution.Runtime.decomposeFrom? coding s stack (code ops) = none := by
@@ -532,22 +593,66 @@ private theorem code_absent (s : Store H) (ops : List Graph.Memory32.Op) (stack 
     rw [decomposeFrom?_source_cons]
     cases asValue? (.source op.v1.toLime) <;> simp [ih]
 
-theorem absent {phase : Phase} (allocated : callee.Allocated base)
-    (ready : Ready mem site callee phase) (notDone : ∀ out, phase ≠ .done out) :
-    Execution.Runtime.decomposeFrom? coding (mem.store bytes) [] (values saved ++ render callee phase ++ tail) = none := by
-  induction phase generalizing callee saved tail with
+private theorem no_callout {c : Callout H Wasm.Lime1.Instr} {src : Config H}
+    (absent : decompose? src = none) (located : CalloutAt src c) : False := by
+  obtain ⟨_, found, _⟩ := decompose?_complete located
+  rw [absent] at found
+  cases found
+
+private theorem read_answer {phase : Phase H} {c : Callout H Wasm.Lime1.Instr}
+    (allocated : callee.Allocated base) (ready : Ready mem host site callee phase)
+    (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
+    (located : CalloutAt (cfg bytes phase) c) (answer : Answer host (cfg bytes phase) c dst) :
+    ∃ written next, Edge mem host site callee bytes phase written next ∧ dst = cfg written next := by
+  induction phase generalizing callee caller saved tail bytes dst c with
   | invoke =>
     have liveAllocation : callee.Allocated (mem.store bytes) := allocated
     unfold MemoryTarget.Allocated at liveAllocation
-    simp [render, List.append_assoc, decomposeFrom?_invoke_cons, Execution.Runtime.decomposeHead?, liveAllocation]
-  | body _ _ ops => simp [render, List.append_assoc, code_absent]
-  | child args stack child phase ops ih =>
+    exact (no_callout (by simp [decompose?, config, render, List.append_assoc, decomposeFrom?_invoke_cons,
+      Execution.Runtime.decomposeHead?, liveAllocation]) located).elim
+  | body _ _ ops =>
+    exact (no_callout (by simp [decompose?, config, render, List.append_assoc, code_absent]) located).elim
+  | child args stack child phase rest ih =>
     obtain ⟨_, _, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
-    have none := ih (callee := child) (saved := stack) (tail := code ops) childAllocated childReady childActive
-    simp only [List.append_assoc, decomposeFrom?_values_append, List.nil_append] at none
-    simp [render, none]
-  | trapped => simp [render]
-  | exit _ out => cases out <;> simp [render, result]
+    have plugged : (config mem caller saved tail callee bytes (.child args stack child phase rest)).code =
+        (activationContext callee args saved tail).plug value
+          (config mem (callee.fn.declaration.frame args) stack (code rest) child bytes phase).code := by
+      simp [config, render, activationContext, EvalCtx.plug, values]
+    have decomposed : decompose? (config mem caller saved tail callee bytes (.child args stack child phase rest)) =
+        (decompose? (config mem (callee.fn.declaration.frame args) stack (code rest) child bytes phase)).map
+          (fun c => { c with context := (activationContext callee args saved tail).comp c.context }) := by
+      simp [decompose?, config, render, activationContext, EvalCtx.comp, List.append_assoc, Option.map_map, Function.comp_def]
+    obtain ⟨inner, mid, here, outcome, eq⟩ := answer_under
+      (inner := config mem (callee.fn.declaration.frame args) stack (code rest) child bytes phase)
+      (context := activationContext callee args saved tail) plugged rfl decomposed located answer
+    subst dst
+    obtain ⟨written, next, edge, rfl⟩ := ih childAllocated childReady live childActive here outcome
+    refine ⟨_, _, .child edge, ?_⟩
+    simp only [config, after_child_render, activationContext, EvalCtx.plug, List.map_nil, List.nil_append, List.append_nil]
+    rfl
+  | hostInvoke args stack target operands rest =>
+    obtain ⟨_, allocated, typed, contract, _, _, _⟩ := ready
+    rcases (host_iff allocated typed contract live).mp (answer.step located) with
+      ⟨written, vs, nextLive, valid, behavior, eq⟩ | ⟨written, nextLive, behavior, eq⟩ | ⟨behavior, eq⟩
+    · exact ⟨_, _, .hostReturned nextLive valid behavior, eq⟩
+    · exact ⟨_, _, .hostTrapped nextLive behavior, eq⟩
+    · exact ⟨_, _, .hostDiverged behavior, eq⟩
+  | trapped => exact (no_callout (by simp [decompose?, config, render]) located).elim
+  | exit _ out =>
+    exact (no_callout (by cases out <;> simp [decompose?, config, render, result]) located).elim
   | done out => exact (notDone out rfl).elim
+
+theorem step_iff {phase : Phase H} (linked : site.MemoryLinked mem host)
+    (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
+    (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
+    Step host (cfg bytes phase) dst ↔
+      ∃ written next, Edge mem host site callee bytes phase written next ∧ dst = cfg written next := by
+  constructor
+  · intro step
+    rcases step.internal_or_callout with internal | ⟨_, located, answer⟩
+    · exact read linked registered allocated ready live notDone internal
+    · exact read_answer allocated ready live notDone located answer
+  · rintro ⟨_, _, edge, rfl⟩
+    exact sound linked registered allocated ready live edge
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee.Proofs

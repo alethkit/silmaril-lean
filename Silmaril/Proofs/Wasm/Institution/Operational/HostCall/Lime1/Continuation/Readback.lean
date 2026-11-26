@@ -200,7 +200,7 @@ private theorem wasm_read {saved : List Value} {site : IndirectSite} {callee : W
   exact ⟨_, .wasm edge, render_wasm.symm⟩
 
 private theorem render_memory {saved : List Value} {site : IndirectSite} {callee : MemoryTarget}
-    {phase : MemoryCallee.Phase} {ops : List (Op H)} :
+    {phase : MemoryCallee.Phase H} {ops : List (Op H)} :
     render mem outer active results ⟨bytes, .afterMemory saved site callee ops phase, labels⟩ =
       ⟨mem.store bytes, outer, framed active [.label (labelBranchTypes results labels).length
         (labelContinuation labels) (values saved ++ MemoryCallee.render callee phase ++ code ops)]
@@ -211,16 +211,22 @@ private theorem render_memory {saved : List Value} {site : IndirectSite} {callee
       MemoryCallee.render, result, values_append, List.append_assoc]
 
 private theorem memory_read {saved : List Value} {site : IndirectSite} {callee : MemoryTarget}
-    {phase : MemoryCallee.Phase} {ops : List (Op H)}
+    {phase : MemoryCallee.Phase H} {ops : List (Op H)}
     (ready : Ready mem host active results (.memory saved site callee phase ops) labels) (live : mem.Live bytes)
     (move : Step host (render mem outer active results ⟨bytes, .memory saved site callee phase ops, labels⟩) dst) :
     ∃ next, Edge mem host active results ⟨bytes, .memory saved site callee phase ops, labels⟩ next ∧
       dst = render mem outer active results next := by
   obtain ⟨_, allocated, registered, linked, notDone, admitted, _, _⟩ := ready
-  have absent : decompose? (render mem outer active results ⟨bytes, .memory saved site callee phase ops, labels⟩) = none :=
-    noLabelCallout (MemoryCallee.absent allocated admitted notDone)
-  obtain ⟨mid, inside, rfl⟩ := underLabel (fun _ => MemoryCallee.stays notDone)
-    ((withoutCallout absent).mp move)
+  have native : ∃ mid, Step host
+      (MemoryCallee.config mem active saved (code ops) callee bytes phase) mid ∧
+      dst = ⟨mid.store, outer, framed mid.frame
+        [.label (labelBranchTypes results labels).length (labelContinuation labels) mid.code]
+        (scopeFor results labels)⟩ := by
+    rcases move.internal_or_callout with internal | ⟨_, located, answer⟩
+    · obtain ⟨mid, step, eq⟩ := underLabel (fun _ => MemoryCallee.stays notDone) internal
+      exact ⟨mid, Step.of_internal step, eq⟩
+    · exact answer_under_label located answer
+  obtain ⟨mid, inside, rfl⟩ := native
   obtain ⟨written, next, edge, rfl⟩ := (MemoryCallee.step_iff linked registered allocated admitted live notDone).mp inside
   exact ⟨_, .memory edge, render_memory.symm⟩
 
@@ -554,8 +560,7 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     have inner := (MemoryCallee.step_iff (caller := active) (saved := saved) (tail := code ops)
       linked registered allocated admitted live notDone).mpr ⟨written, next, edge, rfl⟩
     rw [render_memory]
-    exact Step.of_internal (framed_step (.label inner (labelBranchTypes results labels).length
-      (labelContinuation labels)))
+    exact framed_step (.label inner (labelBranchTypes results labels).length (labelContinuation labels))
   | @returned bytes next saved site args ops vs labels _ _ answer =>
     have atHost := located (mem := mem) (labels := labels) (results := results) (outer := outer) (active := active)
       (bytes := bytes) (saved := saved) (ops := ops) ready.2.1 ready.2.2.1
