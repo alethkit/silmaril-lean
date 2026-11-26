@@ -2,11 +2,13 @@ module
 
 public import Silmaril.Languages.Starlark.Functions.Builtins.Operational.Defs
 import Silmaril.Languages.Starlark.Lists.Iteration.Thms
+import Silmaril.Languages.Starlark.Binary64.Thms
 
 public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Functions.Builtins
 
+open Silmaril.Languages.Starlark.Binary64 (absolute_iff_abs)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Builtins
 open Silmaril.Languages.Starlark.Lists
@@ -144,7 +146,10 @@ theorem invoke_eq_of_invokes {state : State} {id : Builtin} {args : Actual} {out
     | _ => exact (runMap (countValue ∘ List.length) _ state).trans (by rw [read]; rfl)
   | list reads => exact (runBind _ allocate state).trans (by rw [items_eq_of_reads reads])
   | tuple reads => exact (runBind _ allocateTuple state).trans (by rw [items_eq_of_reads reads])
-  | @absType value excluded =>
+  | @absFloat input output magnitude =>
+    rw [← (absolute_iff_abs input output).mp magnitude]
+    rfl
+  | @absType value noInt noFloat =>
     cases value with
     | scalar value => cases value <;> simp_all <;> rfl
     | _ => rfl
@@ -197,8 +202,9 @@ theorem invokes_invoke (state : State) (id : Builtin) (args : Actual) :
           | scalar value =>
             cases value with
             | int => exact .absInt
-            | _ => exact .absType (by intro _ equality; cases equality)
-          | _ => exact .absType (by intro _ equality; cases equality)
+            | float x => exact .absFloat ((absolute_iff_abs x _).mpr rfl)
+            | _ => exact .absType (by intro _ equality; cases equality) (by intro _ equality; cases equality)
+          | _ => exact .absType (by intro _ equality; cases equality) (by intro _ equality; cases equality)
         | len =>
           cases value with
           | string => exact .lenString

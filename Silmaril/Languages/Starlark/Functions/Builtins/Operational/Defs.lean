@@ -98,8 +98,11 @@ inductive Invokes (state : State) : Builtin → Actual → Outcome Lists.Value �
       Items .tuple state value out → Invokes state .tuple ⟨[value], []⟩ (Outcome.resume out allocateTuple)
   | absInt {value : Int} :
       Invokes state .abs ⟨[.scalar (.int value)], []⟩ (.ok (countValue value.natAbs) state)
+  | absFloat {input output : UInt64} :
+      Binary64.Absolute input output →
+      Invokes state .abs ⟨[.scalar (.float input)], []⟩ (.ok (.scalar (.float output)) state)
   | absType {value : Lists.Value} :
-      (∀ n, value ≠ .scalar (.int n)) →
+      (∀ n, value ≠ .scalar (.int n)) → (∀ x, value ≠ .scalar (.float x)) →
       Invokes state .abs ⟨[value], []⟩ (.error (.builtinType .abs value) state)
   | any {value : Lists.Value} {out : Outcome Lists.Value} :
       Quantifies .any true state value out → Invokes state .any ⟨[value], []⟩ out
