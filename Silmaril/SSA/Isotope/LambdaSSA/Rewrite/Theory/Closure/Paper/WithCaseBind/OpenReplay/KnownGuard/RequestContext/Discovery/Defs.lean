@@ -65,11 +65,15 @@ structure SelectedGuardSplit (L : List (Ty Empty)) (n : Nat) where
   onFalse : ReadTree L n
   onTrue : ReadTree L n
 
+def SelectedGuardSplit.sourceWith {L : List (Ty Empty)} {n : Nat} {X : Ty Empty}
+    (p : SelectedGuardSplit L n) (terms : Fin n → Term signature.Instr X Bit) : CaseTree signature.Instr X L :=
+  let retained := fun j => retainSlot (A := unit) (terms j)
+  .case unit unit (emitPrefix p.emits (terms p.test))
+    (p.onFalse.selectedWith retained) (p.onTrue.selectedWith retained)
+
 def SelectedGuardSplit.source {L : List (Ty Empty)} {n : Nat} (p : SelectedGuardSplit L n) :
     CaseTree signature.Instr (replyContext n) L :=
-  let retained := fun j => retainSlot (A := unit) (readReply n j)
-  .case unit unit (emitPrefix p.emits (readReply n p.test))
-    (p.onFalse.selectedWith retained) (p.onTrue.selectedWith retained)
+  p.sourceWith (readReply n)
 
 /-- Run discovery in both arms, starting with the tested slot carried under
 the unit binder. Each subsequent request carries it under one more reply. -/

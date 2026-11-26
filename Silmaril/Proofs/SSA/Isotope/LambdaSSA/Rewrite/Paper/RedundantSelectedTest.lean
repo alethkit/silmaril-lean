@@ -569,6 +569,23 @@ private theorem prependEmits_subst (emits : List Bool) (r : Region signature.Ins
     simp only [prependEmits, substVars, Tm.subst, substVars_renameVars, renameVars_substVars, ← ih]
     rfl
 
+/-- Open the packed unary continuation under its actual binder. The same
+ordered prefix and bound computation surround both continuations. -/
+theorem packed_let_congr_at {Γ L : List (Ty Empty)} {X A : Ty Empty}
+    (emits : List Bool) (a : Term signature.Instr X A) {packet : Tm signature.Instr}
+    (hp : Tm.BranchValue Γ packet X) {r s : Region signature.Instr}
+    (hr : ValueBranches [product X A] r L) (hs : ValueBranches [product X A] s L)
+    (body : E (A :: Γ) (r.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0))))
+      (s.substVars (Tm.singleSubst (.pair (packet.rename Nat.succ) (.var 0)))) L) :
+    E Γ ((prependEmits emits (.let₁ a.elaborate.val (Paper.PackedBody.applyPacked r))).substVars
+        (Tm.singleSubst packet))
+      ((prependEmits emits (.let₁ a.elaborate.val (Paper.PackedBody.applyPacked s))).substVars
+        (Tm.singleSubst packet)) L := by
+  rw [prependEmits_subst, prependEmits_subst]
+  apply prependEmits_congr
+  simp only [substVars, open_packed_arm hr.hasType, open_packed_arm hs.hasType]
+  exact .let₁ (a.elaborate.property.subst (fun _ _ hi => (constructorSubst hp hi).hasType)) body
+
 set_option backward.isDefEq.respectTransparency false in
 private theorem framed_case_by_return {Γ L : List (Ty Empty)} {X : Ty Empty}
     (slot : Term signature.Instr X Bit) (emits : List Bool) {a u : Tm signature.Instr}
