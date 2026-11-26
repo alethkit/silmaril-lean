@@ -7,9 +7,10 @@ successor and is refused. A guard that can both continue and exit is
 refused as well. A guard known to continue lies outside this exit-only
 profile.
 
-The native profile carries one fixed-width word. Its total primitives
-are word constants, flag-free `addi` and `muli`, and unsigned comparison.
-The target is the repository's typed pure MLIR CF evaluator. The pass
+The native profile carries an ordered bank of fixed-width words and
+returns one word. Its total primitives are word constants, flag-free
+`addi` and `muli`, and unsigned comparison. The target is the
+repository's typed pure MLIR CF evaluator. The pass
 reuses its existing lowering and replaces the header's `condBr` with a
 `br` using the exact false edge. All original producer bindings, labels,
 block arguments and captured inputs retain their identities and ordering.
@@ -60,6 +61,46 @@ three blocks of fuel. The varying input starts at 0, increments to 4,
 and then exits, so pruning would discard a reachable successor. The
 outer `none` denotes refusal. `some none` denotes an admitted CFG with
 no return within the supplied block budget.
+
+## Carried-bank API
+
+`Loop.MLIR.CF.Bank.Program` gives each carried field its own word width.
+`Bank.lower` routes the entry and feedback Φ columns as typed block
+arguments in native row order. Captured inputs follow the bank in the
+target block scope. The source header reads captures first. The
+`lower_entry_frame` and `lower_header_frame` laws check this ordering
+and the simultaneous feedback operands against native evaluation.
+The original scalar entry points specialize the same implementation
+to a singleton bank.
+[Emitter API](../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Thms.lean)
+
+`Loop.SCCP.PruneExit.Bank.rewrite` consumes the same `ExitOnly` rule
+and the existing simultaneous solver. The check applies only to
+occurrences and can still succeed when the result is overdefined.
+`header_shape` retains the original exit wire as the sole operand of
+the direct branch. `arrives_frame` compares the exact successor frame
+at each covered arrival. `run_eq` compares actual target execution at
+every block budget. `denotePart_eq` relates the pruned CFG's partial
+result to the native loop.
+[Pruning API](../../Silmaril/SSA/SeaOfNodes/Loop/SCCP/PruneExit/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Example.Bank.Defs
+
+open Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Example.Bank
+
+#eval run exitFacts 3 5 300     -- some (some 300)
+#eval run exitFacts 2 5 300     -- some none
+#eval run varyingFacts 5 2 300  -- none
+#eval run unknownFacts 3 5 300  -- none
+#eval run unseenFacts 3 5 300   -- none
+```
+
+The carried fields are `i8` and `i16`. For the admitted input the
+header routes the old `i16` value 300 to exit. The deleted backedge
+would have passed both updated values, 6 and 302, to the header.
+The unpruned CFG on the varying input actually takes feedback twice
+and returns 304. The pruning check refuses it.
 
 ## Rice source
 
