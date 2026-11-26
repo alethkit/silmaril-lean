@@ -59,10 +59,6 @@ inductive Method where
   | eq
   deriving DecidableEq, Repr
 
-def Method.name : Method → String
-  | .add => "__add__"
-  | .eq => "__eq__"
-
 inductive Failure where
   | missingType
   | missingAttribute (method : Method)

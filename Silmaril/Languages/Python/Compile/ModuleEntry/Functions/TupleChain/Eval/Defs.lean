@@ -65,7 +65,6 @@ def evaluate {scope : Scope} (lookup : Unit → Option TypeBinding) (test : Tupl
 
 def runtimeError? : Failure → Option Core.Closure.RuntimeError
   | .missingType => some (.nameError "tuple")
-  | .missingAttribute method => some (.attributeError method.name)
-  | .wrongReceiver _ | .wrongArgument | .unsupported => none
+  | .missingAttribute _ | .wrongReceiver _ | .wrongArgument | .unsupported => none
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain

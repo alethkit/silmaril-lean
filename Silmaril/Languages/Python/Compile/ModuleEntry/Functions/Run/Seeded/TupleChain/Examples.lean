@@ -60,7 +60,6 @@ private def chainEvidence (space : Core.Module.SeededCall.Namespace) (middle : I
 #guard chainEvidence (legacyTupleSeed .builtin) 5 (.ok ()) 3
 #guard chainEvidence .empty 5 (.error (.raised (.runtime (.nameError "tuple")))) 3
 #guard chainEvidence .empty 6 (.error (.raised (.assertionError .empty))) 2
-#guard chainEvidence ((legacyTupleSeed .builtin).bindGlobal "tuple" .none) 5
-  (.error (.raised (.runtime (.attributeError "__add__")))) 3
+#guard chainEvidence ((legacyTupleSeed .builtin).bindGlobal "tuple" .none) 5 (.error .unsupported) 3
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

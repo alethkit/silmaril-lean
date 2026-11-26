@@ -21,9 +21,6 @@ SHA = "6ebe39b5877a6dcf2bf137915fefa9ed1ed2bb71873552fe37af2bef5b1d77b5"
 LEAN = SUITE["LEAN"] + """
 open Compile.ModuleEntry.Functions
 open Compile.ModuleEntry.Functions.Run.Seeded (legacyListSeed legacyTupleSeed)
-private def tupleRaised : Raised → String
-  | .runtime (.attributeError field) => "AttributeError:" ++ field
-  | error => raised error
 
 private def tupleOutcome (source : Source.Module) (space : Namespace) (status : String)
     (bindings : Bindings) : Bool := Id.run do
@@ -33,7 +30,7 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
   let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled heap (lists := lists)
   let completion := match result.completion with
     | .ok () => "normal"
-    | .error (.raised error) => tupleRaised error
+    | .error (.raised error) => raised error
     | .error .unsupported => "unsupported"
     | .error _ => "unexpected completion"
   return completion == status && result.residual.moduleGlobals == bindings &&
@@ -58,7 +55,7 @@ private def ordinaryTuple (source : Source.Module) : Option (String × String ×
     let status := match completion with
       | .normal => "normal"
       | .assertionError => "AssertionError:empty"
-      | .raised error => tupleRaised (.runtime error)
+      | .raised error => raised (.runtime error)
       | .scalarProfile => "unsupported"
       | _ => "unexpected completion"
     let binding name := resultBinding ((session.globals name).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue)
@@ -187,7 +184,7 @@ def chain_controls(source_path, lean_path):
          "(.ok true, [.ok ⟨some 0, [.int 1]⟩, .ok ⟨some 1, [.int 1]⟩, .ok ⟨some 2, [.int 1]⟩], "
          "#[[.int 1], [.int 1], [.int 1]])"),
         ("masked_type", "assert (1,) == tuple.__add__((1,), ())", MASKED, {"tuple": tuple}, {"tuple": None},
-         "AttributeError:__add__", "AttributeError:__add__",
+         "AttributeError:__add__", "unsupported",
          f"#guard tupleTrace pythonSource {MASKED} == some (.error (.missingAttribute .add), "
          "[.ok ⟨some 0, [.int 1]⟩, .error (.missingAttribute .add)], #[[.int 1]])"),
         ("different_descriptor", "assert (1,) == tuple.__add__((1,), ())",
@@ -218,7 +215,7 @@ def chain_controls(source_path, lean_path):
     ordinary_mask = "keep = 7\ntuple = None\nassert tuple.__add__((1,), ()) == (1,)\ntail = 9\n"
     assert execute(ordinary_mask, {}, expected={"keep": 7, "tuple": None}) == "AttributeError:__add__"
     check(ordinary_mask, source_path, lean_path,
-          '#guard ordinaryTuple pythonSource == some ("AttributeError:__add__", "int:7", "absent")')
+          '#guard ordinaryTuple pythonSource == some ("unsupported", "int:7", "absent")')
     for text in (
         "assert (1,).__add__(()) == (2,) == tuple.__add__((unknown,), ())\n",
         "assert (1,).__add__(()) == (2,) == tuple.__add__(x=(2,), y=())\n",

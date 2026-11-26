@@ -15,7 +15,6 @@ inductive ExceptionClass where
   | assertionError
   | nameError
   | unboundLocalError
-  | attributeError
   | typeError
   | zeroDivisionError
   deriving DecidableEq, Repr
@@ -36,7 +35,6 @@ def Raised.classify : Raised → ExceptionClass
   | .assertionError _ | .runtime .assertionError => .assertionError
   | .runtime (.unboundLocal _) | .runtime (.unboundOwned _) => .unboundLocalError
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
-  | .runtime (.attributeError _) => .attributeError
   | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
   | .runtime .multiplicationTypeError => .typeError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError

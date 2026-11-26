@@ -94,9 +94,10 @@ ends evaluation before the next operand.
 
 The unbound path resolves the live module-first `tuple` binding and its
 exact stock descriptor before preparing arguments. The separate
-`legacyTupleSeed` supplies this type. A missing name and the absent method
-on a `None` mask have defined failures. Other bindings stop outside the
-profile. The typed dispatch model returns the nonempty input when adding an
+`legacyTupleSeed` supplies this type. The runners raise the defined missing
+name and stop outside the profile for other bindings. The tuple evaluator
+records the absent method on a `None` mask before preparing arguments.
+The typed dispatch model returns the nonempty input when adding an
 empty tuple, uses the empty singleton for two empty operands, and records
 a fresh result for two nonempty inputs. Direct `__eq__` on an exact tuple
 with a list returns `NotImplemented`, while operator equality returns

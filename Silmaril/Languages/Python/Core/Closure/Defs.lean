@@ -88,7 +88,6 @@ inductive RuntimeError where
   | unboundOwned (slot : Nat)
   | unboundCapture (slot : Nat)
   | nameError (name : String)
-  | attributeError (field : String)
   | positionalArity (expected actual : Nat)
   | notCallable
   | additionTypeError
