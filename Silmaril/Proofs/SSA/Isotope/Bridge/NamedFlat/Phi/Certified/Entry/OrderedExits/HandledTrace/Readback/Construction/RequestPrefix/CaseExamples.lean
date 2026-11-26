@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
@@ -623,5 +623,173 @@ theorem effectful_entry_reply_exits :
     rw [run_jump effectDispatcher exit, run_result effectDispatcher (result := ⟨⟨1, (second, first)⟩⟩) rfl]
     exact out_ret _
   exact ⟨trace, trace⟩
+
+
+private def multiChoice : PacketType := .coprod bit replyType
+private def multiContext : BoundCtx PacketType 1 := .snoc .nil multiChoice
+
+-- The left leaf captures a bit and routes its sum reply into an old row.
+-- The other request is under a second binder and returns a bit reply
+-- alongside that binder's payload. The remaining arm bypasses both.
+private def multiPolling : FiniteCFG Bool 1 2 1 where
+  entry := .case (.bv 0)
+    (.let₁ (.op true (.pair (.bv 0) (.bv 0)))
+      (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2)))))
+    (.case (.bv 0)
+      (.let₁ (.op false (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 1))))
+      (.br 2 (.pair (.bv 0) (.bv 0))))
+  block _ := .br 1 .unit
+
+private def multiBuild :=
+  EffectfulEntry.Multiple.compile sig multiContext packets exits multiPolling
+
+private def multiBuilt : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling :=
+  multiBuild.get (by decide +kernel)
+
+example : multiBuilt.outlined.count = 4 := by decide +kernel
+
+-- Compare the actual packed erasure at each request label with its
+-- literal row, including the distinct continuation labels.
+private def packedRowMatches (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
+  match multiBuild with
+  | none => false
+  | some built =>
+    if bound : index < 1 + built.outlined.count + 1 then
+      let label := (⟨index, bound⟩ : Fin (1 + built.outlined.count + 1)).cast built.publicReadback.provenance.count
+      let publicRow := built.publicReadback.packed.target.block label
+      (commonRow (1 + built.outlined.count + 1 + 2) publicRow.erase expected).isSome
+    else false
+
+example : packedRowMatches 1
+    (.let₂ (.var 0) (.let₁ (.op true (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 3) (.var 0))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches 3
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₁ (.op false (.var 2)) (.br 4 (.pair (.var 5) (.var 0)))))) = true :=
+  by decide +kernel
+
+-- The finite entry tree still rejects a sequential second request.
+example : (EffectfulEntry.Multiple.read sig packets exits [replyType]
+    (.case (.var 0) (.let₁ (.op false (.var 0)) (.let₁ (.op false (.var 0)) (.br 0 (.var 0))))
+      (.br 1 .unit))).isNone = true := rfl
+
+private def multiEnv (choice : Denote multiChoice) : Env Atom := fun _ => multiChoice.encode choice
+
+private def multiRecord (choice : Denote multiChoice) : Env Atom :=
+  fun _ => NamedFlat.Capture.packEnv 1 (multiEnv choice)
+
+private noncomputable def multiWritten (choice : Denote multiChoice) : Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (multiEnv choice) multiPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem multi_agreement (built : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling)
+    (choice : Denote multiChoice) :
+    multiWritten choice = built.publicReadback.packed.observe (multiEnv choice) (multiRecord choice) :=
+  built.public_run (multiEnv choice) _ _ id primitivesAgree (codec_id _).symm
+
+private def multiBypass (payload : Denote bit) : Denote multiChoice := .inr (.inr payload)
+
+section Observations
+
+variable (built : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling)
+
+/-- The pure arm bypasses both requests and returns at the second exit. -/
+theorem multiple_entry_bypass (payload : Denote bit) :
+    multiWritten (multiBypass payload) = pure (output payload payload) ∧
+      built.publicReadback.packed.observe (multiEnv (multiBypass payload)) (multiRecord (multiBypass payload)) =
+        pure (output payload payload) := by
+  have source : multiWritten (multiBypass payload) = pure (output payload payload) := by
+    simp [multiWritten, multiBypass, multiPolling, FiniteCFG.erase, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase,
+      region, multiEnv, multiChoice, PacketType.encode, replyType, LambdaSSA.Semantics.Interaction.term,
+      LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+  exact ⟨source, (multi_agreement built _).symm.trans source⟩
+
+private def multiLeft : Denote multiChoice := .inl first
+private def multiRight : Denote multiChoice := .inr (.inl second)
+
+private def multiLeftTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first first)) (.inl second) (.result firstExit)
+
+private def multiRightTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (primeKey second)) first (.result (output first second))
+
+private theorem poll_read :
+    sig.primitive true (.pair (bit.encode first) (bit.encode first)) =
+      vis (.ask (pollKey first first)) (fun (reply : sig.Reply (pollKey first first)) => pure (replyType.encode reply)) := rfl
+
+private theorem prime_read :
+    sig.primitive false (bit.encode second) =
+      vis (.ask (primeKey second)) (fun (reply : sig.Reply (primeKey second)) => pure (bit.encode reply)) := rfl
+
+private theorem left_entry :
+    region sig.primitive (multiEnv multiLeft) multiPolling.entry.erase =
+      vis (.ask (pollKey first first)) (fun (reply : sig.Reply (pollKey first first)) => region sig.primitive
+        (LambdaSSA.Semantics.extend (LambdaSSA.Semantics.extend (multiEnv multiLeft) (bit.encode first))
+          (replyType.encode reply))
+        (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2))))) := by
+  simp only [multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  change (sig.primitive true (.pair (bit.encode first) (bit.encode first)) >>= _) = _
+  rw [poll_read, vis_bind]
+  simp only [pure_bind]
+  rfl
+
+private theorem right_entry :
+    region sig.primitive (multiEnv multiRight) multiPolling.entry.erase =
+      vis (.ask (primeKey second)) (fun (reply : sig.Reply (primeKey second)) => pure (2, .pair (bit.encode reply) (bit.encode second))) := by
+  simp only [multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  change (sig.primitive false (bit.encode second) >>= _) = _
+  rw [prime_read, vis_bind]
+  simp only [pure_bind]
+  rfl
+
+theorem multiple_entry_left : HasTrace (multiWritten multiLeft) multiLeftTrace ∧
+      HasTrace (built.publicReadback.packed.observe (multiEnv multiLeft) (multiRecord multiLeft)) multiLeftTrace := by
+  have trace : HasTrace (multiWritten multiLeft) multiLeftTrace := by
+    unfold multiWritten multiLeftTrace
+    rw [show multiPolling.erase = .cfg multiPolling.entry.erase 1 (fun i => (multiPolling.block i).erase) from rfl,
+      region, left_entry]
+    simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+    erw [hasTrace_vis_exchange_iff]
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree Events (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region sig.primitive (LambdaSSA.Semantics.extend (multiEnv multiLeft) p.2) (multiPolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode second) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode second) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode second)]
+      simp [step, multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    have routed :
+        region sig.primitive (LambdaSSA.Semantics.extend
+          (LambdaSSA.Semantics.extend (multiEnv multiLeft) (bit.encode first)) (replyType.encode (.inl second)))
+          (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) =
+          pure (0, bit.encode second) := by
+      simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode]
+    rw [routed, pure_bind]
+    change HasTrace (Elgot.ITree.iterate step (0, bit.encode second) >>= _) _
+    rw [oldExit]
+    simp only [pure_bind]
+    exact out_ret _
+  exact ⟨trace, by rw [← multi_agreement built]; exact trace⟩
+
+theorem multiple_entry_right : HasTrace (multiWritten multiRight) multiRightTrace ∧
+      HasTrace (built.publicReadback.packed.observe (multiEnv multiRight) (multiRecord multiRight)) multiRightTrace := by
+  have trace : HasTrace (multiWritten multiRight) multiRightTrace := by
+    unfold multiWritten multiRightTrace
+    rw [show multiPolling.erase = .cfg multiPolling.entry.erase 1 (fun i => (multiPolling.block i).erase) from rfl,
+      region, right_entry]
+    simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+    erw [hasTrace_vis_exchange_iff]
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, resultCodec, codec_id]
+    exact out_ret _
+  exact ⟨trace, by rw [← multi_agreement built]; exact trace⟩
+
+end Observations
+
+example := multiple_entry_bypass multiBuilt
+example := multiple_entry_left multiBuilt
+example := multiple_entry_right multiBuilt
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples
