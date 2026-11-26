@@ -218,6 +218,9 @@ def mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) : 
     | .conversionOverflow => .defined .overflowError
     | .nonfiniteResult => .unsupportedFloatOperand
 
+def floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) : Except Failure Value :=
+  (Core.Binary64.addFinite? left right).elim (.error .unsupportedFloatOperand) (.ok ∘ Value.float64)
+
 /-- A shared heap with monotone cell allocation. Only addresses below
 `next` denote allocated cells. An allocated cell may be unbound. -/
 structure Heap where

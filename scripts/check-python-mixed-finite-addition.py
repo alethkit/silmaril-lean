@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Replay finite mixed-addition call operands against CPython."""
+"""Replay finite binary64 addition in checked call operands against CPython."""
 
 import argparse
 import hashlib
@@ -23,13 +23,14 @@ observe = EQUALITY["observe"]
 
 MAX_FINITE_INTEGER = (2**53 - 1) * 2**971
 CONVERSION_MIDPOINT = 2**1024 - 2**970
+FLOAT_OVERFLOW = "1.7976931348623157e308 + 9.9792015476736e291"
 
 
-def nonfinite_control():
-    source = PREFIX + f"bad = relay({MAX_FINITE_INTEGER} + 1.7976931348623157e308)\ntail = 9\n"
+def nonfinite_control(expression, expected_bits):
+    source = PREFIX + f"bad = relay({expression})\ntail = 9\n"
     status, _, namespace, _ = EQUALITY["cpython"](source, "ordinary")
     assert status == "normal"
-    assert bits(namespace.pop("bad")) == "7ff0000000000000"
+    assert bits(namespace.pop("bad")) == expected_bits
     assert namespace.pop("tail") == 9
     values, functions = TRANSPORT["state"](namespace)
     guards = [TRANSPORT["ordinary"](".executorFault .unsupportedFloatOperand", values, functions, '["bad", "tail"]')]
@@ -37,6 +38,52 @@ def nonfinite_control():
     guards.extend(TRANSPORT["seeded"](space, ".error .unsupported", values, functions, f"[{prior}]")
                   for _, space in EQUALITY["PROFILES"])
     return (source, "\n".join(guards))
+
+
+def float_controls():
+    cases = {
+        "sum": ("4.0 + 2.0", "4018000000000000"),
+        "reversed": ("2.0 + 4.0", "4018000000000000"),
+        "neg_zeros": ("-0.0 + -0.0", "8000000000000000"),
+        "opposite_zeros": ("-0.0 + 0.0", "0000000000000000"),
+        "opposite_zeros_reversed": ("0.0 + -0.0", "0000000000000000"),
+        "cancellation": ("-4.0 + 4.0", "0000000000000000"),
+        "subnormal": ("5e-324 + 5e-324", "0000000000000002"),
+        "negative_subnormal": ("-5e-324 + -5e-324", "8000000000000002"),
+        "minimum_normal": ("2.225073858507201e-308 + 5e-324", "0010000000000000"),
+        "subnormal_difference": ("2.2250738585072014e-308 + -2.225073858507201e-308", "0000000000000001"),
+        "lower_tie": ("1.0 + 1.1102230246251565e-16", "3ff0000000000000"),
+        "upper_tie": ("3.3306690738754696e-16 + 1.0", "3ff0000000000002"),
+        "below_overflow_midpoint": ("1.7976931348623157e308 + 9.979201547673598e291", "7fefffffffffffff"),
+    }
+    finite = PREFIX + "".join(f"{name} = relay({expression})\n" for name, (expression, _) in cases.items())
+    expected_bits = {name: result for name, (_, result) in cases.items()}
+    namespace = EQUALITY["cpython"](finite, "ordinary")[2]
+    assert {name: bits(namespace[name]) for name in cases} == expected_bits
+    fixtures = []
+    observations = {}
+    missing = "NameError:___assertEqual"
+    for label, source, expected in (
+        ("float sum bits", finite, expect("normal", "normal")),
+        ("left lookup before right float overflow", PREFIX +
+         f"___assertEqual(missing, {FLOAT_OVERFLOW})\ntail = 9\n",
+         expect(missing, "NameError:missing")),
+        ("float sum receipt before right lookup", PREFIX + "___assertEqual(relay(4.0 + 2.0), missing)\ntail = 9\n",
+         expect(missing, "NameError:missing")),
+        ("float sum before noncallable mask", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(4.0 + 2.0, 6.0)\ntail = 9\n", expect("TypeError", "TypeError")),
+        ("float sum mismatch payload", PREFIX + "___assertEqual(4.0 + 2.0, 7.0)\ntail = 9\n",
+         expect(missing, "AssertionError")),
+    ):
+        fixture, observed = observe(source, expected)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    fixtures.extend((
+        nonfinite_control(FLOAT_OVERFLOW, "7ff0000000000000"),
+        nonfinite_control("-1.7976931348623157e308 + -9.9792015476736e291", "fff0000000000000"),
+    ))
+    return fixtures, observations, expected_bits
 
 
 def controls(upstream):
@@ -110,13 +157,16 @@ def controls(upstream):
         fixtures.append(fixture)
         observations[label] = observed
 
-    fixtures.append(nonfinite_control())
+    fixtures.append(nonfinite_control(f"{MAX_FINITE_INTEGER} + 1.7976931348623157e308", "7ff0000000000000"))
+    float_fixtures, float_observations, float_bits = float_controls()
+    fixtures.extend(float_fixtures)
+    observations.update(float_observations)
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
-                    ("4.0 + 2.0", "(4 + 2.0) + 1", "4 + 1e999"))
-    return fixtures, observations, expected_bits
+                    ("(4 + 2.0) + 1", "(4.0 + 2.0) + 1.0", "4 + 1e999", "4.0 + 1e999", "1e999 + 2.0"))
+    return fixtures, observations, expected_bits, float_bits
 
 
 if __name__ == "__main__":
@@ -129,10 +179,13 @@ if __name__ == "__main__":
         assert sys.version_info[:3] == (3, 13, 5), sys.version
         revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
         assert revision == QUOTIENT["UPSTREAM"]
-    fixtures, observed, result_bits = controls(args.upstream)
+    fixtures, observed, result_bits, float_bits = controls(args.upstream)
     with tempfile.TemporaryDirectory() as directory:
         source, lean = Path(directory) / "Fixture.py", Path(directory) / "Fixtures.lean"
         INTAKE["check_lean_batch"](source, lean, fixtures, EQUALITY["LEAN"], extra_imports=TRANSPORT["SUITE"]["IMPORTS"])
     print(json.dumps({"cpython": ".".join(map(str, sys.version_info[:3])), "upstream": revision,
-                      "fixtures": len(fixtures), "result_bits": result_bits, "observations": observed,
-                      "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"}}))
+                      "fixtures": len(fixtures), "result_bits": result_bits, "float_result_bits": float_bits,
+                      "observations": observed,
+                      "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"},
+                      "float_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
+                                         "lean": "unsupported"}}))

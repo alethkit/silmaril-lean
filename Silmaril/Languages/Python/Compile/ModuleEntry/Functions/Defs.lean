@@ -155,6 +155,7 @@ inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : F64.Finite)
+  | floatAdd (left right : F64.Finite)
   | float64 (value : F64.Finite)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
@@ -192,6 +193,9 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
   | floatIntAdd {left right integer floating}
       (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
       CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
+  | floatAdd {left right first second}
+      (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
+      CallValueTranslation scope (.binary .add left right) (.floatAdd first second)
   | float64 {source value} (literal : DecimalCallLiteral source value) :
       CallValueTranslation scope source (.float64 value)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
@@ -219,10 +223,11 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
   | .binary .add left right =>
     match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
     | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩
-    | _, _ =>
-      match lowerDecimalCallLiteral? left, rhs : NumericArgument.integer? right with
-      | some floating, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
-      | _, _ => lowerScalarCallValue scope (.binary .add left right)
+    | _, rightFloat =>
+      match lowerDecimalCallLiteral? left, rightFloat, rhs : NumericArgument.integer? right with
+      | some first, some second, _ => .ok ⟨.floatAdd first.val second.val, .floatAdd first.property second.property⟩
+      | some floating, none, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
+      | _, _, _ => lowerScalarCallValue scope (.binary .add left right)
   | .text points =>
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩

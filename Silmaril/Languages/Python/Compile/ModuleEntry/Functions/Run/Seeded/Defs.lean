@@ -103,6 +103,7 @@ def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.
   | .readGlobal name => .global name
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .mixedAdd integer floating => .mixedAdd integer floating
+  | .floatAdd left right => .floatAdd left right
   | .tuple items => .tuple items
   | .textSlice receiver bounds => .textSlice receiver bounds
   | .literal (.int value) => .literal (.int value)

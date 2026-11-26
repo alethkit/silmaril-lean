@@ -154,6 +154,7 @@ inductive Operand (slots : Nat) where
   | literal (value : Value)
   | intTrueDiv (numerator divisor : Int)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
+  | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | local (slot : Fin slots)
   | global (name : String)
   | tuple (items : List Core.Closure.GlobalTupleItem)
@@ -180,6 +181,8 @@ def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Ope
     (Core.Binary64.mixedAdd integer floating).map Value.float64 |>.mapError fun
       | .conversionOverflow => .raised (.runtime .overflowError)
       | .nonfiniteResult => .unsupported
+  | .floatAdd left right =>
+    (Core.Binary64.addFinite? left right).elim (.error .unsupported) (.ok ∘ Value.float64)
   | .local slot =>
     (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok
   | .global name =>

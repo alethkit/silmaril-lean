@@ -102,6 +102,18 @@ theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
   | ok _ => rfl
   | error error => cases error <;> rfl
 
+theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (left right : Silmaril.Numeric.Ieee754.F64.Finite) :
+    (lowerCallOperand (.floatAdd left right)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatAdd left right).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn, Core.Closure.floatAdd]
+  cases Core.Binary64.addFinite? left right <;> rfl
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls := by
