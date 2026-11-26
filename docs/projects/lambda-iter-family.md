@@ -992,6 +992,46 @@ named and packed results, and rejection by the existing LetCase rank gate.
 [Named typed admission and packed agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Thms.lean)
 · [Cyclic packet and live-out regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocalRegression.lean)
 
+### Request-guarded transport for named packet-local RTL
+
+`LiveOut.PacketLocal.Guarded.Corresponds` relates an admitted named table
+to an independently supplied `OpenOperands.Table`. The adapter encodes
+each exact typed block packet and pending exit. It checks an entry equation
+and a local weak-tree equation for every encoded state. Requests use one
+shared evaluator returning the typed reply position and payload. A
+terminal lookup keeps the original ordered tag and the payload
+`(unit, unit)`, the original unit paired with an empty live-out record.
+
+The fixture proves literal readback of the emitted entry and loop row.
+The named entry wraps the caller in an argument-plus-unit packet and the
+loop row begins with a product decoder. The guarded native entry forwards
+its caller directly and its row requests on the incoming value. The local
+equation accounts for that wrapper and decoder and for the named nested
+sum cases that route the replies. `Corresponds.mutable_step` composes it
+with the actual original mutable step and exit projection.
+`Corresponds.observe_eq` lifts through feedback, and
+`Corresponds.packed_eq` uses the same typed caller record and a compatible
+packed model to expose the dispatcher equation.
+
+`observe_eq_of_checkProduct` transports an accepted native certificate
+with ordinary target exits. Its matched query heads share the evaluator
+and each typed reply leads to a related pair. Iteration uniformity maps
+this coupled execution to both original named weak trees. The
+`observe_eq_of_searchProduct` corollary uses the existing positive search
+theorem, with the same exhaustive reply and configuration inventories.
+This transport concerns ordinary weak trees with ordered unit exits.
+The shaped model's designated UB exits require a separate observation
+bridge. A caller supplies the guarded table and the local proof.
+
+The hand-written loop polls on a constructor bit. Reply tag zero changes
+the bit and transfers back to the loop. The next query observes the
+changed bit, and reply tag two leads to the second ordered unit exit.
+Lean checks the two named register allocations, accepted certificate,
+successful search and the actual terminating weak trace.
+
+[Transport theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/Thms.lean)
+· [Exact cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/GuardedRegression.lean)
+
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by
