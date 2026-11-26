@@ -2,6 +2,8 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.ClosedFamily.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
@@ -490,5 +492,107 @@ private def selectedBlock {sigs : List (Ports T)} (graph : Omega Op args [fn.por
 -- address and captured global relocate, with the same flag and store.
 example : selectedBlock recursiveL.toGraph = some (0, 0, 0, 23) := by cbv
 example : selectedBlock recursiveR.toGraph = some (1, 1, 0, 23) := by cbv
+
+open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted)
+open Continuation.Partial (Step)
+open Relation (ReflTransGen TransGen)
+
+-- One actual member is the only admissible callable on each side. The
+-- family includes arbitrary ordinary data, controls and captured globals.
+private inductive Supported (member : machine.Val fn.port) : Family machine where
+  | number (n : Nat) : Supported member (.data (t := ()) n)
+  | capture (unit vertex n : Nat) : Supported member (.global unit vertex (.data (t := ()) n))
+  | control {n : Nat} (tag : Fin n) : Supported member (.control tag)
+  | self : Supported member member
+
+private theorem numberIn {member : machine.Val fn.port} (output : Tuple machine.Val [num]) :
+    TupleIn (Supported member) output := by
+  cases output with
+  | cons value tail =>
+    cases value with
+    | data n =>
+      cases tail
+      exact ⟨.number n, trivial⟩
+
+private theorem primitivesClosed (member : machine.Val fn.port)
+    (captures : ∀ {args outs : Ports T} {ref : machine.Val (.value (.function args outs))},
+      Supported member ref → TupleIn (Supported member) (resolve machine ref).values) :
+    Closed primitives (Supported member) where
+  captures := captures
+  primitive := by
+    intro _ _ opcode _ _ _ _ output _
+    cases opcode <;> exact numberIn output
+
+private theorem supportedFamily : ClosedFamily primitives ids (Supported refL) (Supported refR) where
+  closedL := primitivesClosed refL (by
+    intro _ _ _ member
+    cases member
+    exact ⟨.capture 73 0 8, .self, trivial⟩)
+  closedR := primitivesClosed refR (by
+    intro _ _ _ member
+    cases member
+    exact ⟨.capture 73 1 8, .self, trivial⟩)
+  schedule := by
+    intro _ _ _ _ left right _
+    cases left
+    cases right
+    exact selectedSchedule
+
+private def invocation (ref : machine.Val fn.port) (stack : Stack machine [num] [num])
+    (store : Nat) : Config machine Nat [num] :=
+  ⟨.eval (.call ref recursiveArgs) stack, store⟩
+
+private theorem callSegment (stack : Stack machine [num] [num]) (store : Nat) :
+    TransGen (Step primitives) (invocation refL stack store) (invocation refL (savedL stack) (store + 5)) := by
+  let entry : Config machine Nat [num] := ⟨.eval (Job.openClosure machine refL recursiveArgs) stack, store⟩
+  have entered : Step primitives (invocation refL stack store) entry := Step.of_next_some rfl
+  have more := Continuation.Partial.Executable.runFor_reachable actions 9 entry
+  have checkpoint : runFor actions 9 entry = invocation refL (savedL stack) (store + 5) := by cbv
+  exact TransGen.head' entered (checkpoint ▸ more)
+
+private theorem productiveLeft : InfiniteTrace (Step primitives) (invocation refL .halt 23) := by
+  apply InfiniteTrace.coinduct (fun cfg =>
+    ∃ stack store, ReflTransGen (Step primitives) cfg (invocation refL stack store)) ?_ ⟨.halt, 23, .refl⟩
+  rintro cfg ⟨stack, store, path⟩
+  obtain ⟨next, picked, rest⟩ := TransGen.head'_iff.mp (TransGen.trans_right path (callSegment stack store))
+  exact ⟨next, picked, savedL stack, store + 5, rest⟩
+
+private theorem admittedExports :
+    Admitted machine ids (Supported refL) (Supported refR) (invocation refL .halt 23) (invocation refR .halt 23) :=
+  Admitted.call recursiveCallees relatedArgs .self .self
+    ⟨.number 1, .control 0, trivial⟩ ⟨.number 1, .control 0, trivial⟩ 23
+
+-- These are actual starts from the linked export. Every recursive
+-- activation adds a pending non-tail frame and changes the store by five.
+example : ∃ sourceL sourceR,
+    Executable.start actions 73 recursiveL.toGraph (number 1) .head recursiveArgs 20 = .ok sourceL ∧
+    Executable.start actions 73 recursiveR.toGraph (number 1) .head recursiveArgs 20 = .ok sourceR ∧
+    InfiniteTrace (Step primitives) sourceL ∧ InfiniteTrace (Step primitives) sourceR := by
+  refine ⟨invocation refL .halt 23, invocation refR .halt 23, ?_, ?_, productiveLeft, ?_⟩
+  · cbv
+  · cbv
+  · exact (ClosedFamily.infinite_iff respects supportedFamily admittedExports).mp productiveLeft
+
+private def blockedArgs : Tuple machine.Val fn.args := .cons (.data (0 : Nat)) (.cons (.control 0) .nil)
+
+private def blockingEntry (ref : machine.Val fn.port) : Config machine Nat [num] :=
+  ⟨Continuation.start (.call ref blockedArgs), 23⟩
+
+private theorem relatedBlockedArgs : TupleRelated machine ids blockedArgs blockedArgs :=
+  .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (0 : Nat)) (.cons (.control 0) .nil)
+
+private theorem admittedBlocking :
+    Admitted machine ids (Supported refL) (Supported refR) (blockingEntry refL) (blockingEntry refR) :=
+  Admitted.call recursiveCallees relatedBlockedArgs .self .self
+    ⟨.number 0, .control 0, trivial⟩ ⟨.number 0, .control 0, trivial⟩ 23
+
+-- Reflect the actual left runner endpoint into a matched pair of
+-- terminal configurations, including the precise right blocked attempt.
+example : ∃ endR,
+    RecursiveCall.ReachedTerminal primitives ids (blockingEntry refL) (blockingEntry refR)
+      (runFor actions 10 (blockingEntry refL)) endR ∧ endR.Blocked primitives := by
+  apply (ClosedFamily.blocks respects supportedFamily admittedBlocking).1
+  · exact Continuation.Partial.Executable.runFor_reachable actions 10 (blockingEntry refL)
+  · exact ⟨_, by cbv, by cbv⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
