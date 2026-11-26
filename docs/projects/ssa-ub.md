@@ -196,10 +196,31 @@ For native entry and blocks, `denote_native_feedback` agrees with the
 repository's typed recursive CFG at every existing observational model.
 The regression checks a block whose first visit takes a backedge and whose
 second visit reaches UB, an immediate exit that bypasses a UB block, and a
-native self-loop whose divergence is absent from finite closure. The
-feedback laws concern the observation order. Elgot and Conway laws and
-integration with the native rewrite quotients remain open.
+native self-loop whose divergence is absent from finite closure.
 [Native agreement][ssa-ub-feedback] [Regressions][ssa-ub-feedback-regression]
+
+Feedback uniformity compares two graphs with the same external interface.
+The local theorem assumes that at each reachable source point, a
+deterministic point map sends each source step to a target step and lifts
+every step out of the image to a source successor with that exact image. The matched points must agree on
+fresh UB and ordinary external returns, faults, and divergence. These
+conditions are required only on reachable source points. They preserve and
+reflect finite paths, reached UB, and actual infinite paths. The reverse
+infinite proof lifts the selected target path one step at a time, choosing
+a source successor at each step. The exact criterion for equality of
+closed behaviours is agreement on whether UB is reachable and, below UB,
+equality of the resulting ordinary outcome sets. [Uniformity][ssa-ub-uniformity]
+
+A type-preserving label map keeps payloads and machine states and may merge
+labels of the same type. `close_slide` proves the deterministic routing
+instance of the Conway sliding law. Closing a body with routing on its
+block inputs gives the same behaviour as closing it with routing on its
+internal returns. Permutations give block relabeling invariance as a
+corollary. The one-way counterexample preserves local marks and ordinary
+outcomes on reached source points, yet a new target edge can expose UB or
+enable infinite replay. General two-level elimination, full Conway and
+Elgot laws, and native quotient integration remain open.
+[Sliding and relabeling][ssa-ub-uniformity] [Checked counterexample][ssa-ub-uniformity-regression]
 
 ## Coverage and gaps
 
@@ -230,6 +251,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Uniformity.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -276,3 +298,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-overlay-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Regression.lean
 [ssa-ub-feedback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Thms.lean
 [ssa-ub-feedback-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Regression.lean
+[ssa-ub-uniformity]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Thms.lean
+[ssa-ub-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Feedback/Uniformity/Regression.lean
