@@ -2,6 +2,7 @@ module
 
 import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Cover.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous.Thms
 import Silmaril.Semantics.ITree.VisiblePrefix.Thms
 import Silmaril.SSA.Isotope.LetIter.RequestFeedback.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Model.Thms
@@ -3915,3 +3916,145 @@ example :
     (repairedDenoteInSyntax_eq_iff (⊥ : Eff) _ _).mp packed⟩
 
 end LetIterFiniteFeedbackReplayFixture
+
+namespace LetIterHeterogeneousFeedbackFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured (PureMaps)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite (Code carriers literal_wf)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Feedback.Finite.Heterogeneous
+open Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+  (repairedDenoteInSyntax repairedDenoteInSyntax_eq_iff)
+
+private abbrev Bit := Code.sum .unit .unit
+private abbrev LS := Code.sum Bit .unit
+private abbrev RS := Code.sum .unit Bit
+private abbrev off : Bit.Value := .inl PUnit.unit
+private abbrev on : Bit.Value := .inr PUnit.unit
+
+private def family : Family 2 where
+  argument := Fin.cases .unit (fun _ => Bit)
+  reply := Fin.cases Bit (fun _ => .unit)
+
+private abbrev Ops := Opcode family
+private abbrev read : Ops := ⟨0⟩
+private abbrev notify : Ops := ⟨1⟩
+private abbrev Fx := Bool × Bool
+private abbrev strict : Fx := (true, false)
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+
+local instance : HasEff Ops Fx := ⟨fun _ => strict⟩
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private theorem visible (f : Ops) : ¬ IsPure (⊥ : Fx) f := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private def noPure : PureMaps (Φ := Ops) (ε := Fx) carriers :=
+  fun f h => (visible f h).elim
+
+private def encode : LS.Value → RS.Value
+  | .inl (.inl _) => .inl PUnit.unit
+  | .inl (.inr _) => .inr off
+  | .inr _ => .inr on
+
+private def left : Table family LS .unit
+  | .inl (.inl _) => .call read PUnit.unit (fun
+      | .inl _ => .inl PUnit.unit
+      | .inr _ => .inr (.inl on))
+  | .inl (.inr _) => .call notify on (fun _ => .inr (.inr PUnit.unit))
+  | .inr _ => .ret PUnit.unit
+
+private def right : Table family RS .unit
+  | .inl _ => .call read PUnit.unit (fun
+      | .inl _ => .inl PUnit.unit
+      | .inr _ => .inr (.inr off))
+  | .inr (.inl _) => .call notify on (fun _ => .inr (.inr on))
+  | .inr (.inr _) => .ret PUnit.unit
+
+private theorem commute : Commutes left right encode := by
+  intro s
+  cases s with
+  | inl b =>
+    cases b with
+    | inl _ =>
+      apply congrArg (Row.call read PUnit.unit)
+      funext r
+      cases r <;> rfl
+    | inr _ => rfl
+  | inr _ => rfl
+
+private theorem aligned : ReplyAligned left right (.inl off) (.inl PUnit.unit) := by
+  intro s t _ f x k j l r reply
+  rcases s with (a | a)
+  · cases a <;> cases l <;> rcases t with (b | b)
+    all_goals cases b
+    all_goals cases r
+    all_goals cases reply <;> rfl
+  · cases l
+
+-- The high reply to read takes the notify path, whose unit reply then
+-- selects an immediate-return state. The two calls have different profiles.
+example : PairedReach left right (.inl off) (.inl PUnit.unit) (.inr PUnit.unit, .inr on) := by
+  refine PairedReach.after_reply (L := left) (R := right) (s := (Sum.inl on : LS.Value))
+    (t := (Sum.inr off : RS.Value)) ?_ notify on PUnit.unit
+    (fun _ => .inr (.inr PUnit.unit)) (fun _ => .inr (.inr on)) rfl rfl rfl rfl
+  exact .after_reply .initial read PUnit.unit on _ _ rfl rfl rfl rfl
+
+example :
+    ∃ (a a' : Tm Empty Ops 0) (b b' : Tm Empty Ops 1)
+      (da : Derivation Ops Γ₀ .nil a LS.ty)
+      (db : Derivation Ops Γ₀ (.snoc .nil LS.ty) b (Code.sum .unit LS).ty)
+      (da' : Derivation Ops Γ₀ .nil a' RS.ty)
+      (db' : Derivation Ops Γ₀ (.snoc .nil RS.ty) b' (Code.sum .unit RS).ty),
+      (LS.literal (.inl off)).toLetIter 0 = some a ∧ (RS.literal (.inl PUnit.unit)).toLetIter 0 = some a' ∧
+      left.source.toLetIter 1 = some b ∧ right.source.toLetIter 1 = some b' ∧
+      HasTypeEffect Γ₀ .nil (.iter a b) Ty.unit strict ∧
+      HasTypeEffect Γ₀ .nil (.iter a' b') Ty.unit strict ∧
+      repairedDenoteInSyntax (⊥ : Fx) (da.iter db) = repairedDenoteInSyntax (⊥ : Fx) (da'.iter db') ∧
+      AbortEquiv (⊥ : Fx) Γ₀ .nil (.iter a b) (.iter a' b') Ty.unit := by
+  have hf (f : Ops) : instrEff f ≤ strict := le_rfl
+  have wl : Wf ([] : EffectCtx (Ty Unit) Fx) (LS.literal (.inl off) : Expr Ops) LS.ty strict :=
+    literal_wf _ _
+  have wr : Wf ([] : EffectCtx (Ty Unit) Fx) (RS.literal (.inl PUnit.unit) : Expr Ops) RS.ty strict :=
+    literal_wf _ _
+  obtain ⟨a, ha, ta⟩ := wl.toLetIter
+  obtain ⟨a', ha', ta'⟩ := wr.toLetIter
+  obtain ⟨b, hb, tb⟩ := (Table.step_wf left hf).toLetIter
+  obtain ⟨b', hb', tb'⟩ := (Table.step_wf right hf).toLetIter
+  obtain ⟨da⟩ := Derivation.ofHasType ta.1
+  obtain ⟨db⟩ := Derivation.ofHasType tb.1
+  obtain ⟨da'⟩ := Derivation.ofHasType ta'.1
+  obtain ⟨db'⟩ := Derivation.ofHasType tb'.1
+  have observed := runs_eq commute (.inl off)
+  have actual := (loop_denote noPure visible left hf (.inl off) ha hb da db).trans
+    (observed.trans (loop_denote noPure visible right hf (.inl PUnit.unit) ha' hb' da' db').symm)
+  have packed := (packed_eq_iff_rendered_denote_eq ha hb ha' hb' da db da' db' noPure visible
+    aligned hf (by rfl)).mpr actual
+  exact ⟨a, a', b, b', da, db, da', db', ha, ha', hb, hb', .iter (by rfl) ta tb, .iter (by rfl) ta' tb',
+    packed, (repairedDenoteInSyntax_eq_iff (⊥ : Fx) _ _).mp packed⟩
+
+private def direct : Table family .unit .unit :=
+  fun _ => .call read PUnit.unit (fun _ => .inl PUnit.unit)
+
+private def delayed : Table family Bit .unit
+  | .inl _ => .call read PUnit.unit (fun _ => .inr on)
+  | .inr _ => .ret PUnit.unit
+
+-- Weak observations forget the distinction between these two reply modes.
+example : direct.run PUnit.unit = delayed.run off ∧ ¬ Nonempty (Cover direct delayed PUnit.unit off) := by
+  constructor
+  · have l := Table.run_unfold direct (PUnit.unit : Code.Value .unit)
+    have r := Table.run_unfold delayed off
+    have done := Table.run_unfold delayed on
+    refine l.trans (Eq.trans ?_ r.symm)
+    change ITree.vis _ (fun _ => ITree.ret _) = ITree.vis _ (fun _ => delayed.run on)
+    rw [done]
+    rfl
+  · rintro ⟨cover⟩
+    have conflict := cover.aligned PairedReach.initial (f := read) (x := PUnit.unit) rfl rfl off
+    cases conflict
+
+example : strict < (⊤ : Fx) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+end LetIterHeterogeneousFeedbackFixture
