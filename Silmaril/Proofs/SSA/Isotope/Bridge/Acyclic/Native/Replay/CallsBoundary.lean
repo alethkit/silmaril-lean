@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.Boundary.Defs
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Constructor.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.ConstructorJoin.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.OrderedPairs.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.Obstruction.PairSequencing.CallPair.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms
 
@@ -47,21 +47,36 @@ theorem valid_pair_proof : paired.Valid sequenced :=
 theorem independent_pair_proof : ¬ paired.CallEqv sequenced :=
   CallPair.separation
 
+private theorem roundTrip (p : Endpoint Op input Packet) (code : Code Op input Packet)
+    (written : code.toSSA 0 = p.region) (admitted : code.Admitted)
+    (guarded : Region.ValueBranches input.toList p.region [Packet]) :
+    ConstructorJoin.Eqv false input.toList p.region
+      ((Code.ofLetCase code.toLetCase.2).guardedSSA 0) [Packet] :=
+  ConstructorJoin.ofConstructor (WithConstructorSequencing.Joined.ofJoined
+    (p.joined_roundTrip_at code written admitted guarded))
+
+private theorem pairRoundTrip :
+    ConstructorJoin.Eqv false input.toList paired.region
+      ((Code.ofLetCase pairCode.toLetCase.2).guardedSSA 0) [Packet] :=
+  roundTrip paired pairCode rfl ⟨trivial, trivial⟩
+    (.let₁ (.pair CallPair.left_typed CallPair.right_typed) (.br rfl (.var rfl)))
+
+private theorem seqRoundTrip :
+    ConstructorJoin.Eqv false input.toList sequenced.region
+      ((Code.ofLetCase seqCode.toLetCase.2).guardedSSA 0) [Packet] :=
+  roundTrip sequenced seqCode rfl ⟨trivial, ⟨trivial, trivial⟩, trivial⟩
+    (WithPairReturns.pairSequence_typed CallPair.left_typed CallPair.right_typed)
+
 theorem reify_pair_fails_proof :
     ¬ ConstructorJoin.Eqv false input.toList
       ((Code.ofLetCase pairCode.toLetCase.2).guardedSSA 0) ((Code.ofLetCase seqCode.toLetCase.2).guardedSSA 0)
-      [Packet] := by
-  intro h
-  have pg : Region.ValueBranches [U] paired.region [Packet] :=
-    .let₁ (.pair CallPair.left_typed CallPair.right_typed) (.br rfl (.var rfl))
-  have sg : Region.ValueBranches [U] sequenced.region [Packet] :=
-    WithPairReturns.pairSequence_typed CallPair.left_typed CallPair.right_typed
-  have pa : pairCode.Admitted := ⟨trivial, trivial⟩
-  have sa : seqCode.Admitted := ⟨trivial, ⟨trivial, trivial⟩, trivial⟩
-  have lift := fun {r s : Region Op} (e : Extension.Eqv (WithCaseAndUnaryReturns.JoinedStep false)
-      [U] r s [Packet]) => ConstructorJoin.ofConstructor (WithConstructorSequencing.Joined.ofJoined e)
-  exact independent_pair_proof ((lift (paired.joined_roundTrip_at pairCode rfl pa pg)).trans
-    (h.trans (lift (sequenced.joined_roundTrip_at seqCode rfl sa sg)).symm))
+      [Packet] := fun h => independent_pair_proof (pairRoundTrip.trans (h.trans seqRoundTrip.symm))
+
+theorem reify_pair_repaired_proof (h : paired.PairCallEqv sequenced) :
+    OrderedPairs.Eqv false input.toList
+      ((Code.ofLetCase pairCode.toLetCase.2).guardedSSA 0) ((Code.ofLetCase seqCode.toLetCase.2).guardedSSA 0)
+      [Packet] :=
+  (OrderedPairs.ofCalls pairRoundTrip).symm.trans (h.trans (OrderedPairs.ofCalls seqRoundTrip))
 
 end CallPairBoundary
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native
