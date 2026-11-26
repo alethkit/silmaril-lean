@@ -11,19 +11,12 @@ universe u v w x y z
 namespace Silmaril.Isotope.LambdaSSA.Acyclic
 
 open Morphism (SignatureMap)
-open Morphism.CaseSSA (erase)
+open Morphism.CaseSSA (erase_mapInstr)
 
 variable {Φ : Type u} {Ψ : Type v} {τ : Type w} {υ : Type x} {ε : Type y} {δ : Type z}
   [TypeFormers τ] [TypeFormers υ] [HasTy Φ τ] [HasTy Ψ υ] [HasEff Φ ε] [HasEff Ψ δ]
   (g : SignatureMap Φ Ψ τ υ ε δ) [g.PreservesProducts] [g.PreservesSums]
   {n : Nat} {β : BoundCtx τ n} {A : τ}
-
-omit [TypeFormers τ] [TypeFormers υ] [HasTy Φ τ] [HasTy Ψ υ] [HasEff Φ ε] [HasEff Ψ δ] in
-private theorem erase_mapInstr (f : Φ → Ψ) (t : LetCase.LocallyNameless.Tm Empty Φ n) :
-    erase (t.mapInstr f) = (erase t).mapInstr f := by
-  induction t with
-  | fv x => exact x.elim
-  | _ => simp_all [erase, LetCase.LocallyNameless.Tm.mapInstr, LambdaSSA.Tm.mapInstr]
 
 theorem toSSA_mapSignature_proof (c : Code Φ β A) (exit : Nat) :
     (c.mapSignature g).toSSA exit = (c.toSSA exit).mapInstr g.instr := by
