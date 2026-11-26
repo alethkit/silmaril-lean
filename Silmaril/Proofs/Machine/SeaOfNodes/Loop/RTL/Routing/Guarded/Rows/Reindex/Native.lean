@@ -165,9 +165,22 @@ private theorem local_append (flow : Dataflow WordOp (bankArgs arity) past sigs)
   | nil => exact last
   | cons op args rest ih => exact ⟨first.1, ih tail first.2 last⟩
 
+private theorem local_setup (limit : Silmaril.Machine.Lir.Word) (slot : Option (Fin arity)) :
+    LocalFlow (guardSetup (past := past) limit slot) := by
+  cases slot with
+  | none => exact ⟨local_nil, trivial⟩
+  | some _ => trivial
+
+private theorem local_rhs (slot : Option (Fin arity)) :
+    Local (guardRhsWire (past := past) slot) := by
+  cases slot with
+  | none => trivial
+  | some i => exact local_old (argumentPort arity i)
+
 private theorem local_test (p : Plan arity) : LocalFlow p.test :=
-  ⟨local_nil, local_cons (local_weaken _ (wire := p.guardWire) trivial)
-    (local_cons (head := newest .head) trivial local_nil), trivial⟩
+  local_append p.guardSetup _ (local_setup p.limit p.guardSlot)
+    ⟨local_cons (local_keep p.guardSetup (wire := p.guardWire) trivial)
+      (local_cons (local_rhs p.guardSlot) local_nil), trivial⟩
 
 private theorem local_feedback (p : Plan arity) : LocalColumn (p.graph.phiInputs .backedge) := by
   have base : LocalColumn (p.copies.map fun _ wire =>
@@ -182,7 +195,7 @@ private theorem local_feedback (p : Plan arity) : LocalColumn (p.graph.phiInputs
   have row : LocalColumn p.feedbackColumn := rowColumn_local p.updates [] _ base
   intro sort port
   change Local ((p.feedbackColumn.map fun _ wire => joinedOrigin
-    (past := []) (sigs := rowSigs p.updates) (tail := guardSigs) (keepOrigin p.test wire)).get port)
+    (past := []) (sigs := rowSigs p.updates) (tail := p.guardSigs) (keepOrigin p.test wire)).get port)
   rw [tuple_get_map]
   exact local_cast _ (local_keep p.test (row port))
 
@@ -224,7 +237,7 @@ theorem step_reindex (p : Plan arity) (perm : InputPermutation arity)
   let locals := p.graph.header.eval m (appendTuple old captured) PUnit.unit
   have sameLocals := eval_localFlow m input captured old p.graph.header
     (local_append p.row p.test (local_row p.updates []) (local_test p)) PUnit.unit
-  have predLocal : Local p.graph.predicate := local_cast _ (wire := newest .head) trivial
+  have predLocal : Local p.graph.predicate := local_cast _ (local_cast _ trivial)
   have exitLocal : Local p.exitWire := by
     cases selected : p.exitProducer with
     | none =>

@@ -33,7 +33,7 @@ open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
 def exitRow : Spec :=
-  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none⟩
+  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none, none⟩
 
 def spinRow : Spec :=
   { exitRow with entry := [0, 0], updates := [⟨.add, 0, 0, 1⟩, ⟨.sub, 1, 1, 1⟩] }
@@ -109,7 +109,7 @@ open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
 def row : Spec :=
-  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none⟩
+  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none, none⟩
 
 def swapInputs : InputPermutation 2 := Equiv.swap 0 1
 def bank (x y : Word) : WordTuple 2 := .cons x (.cons y .nil)

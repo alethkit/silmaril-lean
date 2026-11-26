@@ -5,12 +5,14 @@ Import `Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms`.
 indices are zero-based and checked against the full bank. Each computation
 reads two old bank slots and writes a fresh temporary. Destinations are
 distinct. The guard names one computed producer and its destination.
-The checker requires them to agree. The guard compares that producer to
-a fixed i64 limit with `eq` or `ne`. Exit reads the old `exitSlot` by
-default. Set `exitOrigin := some (.output producer 0)` to return a
-computed result from that activation. The checker requires that
-producer's destination to be `exitSlot`. A positional `Spec` literal
-for an old-slot exit ends with `none`.
+The checker requires them to agree. The guard compares that producer
+with `eq` or `ne` against `limit` by default. Set
+`guardRhs := some (.arg slot)` to read an old bank slot instead. Exit
+reads the old `exitSlot` by default. Set
+`exitOrigin := some (.output producer 0)` to return a computed result
+from that activation. The checker requires that producer's destination
+to be `exitSlot`. Positional `Spec` literals take `exitOrigin` followed
+by `guardRhs`.
 [Guarded pair][pair] · [Row compiler][row] · [Explicit Φ baseline][phi]
 
 ```lean
@@ -60,11 +62,13 @@ or exit projection. `incoming_alignment` identifies the actual entry
 and feedback branches in either predecessor order. The two orders
 recover the same branch terms of the emitted CFG. [Activation theorems][thms]
 
-For a row with `k` computations, each RTL activation uses `k + 3`
-steps for the computations, two guard producers, and the branch.
-A return after `b` backedges needs exactly `(k + 3) * (b + 1) + 2`
-RTL fuel including entry and return, and `b + 1` λSSA visits.
-Here the first return needs 17 RTL steps and 3 λSSA visits.
+For a row with `k` computations, `activationSteps` is `k + 3`
+with a fixed limit and `k + 2` with a bank operand. Both execute the
+row, comparison and branch. The fixed limit adds one literal.
+A return after `b` backedges needs exactly
+`activationSteps * (b + 1) + 2` RTL steps including entry and return,
+and `b + 1` λSSA visits. The fixed-limit example needs 17 RTL steps
+and 3 λSSA visits.
 `runMain_fuel_iff` gives the threshold at arbitrary RTL fuel.
 `bounded_returns_iff` and `bounded_absence_iff` compare observation at
 the matched budgets. `returns_iff` relates the checked targets' finite
@@ -101,17 +105,22 @@ def subtractOnExit : Spec where
   exitSlot := 2
   exitOrigin := some (.output 1 0)
 
-#eval do
-  let plan ← checkPlan 3 subtractOnExit
-  let (rtl, ssa) ← lowerChecked 3 subtractOnExit
-  let input : WordTuple 3 := .cons (0 : Word) (.cons (1 : Word) (.cons (10 : Word) .nil))
+def observe (spec : Spec) (input : WordTuple 3) := do
+  let plan ← checkPlan 3 spec
+  let (rtl, ssa) ← lowerChecked 3 spec
   let initial := Memory.ofList 4 [29, 71, 53, 11]
   let machine := (rtl.runMain (plan.rtlFuel 2) 0 (words input) initial).returnedValues?
   let typed := (Generic.Fuel.run model (inputEnv model input) 3 ssa).bind
     fun (_, packet) => (Generic.Fuel.decodeArgs model [word] packet).map fun fields =>
       Silmaril.SSA.RVSDG.Tuple.get fields .head
   pure (machine.map (List.map BitVec.toNat), typed.map BitVec.toNat)
+
+#eval observe subtractOnExit (.cons (0 : Word) (.cons (1 : Word) (.cons (10 : Word) .nil)))
 -- some (some [7], some 7)
+
+#eval observe { subtractOnExit with limit := 42, guardRhs := some (.arg 2) }
+  (.cons (0 : Word) (.cons (1 : Word) (.cons (5 : Word) .nil)))
+-- some (some [2], some 2)
 ```
 
 At `(0, 1, 10)` two backedges lead to old bank `(2, 1, 8)`.
@@ -123,8 +132,21 @@ Selecting guard producer 0 as the exit origin while retaining
 `Rows.Institution.Thms` applies to either exit selection.
 [Computed exit regression][computed-regression] · [Observation laws][institution-thms]
 
+## Compare with an old bank slot
+
+The source swap loop's comparison with a runtime input motivates this
+two-operand guard. The checked profile uses `eq` or `ne` and an old bank
+slot as the right operand. In the second call above, two backedges lead
+to `(2, 1, 3)`. The guard compares the next counter 3 with old slot 2's
+value 3. The subtraction has already computed 2 for that slot, and
+the exit passes that computed word. The return takes 14 RTL steps and
+3 λSSA visits. The checker rejects a producer address or an out-of-range
+slot for `guardRhs`. Reindexing the external inputs leaves that bank-local
+operand in place. [Native loop example][native-result] · [Bank operand regression][operand-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.BankOperandRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.ComputedExitRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Regression \
@@ -139,5 +161,6 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [fuel-thms]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/Thms.lean
 [fuel-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/Regression.lean
 [computed-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/ComputedExitRegression.lean
+[operand-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/BankOperandRegression.lean
 [native-result]: ../../Silmaril/Proofs/SSA/SeaOfNodes/Loop/Regression.lean
 [institution-thms]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Institution/Thms.lean
