@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Builder.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.HeaderUse.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Pass.Thms
@@ -202,5 +203,56 @@ theorem executable_search_rejects_feedback_live_redirect :
       (.producer 3 rfl) (.producer 2 rfl) (.output (0 : Fin 2) .head)).isSome = true ∧
       Pass.step? (makeView true) = none :=
   ⟨rfl, rfl⟩
+
+theorem automatically_builds_and_optimizes_the_native_loop :
+    Builder.optimize? loop = some shortened := rfl
+
+theorem native_optimization_preserves_the_result :
+    shortened.graph.evalBackedges model 2 input = some (4 : Nat) :=
+  (Builder.optimize_evalBackedges automatically_builds_and_optimizes_the_native_loop input 2).trans rfl
+
+theorem rebuilds_exact_incidence_after_reindexing :
+    (Builder.build? shortened.graph).map (fun built =>
+      ((List.finRange (Builder.locations shortened.graph).length).map
+        (fun i => (built.graph.node i).addresses), built.view.guard.address, built.view.result.address)) =
+      some ([
+        [.argument word 0, .producer word (4 : Fin 5)],
+        [.argument word 0, .producer word (4 : Fin 5)],
+        [.producer word (0 : Fin 5)],
+        [.producer word (2 : Fin 5)],
+        [.producer .predicate (3 : Fin 5), .producer word (2 : Fin 5)]],
+        .producer .predicate (3 : Fin 5), .producer word (4 : Fin 5)) := rfl
+
+theorem rebuilt_view_has_no_further_shrinking_step :
+    (Builder.build? shortened.graph).isSome = true ∧ Builder.optimize? shortened.graph = none :=
+  ⟨rfl, rfl⟩
+
+private def crossedPhiColumns : Loop.Graph Primitive [word, word, .predicate] carried [] [] word where
+  preheader := .nil
+  header := .nil
+  phiInputs
+    | .entry => .cons (.arg (.tail .head)) (.cons (.arg .head) .nil)
+    | .backedge => .cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+  predicate := .arg (.tail (.tail .head))
+  result := .arg (.tail (.tail (.tail .head)))
+
+theorem preserves_entry_and_feedback_row_order :
+    (Builder.build? crossedPhiColumns).map (fun built =>
+      (List.finRange (Builder.locations crossedPhiColumns).length).map
+        (fun i => (built.graph.node i).addresses)) =
+      some [[.argument word 1, .producer word (1 : Fin 2)],
+        [.argument word 0, .producer word (0 : Fin 2)]] := rfl
+
+private def preheaderEntry : Loop.Graph Primitive inputs carried [[wordPort]] sigs word where
+  preheader := .cons .inc (.cons (.arg .head) .nil) .nil
+  header := loop.header
+  phiInputs
+    | .entry => .cons (.output (0 : Fin 1) .head) (.cons (.arg .head) .nil)
+    | .backedge => loop.phiInputs .backedge
+  predicate := loop.predicate
+  result := loop.result
+
+theorem rejects_phi_entry_from_a_preheader_producer : Builder.build? preheaderEntry = none := rfl
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Regression
