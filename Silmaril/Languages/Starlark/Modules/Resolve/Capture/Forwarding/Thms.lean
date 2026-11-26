@@ -32,6 +32,12 @@ theorem emitted_declaration (program : Program) (frames : List Frame) (frame : F
     (present : frame ∈ frames) : ∃ id : Nat, (EmittedProgram program frames)[id]? = some frame.declaration :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.emitted_declaration program frames frame present
 
+/-- A root in a load-free module captures only declared globals. -/
+theorem root_capture {globals : List String} {chain : Chain} {head : Frame} {rest : List Frame}
+    (emitted : Emits globals [] chain (head :: rest)) (entry : FreeName) (present : entry ∈ head.free) :
+    ∃ name ∈ globals, entry = reference (globalSlot name) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Forwarding.root_capture emitted entry present
+
 theorem passes_along {globals : List String} {outer : List (List String)}
     {chain : Chain} {frames : List Frame} (emitted : Emits globals outer chain frames) :
     frames.IsChain Passes :=

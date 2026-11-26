@@ -260,14 +260,11 @@ owned slots allocated at activation. `local_address` and `global_address`
 preserve the original address through every successful creation and
 activation on the corresponding route, including its local-cell tag.
 
-The runtime path starts from the source address and successful definition
-and activation steps. Constructing a step uses the program's declaration
-entry, the parent's capture environment and a valid owned binding cell
-for the definition destination. Arguments are prebound. This increment
-proves the supply of the next child's capture slots from the parent
-layout. It leaves independent argument preparation and whole-source
-execution separate. Broader wrapper and leaf bodies, definition-time
-defaults, and load-file capture proofs remain open.
+The forwarding path starts from the source address and successful definition
+and activation steps. It supplies the next child's capture slots from the
+parent layout. The entry and argument bridge below derives the root
+addresses, the live owned destination cells, and positional argument
+preparation that can feed these steps.
 
 The five-level fixture creates the leaf before the nearer owner rebinds
 a list reference, then invokes it after escape. It also observes a
@@ -275,6 +272,42 @@ separately forwarded module slot before and after initialization. Lean
 checks the emitted lists and runtime local-cell tags. The observable
 results agree with pinned Go.
 [Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Defs.lean) · [Forwarding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Defs.lean) · [Forwarding theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Forwarding/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/scope/check.go) · [Pinned definition semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go lexical selection](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L960-L990) · [Go shared cells](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L642-L661)
+
+### Checked module entry and positional binding
+
+The independent load-free binder judgment supplies the module's global
+list. Actual module entry allocates a fresh owned cell for each declared
+global, initially unbound even when the caller has a populated heap.
+An independently emitted root capture plan names only those globals.
+`checked_root_definition` uses these facts to derive the root capture and
+definition-target cells and its exact closure allocation. The proof
+uses the supplied declaration lookup in the checked table.
+
+`Assigns` pairs required parameters with evaluated positional actuals in
+order. `Binds` accounts for success, a missing suffix, and surplus
+arguments. The exact preparation theorem derives signature validity from
+module validation. Successful preparation activates with the derived
+arguments. Binding errors preserve the pre-dispatch state. For a root
+definition immediately followed by preparation, the declaration lookup
+also supplies its membership in the initial finite availability set.
+`activated_cell` derives a live owned cell for each declared parameter or
+local in the resulting frame, even after argument writes.
+
+`checked_first_read_error` starts from a normalized module whose first
+command reads a declared global. Its exact result is the uninitialized
+error with the caller frame restored and the entry heap retained. The
+rest of the commands do not run. The executable fixtures also reach
+this error inside a closure call and distinguish it from missing and
+surplus argument errors before body entry.
+
+Whole-module source execution for the wrapper chain still needs to
+identify the root table lookup from the emitted command at its actual
+source site, relate source operand evaluations before dispatch, track
+intervening statement effects, and compose wrapper returns and escape
+with leaf execution and final publication. The module entry bridge
+takes already evaluated positional actuals. Defaults, other argument
+forms, loads, and broader wrapper and leaf bodies remain separate.
+[Binding judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Defs.lean) · [Entry theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Entry/Checks.lean)
 
 ## Finite-manifest loader
 

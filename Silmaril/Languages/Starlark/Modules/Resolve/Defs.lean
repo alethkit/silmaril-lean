@@ -795,6 +795,17 @@ def elaborateCommands (commands : List Command) (linked : Program := #[]) :
     Except Error (List Modules.Command × Program) :=
   (commands.mapM (compileCommand (moduleBlock commands))) linked
 
+/-- A leading expression statement keeps its position in checked command order. -/
+theorem elaborateCommands_eval_cons (value : Lowering.Resolve.SourceExpr) (rest : List Command)
+    (linked : Program) (code : Lowering.Expr) (reads : List Binding)
+    (operand : resolveTracked (moduleBlock (.eval value :: rest)).reads value = .ok (code, reads))
+    (commands : List Modules.Command) (program : Program)
+    (checked : elaborateCommands (.eval value :: rest) linked = .ok (commands, program)) :
+    ∃ suffix, commands = .exec (.evalExpr code) :: suffix := by
+  simp only [elaborateCommands, List.mapM_cons, compileCommand, readExpr, operand, bind, StateT.bind,
+    lift_ok, pure, StateT.pure, Except.mapError, Except.bind, Except.pure] at checked
+  split at checked <;> simp_all <;> exact ⟨_, checked.1.symm⟩
+
 /-- Elaborate and validate the emitted declaration table and commands.
 Input names are normalized identifiers. -/
 @[expose] def resolve (commands : List Command) (linked : Program := #[]) : Except Error ResolvedModule :=
