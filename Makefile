@@ -39,6 +39,7 @@ CHECK_TARGETS += PEGIRBridgeTests
 CHECK_TARGETS += PeggyDialectTests
 CHECK_TARGETS += PeggyEggTests
 CHECK_TARGETS += PeggyInstitutionTests
+CHECK_TARGETS += PeggyEquationalTests
 
 # Files Lake never reads; only the source gates in `make check` read them.
 SCOPE_EXCLUDE := 'docs/**' '**/*.md' 'scripts/**' 'apps/**' 'problems/**' 'specs/wasm/**' \
