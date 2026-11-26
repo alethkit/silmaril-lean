@@ -276,14 +276,30 @@ block determines the internal index. External returns use their first
 position in the exit list. Total numbering uses a sentinel for unlisted
 names, which successful elaboration excludes from all written branches.
 
+`Interaction.flat_rename_tree` preserves the tree of an erased flat body
+when the environments agree at each renamed in-scope position. It lifts
+agreement through local binders. The capture decoder uses this lemma with
+the actual product-field renaming. In feedback, the closed block's sole
+original slot is its incoming tagged packet. The closure's block erasure
+equation and agreement on that slot identify the block trees.
+[Scoped erased-tree transport](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Scoped/Thms.lean)
+
+`Capture.graph_tree` accepts an arbitrary producer tree. The typed capture
+expression must have the tree of that producer followed by `packEnv n` of
+the environment chosen by its reply. The theorem preserves the producer's
+requests and continues with the original graph after each returned reply.
+`packed_run_tree` also requires the accepted elaboration carried by
+`compileTyped`, pointwise agreement with the named version-zero store for
+every reply, and `HasType .nil R E` and `Closes` for the closed graph.
+`Capture.close` checks the producer expression at the exact type
+`packedInputType β.toList`. The packed result uses the original external
+index and tagged payload to form the dispatcher's single exit value.
+[Effectful capture and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+
 The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
-and the exact capture packet. It compiles and closes a loop with a visible
-capture read, seed operation, and tick on the back edge. The checked packed
-tree feeds the capture reply into the seed request and each tick reply into
-the next tick's operand. The packed endpoint additionally uses the existing
-`packedExecution_tree` theorem and the closure equation checked for this
-fixture. General effectful capture closure would need an environment
-transport theorem for the erased trees.
+and the exact capture packet. The general corollary applies to its actual
+capture-closed table. The resulting packed tree feeds the capture reply
+into the seed request and each tick reply into the next tick's operand.
 [Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
 
 ### Edge arguments for a normalized φ port
@@ -316,6 +332,6 @@ lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
 ```
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```
