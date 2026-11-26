@@ -30,13 +30,6 @@ theorem LSubst.ValueFamily.append {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → R
     LSubst.ValueFamily Γ (R ++ L) (R ++ K) (liftLSubstN R.length σ) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueFamily_append hσ R
 
-/-- Substitution by constructor values preserves guarded branches. -/
-theorem ValueBranches.substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
-    (hr : ValueBranches Γ r L) {θ : Nat → Tm Φ}
-    (hθ : ∀ ⦃i A⦄, At Γ i A → Tm.BranchValue Δ (θ i) A) :
-    ValueBranches Δ (r.substVars θ) L :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueBranches_substVars hr hθ
-
 /-- Typed variable renaming retains constructor-valued branch arguments. -/
 theorem ValueBranches.renameVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     (hr : ValueBranches Γ r L) {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
