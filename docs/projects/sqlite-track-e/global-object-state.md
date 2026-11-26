@@ -124,9 +124,9 @@ differs from a failed lookup of an existing token.
 
 ## Resource contracts and refinement boundary
 
-The reusable `Silmaril.Semantics.Resource.Thms` interface is
-re-exported through `Allocator.Thms` and `Handle.Thms`. `Contract.Frames` preserves a
-chosen key observation outside the writes for the input and reply.
+The reusable `Silmaril.Semantics.Resource.Thms` interface is re-exported
+through `Allocator.Thms` and `Handle.Thms`. `Contract.Frames` preserves
+a chosen key observation outside the writes for the input and reply.
 `Contract.seq` passes the first reply into the second operation and
 concatenates their write lists, so `Contract.seq_frames` preserves keys
 outside both. `Contract.Frames.assertion_iff` additionally requires the
@@ -151,23 +151,27 @@ same full lookup. `open_error_close_only` admits a failed open's cleanup
 handle within this profile. `final_dependent_reaps_zombie` retires the
 last blocker and its zombie connection under the release premises.
 `stale_not_fresh` preserves the distinction between a retired token and
-a fresh one. A backup's source blocks close, and
-`backup_finish_destination` checks and preserves the distinct live
-destination under the borrowed-destination profile. The default VFS
-borrow uses a caller-supplied registry of live VFS entries.
+a fresh one. A backup's source blocks close. The profile reserves its
+distinct, live, ready destination through finish.
+`close_borrowed_inapplicable` rules out closing that destination while
+borrowed, and `backup_finish_destination` checks and preserves its state.
+The default VFS borrow uses a caller-supplied registry of live VFS entries.
 `find_default_iff` gives its unchanged history and `find_default_live`
 gives presence of a non-null result. [Handle and VFS model and replay](handle-resources.md)
 
 The verified algebra concerns finite lookup, erasure and modeled
-transitions. The source guides justify the choice of observations. A
-refinement from SQLite C executions to these states still needs a mapping
-from source addresses and fields, alias and lifetime invariants, and
-simulation of the relevant C behavior. The selected
+transitions. The source guides justify the choice of observations.
+Native refinement remains open. It needs a mapping from concrete
+addresses and fields to object and allocation identities, with generation
+invariants for later address reuse, and a simulation of the relevant C
+implementations. The allocator contract observes extents and ownership.
+A byte-memory refinement would also have to prove the preserved prefix
+on a successful resize. The selected
 `IndexedStore.namedMainFile` adapter uses a supplied backing-local handle.
 `NamedMainFile.readAccess` requires `VFS.Opened.Live` and a read grant to
 produce `Pager.ReadAccess`. Interface/D3 observations still describe the
-admitted point-query profile. ABI layout, allocator byte copying,
-platform locks, registry mutation and named VFS search, shared-cache
+admitted point-query profile. ABI layout, platform locks, registry mutation
+and named VFS search, shared-cache
 ownership, WAL/SHM and general SQLite execution remain separate from
 these proofs. [Source inventory](object-structs.md) · [Track E behavioral coverage](coverage-v1.md#behavioral-coverage)
 
@@ -191,8 +195,10 @@ resource=Silmaril.Semantics.Resource
 lake build --wfail +"$root".{AggregateChecks,Checks,Store.Checks} \
     +"$root".{Store.Allocator.Checks,StructChecks,StatePayloadChecks} \
     +"$allocator".Checks +"$handle".Checks
-lake env lean -DautoImplicit=false -DwarningAsError=true \
-    Silmaril/Machine/SQLite/GlobalState/AggregateChecks.lean
+for check in Silmaril/Machine/SQLite/GlobalState/{AggregateChecks,Checks,Store/Checks,Store/Allocator/Checks,StructChecks,StatePayloadChecks}.lean \
+    Silmaril/Machine/SQLite/{Allocator,Handle}/Checks.lean; do
+  lake env lean -DautoImplicit=false -DwarningAsError=true "$check"
+done
 make check CHECK_TARGETS=+"$root".AggregateChecks
 for module in "$root".{All,AggregateChecks,Defs,Roots,Thms,Checks} \
     "$root".Store.{Defs,Thms,Checks,Allocator.Defs,Allocator.Thms,Allocator.Checks} \
@@ -212,7 +218,8 @@ named module against its imports. The leaf check modules print their
 public theorem dependencies for comparison with [the axiom policy](../../../policy.toml).
 The exact-head CI runs below contain successful hosted Lean, aggregate CI
 and time-budget jobs. The replay counts cover the modules reported for
-each increment, with reproduction commands in its guide.
+each increment, with reproduction commands in its guide. The aggregate's
+local replay and exact-head CI receipt is in [integration PR #4235][pr4235].
 
 | Increment | Merge | Exact PR head | CI and kernel replay |
 | --- | --- | --- | --- |
@@ -223,6 +230,7 @@ each increment, with reproduction commands in its guide.
 | [Raw blocks and object updates #4223][pr4223] | `01a39e10e1f80ea53a21c517dc67289fa02a37be` | `1b8cc147d75a596e95aec1053cfd46b8aebc6ff3` | [CI][ci4223] · 11 modules · [Replay][replay4223] |
 | [Allocator and Resource API #4198][allocator-pr] | `c337f7ca0de0efbbd2ec9f4dced3da203bc9107f` | `744fd86fcc88726306ab80c7674d7e584a20dc12` | [CI][ci4198] · [168.2 s of 300][budget4198] · 7 modules and 20 axiom audits · [Replay](allocator-resources.md#build-and-replay) |
 | [Parametric structs and flat bridge #4234][pr4234] | `be3143e6840903217cec8797359eafee5ae6005f` | `70ab775cde8fb0386174909b32a84ad24ecb585e` | [CI][ci4234] · [138.0 s of 300][budget4234] · 11 modules · [Replay](object-state-payloads.md) |
+| [Handle and default VFS #4251][pr4251] | `fce01929e4dd115bd9cfe75d7ed3e2b189feb8da` | `e798acfbbbf5a3fa6861b1884b6cfa858cfab737` | [CI][ci4251] · [176.8 s of 300][budget4251] · 4 modules and 23 axiom audits · [Replay](handle-resources.md#build-and-replay) |
 
 [api]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
 [registry]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/os.c#L352-L447
@@ -254,3 +262,7 @@ each increment, with reproduction commands in its guide.
 [pr4234]: https://github.com/hiloopai/silmaril-lean/pull/4234
 [ci4234]: https://github.com/hiloopai/silmaril-lean/actions/runs/45811000129
 [budget4234]: https://github.com/hiloopai/silmaril-lean/actions/runs/45811000129/job/139880218087
+[pr4251]: https://github.com/hiloopai/silmaril-lean/pull/4251
+[ci4251]: https://github.com/hiloopai/silmaril-lean/actions/runs/45813726561
+[budget4251]: https://github.com/hiloopai/silmaril-lean/actions/runs/45813726561/job/139891800681
+[pr4235]: https://github.com/hiloopai/silmaril-lean/pull/4235
