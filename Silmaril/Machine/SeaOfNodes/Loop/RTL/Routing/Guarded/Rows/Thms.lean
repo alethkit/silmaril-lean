@@ -54,6 +54,13 @@ theorem feedback_latch {arity : Nat} (p : Plan arity) (input old : WordTuple ari
     p.graph.latch model .backedge args (p.graph.header.eval model args PUnit.unit) = p.nextBank input old :=
   Proofs.feedback_latch p input old
 
+/-- The emitted comparison reads the computed left operand and the selected right operand. -/
+theorem guard_compare_operand {arity : Nat} (p : Plan arity) :
+    (bankHeader p.graph).ops[p.compareIndex]? =
+      some (.binary (.cmp p.comparison.target) (.node p.compareIndex) (.node p.guardIndex.val)
+        (register (guardRhsWire (past := p.rowPast) p.guardSlot).address)) :=
+  Proofs.guard_compare_operand p
+
 /-- The exit successor carries the selected old register or producer register. -/
 theorem exit_operand {arity : Nat} (p : Plan arity) :
     (bankHeader p.graph).term.args[1]? = some (2, [register p.exitWire.address]) :=

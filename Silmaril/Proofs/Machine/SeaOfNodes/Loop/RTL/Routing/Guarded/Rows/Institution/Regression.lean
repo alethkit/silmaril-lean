@@ -14,7 +14,7 @@ open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Semantics.Region (Eval)
 
 private def exitSpec : Spec :=
-  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none⟩
+  ⟨[0, 1], [0, 1], [⟨.add, 0, 0, 1⟩], .output 0 0, 0, .ne, 3, 0, none, none⟩
 
 private def spinSpec : Spec :=
   { exitSpec with entry := [0, 0], updates := [⟨.add, 0, 0, 1⟩, ⟨.sub, 1, 1, 1⟩] }
