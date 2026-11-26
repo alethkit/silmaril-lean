@@ -14,6 +14,9 @@ open LambdaSSA (FiniteCFG Flat)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LetCase.LocallyNameless (Tm)
 
+-- Keep structural equality with the exact readback checker.
+deriving instance DecidableEq for Flat
+
 universe u v w
 
 variable {V K : Type w} {F : Type v} {n blocks exits labels : Nat}
@@ -75,7 +78,7 @@ def lower (registers : Registers V) (inputs : Fin n → V)
   pure ⟨entry, List.ofFn fun i => (internal i, ⟨registers.parameter, bodies i⟩)⟩
 
 /-- Compare exactly the written entry and all written block bodies. -/
-instance [DecidableEq F] : DecidableEq (FiniteCFG F blocks exits n) := fun a b =>
+local instance [DecidableEq F] : DecidableEq (FiniteCFG F blocks exits n) := fun a b =>
   if h : a.entry = b.entry ∧ ∀ i, a.block i = b.block i then
     isTrue (by cases a; cases b; obtain ⟨rfl, h⟩ := h; cases funext h; rfl)
   else isFalse (fun eq => h (eq ▸ ⟨rfl, fun _ => rfl⟩))

@@ -26,7 +26,7 @@ inductive Flat (Φ : Type u) (labels : Nat) : Nat → Type u where
       (body : Flat Φ labels (n + 2)) : Flat Φ labels n
   | case {n : Nat} (discr : LetCase.LocallyNameless.Tm Empty Φ n)
       (left right : Flat Φ labels (n + 1)) : Flat Φ labels n
-  deriving Repr, DecidableEq
+  deriving Repr
 
 namespace Flat
 
