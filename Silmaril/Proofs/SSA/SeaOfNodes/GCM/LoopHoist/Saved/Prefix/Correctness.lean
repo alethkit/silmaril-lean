@@ -10,6 +10,7 @@ open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF (Block Terminator)
 open Silmaril.MLIR.Pure (Code)
 open Silmaril.SSA.SeaOfNodes
+open Silmaril.SSA.SeaOfNodes.GCM (shape)
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved
 open Loop.MLIR.CF (TargetOp evalOp)
@@ -25,6 +26,13 @@ theorem Prefix.wrap_eval (leading : Prefix Input Γ)
   | snoc prior op operands ih =>
     rw [Prefix.wrap, ih]
     rfl
+
+theorem Prefix.wrap_targets {Γ newExtra : List Width}
+    (leading : Saved.Prefix Input Γ) (tail : Block TargetOp (Label saved carried result newExtra) Γ [result]) :
+    (shape.ofBlock (leading.wrap tail)).target = (shape.ofBlock tail).target := by
+  induction leading with
+  | nil => rfl
+  | snoc prior op operands ih => exact ih (.letOp op operands tail)
 
 theorem splitPrefix?_wrap {widths : List Width}
     {code : Block TargetOp (Label saved carried result extra) Input [result]}

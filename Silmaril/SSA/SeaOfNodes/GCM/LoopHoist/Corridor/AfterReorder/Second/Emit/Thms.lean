@@ -41,6 +41,28 @@ theorem liftCode_eval {Γ Δ extra : List Width} {saved consumer : Width}
       (code.eval evalOp (fun term env => Terminator.eval env term) source).map (Saved.prependFrame (target.get keep)) id :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftCode_eval code rename keep source target same
 
+/-- Extending the carried packet respects each terminator occurrence. -/
+theorem liftCode_targets_congr {Γ Δ Γ' Δ' extra : List Width} {saved consumer : Width}
+    (left : Block TargetOp (Label saved carried result extra) Γ [result])
+    (right : Block TargetOp (Label saved carried result extra) Γ' [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (rename' : Rename Γ' Δ') (keep' : Var Δ' consumer)
+    (same : (shape.ofBlock left).target = (shape.ofBlock right).target) :
+    (shape.ofBlock (liftCode rename keep left)).target = (shape.ofBlock (liftCode rename' keep' right)).target :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftCode_targets_congr
+    left right rename keep rename' keep' same
+
+/-- The checked append CFG has the exact split prefix, new let and lifted tail. -/
+theorem emitAt?_entry {args extra : List Width} {saved consumer : Width}
+    {op : TargetOp args consumer} {operands : Operands ((extra ++ [saved]) ++ Input) args}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {index : Nat} {target : Cfg TargetOp (Label saved carried result (consumer :: extra)) Input [result]}
+    {leading : Saved.Prefix Input ((extra ++ [saved]) ++ Input)}
+    {tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]}
+    (split : Saved.splitPrefix? cfg.entry (extra ++ [saved]) = some (leading, tail))
+    (emitted : emitAt? cfg index op operands = some target) :
+    target.entry = leading.wrap (.letOp op operands (liftCode Var.there .here tail)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.emitAt?_entry split emitted
+
 /-- The shared splice preserves evaluated transfers and extends the checked
 entry-prefix evaluation witness for the next step. -/
 theorem emitAt?_step {saved : Width} {extra : List Width}

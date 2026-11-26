@@ -19,6 +19,19 @@ variable {Input Γ args : List Width} {w : Width}
 variable {leading : Prefix Input Γ} {op : TargetOp args w} {operands : Operands Γ args}
 variable {trailing : Nat} {edit : Insertion Input Γ w}
 
+theorem insert?_length (done : leading.insert? op trailing operands = some edit) :
+    edit.physical.length = Γ.length + 1 := by
+  induction trailing generalizing Γ with
+  | zero => cases done; rfl
+  | succ trailing ih =>
+    cases leading with
+    | nil => cases done
+    | snoc prior later laterOperands =>
+      obtain ⟨earlier, _, next⟩ := Option.bind_eq_some_iff.mp done
+      obtain ⟨inner, inserted, result⟩ := Option.bind_eq_some_iff.mp next
+      cases result
+      exact congrArg (· + 1) (ih inserted)
+
 theorem insert?_indices (done : leading.insert? op trailing operands = some edit) :
     edit.inserted.index = trailing ∧
     ∀ {width} (ref : Var Γ width),
