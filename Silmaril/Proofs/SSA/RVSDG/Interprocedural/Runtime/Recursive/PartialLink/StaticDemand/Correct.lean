@@ -21,7 +21,7 @@ universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results final : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
-variable {member : Option (MemberSummary V S)}
+variable {member : Option (MemberSummaries V S)}
 
 /-- The demanded ports after prepending captures use exactly the two ranges
 in the application transfer. -/
@@ -109,15 +109,17 @@ private theorem output_observed {ty : Ty V S} {pc p : Nat} {plan : DemandPlan}
 
 /-- The member-call premise covers any smaller finite observation depth. -/
 @[expose] def MemberDispatch (actions : Actions m σ) (observed : Demand)
-    {member : Option (MemberSummary V S)} (guardL guardR : MemberResolution m member)
+    {member : Option (MemberSummaries V S)} (guardL guardR : MemberResolution m member)
     (budget : Nat) (final : Ports (Ty V S)) : Prop :=
   match member with
   | none => True
-  | some summary =>
+  | some table =>
     ∀ (depth : Nat), depth ≤ budget →
+      ∀ i : Fin table.members.length,
+      let summary := table.at i
       ∀ (wanted : Demand) (fL fR : m.Val summary.fn.port) (capsL capsR : Tuple m.Val summary.captures)
         (argsL argsR : Tuple m.Val summary.fn.args) (store : σ) (left right : Stack m summary.fn.results final),
-        guardL fL capsL → guardR fR capsR →
+        guardL i fL capsL → guardR i fR capsR →
         ScopeAgrees (scope := []) (summary.live wanted)
           (prependContext argsL capsL) (prependContext argsR capsR) PUnit.unit PUnit.unit →
         ResumeAgrees actions observed wanted (some depth) left right (fun _ => True) (fun _ => True) →
@@ -130,7 +132,7 @@ private theorem dispatch_weaken {actions : Actions m σ} {observed : Demand}
     MemberDispatch actions observed guardL guardR small final := by
   cases member with
   | none => trivial
-  | some summary => exact fun n bound => dispatch n (bound.trans le)
+  | some table => exact fun n bound => dispatch n (bound.trans le)
 
 theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entry past sigs results loops member) :
     ∀ (guardL guardR : MemberResolution m member) (depth : Option Nat),
@@ -313,7 +315,7 @@ theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entr
       exact runLoop depth firstL firstR store (fun _ _ => rfl) (fun _ _ => rfl)
         (fun p livePort => read_selected (fun _ i => Feedback.includes live i) wires reads p livePort) after dispatch
 
-  | @memberCall entry results past sigs summary target captures arguments rest ihRest =>
+  | @familyCall entry results past sigs table i target captures arguments rest ihRest =>
     intro guardL guardR depth admitted dispatch wanted inputL inputR localsL localsR left right store
       resolvedL resolvedR agree resume
     cases depth with
@@ -321,6 +323,7 @@ theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entr
     | some depth =>
       obtain ⟨reads, old⟩ := split_live agree
       let needed := resultDemand past.length (rest.plan wanted)
+      let summary := table.at i
       let frameL : Stack m summary.fn.results final := .resume rest.term inputL localsL left
       let frameR : Stack m summary.fn.results final := .resume rest.term inputR localsR right
       have after : ResumeAgrees actions observed needed (some depth) frameL frameR (fun _ => True) (fun _ => True) := by
@@ -330,7 +333,7 @@ theorem region (actions : Actions m σ) (observed : Demand) (code : Code Op entr
           resolvedL.2 resolvedR.2 (scope_snoc old (fun p live => demanded p (output_observed live))) resume
       apply depth_step rfl rfl
       apply depth_step rfl rfl
-      exact dispatch depth (Nat.le_refl _) needed _ _ _ _ _ _ store frameL frameR
+      exact dispatch depth (Nat.le_refl _) i needed _ _ _ _ _ _ store frameL frameR
         resolvedL.1 resolvedR.1 (apply_agrees _ captures arguments reads) after
 
 private theorem plan_live (code : Code Op entry past sigs results loops member) (demand : Demand) :
@@ -350,7 +353,7 @@ private theorem plan_live (code : Code Op entry past sigs results loops member) 
     simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
       List.length_cons, List.length_nil]
 
-  | memberCall _ _ _ _ ih =>
+  | familyCall _ _ _ _ _ ih =>
     simp only [Code.plan, DemandPlan.prepend, sweep, ih, List.length_append,
       List.length_cons, List.length_nil]
 

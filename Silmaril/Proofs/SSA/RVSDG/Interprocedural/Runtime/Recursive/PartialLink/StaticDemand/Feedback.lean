@@ -13,7 +13,7 @@ open Feedback.Proofs (DemandLE selectWires_mono reads_mono close_isLeast include
 universe u v
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
-variable {member : Option (MemberSummary V S)}
+variable {member : Option (MemberSummaries V S)}
 
 private theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
     DemandLE (resultDemand pc low) (resultDemand pc high) :=
@@ -60,9 +60,9 @@ private theorem plan_mono (code : Code Op entry past sigs results loops member) 
       (reads_mono (.theta (Op := Instruction Op) carried) wires _ (ihRest more)
         (fun _ requested => (body.plan requested).live) (fun _ _ _ more => ihBody more))
 
-  | @memberCall _ _ _ _ summary _ captures arguments _ ih =>
+  | @familyCall _ _ _ _ table i _ captures arguments _ ih =>
     exact prepend_mono (ih more)
-      (applyReads_mono (summary.monotone (resultDemand_mono (ih more))) captures arguments)
+      (applyReads_mono (table.monotone i (resultDemand_mono (ih more))) captures arguments)
 
 theorem feedback_isLeast {carried : Ports (Ty V S)}
     (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand) :

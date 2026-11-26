@@ -645,6 +645,40 @@ using actual runner transitions.
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Singleton.Regression
 ```
 
+### Finite recursive groups
+
+`StaticDemand.Family` takes a finite typed `MemberSummaries` table and
+builds a linked φ group with an export for any chosen member.
+`Family.closed` checks every body's shared transfer at every output demand.
+A `Code.familyCall` names a member index and maps its summary through the
+typed capture and argument wires. The suffix's reads of actual result
+ports determine the callee's demand. `Family.Ready` checks that each
+recursive target and its capture witnesses agree with the resolver's
+actual member and λ capture wires. The family reference prefix is
+reserved for static dispatch.
+[Family API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Thms.lean)
+
+`Family.calls_prefix` proves agreement at every finite observation depth
+by consuming an actual resolver step before applying the induction
+hypothesis to any member in the group. `Family.linked_prefixes_agree`
+replays the linked runner. The shared prefix theorems give demanded
+returns with exact store, exact typed primitive attempts and attempt stores
+at a block, and observational agreement of pending suffixes under common
+resumption. Suspension at every finite budget transfers in both directions.
+Summaries are supplied. Joint synthesis and dynamic recursive targets
+remain outside the admission.
+
+The two-member fixture passes demand from the first result of A to the
+second result of B and back to the first result of A. The unrelated result
+varies while the payload and store agree. A zero capture blocks after both
+call edges, and resumption runs both saved non-tail suffixes. A separate
+input productively alternates between the same two linked members.
+[Family regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
+```
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
