@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.PEG.Thms
+import Silmaril.SSA.PEG.Semantics.Thms
 
 namespace Silmaril.SSA.PEG.Tests
 
@@ -11,6 +12,10 @@ private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | one : Op [] .count
   | add : Op [.count, .count] .count
   | alternateAdd : Op [.count, .count] .count
+  | succ : Op [.count] .count
+  | atLeastTwo : Op [.count] .bool
+  | partialCount : Op [.count] .count
+  | partialFlag : Op [.count] .bool
 
 private def mergeAdd : InstructionMap Op Op
   | _, _, .alternateAdd => .add
@@ -274,5 +279,306 @@ private theorem solves (k : Nat) : SolvesWeak (valueA k) (valueA k) (valueB k) :
 example : ∃ a e b a' e' b', SolvesWeak a e b ∧ SolvesWeak a' e' b' ∧ a 0 0 ≠ a' 0 0 :=
   ⟨valueA 0, valueA 0, valueB 0, valueA 1, valueA 1, valueB 1,
     solves 0, solves 1, by decide⟩
+
+section Denotation
+
+set_option backward.isDefEq.respectTransparency false
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .zero, _ => some ⟨0⟩
+    | .one, _ => some ⟨1⟩
+    | .add, .cons x (.cons y .nil) => some ⟨x.down + y.down⟩
+    | .alternateAdd, _ => none
+    | .succ, .cons x .nil => some ⟨x.down + 1⟩
+    | .atLeastTwo, .cons x .nil => some ⟨decide (2 ≤ x.down)⟩
+    | .partialCount, .cons x .nil => if x.down = 0 then none else some x
+    | .partialFlag, .cons x .nil => if x.down = 0 then none else some ⟨true⟩
+
+private def diamondRank : DemandRank 5 0 :=
+  [.phase fun i => match i with | 0 => 2 | 3 => 1 | _ => 0]
+
+private theorem diamondWF : WellFounded typedDiamond.Demand :=
+  typedDiamond.demandWellFounded_of_check diamondRank (by decide)
+
+private def boolInput (b : Bool) : Tuple model.Value [.bool] := .cons ⟨b⟩ .nil
+
+private def clock {l : Nat} (n : Nat) : Index l := fun _ => n
+
+private theorem diamondBranch (b : Bool) :
+    typedDiamond.denote model (boolInput b) diamondWF (0, clock 0) =
+      if b then none else some ⟨0⟩ := by
+  let v := typedDiamond.denote model (boolInput b) diamondWF
+  have eq := typedDiamond.denote_solves model (boolInput b) diamondWF
+  have condition : v (1, clock 0) = some ⟨b⟩ := eq (1, clock 0)
+  have bottom : v (3, clock 0) = none := by
+    have e := eq (3, clock 0)
+    change v (3, clock 0) = (collect (F := model.Value) [.count, .count] _).elim none
+      (fun _ => none) at e
+    exact e.trans (by cases collect _ _ <;> rfl)
+  have other : v (4, clock 0) = some ⟨0⟩ := eq (4, clock 0)
+  have phi := eq (0, clock 0)
+  change v (0, clock 0) =
+    (v (1, clock 0)).elim none (fun flag => if flag.down then v (3, clock 0) else v (4, clock 0)) at phi
+  rwa [condition, bottom, other] at phi
+
+example : typedDiamond.denote model (boolInput false) diamondWF (0, clock 0) = some ⟨0⟩ :=
+  diamondBranch false
+
+example : typedDiamond.denote model (boolInput true) diamondWF (0, clock 0) = none :=
+  diamondBranch true
+
+example :
+    (Label.phi (P := Op) (params := []) (out := .count)).interpret model .nil
+      (clock 0 : Index 0) (fun slot _ _ => match slot with
+        | 0 => none
+        | 1 | 2 => some ⟨7⟩) = none :=
+  rfl
+
+example (wf' : WellFounded (typedDiamond.mapOps mergeAdd).Demand) :
+    (typedDiamond.mapOps mergeAdd).observe model
+        ((typedDiamond.mapOps mergeAdd).denote model (boolInput true) wf') (clock 0) =
+      typedDiamond.observe (model.reduct mergeAdd)
+        (typedDiamond.denote (model.reduct mergeAdd) (boolInput true) diamondWF) (clock 0) :=
+  typedDiamond.observe_denote_mapOps mergeAdd (boolInput true) diamondWF wf' (clock 0)
+
+private def nestedRank : DemandRank 5 2 :=
+  [.counter 0, .phase outerRank, .counter 1]
+
+example : nestedRank.check (nested true) = true := by decide
+example : nestedRank.check (nested false) = false := by decide
+
+example : ∃! values, (nested true).Solves model .nil values :=
+  (nested true).existsUnique_solves_of_check model .nil nestedRank (by decide)
+
+example : ∃! values, (nested true).Solves model .nil values :=
+  (nested true).existsUnique_solves_of_wellFormed model .nil strong
+
+-- The sampling edge is legal at every requested count, independently of the current vector.
+example (i : Index 2) (j : Nat) :
+    (nested true).Demand (2, i.set 1 j) (1, i) :=
+  Graph.sampleDemand (g := nested true) (a := 1) (b := 2)
+    (⟨⟨0, by decide⟩, rfl, rfl⟩) i j
+
+-- The printed-guard example contains a cycle of actual demands.
+example : ¬WellFounded (nested false).Demand := by
+  intro wf
+  let start := (clock 0 : Index 2)
+  let sample := start.set 1 1
+  have initEdge : (nested false).Demand (1, start) (0, start) :=
+    ⟨.initial 0, ⟨⟨0, by decide⟩, rfl, rfl⟩, rfl, rfl⟩
+  have sampleEdge : (nested false).Demand (2, sample) (1, start) :=
+    Graph.sampleDemand (g := nested false) (a := 1) (b := 2)
+      ⟨⟨0, by decide⟩, rfl, rfl⟩ start 1
+  have reset : sample.set 1 0 = start := by
+    funext j
+    by_cases hj : j = 1
+    · simp [sample, Index.set, hj, start, clock]
+    · simp [sample, Index.set, hj]
+  have feedbackEdge : (nested false).Demand (0, start) (2, sample) :=
+    ⟨.feedback 1, ⟨⟨1, by decide⟩, rfl, rfl⟩, 0, rfl, reset.symm⟩
+  have noCycle (x : Request 5 2) : ¬∃ y z, (nested false).Demand y x ∧
+      (nested false).Demand z y ∧ (nested false).Demand x z := by
+    induction x using wf.induction with
+    | h x ih =>
+      rintro ⟨y, z, hy, hz, hx⟩
+      exact ih y hy ⟨z, x, hz, hx, hy⟩
+  exact noCycle (0, start) ⟨(1, start), (2, sample), initEdge, sampleEdge, feedbackEdge⟩
+
+/-- θ counts, pass exits at two, and one stream has an undefined first sample
+even though its value at the exit is defined. -/
+private def running : RawGraph Op [] [.count, .count, .count] 11 1 where
+  forest := ⟨fun _ => none⟩
+  sort i := if i = 3 ∨ i = 8 then .bool else .count
+  node i := match i with
+    | 0 => ⟨_, .theta 0, [1, 2]⟩
+    | 1 => ⟨_, .op .zero, []⟩
+    | 2 => ⟨_, .op .succ, [0]⟩
+    | 3 => ⟨_, .op .atLeastTwo, [0]⟩
+    | 4 => ⟨_, .pass 0, [3]⟩
+    | 5 => ⟨_, .eval 0, [0, 4]⟩
+    | 6 => ⟨_, .op .partialCount, [0]⟩
+    | 7 => ⟨_, .eval 0, [6, 4]⟩
+    | 8 => ⟨_, .op .partialFlag, [0]⟩
+    | 9 => ⟨_, .pass 0, [8]⟩
+    | 10 => ⟨_, .eval 0, [0, 9]⟩
+  roots := [5, 7, 10]
+
+private def runningGraph : Graph Op [] [.count, .count, .count] 11 1 :=
+  running.check.get (by decide)
+
+private def runningRank : DemandRank 11 1 :=
+  [.phase fun i => match i with
+    | 0 | 1 | 2 => 0
+    | 3 | 6 | 8 => 1
+    | 4 | 9 => 2
+    | _ => 3,
+   .counter 0,
+   .phase fun i => match i with | 0 => 1 | 2 => 2 | _ => 0]
+
+private noncomputable def runningValue : runningGraph.Valuation model :=
+  runningGraph.denote model .nil (runningGraph.demandWellFounded_of_check runningRank (by decide))
+
+private theorem runningEq (q : Request 11 1) :
+    runningValue q = runningGraph.equation model .nil runningValue q :=
+  runningGraph.denote_solves model .nil _ q
+
+private theorem setClock (n k : Nat) : (clock n : Index 1).set 0 k = clock k := by
+  funext j
+  have eq : j = 0 := Fin.ext (by have := j.isLt; omega)
+  subst j
+  rfl
+
+private theorem collectSingle
+    (read : (slot : Fin [Ty.count].length) → Option (model.Value [Ty.count][slot])) :
+    collect [Ty.count] read = (read 0).map (fun x => Tuple.cons x .nil) := by
+  unfold collect
+  cases read 0 <;> rfl
+
+private theorem iteration (k : Nat) : runningValue (0, clock k) = some ⟨k⟩ := by
+  induction k with
+  | zero =>
+    exact (runningEq (0, clock 0)).trans (runningEq (1, clock 0))
+  | succ k ih =>
+    have theta := runningEq (0, clock (k + 1))
+    change runningValue (0, clock (k + 1)) = runningValue (2, (clock (k + 1)).set 0 k) at theta
+    have next := runningEq (2, clock k)
+    change runningValue (2, clock k) =
+      (collect (F := model.Value) [.count] _).elim none
+        (model.run Op.succ) at next
+    rw [collectSingle] at next
+    change runningValue (2, clock k) =
+      ((runningValue (0, clock k)).map (fun x => Tuple.cons x .nil)).elim none
+        (model.run Op.succ) at next
+    rw [setClock, next, ih] at theta
+    exact theta
+
+private theorem testAt (k : Nat) :
+    runningValue (3, clock k) = some ⟨decide (2 ≤ k)⟩ := by
+  have e := runningEq (3, clock k)
+  change runningValue (3, clock k) =
+    (collect (F := model.Value) [.count] _).elim none
+      (model.run Op.atLeastTwo) at e
+  rw [collectSingle] at e
+  change runningValue (3, clock k) =
+    ((runningValue (0, clock k)).map (fun x => Tuple.cons x .nil)).elim none
+      (model.run Op.atLeastTwo) at e
+  rw [iteration] at e
+  exact e
+
+private theorem passAt (k : Nat) : runningValue (4, clock k) = some ⟨2⟩ := by
+  have e := runningEq (4, clock k)
+  change runningValue (4, clock k) =
+    (firstTrue (fun j => (runningValue (3, (clock k).set 0 j)).map ULift.down)).map ULift.up at e
+  have least : firstTrue (fun j => some (decide (2 ≤ j))) = some 2 := by
+    apply (firstTrue_eq_some_iff _ _).mpr
+    refine ⟨by decide, fun j hj => ?_⟩
+    have indices : j = 0 ∨ j = 1 := by omega
+    rcases indices with rfl | rfl <;> decide
+  have streamEq : (fun j => (runningValue (3, (clock k).set 0 j)).map ULift.down) =
+      fun j => some (decide (2 ≤ j)) := by
+    funext j
+    rw [setClock, testAt]
+    rfl
+  rw [streamEq, least] at e
+  exact e
+
+-- A selected index greater than the current iteration still returns the exact sample.
+example : runningValue (5, clock 0) = some ⟨2⟩ := by
+  have e := runningEq (5, clock 0)
+  change runningValue (5, clock 0) =
+    (runningValue (4, clock 0)).elim none
+      (fun k => monotonize (fun j => runningValue (0, (clock 0).set 0 j)) k.down) at e
+  rw [passAt] at e
+  change runningValue (5, clock 0) =
+    monotonize (fun j => runningValue (0, (clock 0).set 0 j)) 2 at e
+  exact e.trans (by
+    apply (monotonize_eq_some_iff _ _ _).mpr
+    constructor
+    · rw [setClock, iteration]
+    · intro j _
+      rw [setClock, iteration]
+      rfl)
+
+private theorem partialAt (k : Nat) :
+    runningValue (6, clock k) = if k = 0 then none else some ⟨k⟩ := by
+  have e := runningEq (6, clock k)
+  change runningValue (6, clock k) =
+    (collect (F := model.Value) [.count] _).elim none
+      (model.run Op.partialCount) at e
+  rw [collectSingle] at e
+  change runningValue (6, clock k) =
+    ((runningValue (0, clock k)).map (fun x => Tuple.cons x .nil)).elim none
+      (model.run Op.partialCount) at e
+  rw [iteration] at e
+  exact e
+
+example : runningValue (6, clock 2) = some ⟨2⟩ := partialAt 2
+
+-- The sample at two is defined, but eval is bottom because index zero is bottom.
+example : runningValue (7, clock 0) = none := by
+  have e := runningEq (7, clock 0)
+  change runningValue (7, clock 0) =
+    (runningValue (4, clock 0)).elim none
+      (fun k => monotonize (fun j => runningValue (6, (clock 0).set 0 j)) k.down) at e
+  rw [passAt] at e
+  change runningValue (7, clock 0) =
+    monotonize (fun j => runningValue (6, (clock 0).set 0 j)) 2 at e
+  refine e.trans (Option.eq_none_iff_forall_ne_some.mpr fun v hv => ?_)
+  have earlier := ((monotonize_eq_some_iff _ 2 v).mp hv).2 0 (by decide)
+  change (runningValue (6, (clock 0).set 0 0)).isSome = true at earlier
+  rw [setClock, partialAt] at earlier
+  contradiction
+
+private theorem flagAt (k : Nat) :
+    runningValue (8, clock k) = if k = 0 then none else some ⟨true⟩ := by
+  have e := runningEq (8, clock k)
+  change runningValue (8, clock k) =
+    (collect (F := model.Value) [.count] _).elim none
+      (model.run Op.partialFlag) at e
+  rw [collectSingle] at e
+  change runningValue (8, clock k) =
+    ((runningValue (0, clock k)).map (fun x => Tuple.cons x .nil)).elim none
+      (model.run Op.partialFlag) at e
+  rw [iteration] at e
+  exact e
+
+-- A later true cannot make pass recover from bottom in its predicate's prefix.
+private theorem blockedPass : runningValue (9, clock 0) = none := by
+  have e := runningEq (9, clock 0)
+  change runningValue (9, clock 0) =
+    (firstTrue (fun j => (runningValue (8, (clock 0).set 0 j)).map ULift.down)).map ULift.up at e
+  have streamEq : (fun j => (runningValue (8, (clock 0).set 0 j)).map ULift.down) =
+      fun j => if j = 0 then none else some true := by
+    funext j
+    rw [setClock, flagAt]
+    by_cases zero : j = 0 <;> simp [zero]
+  rw [streamEq] at e
+  have blocked : firstTrue (fun j => if j = 0 then none else some true) = none := by
+    apply (firstTrue_eq_none_iff _).mpr
+    intro k hit
+    obtain ⟨atK, earlier⟩ := (monotonize_eq_some_iff _ _ _).mp hit
+    cases k with
+    | zero => contradiction
+    | succ k => have impossible := earlier 0 (Nat.zero_lt_succ k); contradiction
+  rw [blocked] at e
+  exact e
+
+-- Eval with an undefined count has no defined observation.
+example : runningValue (10, clock 0) = none := by
+  have e := runningEq (10, clock 0)
+  change runningValue (10, clock 0) =
+    (runningValue (9, clock 0)).elim none
+      (fun k => monotonize (fun j => runningValue (0, (clock 0).set 0 j)) k.down) at e
+  rw [blockedPass] at e
+  exact e
+
+example : firstTrue (fun _ => some false) = none := by
+  apply (firstTrue_eq_none_iff _).mpr
+  intro k hit
+  cases ((monotonize_eq_some_iff _ _ _).mp hit).1
+
+end Denotation
 
 end Silmaril.SSA.PEG.Tests
