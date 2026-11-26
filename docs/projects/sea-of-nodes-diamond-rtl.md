@@ -4,8 +4,9 @@ The bridge emits one machine RTL.SSA function directly from the source-native
 single-diamond graph. Its profile has two 64-bit word inputs, one Boolean branch
 predicate, and one word-valued Phi returned at the Region. The typed
 `WordOp` signature admits word constants, wrapping add and subtract, and word
-equality. The source evaluates equality to a Boolean. The target comparison
-encodes it as word 0 or 1, which the RTL conditional tests for nonzero.
+equality and inequality. The source evaluates each comparison to a Boolean.
+The target comparison encodes it as word 0 or 1, which the RTL conditional
+tests for nonzero.
 [Source graph][source] · [Bridge definitions][defs]
 
 | Block | Operations and terminator |

@@ -47,11 +47,24 @@ theorem ctxObj_pullback (M : TypeModel υ V) (Γ : LambdaSSA.VCtx τ) :
     ctxObj (pullbackTypes g M) Γ = ctxObj M (Γ.map g.ty) :=
   ctxObj_pullback_proof g M Γ
 
+/-- The diagrams indexing a source exit coproduct and its mapped target
+coproduct have the same objects in the same order. -/
+theorem labelFamily_pullback (M : TypeModel υ V) (L : LambdaSSA.LCtx τ) :
+    HEq (fun i : Fin L.length => (pullbackTypes g M).obj (L.get i))
+      (fun j : Fin (L.map g.ty).length => M.obj ((L.map g.ty).get j)) :=
+  labelFamily_pullback_proof g M L
+
 /-- A mapped exit context interprets as the same finite coproduct. The
 coproduct diagram is identified using the equality of list lengths. -/
 theorem labelObj_pullback (M : TypeModel υ V) (L : LambdaSSA.LCtx τ) :
     labelObj (pullbackTypes g M) L = labelObj M (L.map g.ty) :=
   labelObj_pullback_proof g M L
+
+omit [TypeFormers τ] [TypeFormers υ] in
+/-- Type translation preserves a value or label lookup at its original index. -/
+theorem mapContextLookup (f : τ → υ) {L : List τ} {i : Nat} {A : τ}
+    (ha : LambdaSSA.At L i A) : LambdaSSA.At (L.map f) i (f A) :=
+  mapContextLookup_proof f ha
 
 /-- Relabelling preserves positional region typing, including local layouts. -/
 theorem mapRegionTyping {Γ : LambdaSSA.VCtx τ} {r : LambdaSSA.Region P.Instr}

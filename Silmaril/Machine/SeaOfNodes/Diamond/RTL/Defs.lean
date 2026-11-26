@@ -25,12 +25,13 @@ abbrev word : ValueSort Unit := .data ()
 abbrev inputs : List (ValueSort Unit) := [word, word]
 abbrev args : List PortTy := dataPorts inputs
 
-/-- The source profile uses wrapping word arithmetic and Boolean equality. -/
+/-- The source profile uses wrapping word arithmetic and Boolean comparisons. -/
 inductive WordOp : Silmaril.SSA.SeaOfNodes.Diamond.Signature Unit where
   | const (value : Word) : WordOp [] word
   | add : WordOp [word, word] word
   | sub : WordOp [word, word] word
   | eq : WordOp [word, word] .predicate
+  | ne : WordOp [word, word] .predicate
 
 abbrev values : Unit → Type := fun _ => Word
 
@@ -41,13 +42,15 @@ def model : Model WordOp where
     | .add, .cons x (.cons y .nil) => BitVec.add x y
     | .sub, .cons x (.cons y .nil) => BitVec.sub x y
     | .eq, .cons x (.cons y .nil) => ⟨BEq.beq (α := Word) x y⟩
+    | .ne, .cons x (.cons y .nil) => ⟨!(BEq.beq (α := Word) x y)⟩
 
 def entry (x y : Word) : Tuple (Val model.value) args := .cons x (.cons y .nil)
 
 abbrev WordDiamond (sigs : List (List PortTy)) := Graph WordOp inputs sigs word
 
 /-- Machine register names distinguish function arguments, producer results
-and the join parameter. Producer numbers are the source's absolute indices. -/
+and the parameter that receives a Phi operand. Producer numbers are the
+source's absolute indices. -/
 inductive Reg where
   | arg (index : Nat)
   | node (index : Nat)
@@ -58,22 +61,47 @@ def portIndex {ts : List PortTy} {t : PortTy} : Port ts t → Nat
   | .head => 0
   | .tail p => portIndex p + 1
 
-def register {past : List (List PortTy)} {t : PortTy} : Origin args past t → Reg
-  | .arg p => .arg (portIndex p)
+/-- Resolve typed arguments in their block context and keep producer indices. -/
+def registerWith {ports : List PortTy} {past : List (List PortTy)} {t : PortTy}
+    (argReg : {ty : PortTy} → Port ports ty → Reg) : Origin ports past t → Reg
+  | .arg p => argReg p
   | .output i _ => .node i.val
 
-def emitOp {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
-    {past : List (List PortTy)} (dest : Reg) :
-    WordOp sorts out → Wires args past (dataPorts sorts) → Op Reg
+def register {past : List (List PortTy)} {t : PortTy} (wire : Origin args past t) : Reg :=
+  registerWith (fun p => .arg (portIndex p)) wire
+
+def emitOpWith {ports : List PortTy} {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
+    {past : List (List PortTy)} (argReg : {ty : PortTy} → Port ports ty → Reg) (dest : Reg) :
+    WordOp sorts out → Wires ports past (dataPorts sorts) → Op Reg
   | .const value, _ => .const dest value
-  | .add, wires => .binary .add dest (register (wires.get .head)) (register (wires.get (.tail .head)))
-  | .sub, wires => .binary .sub dest (register (wires.get .head)) (register (wires.get (.tail .head)))
-  | .eq, wires => .binary (.cmp .eq) dest (register (wires.get .head)) (register (wires.get (.tail .head)))
+  | .add, wires =>
+      .binary .add dest (registerWith argReg (wires.get .head))
+        (registerWith argReg (wires.get (.tail .head)))
+  | .sub, wires =>
+      .binary .sub dest (registerWith argReg (wires.get .head))
+        (registerWith argReg (wires.get (.tail .head)))
+  | .eq, wires =>
+      .binary (.cmp .eq) dest (registerWith argReg (wires.get .head))
+        (registerWith argReg (wires.get (.tail .head)))
+  | .ne, wires =>
+      .binary (.cmp .ne) dest (registerWith argReg (wires.get .head))
+        (registerWith argReg (wires.get (.tail .head)))
+
+def emitOp {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
+    {past : List (List PortTy)} (dest : Reg)
+    (op : WordOp sorts out) (wires : Wires args past (dataPorts sorts)) : Op Reg :=
+  emitOpWith (fun p => .arg (portIndex p)) dest op wires
+
+/-- Emit every source producer in order using the block's argument registers. -/
+def emitOpsWith {ports : List PortTy} (argReg : {ty : PortTy} → Port ports ty → Reg) :
+    {past sigs : List (List PortTy)} → Dataflow WordOp ports past sigs → List (Op Reg)
+  | _, _, .nil => []
+  | past, _, .cons op wires rest =>
+      emitOpWith argReg (.node past.length) op wires :: emitOpsWith argReg rest
 
 /-- Emit each source producer once into the entry block. -/
-def emitOps : {past sigs : List (List PortTy)} → Dataflow WordOp args past sigs → List (Op Reg)
-  | _, _, .nil => []
-  | past, _, .cons op wires rest => emitOp (.node past.length) op wires :: emitOps rest
+def emitOps {past sigs : List (List PortTy)} (flow : Dataflow WordOp args past sigs) : List (Op Reg) :=
+  emitOpsWith (fun p => .arg (portIndex p)) flow
 
 def armLabel : Projection → Label
   | .onTrue => 1

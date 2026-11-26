@@ -72,6 +72,11 @@ private theorem loop_code (s : Loop Φ A B K E D) :
   unfold ExplicitRuntime.Wiring.loop
   rw [body]
 
+theorem loop_associated (s : Loop Φ A B K E D) :
+    ∃ t : Loop Φ A B K E D, RightAssociated t.body ∧
+      ExplicitRuntime.Wiring.loop t = ExplicitRuntime.Wiring.loop s :=
+  ⟨normalizeLoop s, normalize_form _, loop_code s⟩
+
 private theorem guarded_code (p : Conditional.Guarded Φ A I B K M M) :
     Conditional.Wiring.code { p with loop := normalizeLoop p.loop } = Conditional.Wiring.code p := by
   simp only [Conditional.Wiring.code, Conditional.Wiring.openCode, Conditional.Wiring.arm]

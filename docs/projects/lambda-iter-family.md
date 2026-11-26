@@ -21,7 +21,7 @@ comparisons.
 | Flat typed SSA | [`FiniteCFG.HasType` and `erase_hasType_iff`](../../Silmaril/Raw/SSA/Isotope/LambdaSSA/Flat.lean) relate heterogeneous block arguments and typed exits to ordinary λSSA CFG typing. [`encodeCFG_hasType`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Encode.lean) checks the finite-sum LetIter encoding. | [`encodeCFG_eval`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Correctness.lean) preserves finite evaluation under matching captured environments and the same primitive relation. [`encodeCFG_diverges`](../../Silmaril/Raw/SSA/Isotope/Morphism/SSAIter/Divergence.lean) is the forward divergence comparison. A translation between this representation and the named forward graph is absent from the cited modules. A separate flat institution and an ITree-specific adequacy result were not audited. |
 | Forward flat SSA / mutable RTL | [`CFG`, `flatten`, `toRegion`, `run`](../../Silmaril/SSA/LambdaRTL/CFG/Defs.lean) operate on explicit block arguments. [`run_flatten` and `run_eq_toRegion`](../../Silmaril/SSA/LambdaRTL/CFG/Thms.lean) preserve the full mutable result in a lawful monad. | [`validate_obs_eq_evalSSA`](../../Silmaril/SSA/LambdaRTL/CFG/Version/Thms.lean) requires validator acceptance and a dominance-scoped source region. `validate_versionTop_obs` replaces source SSA with the pair law and version-zero input. Both compare to the existing **region** semantics. At the audited baseline, a direct lexical runner for forward blocks was absent. Classical φ syntax, global name uniqueness and a flat CFG institution are outside this bridge. |
 | Cyclic named flat RTL and SSA | [`Cyclic.step` and `Cyclic.run`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Defs.lean) search the full table for each jump and iterate on the incoming label, payload and store. [`Versioning.compile`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Defs.lean) generates a flat table with block-local SSA and packed edge arguments. | [`Cyclic.run_eq_forward`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Thms.lean) compares the full outcome when table and suffix lookup agree on every named block's syntactic targets. [`Versioning.run_commutes`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean) compares exit and payload for the compiled graph, with version-zero inputs, a lawful Elgot monad and the pair law. |
-| Named compiler to typed Isotope | [`NamedFlat.compileTyped`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) elaborates the generated named table and checks exact capture, packet and exit types for the product and primitive fragment, including case on primitive sums. | [`entry_iff` and `step_iff`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) compare finite entry and internal-step outcomes with numbered Isotope labels. The comparison uses shared stateless partial primitives and tagged values. |
+| Named compiler to typed Isotope | [`NamedFlat.compileTyped`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) elaborates the generated named table and checks exact capture, packet and exit types for the product and primitive fragment, including case on primitive sums. | [`entry_iff` and `step_iff`](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean) compare finite entry and internal-step outcomes with numbered Isotope labels. The comparison uses shared stateless partial primitives and tagged values. [The whole-run bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean) extends this to whole finite lexical runs, with an exact capture packet for the packed endpoint. |
 
 The public thesis formalization provides a separate reference point. Its
 [`TypedDominanceWellFormedFlat`](https://github.com/imbrem/thesis/blob/69a8126f2d3eb6d32050e0bd9511251b33dbcea7/formalization/thesis/Isotope/TAC/Bridge/DomFlatSemantics.lean)
@@ -188,13 +188,177 @@ compiled graph over both captures, follows two back edges, and returns
 payload 2 at external slot zero.
 [Closed countdown regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
-The named comparison still covers entry and each internal step under shared
-stateless `Part` primitives. Relating named `Part.iter` to the Isotope
-`Follow` relation is a separate whole-run theorem. ITree event correspondence
-would additionally relate an event signature and handlers. The closure
-theorems here concern finite evaluations.
+### Whole finite runs from the named compiler
+
+`NamedFlat.compile_run_iff` composes the entry and transfer theorems on the
+table produced by `Versioning.compile`. It consumes the exact elaboration
+equation carried by a successful `compileTyped`. The named runner and Isotope
+share tagged values and one stateless `Part` primitive implementation, and
+the entry environment agrees with the named store at every capture's
+version-zero name. Induction on `Part.Runs` and on Isotope's `Follow`
+constructs a finite exit witness in both directions. Successful named jump
+targets have a number because elaboration checks every branch target.
+[Finite execution correspondence](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
+
+The generated destination packet is already a tagged value and is passed
+unchanged to the Isotope block parameter. A named hit uses the first matching
+block's index. A miss at the first occurrence `e` in the explicit exit list
+has raw jump index `blocks.length + e`, and `Follow` reports external index
+`e`. `numberExit` maps the named runner's exit observation to that same index
+and payload. With an accepted capture closure and a state-preserving producer
+of the exact original capture packet, `packed_run_iff` gives exit zero with
+`packedExitValue e payload`, which is `e` right injections around one left
+injection of the original payload. The finite proof observes primitive outcomes. Divergence and ITree events
+require different observations.
+
+`mutable_packed_run_iff` composes `Versioning.run_commutes` with
+`packed_run_iff`. The shared tagged-value `Part` model satisfies the pair
+law because its destructor immediately returns the two fields of a
+constructed pair. The source starts with the version-zero store, and
+`obs` retains its exit label and payload. The Isotope hypotheses remain
+accepted elaboration, capture agreement, and the exact state-preserving
+capture packet.
+[Mutable source corollary](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
+
+The classified countdown uses the actual compiled graph and both captures.
+The named runner exits at label 99 with payload 2, which the open graph reports
+at external slot zero and the packed graph reports with its sum tag. Five
+named step calls leave the jump to 99 pending. The sixth call observes the
+exit because table lookup misses. The packed evaluation also reflects back
+to the mutable source's numbered exit with the same payload.
+[Checked named and packed countdown](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
+
+### Infinite internal paths
+
+`NamedFlat.InfiniteRun` witnesses a successful entry followed by a sequence
+of successful internal `stepSSA` transfers at every natural-number position.
+`compile_infinite_run_iff` compares that witness with Isotope divergence on
+the actual graph admitted by `compileTyped`, using the same version-zero
+capture agreement and shared stateless `Part` primitives. The forward map
+numbers each transfer by the first matching block. The reverse map lifts the
+selected Isotope path to a named transfer at each position, preserving its
+label index and tagged payload. Atomic Isotope divergence on a flat table can
+only continue by completing successive internal block evaluations. Each
+individual flat body has finite syntax and contains no nested CFG.
+[Infinite execution correspondence](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Infinite/Thms.lean)
+
+`Capture.diverges_iff` transports the path using entry and block evaluation
+under the exact state-preserving capture packet. `packed_infinite_run_iff`
+then applies the existing dispatcher may-divergence theorem for atomic
+instructions. A separate primitive-local divergence predicate would need its
+own correspondence. Undefined `Part` results supply no such predicate, and
+neither comparison observes visible ITree events.
+
+The same two-capture table admits a primitive interpretation that repeats
+`10 → 20 → 10` indefinitely. A second interpretation leaves classification
+undefined at the first block. Both runners return `Part.none`. Only the
+repeating interpretation has an infinite transfer witness and packed
+divergence.
+[Repeated back edge and stuck-primitive regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
+
+### Visible requests on the generated named table
+
+`treeModel` instantiates the existing named evaluator with the same tagged
+values and primitive trees as erased Isotope. Its carrier sits one universe
+above the event replies, as in `Interaction.Typed.ModelTree`. The local
+`entry_tree` and `step_tree` equalities preserve each request and every reply
+continuation, including the tagged packet at the next jump. The hypotheses
+are successful elaboration and matching initial captures. Each side uses the
+same primitive evaluator, so a primitive's supplied tree determines its
+behavior. The proof preserves the existing erased semantics for structural
+shape mismatches.
+[Entry, step, and whole-run ITree theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Thms.lean)
+
+`compile_run_tree` consumes the elaboration equation carried by the actual
+`compileTyped` result. It lifts the local equations through weak ITree
+feedback using naturality, uniformity, and codiagonal. The first matching
+block determines the internal index. External returns use their first
+position in the exit list. Total numbering uses a sentinel for unlisted
+names, which successful elaboration excludes from all written branches.
+
+`Interaction.flat_rename_tree` preserves the tree of an erased flat body
+when the environments agree at each renamed in-scope position. It lifts
+agreement through local binders. The capture decoder uses this lemma with
+the actual product-field renaming. In feedback, the closed block's sole
+original slot is its incoming tagged packet. The closure's block erasure
+equation and agreement on that slot identify the block trees.
+[Scoped erased-tree transport](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Scoped/Thms.lean)
+
+`Capture.graph_tree` accepts an arbitrary producer tree. The typed capture
+expression must have the tree of that producer followed by `packEnv n` of
+the environment chosen by its reply. The theorem preserves the producer's
+requests and continues with the original graph after each returned reply.
+`packed_run_tree` also requires the accepted elaboration carried by
+`compileTyped`, pointwise agreement with the named version-zero store for
+every reply, and `HasType .nil R E` and `Closes` for the closed graph.
+`Capture.close` checks the producer expression at the exact type
+`packedInputType β.toList`. The packed result uses the original external
+index and tagged payload to form the dispatcher's single exit value.
+[Effectful capture and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+
+The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
+and the exact capture packet. The general corollary applies to its actual
+capture-closed table. The resulting packed tree feeds the capture reply
+into the seed request and each tick reply into the next tick's operand.
+[Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+
+### Refinement through a common capture producer
+
+`packed_run_tree_refines_of_mono` transports a pointwise relation on named
+runs to the accepted packed dispatcher. It uses the same effectful producer
+on both sides, the exact capture packet equation, and version-zero agreement
+at every returned capture value. The relation must be preserved by the
+return map that applies `treeExitNumber` and `packedTreeOutput`. The packed
+relation must also be preserved by binding pointwise related continuations
+to the common producer. When the other continuation also has an accepted
+packed dispatcher, its `packed_run_tree` equation rewrites the specification
+side to that dispatcher.
+[Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
+
+The audited weak-tree API provides equality and `HasVisiblePrefix`, which
+records attainable event counts. It has no preorder here comparing requests,
+replies and returns with the required bind law. The observational
+institution's `Refines` compares sets of returns, faults and divergence over
+its models. Literal membership inclusion at each `Tree.observe` depth also
+fails as a bind order. A continuation with silent divergence is included
+vacuously in a returning one. After the same visible request, the two
+depth-two nodes have unequal child observations. An observer used for
+packed refinement needs to compare those children by its relation and prove
+composition under bind.
+[Visible-prefix API](../../Silmaril/Semantics/ITree/VisiblePrefix/Defs.lean)
+· [Region observational refinement](../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Defs.lean)
+· [Checked bind counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+
+### Edge arguments for a normalized φ port
+
+`Versioning.encode` and `Versioning.step_commutes` show the current
+destination-packet contract. On a hit, `Versioning.slots` orders the
+stored fields for the destination, and `Version.enc` pairs the original
+argument with a right-nested tuple of those fields terminated by unit.
+On a miss, the original argument is the exit payload. `Cyclic.stepSSA`
+gives the chosen block one packet argument in a fresh lexical invocation.
+A lowering of normalized φ rows can supply packets to this same lexical
+interface. Its transfer proof needs to show that encoding the incoming
+predecessor's row before binding any destinations gives the same values
+as simultaneous φ assignment. Predecessor and parallel-edge conditions
+belong to that lowering, as described in the thesis crosswalk.
+[Edge encoding](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Defs.lean)
+· [Step theorem](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
+· [Thesis crosswalk](lambdassa-theorem-crosswalk.md#conventional-φ-nodes-and-block-arguments)
+
+`NamedFlat.run_iff` applies to an accepted named lexical table with those
+packet arguments, with the same shared `Part` primitives and capture
+agreement. This endpoint is independent of which lowering produced the
+table.
+[Lexical whole-run theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/WholeRun/Thms.lean)
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
+  Silmaril.SSA.Isotope.Bridge.NamedFlat.Infinite.Thms \
   Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples.Thms
+```
+
+```sh
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
+  Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```

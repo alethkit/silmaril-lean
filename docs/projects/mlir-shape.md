@@ -1,15 +1,17 @@
 # MLIR Shape and static tensors
 
 `Silmaril.MLIR.Shape` models constants, constructors, queries, casts, concrete
-broadcasting, and a broadcast constraint for a small fragment of the MLIR Shape
-dialect. It reuses `Tensor.Shape` for concrete extents and `Tensor.Tensor` for
-the elements of a rank-one extent tensor.
+broadcasting, a broadcast constraint, and a pure extent reduction for a small
+fragment of the MLIR Shape dialect. It reuses `Tensor.Shape` for concrete
+extents and `Tensor.Tensor` for the elements of a rank-one extent tensor.
 [Definitions](../../Silmaril/SSA/MLIR/Shape/Defs.lean) ·
 [Theorems](../../Silmaril/SSA/MLIR/Shape/Thms.lean) ·
 [Extent operation definitions](../../Silmaril/SSA/MLIR/Shape/Extents/Defs.lean) ·
 [Extent operation theorems](../../Silmaril/SSA/MLIR/Shape/Extents/Thms.lean) ·
 [Variadic definitions](../../Silmaril/SSA/MLIR/Shape/Variadic/Defs.lean) ·
 [Variadic theorems](../../Silmaril/SSA/MLIR/Shape/Variadic/Thms.lean) ·
+[Reduction theorems](../../Silmaril/SSA/MLIR/Shape/Reduce/Thms.lean) ·
+[Reduction lowering](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Thms.lean) ·
 [Static tensor definitions](../../Silmaril/SSA/MLIR/Tensor/Defs.lean)
 
 ## Values and admission
@@ -173,6 +175,81 @@ with assertion lowering, runtime effects and general witness consumers outside
 this slice. [Pinned constraint contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L874-L903) ·
 [Pinned witness type](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeBase.td#L118-L133)
 
+## Checked pure extent reduction
+
+`shape.reduce` has one single-block region, a shape or extent tensor operand,
+and a variadic initial tuple. The region is invoked in rank order, starting
+at axis zero. The verifier checks the argument count and order of types. The
+first argument is the axis of type `index`, the second is the extent of type
+`index` for an extent tensor or `!shape.size` for a shape, and the remaining
+arguments have the types of the initial operands in order. The builder uses
+those initial types for the results and the parser resolves initial operands
+against the result types. `shape.yield` checks its operand count and types
+against the parent results. Its operands become the next carried tuple.
+[Pinned `reduce` contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L503-L548) ·
+[Pinned `yield` contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L673-L686) ·
+[Pinned reduce builder, verifier and parser](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L1991-L2070) ·
+[Pinned yield verifier](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L1901-L1914) ·
+[Pinned verification fixtures](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/test/Dialect/Shape/invalid.mlir#L3-L79)
+
+`ReduceBody` reuses `Pure.Code`, `Pure.Operands`, and `Arith.Env` for a
+straight-line pure block with single-result primitives. Its arguments start
+with the axis, the extent, and the
+carried values. An explicit suffix supplies fixed captures from the enclosing
+scope. A shared ordered width list types the initial tuple, carried arguments,
+yield operands, and returned tuple, including the empty tuple. The scalar
+profile reserves the selected width for `index` and uses the other widths for
+signless integer types. It excludes a same-width integer type distinct from
+`index`. `ReduceBody.run?` admits concrete extent tensors whose rank and entries
+fit that width's nonnegative signed range. `ExtentTensor.ReduceFits.step_indices_exact`
+shows that the axis and extent encodings then preserve their values.
+
+The evaluator uses bounded tensor coordinates. `ReduceBody.denote_eq_foldl`
+proves agreement with a left fold over the independent `Tensor.Shape` extent
+list paired with its indices. `ReduceBody.denote_eq_foldl_of_step` transports the
+result to a separately specified pure step. `ReduceBody.run?_of_rank_zero`
+returns the initial tuple. The checked two-slot example uses a captured
+increment and an order-sensitive trace. Its count includes zero extents, and
+reversing the extents changes the trace. [Checked reduction examples](../../Silmaril/SSA/MLIR/Shape/Reduce/Examples/Thms.lean)
+
+The checked fragment covers concrete extent tensors with total deterministic
+body primitives. The `!shape.shape` form, including its `!shape.size` argument,
+unknown or invalid shapes, poison, effects, and nested control flow are outside
+this slice. `shape.yield` in a function library is also outside the slice. The
+pinned conversion to `scf.for` supports extent tensors and maps block arguments
+as axis, extracted extent, and carried tuple. The Lean proofs concern the
+value-level fold. [Pinned conversion](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Conversion/ShapeToStandard/ShapeToStandard.cpp#L403-L452)
+
+### Lowering the concrete reduction to SCF
+
+`ReduceBody.lowerToFor` constructs the existing checked unsigned `SCF.For`
+with lower bound zero, exclusive upper bound equal to rank, and step one.
+The parent input carries those bounds, the initial tuple, and the original
+captures. Each iteration looks up the extent in an immutable array of the
+encoded concrete extents, then executes the copied body. Typed renaming sends
+the original axis, extent, carry, and capture references to their new slots.
+The Shape yield becomes an SCF yield, and the continuation returns the final
+carry. [Lowering definitions](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Defs.lean)
+
+The array lookup is a primitive of the extended pure scalar model. Its optional
+lookup returns an encoded extent exactly below rank. The evaluator uses zero
+as the total primitive's fallback, and the body theorem shows every executed
+lookup succeeds. The checked source admission keeps rank and extents below
+`2^(indexWidth − 1)`. The target adds its existing width bound `2^24 − 1`.
+On that common domain the trip count is exactly rank, the target arithmetic
+admission holds, and `ReduceBody.lowerToFor_run` identifies the SCF result
+with the source `run?`. At supported widths `runLowered?` retains the source
+guard, and at wider widths it returns `none`.
+
+`ReduceBody.lowerToFor_cfg_run` composes with the existing SCF-to-CF theorem
+at fuel `2 * rank + 3`. The existing rank-zero and order-sensitive fixtures
+execute the lowered SCF program too. This is a concrete table specialization
+in the Lean SCF model. The pinned conversion instead extracts from the extent
+tensor inside the loop. Native MLIR lowering and execution remain outside
+this proof. [Lowering theorems](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Thms.lean) ·
+[Checked examples](../../Silmaril/SSA/MLIR/Shape/Reduce/Examples/Thms.lean) ·
+[Pinned conversion](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Conversion/ShapeToStandard/ShapeToStandard.cpp#L403-L452)
+
 ## Upstream operation coverage
 
 The inventory covers the 40 operations in llvm-project at commit
@@ -194,6 +271,8 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.broadcast` | One or more concrete operands with right-aligned extents and order-independent results. The shape result propagates operand errors. The extent-tensor form has no defined result on incompatible extents. |
 | `shape.is_broadcastable` | Boolean predicate for common compatibility of a list of concrete shape views, including zero or one operand. |
 | `shape.cstr_broadcastable` | Passing witness or unsatisfied constraint on two or more concrete shape views. |
+| `shape.reduce` | Rank-ordered fold over a concrete extent tensor with representable indices and a typed, single-block pure scalar body. A checked lowering to `SCF.For` specializes the extent tensor to a finite lookup table. |
+| `shape.yield` | Typed carried-tuple terminator of the checked `shape.reduce` body. |
 | `shape.shape_of` | Shape result for a static `Tensor.Tensor` via `shapeOf`. |
 | `shape.rank` | Shape input and size output, including unknown rank and invalid shape. |
 | `shape.get_extent` | Shape plus nonnegative index to size. Ranked inputs require an in-bounds index and can yield an unknown extent. An invalid shape yields an invalid size. |
@@ -202,10 +281,10 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.index_to_size` | Index to size, with undefined behavior on negative input. |
 | `shape.size_to_index` | Size to index, with undefined behavior on unknown or invalid input. |
 
-Cases outside the listed fragments of these seventeen operations are planned
+Cases outside the listed fragments of these nineteen operations are planned
 only. In particular, `shape.from_extents` with `!shape.size` operands and the
 behavior of either constructor on negative extents remain outside the model.
-The other 23 pinned operations are all planned only, along with
+The other 21 pinned operations are all planned only, along with
 `!shape.value_shape` and witness behavior beyond the stated constraint fragment.
 
 | Area | Planned operations |
@@ -213,7 +292,7 @@ The other 23 pinned operations are all planned only, along with
 | Size arithmetic | `shape.add`, `shape.div`, `shape.max`, `shape.min`, `shape.mul` |
 | Shape relations and combination | `shape.any`, `shape.meet`, `shape.shape_eq` |
 | Constraints and witnesses | `shape.assuming`, `shape.assuming_all`, `shape.assuming_yield`, `shape.const_witness`, `shape.cstr_eq`, `shape.cstr_require` |
-| Functions and regions | `shape.func`, `shape.function_library`, `shape.reduce`, `shape.return`, `shape.yield` |
+| Functions and regions | `shape.func`, `shape.function_library`, `shape.return` |
 | Value-shape pairs and debugging | `shape.debug_print`, `shape.value_as_shape`, `shape.value_of`, `shape.with_shape` |
 
 ## Provenance and checks
@@ -228,14 +307,16 @@ API. The cited LLVM TableGen and C++ files carry the SPDX identifier
 | [ShapeOps.td](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td) | `0816c5d0b8bbb17ac821048f49c699f6c214ddc69724a09ab9af163443c489e9` |
 | [ShapeBase.td](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeBase.td) | `04d411df55d4ef3ed476d3e84905f8ce89d7f25e6fe21c26813f962ae2771766` |
 | [Shape.cpp](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp) | `5d655eece44308a0907fbff7ec301434781067307919a94683e868268fee284e` |
+| [ShapeToStandard.cpp](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Conversion/ShapeToStandard/ShapeToStandard.cpp) | `f23c055fe4f250bafc7543a844a7b8b891a540916c792443b9e51291e136bfb8` |
 | [Shape canonicalize.mlir](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/test/Dialect/Shape/canonicalize.mlir) | `f19290ac22b2e3db4eb86acebc6e31fc9355fc63ba92b8e53c184839acff1800` |
+| [Shape invalid.mlir](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/test/Dialect/Shape/invalid.mlir) | `9f9e9a834b415eb7d3f5aa5861d291c45a62354b4e2da7fa43bb6dee6d2843a2` |
 | [LLVM MLIR LICENSE.TXT](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/LICENSE.TXT) | `94b301bb652ae351f5941655bf533f1a136300ad1396be7452c8a04ff2c91374` |
 
 [Silmaril license](../../LICENSE)
 
 ```sh
-lake build --wfail +Silmaril.SSA.MLIR.Shape.Examples.Thms
+lake build --wfail +Silmaril.SSA.MLIR.Shape.Examples.Thms +Silmaril.SSA.MLIR.Shape.Reduce.Examples.Thms
 ```
 
-The example module imports the Shape theorem header directly. The existing
+Each example module imports its Shape theorem headers directly. The existing
 Lake glob discovers these modules.
