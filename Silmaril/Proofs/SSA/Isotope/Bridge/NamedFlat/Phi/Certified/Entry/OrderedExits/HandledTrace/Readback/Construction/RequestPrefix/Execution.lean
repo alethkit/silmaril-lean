@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedE
 
 import Silmaril.Semantics.Elgot.Partition.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.BranchEntry.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Defs
 
 public section
 
@@ -358,6 +358,22 @@ theorem preserves_run (instr : Primitive E F α) (env : Env α) :
     entry_run instr env emitted.code (oldLabel s.row.requests s.entry) _ (emitted.entry_eq.trans s.entry_eq)]
   exact bind_congr fun packet => old_run s emitted instr env (s.entry, packet)
 
+private theorem relocated_old_run (graph : FiniteCFG F (blocks + count) exits captures)
+    (rows : ∀ i : Fin blocks, (graph.block (oldLabel count i)).erase =
+      (source.block i).erase.renameLabels (moveExit blocks count))
+    (instr : Primitive E F α) (env : Env α) (p : BlockInput α blocks) :
+    iter (step instr env source) p = iter (step instr env graph) (embed count p) := by
+  have simulation := iterate_uniformity (step instr env source) (step instr env graph) (embed count) (by
+    funext state
+    rcases state with ⟨i, packet⟩
+    simp only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind]
+    change Sum.map id (embed count) <$> step instr env source (i, packet) =
+      (region instr (extend env packet) (graph.block (oldLabel count i)).erase >>= fun out =>
+        pure (splitTransfer (blocks + count) out))
+    rw [rows]
+    exact (relocated_step instr (extend env packet) (source.block i) count).symm)
+  simpa only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind] using congrFun simulation p
+
 namespace BranchEntry
 
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.BranchEntry
@@ -375,19 +391,6 @@ private theorem packed_input_tree (instr : Primitive E F α) (env : Env α) (con
 
 variable {context : BoundCtx PacketType captures}
 
-private theorem materialized_old_run (m : Materialized context source) (instr : Primitive E F α)
-    (env : Env α) (p : BlockInput α blocks) :
-    iter (step instr env source) p = iter (step instr env m.code) (embed 1 p) := by
-  have simulation := iterate_uniformity (step instr env source) (step instr env m.code) (embed 1) (by
-    funext state
-    rcases state with ⟨i, packet⟩
-    simp only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind]
-    change Sum.map id (embed 1) <$> step instr env source (i, packet) =
-      (region instr (extend env packet) (m.code.block i.castSucc).erase >>= fun out =>
-        pure (splitTransfer (blocks + 1) out))
-    rw [m.row_eq]
-    exact (relocated_step instr (extend env packet) (source.block i) 1).symm)
-  simpa only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind] using congrFun simulation p
 
 theorem materialized_run (m : Materialized context source) (instr : Primitive E F α) (env : Env α) :
     region instr env source.erase = region instr env m.code.erase := by
@@ -406,18 +409,141 @@ theorem materialized_run (m : Materialized context source) (instr : Primitive E 
   rw [relocate_transfer]
   cases splitTransfer blocks (index, value) with
   | inl out => rfl
-  | inr next => exact (materialized_old_run m instr env next).symm
+  | inr next => exact (relocated_old_run m.code m.row_eq instr env next).symm
+
+theorem seed_from_entry {A : Type 1} {Events : Type → Type}
+    (instr : Primitive Events F A) (env : Env A)
+    (seed : Silmaril.SSA.LambdaRTL.Val (Fin captures))
+    (term_eq : packetTerm seed = (Region.packedInputValue context.toList : LambdaSSA.Tm F)) :
+    packetValue env seed = packEnv captures env := by
+  apply (Silmaril.Elgot.ITree.ret_inj (E := Events)).mp
+  change (pure _ : Tree Events _) = pure _
+  rw [← packet_term_tree instr env, term_eq, packed_input_tree, BoundCtx.length_toList]
 
 theorem compiled_seed {A : Type 1} {Events : Type → Type}
     (built : Compiled sig context packets outputs source) (instr : Primitive Events F A) (env : Env A) :
-    packetValue env built.publicReadback.provenance.seed = packEnv captures env := by
-  have same := built.publicReadback.provenance.sourceEntry.symm.trans
-    (built.split.emitted.entry_eq.trans built.prepared.emitted.entry_eq)
-  have terms := (Region.br.inj same).2
-  apply (Silmaril.Elgot.ITree.ret_inj (E := Events)).mp
-  change (pure _ : Tree Events _) = pure _
-  rw [← packet_term_tree instr env, terms, packed_input_tree, BoundCtx.length_toList]
+    packetValue env built.publicReadback.provenance.seed = packEnv captures env :=
+  seed_from_entry instr env _ (Region.br.inj (built.publicReadback.provenance.sourceEntry.symm.trans
+    (built.split.emitted.entry_eq.trans built.prepared.emitted.entry_eq))).2
 
 end BranchEntry
+
+namespace EffectfulEntry
+
+open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry
+
+variable {context : BoundCtx PacketType captures} {Δ : List PacketType}
+
+private theorem pack_scope (instr : Primitive E F α) (frame : Frame Γ) (layout : Positions Γ)
+    (env : Env α) :
+    term instr env (packScope frame layout) = pure (frame.pack (readSlots layout env)) := by
+  induction frame with
+  | entry => rfl
+  | push ty prev ih =>
+    simp only [packScope, term, ih, pure_bind, Frame.pack, readSlots]
+    rfl
+
+private theorem case_congr {β : Type u} (instr : Primitive E F α) (env : Env α)
+    (test : LambdaSSA.Tm F) (left right left' right' : Region F)
+    (finish finish' : Transfer α → Tree E β)
+    (hl : ∀ value, (region instr (extend env value) left >>= finish) =
+      (region instr (extend env value) left' >>= finish'))
+    (hr : ∀ value, (region instr (extend env value) right >>= finish) =
+      (region instr (extend env value) right' >>= finish')) :
+    (region instr env (.case test left right) >>= finish) =
+      (region instr env (.case test left' right') >>= finish') := by
+  simp only [region, bind_assoc]
+  apply bind_congr
+  intro value
+  cases value with
+  | inl payload => exact hl payload
+  | inr payload => exact hr payload
+  | atom _ | unit | pair _ _ => simp only [diverge_bind]
+
+private theorem outlined_entry (m : Outlined sig context packets outputs source)
+    (instr : Primitive E F α) (ambient : Env α) :
+    region instr ambient source.erase = region instr ambient m.code.erase := by
+  let oldFinish : (Transfer α ⊕ BlockInput α blocks) → Tree E (Transfer α) :=
+    Sum.elim pure (iter (step instr ambient source))
+  let newFinish : (Transfer α ⊕ BlockInput α (blocks + 2)) → Tree E (Transfer α) :=
+    Sum.elim pure (iter (step instr ambient m.code))
+  have routes (out : Transfer α ⊕ BlockInput α blocks) :
+      newFinish (Sum.map id (embed 2) out) = oldFinish out := by
+    cases out with
+    | inl r => rfl
+    | inr state => exact (relocated_old_run m.code m.old_eq instr ambient state).symm
+  have bypass {Γ : List PacketType} (tail : CaseTail packets outputs Γ) (env : Env α) :
+      (region instr env (CaseTail.erase id position tail) >>= fun out => oldFinish (splitTransfer blocks out)) =
+      (region instr env (CaseTail.erase (oldLabel 2) position tail) >>=
+        fun out => newFinish (splitTransfer (blocks + 2) out)) := by
+    rw [case_tree instr id position env (readSlots position env) (fun _ => rfl),
+      case_tree instr (oldLabel 2) position env (readSlots position env) (fun _ => rfl)]
+    apply bind_congr
+    intro out
+    have identity : Sum.map id (fun state : BlockInput α blocks => (id state.1, state.2)) out = out := by
+      cases out <;> rfl
+    rw [identity]
+    exact (routes out).symm
+  let req := m.selection.request
+  have leaf (env : Env α) :
+      (region instr env req.row.erase >>= fun out => oldFinish (splitTransfer blocks out)) =
+      (region instr env req.jump >>= fun out => newFinish (splitTransfer (blocks + 2) out)) := by
+    let vals : Values m.selection.scope α := readSlots position env
+    let start : BlockInput α (blocks + 2) := (freshLabel blocks (0 : Fin 2), req.frame.pack vals)
+    let body := step instr ambient m.code
+    let phases := partitionStepByTarget body (inFresh blocks)
+    have chain := follow instr ambient m.code (inFresh blocks) (oldLabel 2) (old_outside 2)
+      req.row req.frame vals (freshLabel blocks)
+      (fun i packet => by simp [inFresh, freshLabel]) m.leaf_eq
+    have flatten : iter body start = iter phases start >>= newFinish := by
+      change iter body start = iter phases start >>= Sum.elim pure (iter body)
+      rw [← iter_partition_target body (inFresh blocks)]
+      exact congrFun (iterate_fixpoint (iter phases)) _
+    change (region instr env req.row.erase >>= fun out => oldFinish (splitTransfer blocks out)) = _
+    have unsplit := unsplit_step instr req.row env vals (fun _ => rfl)
+    have original :
+        (region instr env req.row.erase >>= fun out => oldFinish (splitTransfer blocks out)) =
+          req.row.run instr vals >>= oldFinish := by
+      rw [← unsplit]
+      simp only [bind_assoc, pure_bind]
+    have outlined :
+        (region instr env req.jump >>= fun out => newFinish (splitTransfer (blocks + 2) out)) =
+          iter body start := by
+      simp only [Request.jump, region, pack_scope, pure_bind]
+      change newFinish (splitTransfer (blocks + 2) ((freshLabel blocks (0 : Fin 2)).val, _)) = _
+      rw [local_transfer]
+      rfl
+    change iter phases start = _ at chain
+    rw [original, outlined, flatten, chain]
+    simp only [map_eq_pure_bind, bind_assoc, pure_bind]
+    exact bind_congr fun out => (routes out).symm
+  have path_eq {Γ : List PacketType} (path : Path packets outputs m.selection.scope Γ) (env : Env α) :
+      (region instr env (path.erase id req.row.erase) >>= fun out => oldFinish (splitTransfer blocks out)) =
+      (region instr env (path.erase (oldLabel 2) req.jump) >>= fun out => newFinish (splitTransfer (blocks + 2) out)) := by
+    induction path generalizing env with
+    | here => exact leaf env
+    | left test selected other ih =>
+      exact case_congr instr env _ _ _ _ _ _ _ (fun value => ih (extend env value))
+        (fun value => bypass other (extend env value))
+    | right test other selected ih =>
+      exact case_congr instr env _ _ _ _ _ _ _ (fun value => bypass other (extend env value))
+        (fun value => ih (extend env value))
+  change (region instr ambient source.entry.erase >>= fun out => oldFinish (splitTransfer blocks out)) =
+    (region instr ambient m.code.entry.erase >>= fun out => newFinish (splitTransfer (blocks + 2) out))
+  rw [m.sourceEntry, m.entry_eq]
+  exact path_eq m.selection.path ambient
+
+theorem preserves_run (m : Outlined sig context packets outputs source)
+    (instr : Primitive E F α) (env : Env α) :
+    region instr env source.erase = region instr env m.code.erase :=
+  outlined_entry m instr env
+
+theorem compiled_seed {A : Type 1} {Events : Type → Type}
+    (built : Compiled sig context packets outputs source) (instr : Primitive Events F A) (env : Env A) :
+    packetValue env built.publicReadback.provenance.seed = Silmaril.Isotope.Bridge.NamedFlat.Capture.packEnv captures env :=
+  BranchEntry.seed_from_entry instr env _
+    (Region.br.inj (built.publicReadback.provenance.sourceEntry.symm.trans built.prepared.emitted.entry_eq)).2
+
+end EffectfulEntry
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix
