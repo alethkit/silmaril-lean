@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Search.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
@@ -117,5 +118,38 @@ example : ¬ optimized.facts.Valid (input headCell) := by
 example : (source.body.denote (input headCell) (initial 1)).1 = 2 ∧
     (optimized.graph.body.denote (input headCell) (initial 1)).1 = 1 := by
   constructor <;> cbv
+
+-- Two Stores write scratch before a newer tail Store. The later tail Load
+-- also has an admissible pair, but the scratch Load is checked first.
+private def severalWrites : Graph args :=
+  ⟨.load (.latest 0) (.arg headPort)
+    (.store (.latest 0) (.arg savedPort) (.arg stopPort)
+      (.store (.latest 1) (.arg savedPort) (.output (0 : Fin 1) .head)
+        (.store (.latest 2) (.arg tailPort) (.arg stopPort)
+          (.load (.latest 3) (.arg savedPort)
+            (.load (.latest 3) (.arg tailPort)
+              (.ret (.latest 3) (.output (1 : Fin 3) .head))))))), rfl, stopPort⟩
+
+example : Static.Search.candidates severalWrites =
+    [⟨3, 4⟩, ⟨2, 4⟩, ⟨1, 4⟩, ⟨3, 5⟩, ⟨2, 5⟩, ⟨1, 5⟩] := rfl
+example : Static.rewrite severalWrites ⟨3, 4⟩ = none := rfl
+example : Static.rewrite severalWrites ⟨1, 4⟩ = none := rfl
+example : (Static.rewrite severalWrites ⟨3, 5⟩).isSome = true := rfl
+example : Static.Search.rewrite severalWrites = Static.rewrite severalWrites ⟨2, 4⟩ := rfl
+example : (Static.Search.rewrite severalWrites).map Static.Result.facts =
+    some ⟨savedPort, [tailPort]⟩ := rfl
+
+-- Its sole Load matches the Store, but removing it would leave the loop
+-- outside the admitted profile.
+example : Static.Search.rewrite singleLoad = none := rfl
+
+private theorem discovered : Static.Search.rewrite source = some optimized := rfl
+
+example : optimized.graph.evalAfter (input savedCell) (initial 1) 2 = some (0, exitHeap) :=
+  (Static.Search.rewrite_evalAfter discovered (input savedCell) separate (initial 1) 2).trans (by cbv)
+
+example : optimized.graph.Returns (input logCell) (initial 0) 0 sharedLogExit :=
+  (Static.Search.rewrite_returns_iff discovered (input logCell) sharedLog (initial 0) 0 sharedLogExit).mpr
+    ⟨0, (source.returnsAfter_iff_evalAfter (input logCell) (initial 0) 0 0 sharedLogExit).mpr (by cbv)⟩
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding
