@@ -30,4 +30,13 @@ def original : Region Instruction := .cfg entry 2 rows
 def reentered : Region Instruction :=
   entry.bindBranchArguments.lsubst (cfgEntryContinuations rows)
 
+/-- Move the computed destructuring out of the two-label table. -/
+def moved : Region Instruction :=
+  .let₂ initializer (.cfg (.br 0 (.var 1)) 2 (fun j =>
+    ((rows j).renameVars (Silmaril.DeBruijn.lift Nat.succ)).renameVars (Silmaril.DeBruijn.lift Nat.succ)))
+
+/-- After the two local transfers, send the feedback state back to the loop. -/
+def recurring (r : Region Instruction) : Region Instruction :=
+  compLSubst (fun _ => r) (fun _ => .br 0 (.inr .unit)) 0
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.EntryLetObstruction.Destructure

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Operand.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Operand.Traversal.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Substitution.Thms
 
@@ -18,111 +18,39 @@ open Silmaril.DeBruijn (lift)
 
 variable {Φ : Type v}
 
+private theorem moveEntry_subst (r : Region Φ) (θ : Nat → Tm Φ) :
+    Site.moveEntry (r.substVars θ) = (Site.moveEntry r).map (·.substVars θ) := by
+  cases r with
+  | cfg body n bs =>
+    cases body <;> simp [Site.moveEntry, Region.substVars, substVars_renameVars,
+      renameVars_substVars, Tm.liftSubst_comp_lift_succ]
+  | _ => rfl
+
 theorem move_substVars (site : Site) (r : Region Φ) (θ : Nat → Tm Φ) :
-    site.move (r.substVars θ) = (site.move r).map (·.substVars θ) := by
-  induction site generalizing r θ with
-  | here =>
-    cases r with
-    | cfg body n bs =>
-      cases body <;> simp [Site.move, Region.substVars, substVars_renameVars,
-        renameVars_substVars, Tm.liftSubst_comp_lift_succ]
-    | _ => rfl
-  | unaryBody next ih | binaryBody next ih | leftArm next ih | rightArm next ih | entry next ih =>
-    cases r <;> simp [Site.move, Region.substVars, ih, Option.map_map, Function.comp_def]
-  | block i next ih =>
-    cases r with
-    | cfg e n bs =>
-      simp only [Site.move, Region.substVars]
-      by_cases hi : i < n
-      · simp only [hi, dite_true, ih, Option.map_map, Function.comp_def]
-        apply congrArg (fun k => (next.move (bs ⟨i, hi⟩)).map k)
-        funext b
-        apply congrArg (Region.cfg (e.substVars θ) n)
-        funext j
-        by_cases h : j = ⟨i, hi⟩ <;> simp [h]
-      · simp only [hi, dite_false, Option.map_none]
-    | _ => rfl
+    site.move (r.substVars θ) = (site.move r).map (·.substVars θ) :=
+  Site.rewriteAt_substVars Site.moveEntry moveEntry_subst site r θ
 
 variable {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
 
+private theorem moveEntry_sound {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (hm : Site.moveEntry r = some s) :
+    ValueBranches Γ s L ∧ Paper.WithEntryLet.Eqv Γ r s L := by
+  cases hr with
+  | cfg R he hb =>
+    cases he with
+    | let₁ ha hd =>
+      simp only [Site.moveEntry, Option.some.injEq] at hm
+      subst s
+      have hs := ValueBranches.let₁ ha (.cfg R hd
+        (fun i => (hb i).renameVars ((Ren.wk _ _).lift (R i))))
+      exact ⟨hs, .extra (ValueBranches.cfg R (.let₁ ha hd) hb).hasType hs.hasType (.seq R ha hd hb)⟩
+    | _ => simp [Site.moveEntry] at hm
+  | _ => simp [Site.moveEntry] at hm
+
 theorem move_sound (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
     (hr : ValueBranches Γ r L) (hm : site.move r = some s) :
-    ValueBranches Γ s L ∧ Paper.WithEntryLet.Eqv Γ r s L := by
-  induction site generalizing Γ L r s with
-  | here =>
-    cases hr with
-    | cfg R he hb =>
-      cases he with
-      | let₁ ha hd =>
-        simp only [Site.move, Option.some.injEq] at hm
-        subst s
-        have hs := ValueBranches.let₁ ha (.cfg R hd
-          (fun i => (hb i).renameVars ((Ren.wk _ _).lift (R i))))
-        exact ⟨hs, .extra (ValueBranches.cfg R (.let₁ ha hd) hb).hasType hs.hasType (.seq R ha hd hb)⟩
-      | _ => simp [Site.move] at hm
-    | _ => simp [Site.move] at hm
-  | unaryBody next ih =>
-    cases hr with
-    | let₁ ha hb =>
-      simp only [Site.move] at hm
-      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-      obtain ⟨ht, eq⟩ := ih hb hbody
-      exact ⟨.let₁ ha ht, .let₁ ha eq⟩
-    | _ => simp [Site.move] at hm
-  | binaryBody next ih =>
-    cases hr with
-    | let₂ ha hb =>
-      simp only [Site.move] at hm
-      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-      obtain ⟨ht, eq⟩ := ih hb hbody
-      exact ⟨.let₂ ha ht, .let₂ ha eq⟩
-    | _ => simp [Site.move] at hm
-  | leftArm next ih =>
-    cases hr with
-    | case ha hl hr =>
-      simp only [Site.move] at hm
-      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-      obtain ⟨ht, eq⟩ := ih hl hbody
-      exact ⟨.case ha ht hr, .case ha eq (.paper (.refl hr.hasType))⟩
-    | _ => simp [Site.move] at hm
-  | rightArm next ih =>
-    cases hr with
-    | case ha hl hr =>
-      simp only [Site.move] at hm
-      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-      obtain ⟨ht, eq⟩ := ih hr hbody
-      exact ⟨.case ha hl ht, .case ha (.paper (.refl hl.hasType)) eq⟩
-    | _ => simp [Site.move] at hm
-  | entry next ih =>
-    cases hr with
-    | cfg R he hb =>
-      simp only [Site.move] at hm
-      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-      obtain ⟨ht, eq⟩ := ih he hbody
-      exact ⟨.cfg R ht hb, .cfg R eq (fun i => .paper (.refl (hb i).hasType))⟩
-    | _ => simp [Site.move] at hm
-  | block i next ih =>
-    cases hr with
-    | cfg R he hb =>
-      simp only [Site.move] at hm
-      split at hm
-      next hi =>
-        obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
-        obtain ⟨ht, eq⟩ := ih (hb ⟨i, hi⟩) hbody
-        refine ⟨.cfg R he ?_, .cfg R (.paper (.refl he.hasType)) ?_⟩
-        · intro j
-          by_cases h : j = ⟨i, hi⟩
-          · subst j
-            simpa using ht
-          · simpa [Function.update_apply, h] using hb j
-        · intro j
-          by_cases h : j = ⟨i, hi⟩
-          · subst j
-            simpa using eq
-          · simpa [Function.update_apply, h] using
-              (Paper.Extension.Eqv.paper (Seed := Step) (.refl (hb j).hasType))
-      next _ => contradiction
-    | _ => simp [Site.move] at hm
+    ValueBranches Γ s L ∧ Paper.WithEntryLet.Eqv Γ r s L :=
+  Site.rewriteAt_guarded Site.moveEntry moveEntry_sound site hr hm
 
 theorem move_pullback (site : Site) {Γ : VCtx τ} {L : LCtx τ}
     {r s : Region Φ} (hr : ValueBranches Γ r L) (θ : Nat → Tm Φ)
