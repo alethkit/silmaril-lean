@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Defs
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.WordNumber.Thms
 
 public section
 
@@ -25,15 +26,9 @@ private theorem merge_get (keys : Keys regs) (eq : Equation regs) (port : WordSl
       if (keys.get port).matches (keys.get eq.member) then keys.get eq.representative else keys.get port :=
   Quads.get_tabulate _ port
 
-private theorem matches_self {args : List (Diamond.Ty Unit)} (key : Key args) :
-    key.matches key = true := by
-  induction key with
-  | argument | literal => simp [Key.matches]
-  | binary op first second ihFirst ihSecond => simp [Key.matches, ihFirst, ihSecond]
-
 private theorem merge_equates (keys : Keys regs) (eq : Equation regs) :
     (mergeKeys keys eq).get eq.representative = (mergeKeys keys eq).get eq.member := by
-  have self : (keys.get eq.member).matches (keys.get eq.member) = true := matches_self _
+  have self : (keys.get eq.member).matches (keys.get eq.member) = true := Key.matches_self _
   rw [merge_get, merge_get, self]
   split <;> rfl
 
@@ -61,7 +56,7 @@ theorem seed_matches (equations : Equations regs) : matchesAll equations (seed e
   intro eq mem
   rw [show (seed equations).get eq.representative = (seed equations).get eq.member from
     fold_equates equations _ eq mem]
-  exact matches_self _
+  exact Key.matches_self _
 
 private theorem merge_reads {keys : Keys regs} {old : Bank (regs := regs) model} (eq : Equation regs)
     (reads : Keys.Reads old keys old) (same : old.get eq.representative = old.get eq.member) :

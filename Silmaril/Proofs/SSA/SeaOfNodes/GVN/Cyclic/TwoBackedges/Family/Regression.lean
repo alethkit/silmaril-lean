@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
 
@@ -113,5 +114,48 @@ theorem forcing_the_rejected_edit_changes_the_false_route_return :
     (fixture true).source.runFrom model 5 0 (input false) = some 3#64 ∧
       invalid.source.runFrom model 5 0 (input false) = some 5#64 :=
   ⟨rfl, rfl⟩
+
+section Discovery
+
+open scoped GVN.Cyclic.TwoBackedges.Family.Discovery
+
+private def laneA : Discovery.Lane regs := ⟨2, by decide⟩
+private def laneATwin : Discovery.Lane regs := ⟨3, by decide⟩
+private def laneB : Discovery.Lane regs := ⟨4, by decide⟩
+private def laneBTwin : Discovery.Lane regs := ⟨5, by decide⟩
+
+theorem discovery_recovers_the_mutual_family :
+    Discovery.discover (fixture false) = family ∧
+      (Discovery.certify? (fixture false) resultTwin).isSome = true ∧
+      Discovery.rewrite? (fixture false) resultTwin = some target :=
+  ⟨rfl, rfl, rfl⟩
+
+theorem reversal_disagrees_on_only_the_false_key_of_the_first_pair :
+    let p := fixture true
+    let entry := Discovery.initial p
+    let left := Discovery.feedbackKeys p entry laneA
+    let right := Discovery.feedbackKeys p entry laneATwin
+    entry laneA = entry laneATwin ∧ left.1 = right.1 ∧ left.2 ≠ right.2 ∧
+      Discovery.feedbackKeys p entry laneB = Discovery.feedbackKeys p entry laneBTwin :=
+  ⟨rfl, rfl, by decide, rfl⟩
+
+theorem dependent_pair_splits_on_the_second_round :
+    let p := fixture true
+    let entry := Discovery.initial p
+    let first := Discovery.refine p entry
+    let second := Discovery.refine p first
+    first laneA ≠ first laneATwin ∧ first laneB = first laneBTwin ∧
+      Discovery.checkStable p first = false ∧ second laneB ≠ second laneBTwin ∧
+      Discovery.checkStable p second = true ∧ Discovery.normalize p = second :=
+  ⟨by decide, rfl, rfl, by decide, rfl, rfl⟩
+
+theorem discovery_refuses_the_wrong_return_after_propagation :
+    Discovery.discover (fixture true) = [] ∧
+      (Discovery.certify? (fixture true) resultA).isSome = true ∧
+      (Discovery.certify? (fixture true) resultTwin).isSome = false ∧
+      Discovery.rewrite? (fixture true) resultTwin = none :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+end Discovery
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression
