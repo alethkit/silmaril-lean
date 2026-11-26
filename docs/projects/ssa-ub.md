@@ -923,6 +923,30 @@ exit and final state or reaches literal UB through the selected exit.
 This extraction covers closed constructor operands at each site.
 [Native extraction theorems][ssa-ub-native-request-trees]
 
+### Environment-indexed extraction of open constructor operands
+
+The open extractor takes a checked typed row witness, the original typed
+native CFG, and a supplied typed caller packet. It re-emits the written CFG
+and checks ranks on the entry-reachable rows. The entry forwards the caller
+packet to the first row. A request operand is a pure typed constructor
+expression over the incoming packet at slot zero and the original caller
+packet at slot one.
+
+A tree node stores the evaluated argument and a continuation indexed by
+both the reply position and its typed payload. The continuation evaluates
+the next operand with the actual reply as its incoming packet. This
+representation needs no enumeration or equality test for reply values.
+The rank bounds extraction along a branch and certifies termination.
+
+Successful extraction agrees with the original CFG and its designated
+literal-UB exit continuations at every initial machine state of the
+deterministic shaped primitive interface. The equality retains ordered
+exits and final states, faults and their states, divergence, and fresh top.
+The regression sends different Boolean payloads at the same reply position
+and uses the payload as the next request's argument. The depth-bounded
+separation theorem applies to the closed fragment above.
+[Open extraction theorem][ssa-ub-open-operand-extraction]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -973,6 +997,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.RequestTree.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -1078,3 +1103,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/RequestTree/Thms.lean
 [ssa-ub-dependent-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Thms.lean
 [ssa-ub-native-request-trees]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/Thms.lean
+[ssa-ub-open-operand-extraction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Thms.lean
