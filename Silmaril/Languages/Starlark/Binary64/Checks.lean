@@ -1,12 +1,14 @@
 module
 
 import Silmaril.Languages.Starlark.Binary64.Thms
+import Silmaril.Languages.Starlark.Denotation.Defs
 import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 import Silmaril.Languages.Starlark.Functions.Thms
 import Silmaril.Numeric.Ieee754
 meta import Silmaril.Languages.Starlark.Functions.Builtins.Defs
 meta import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 meta import Silmaril.Languages.Starlark.Lists.Defs
+meta import Silmaril.Languages.Starlark.Denotation.Defs
 
 namespace Silmaril.Languages.Starlark.Binary64
 
@@ -61,14 +63,64 @@ example (input : Numeric.Ieee754.F64) :
 #guard
   let negZero := Value.float 0x8000000000000000
   let posZero := Value.float 0
-  let nan := Value.float 0x7ff8000000000021
-  let ops : List BinaryOp := [.eq, .ne, .lt, .le, .gt, .ge, .add]
-  negZero ≠ posZero ∧ Builtin.resolve "float" = none ∧
-    ops.all (fun op => decide
-      (applyBinary op negZero posZero = .error (.binaryType op) ∧
-       applyBinary op nan nan = .error (.binaryType op) ∧
-       applyBinary op negZero (.int 0) = .error (.binaryType op) ∧
-       applyBinary op (.int 0) posZero = .error (.binaryType op))) = true
+  let posNaN := Value.float 0x7ff8000000000021
+  let negNaN := Value.float 0xfff0000000000001
+  negZero ≠ posZero ∧ posNaN ≠ negNaN ∧ Builtin.resolve "float" = none ∧
+    applyBinary .eq negZero posZero = .ok (.bool true) ∧
+    applyBinary .eq posNaN negNaN = .ok (.bool true) ∧
+    applyBinary .add negZero posZero = .error (.binaryType .add)
+
+private def compareInBody (op : BinaryOp) (lhs rhs : Value) : Except Failure Value :=
+  runFunctionBody [] [("x", lhs), ("y", rhs)] (.ret (some (.binary op (.read "x") (.read "y"))))
+
+private def checksOrder (lhs rhs : Value) (order : Ordering) : Bool :=
+  let results : List (BinaryOp × Bool) := [(.eq, order == .eq), (.ne, order != .eq),
+    (.lt, order == .lt), (.le, order != .gt), (.gt, order == .gt), (.ge, order != .lt)]
+  results.all fun (op, expected) => decide (compareInBody op lhs rhs = .ok (.bool expected))
+
+#guard
+  let negZero := Value.float 0x8000000000000000
+  let posInf := Value.float 0x7ff0000000000000
+  let negInf := Value.float 0xfff0000000000000
+  let posNaN := Value.float 0x7ff8000000000021
+  let negNaN := Value.float 0xfff0000000000001
+  let boundary := Value.float 0x4340000000000000
+  let boundaryInt := Int.shiftLeft 1 53
+  let huge := Int.shiftLeft 1 1100
+  let cases : List (Value × Value × Ordering) := [
+    (negZero, .float 0, .eq), (negZero, .int 0, .eq),
+    (.float 0x8000000000000001, negZero, .lt), (.float 1, .int 0, .gt),
+    (.float 0x000fffffffffffff, .float 0x0010000000000000, .lt),
+    (.int 1, .float 0x3ff8000000000000, .lt), (.int 2, .float 0x3ff8000000000000, .gt),
+    (.float 0xbff8000000000000, .int (-1), .lt),
+    (.int boundaryInt, boundary, .eq), (.int (boundaryInt + 1), boundary, .gt),
+    (.int (boundaryInt + 1), .float 0x4340000000000001, .lt),
+    (.int (-boundaryInt - 1), .float 0xc340000000000000, .lt),
+    (.float 0x7fefffffffffffff, .int (Int.shiftLeft 1 1024), .lt),
+    (.int huge, posInf, .lt), (.int (-huge), negInf, .gt),
+    (negInf, posInf, .lt), (posInf, posInf, .eq),
+    (posNaN, negNaN, .eq), (posNaN, posInf, .gt), (.int huge, negNaN, .lt),
+    (.bool false, .bool true, .lt)]
+  cases.all (fun (lhs, rhs, order) => checksOrder lhs rhs order && checksOrder rhs lhs order.swap) = true
+
+#guard
+  let cases : List (Value × Value) := [(.bool true, .int 1), (.bool false, .float 0),
+    (.float 0x3ff0000000000000, .bool true), (.float 0x7ff8000000000001, .none)]
+  cases.all (fun (lhs, rhs) => decide (compareInBody .eq lhs rhs = .ok (.bool false) ∧
+    compareInBody .ne rhs lhs = .ok (.bool true) ∧
+    compareInBody .lt lhs rhs = .error (.dynamic (.binaryType .lt)) ∧
+    compareInBody .ge rhs lhs = .error (.dynamic (.binaryType .ge)))) = true ∧
+  compareInBody .eq .none .none = .ok (.bool true) ∧
+  compareInBody .lt .none .none = .error (.dynamic (.binaryType .lt))
+
+#guard
+  let lhs : Binding := ⟨.local, "x"⟩
+  let rhs : Binding := ⟨.local, "y"⟩
+  let frame : Frame := {}
+  denoteExpr (.binary .eq (.read (.bound lhs)) (.read (.bound rhs))) frame =
+      .error (.uninitialized lhs) ∧
+    denoteExpr (.binary .lt (.read (.predeclared (.float 0))) (.read (.bound rhs))) frame =
+      .error (.uninitialized rhs)
 
 -- Float dictionary keys fail during display, read, or write. A tuple cannot hide the float.
 #guard

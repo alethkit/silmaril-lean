@@ -72,11 +72,64 @@ func checkEqualityAndKeys() {
 			require(err == nil && found && v == starlark.True, fmt.Sprintf("no matching key for %v", keys[1]))
 		}
 	}
-	greater, err := starlark.Compare(syntax.GT, fromBits(0x7ff8000000000001), starlark.Float(math.Inf(1)))
-	require(err == nil && greater, "Go did not order NaN above infinity")
-	equal, err := starlark.Equal(starlark.Float(1<<53), starlark.MakeInt64((1<<53)+1))
-	require(err == nil && !equal, "Go rounded an integer in mixed comparison")
 	fmt.Println("PASS Go equality and hash controls for signed zeros, NaNs, mixed numbers and tuple keys")
+}
+
+func checkOrder(left, right starlark.Value, order int) {
+	for _, tc := range []struct {
+		op   syntax.Token
+		want bool
+	}{
+		{syntax.EQL, order == 0}, {syntax.NEQ, order != 0},
+		{syntax.LT, order < 0}, {syntax.LE, order <= 0},
+		{syntax.GT, order > 0}, {syntax.GE, order >= 0},
+	} {
+		got, err := starlark.Compare(tc.op, left, right)
+		require(err == nil && got == tc.want,
+			fmt.Sprintf("%v %s %v: want %v, got %v (%v)", left, tc.op, right, tc.want, got, err))
+	}
+}
+
+func checkScalarComparison() {
+	negZero, posZero := fromBits(0x8000000000000000), fromBits(0)
+	posNaN, negNaN := fromBits(0x7ff8000000000021), fromBits(0xfff0000000000001)
+	posInf, negInf := starlark.Float(math.Inf(1)), starlark.Float(math.Inf(-1))
+	boundary := fromBits(0x4340000000000000)
+	huge := new(big.Int).Lsh(big.NewInt(1), 1100)
+	for _, tc := range []struct {
+		left, right starlark.Value
+		order       int
+	}{
+		{negZero, posZero, 0}, {negZero, starlark.MakeInt(0), 0},
+		{fromBits(0x8000000000000001), negZero, -1}, {fromBits(1), starlark.MakeInt(0), 1},
+		{fromBits(0x000fffffffffffff), fromBits(0x0010000000000000), -1},
+		{starlark.MakeInt(1), starlark.Float(1.5), -1}, {starlark.MakeInt(2), starlark.Float(1.5), 1},
+		{starlark.Float(-1.5), starlark.MakeInt(-1), -1},
+		{starlark.MakeInt64(1 << 53), boundary, 0}, {starlark.MakeInt64((1 << 53) + 1), boundary, 1},
+		{starlark.MakeInt64((1 << 53) + 1), fromBits(0x4340000000000001), -1},
+		{starlark.MakeInt64(-(1 << 53) - 1), fromBits(0xc340000000000000), -1},
+		{starlark.Float(math.MaxFloat64), starlark.MakeBigInt(new(big.Int).Lsh(big.NewInt(1), 1024)), -1},
+		{starlark.MakeBigInt(huge), posInf, -1}, {starlark.MakeBigInt(new(big.Int).Neg(huge)), negInf, 1},
+		{negInf, posInf, -1}, {posInf, posInf, 0},
+		{posNaN, negNaN, 0}, {posNaN, posInf, 1}, {starlark.MakeBigInt(huge), negNaN, -1},
+		{starlark.False, starlark.True, -1},
+	} {
+		checkOrder(tc.left, tc.right, tc.order)
+		checkOrder(tc.right, tc.left, -tc.order)
+	}
+	for _, pair := range [][2]starlark.Value{
+		{starlark.True, starlark.MakeInt(1)}, {starlark.False, posZero},
+		{starlark.Float(1), starlark.True}, {posNaN, starlark.None},
+	} {
+		left, right := pair[0], pair[1]
+		equal, eqErr := starlark.Compare(syntax.EQL, left, right)
+		unequal, neErr := starlark.Compare(syntax.NEQ, right, left)
+		_, ltErr := starlark.Compare(syntax.LT, left, right)
+		_, geErr := starlark.Compare(syntax.GE, right, left)
+		require(eqErr == nil && !equal && neErr == nil && unequal && ltErr != nil && geErr != nil,
+			fmt.Sprintf("unexpected comparison across types %s and %s", left.Type(), right.Type()))
+	}
+	fmt.Println("PASS all six scalar comparisons, including exact mixed order and Boolean distinctions")
 }
 
 func checkConversionOverflow() {
@@ -95,5 +148,6 @@ func checkConversionOverflow() {
 func main() {
 	checkUnary()
 	checkEqualityAndKeys()
+	checkScalarComparison()
 	checkConversionOverflow()
 }
