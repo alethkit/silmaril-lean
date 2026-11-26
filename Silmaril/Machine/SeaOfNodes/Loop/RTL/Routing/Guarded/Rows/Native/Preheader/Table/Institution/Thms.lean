@@ -4,8 +4,9 @@ public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.P
 public import Silmaril.Logic.Institution.Observational.Sentence
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Satisfaction
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Room
+import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.RTLBehavior
 
-/-! Satisfaction for return observations and for the full λSSA room in the word model. -/
+/-! Satisfaction for RTL.SSA behaviours and the λSSA room in the concrete word model. -/
 
 public section
 
@@ -13,6 +14,7 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 
 open CategoryTheory (Discrete)
 open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.RTL.SSA (Behavior)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model word)
 open Silmaril.SSA.SeaOfNodes
 open Diamond.LambdaSSA (Atom)
@@ -122,5 +124,53 @@ theorem room_equation_holds_iff (leftChecked : lowerChecked left = some leftTarg
       (Sentence.eq (scope leftChecked) (scope rightChecked))) ↔
     (Loop.Institution.Sentence.equation (equation left right)).Holds model :=
   forall_congr' fun input => room_equation_at_iff leftChecked rightChecked input initial
+
+/-- Function zero has a valid initial machine state at every typed input. -/
+theorem rtl_start_exists (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial : Memory) :
+    ∃ start, leftTargets.1.start 0 (words input) initial = some start :=
+  Proofs.rtl_start_exists accepted input initial
+
+/-- Native undefinedness corresponds to an infinite sequence of RTL instructions. -/
+theorem rtl_divOracle_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial : Memory) :
+    leftTargets.1.divOracle 0 (words input) initial ↔ left.denote model input = Part.none :=
+  Proofs.rtl_divOracle_iff accepted input initial
+
+/-- Every actual RTL behaviour either returns exactly one native word with the
+whole initial memory or diverges when the native denotation is undefined. -/
+theorem rtl_behavior_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial : Memory) (outcome : Behavior) :
+    outcome ∈ rtlBehaviors input initial leftTargets.1 ↔
+      match outcome with
+      | .returned values final =>
+        ∃ value : Word, value ∈ left.denote model input ∧ values = [value] ∧ final = initial
+      | .diverges => left.denote model input = Part.none
+      | .trapped _ | .stuck => False :=
+  Proofs.rtl_behavior_iff accepted input initial outcome
+
+/-- No execution from a typed start gets stuck or reaches a trap. -/
+theorem rtl_no_fault (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial : Memory) :
+    Behavior.stuck ∉ rtlBehaviors input initial leftTargets.1 ∧
+      ∀ final, Behavior.trapped final ∉ rtlBehaviors input initial leftTargets.1 :=
+  ⟨(rtl_behavior_iff accepted input initial .stuck).mp,
+    fun final => (rtl_behavior_iff accepted input initial (.trapped final)).mp⟩
+
+/-- A full RTL equation at one typed input and initial memory holds exactly
+when the native partial denotations agree at that input. -/
+theorem rtl_equation_at_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (input : WordTuple arity) (initial : Memory) :
+    (Sentence.eq leftTargets.1 rightTargets.1).Holds (rtlBehaviors input initial) ↔
+      left.denote model input = right.denote model input :=
+  Proofs.rtl_equation_at_iff leftChecked rightChecked input initial
+
+/-- Native equation satisfaction agrees with full RTL equations at all
+typed inputs, for any common initial memory. -/
+theorem rtl_equation_holds_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (initial : Memory) :
+    (∀ input : WordTuple arity, (Sentence.eq leftTargets.1 rightTargets.1).Holds (rtlBehaviors input initial)) ↔
+      (Loop.Institution.Sentence.equation (equation left right)).Holds model :=
+  forall_congr' fun input => rtl_equation_at_iff leftChecked rightChecked input initial
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution
