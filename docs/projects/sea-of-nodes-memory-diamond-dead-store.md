@@ -218,6 +218,36 @@ middle occurrence. Run it with
 `lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean`.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
 
+### Address origins and ordered entry readbacks
+
+In this native `Memory.Graph`, Start has an empty local scope. A
+`Body.load` adds exactly one word binding, and `Body.store` advances
+the memory version while keeping the scalar scope. The same sorts are
+used in the emitted entry, where `memref.load` takes an index and returns
+an i64. `AddressProvenance.graph_operations_argument_addresses` proves
+that every actual Load and Store operand of address sort is an original
+argument, including in the trailing suffix. The address read law fixes
+that argument's cell across all local states at a given typed input. A
+prior Load result can supply a Store's data or the Return word. Address
+computations would require a new typed address-producing operation and
+a separation law for its result.
+[Native constructors](../../Silmaril/SSA/SeaOfNodes/Memory/Defs.lean) ·
+[Provenance theorems](../../Silmaril/SSA/SeaOfNodes/Memory/AddressProvenance/Thms.lean) ·
+[MemRef signatures](../../Silmaril/SSA/MLIR/MemRef/Defs.lean)
+
+`PrefixWord.lower_readbacks` extends the checked finite switch guarantee
+to every entry Load occurrence. It probes the original and retained
+native prefixes through the existing MemRef lowering and compares
+their words at the certified scalar input for every initialized buffer.
+The existing emitted switch theorem still gives the complete selected
+join frame and final word and buffer for all occurrences and CF budgets.
+The fixture checks the prefix Load, both trailing Loads, and an absent
+occurrence. When two address ports name the same cell, the trailing
+readbacks would differ and the existing checker refuses the cut.
+[Readback and switch theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Thms.lean) ·
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean) ·
+[Pinned Simple memory model](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter

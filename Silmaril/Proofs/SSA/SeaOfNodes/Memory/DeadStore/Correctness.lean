@@ -30,7 +30,7 @@ theorem readAt_store (memory : MemoryInput version) (address : Origin args past 
       readAt rest index input locals (heap.write (readValue address input locals) (readValue word input locals)) := by
   simp [readAt, throughLoad, Option.map_map, Function.comp_def, Body.denote]
 
-private theorem readAt_load (memory : MemoryInput version) (address : Origin args past .address)
+theorem readAt_load (memory : MemoryInput version) (address : Origin args past .address)
     (rest : Body args ([.word] :: past) version) (index : Nat)
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells) :
     readAt (.load memory address rest) (index + 1) input locals heap =

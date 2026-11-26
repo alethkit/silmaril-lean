@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.AddressProvenance.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Thms
@@ -296,7 +297,7 @@ private def localEntry : Memory.Graph Args :=
 private def localCut : MemRef.CF.LoadTail.PrefixWord.Cut Args [] 0 :=
   ⟨headPort, localPrefix (.ret (.latest 2) loaded), localPrefix (trailingReads 2)⟩
 
-example : MemRef.CF.LoadTail.PrefixWord.cut tailFacts 3 localEntry = some localCut := rfl
+private theorem localCutAccepted : MemRef.CF.LoadTail.PrefixWord.cut tailFacts 3 localEntry = some localCut := rfl
 #guard readback (observe localCut.beforeStore input initial) == [3, 22, 11, 55]
 
 private def localPrograms :=
@@ -326,5 +327,39 @@ private def localPrograms :=
     (Memory.Graph.denote localCut.retained input initial.cell).2 == some 22
 #guard (MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (arms headPort)
     witnesses suffix input tailFacts).isNone
+
+-- At the second trailing Load, both available local bindings have word sort.
+-- The typed origin constructor provides no address port in either binding.
+private abbrev TwoLoads := [[ValueSort.word], [ValueSort.word]]
+
+example (node : Fin TwoLoads.length) (port : Port TwoLoads[node] .address) : False := by
+  let scope : Memory.AddressProvenance.LoadScope TwoLoads := .load (.load .start)
+  obtain ⟨_, origin⟩ := scope.address_argument (.output node port : Origin Args TwoLoads .address)
+  cases origin
+
+example : ∀ operation ∈ Memory.DeadStore.Search.Selection.Readers.Repeat.operations localEntry,
+    Memory.AddressProvenance.ArgumentAddress operation :=
+  Memory.AddressProvenance.graph_operations_argument_addresses localEntry
+
+private def entryProbes (graph : Memory.Graph Args) (values : Tuple (Val 3) Args) :
+    List (Option Nat) :=
+  List.ofFn fun (index : Fin 4) => (Memory.DeadStore.throughLoad graph index.val).map fun block =>
+    (observe block values initial).1.toNat
+
+-- Probe every original Load in order through actual MemRef blocks. This
+-- includes the otherwise unobserved second trailing Load and an out-of-range index.
+#guard entryProbes localEntry input == [some 3, some 11, some 11, none]
+#guard entryProbes localCut.retained input == entryProbes localEntry input
+
+-- When the input ports coincide the trailing readers would observe the cut.
+#guard entryProbes localEntry aliasInput == [some 7, some 7, some 7, none]
+#guard entryProbes localCut.retained aliasInput == [some 7, some 11, some 11, none]
+
+example {programs : MemRef.CF.Programs 3 Args preds} (emitted : localPrograms = some programs)
+    (index : Nat) (buffer : Buffer 3) :
+    let probe := fun (graph : Memory.Graph Args) => (Memory.DeadStore.throughLoad graph index).map fun block =>
+      (observe block programs.input buffer).1
+    probe localEntry = probe localCut.retained :=
+  MemRef.CF.LoadTail.PrefixWord.lower_readbacks emitted localCutAccepted index buffer
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
