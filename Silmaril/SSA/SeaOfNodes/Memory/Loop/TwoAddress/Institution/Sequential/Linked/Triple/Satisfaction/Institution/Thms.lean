@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Defs
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Defs
+public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Correctness
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms
@@ -90,6 +91,11 @@ theorem corridor_modelExpansive_iff (backend : Backend) (h : P ⟶ Q) :
 theorem corridor_modelExpansive_of_retraction (backend : Backend) (h : P ⟶ Q) (back : Q ⟶ P)
     (split : h ≫ back = 𝟙 P) : (corridor backend h).ModelExpansive :=
   (corridor_modelExpansive_iff backend h).mpr fun _ => Linked.Satisfaction.in_image_of_retraction h back split
+
+/-- The typed-port check decides model coverage for each generated backend. -/
+theorem corridor_modelExpansive_iff_check (backend : Backend) (h : P ⟶ Q) :
+    (corridor backend h).ModelExpansive ↔ Linked.Satisfaction.ReductImage.checkExpansive h = true :=
+  (corridor_modelExpansive_iff backend h).trans (Linked.Satisfaction.ReductImage.checkExpansive_iff h).symm
 
 /-- The existing numbered room's all-target truth, after re-emission, is
 exactly backend truth on source valuations in the typed reduct image. -/
