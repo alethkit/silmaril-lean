@@ -97,11 +97,11 @@ implementation correspondence are outside its scope.
 
 | Operation | Modeled operand count | Pinned arity evidence |
 | --- | --- | --- |
-| `shape.broadcast` | One or more | TableGen describes two or more inputs. The verifier checks error-capable input and result types and imposes no count check. The folder forwards one operand, then assumes its operand list is nonempty on the other path. A canonicalization pattern can produce an empty shape constant when no operands remain. The zero-operand operation is outside the model. |
+| `shape.broadcast` | One or more | TableGen describes two or more inputs. The verifier checks error-capable input and result types and imposes no count check. The folder forwards a single operand of matching type. A canonicalization handles the singleton cast case. The folder's other path assumes a nonempty operand list. A canonicalization pattern can produce an empty shape constant when no operands remain. The zero-operand operation is outside the model. |
 | `shape.is_broadcastable` | Zero or more concrete shape views | TableGen declares variadic operands with no custom verifier. The folder returns true for fewer than two operands. |
 | `shape.cstr_broadcastable` | Two or more concrete shape views | The custom verifier rejects fewer than two operands. |
 
-[Pinned broadcast folder and verifier](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L642-L708) ·
+[Pinned broadcast folder, verifier and rewrites](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L642-L748) ·
 [Pinned predicate folder](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L1398-L1410) ·
 [Pinned constraint folder and verifier](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L995-L1035)
 
