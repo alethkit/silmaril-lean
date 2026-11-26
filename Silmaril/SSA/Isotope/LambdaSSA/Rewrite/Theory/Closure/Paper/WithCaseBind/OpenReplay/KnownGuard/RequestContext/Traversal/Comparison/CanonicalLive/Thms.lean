@@ -21,6 +21,12 @@ theorem map_outcomes {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) (en
     ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes = p.normal.outcomes env :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CanonicalLiveSelected.map_outcomes p env
 
+/-- Every exposed slot ranges over both bits. Structural unit frames are
+absent from the logical assignment, and a tested slot is deleted in its arms. -/
+theorem projection_ne_constant {n : Nat} (slot : Fin n) (bit : Bool) :
+    (fun env : Finite.Assignment n => env slot) ≠ fun _ => bit :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CanonicalLiveSelected.projection_ne_constant slot bit
+
 /-- Observations at every assignment recover the canonical selected program. -/
 theorem eq_of_observations {L : List (Ty Empty)} {n : Nat} (p q : CanonicalLive L n)
     (h : ∀ env, ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes =

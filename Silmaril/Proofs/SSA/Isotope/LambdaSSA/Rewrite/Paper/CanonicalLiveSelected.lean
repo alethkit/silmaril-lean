@@ -30,7 +30,7 @@ private theorem pushEmit_normal {L : List (Ty Empty)} {n : Nat} (label : Bool) (
 theorem witnessed_normal {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) :
     p.readTree.witnessed.normal = p.normal := by
   induction p with
-  | ret => rfl
+  | ret | literal => rfl
   | emit label next ih =>
     rw [CanonicalLive.readTree, pushEmit_normal, ih]
     rfl
@@ -44,6 +44,12 @@ private theorem projection_injective {n : Nat} {i j : Fin n}
   have probe := congrFun same (fun k => decide (k = i))
   exact (of_decide_eq_true (probe.symm.trans (by simp))).symm
 
+theorem projection_ne_constant {n : Nat} (slot : Fin n) (bit : Bool) :
+    (fun env : Finite.Assignment n => env slot) ≠ fun _ => bit := by
+  intro equal
+  have opposite := congrFun equal (fun _ => !bit)
+  cases bit <;> contradiction
+
 theorem normal_injective {L : List (Ty Empty)} {n : Nat} :
     Function.Injective (@CanonicalLive.normal L n) := by
   intro p
@@ -54,6 +60,17 @@ theorem normal_injective {L : List (Ty Empty)} {n : Nat} :
     | ret other j =>
       obtain ⟨rfl, same⟩ := Finite.Normal.ret.inj eq
       rw [projection_injective same]
+    | literal other bit =>
+      exact False.elim (projection_ne_constant slot bit (Finite.Normal.ret.inj eq).2)
+    | emit | request | guard => cases eq
+  | literal exit bit =>
+    intro q eq
+    cases q with
+    | ret other slot =>
+      exact False.elim (projection_ne_constant slot bit (Finite.Normal.ret.inj eq).2.symm)
+    | literal other otherBit =>
+      obtain ⟨rfl, same⟩ := Finite.Normal.ret.inj eq
+      rw [congrFun same (fun _ => false)]
     | emit | request | guard => cases eq
   | emit label next ih =>
     intro q eq
@@ -61,21 +78,21 @@ theorem normal_injective {L : List (Ty Empty)} {n : Nat} :
     | emit label' next' =>
       obtain ⟨rfl, same⟩ := Finite.Normal.emit.inj eq
       rw [ih same]
-    | ret | request | guard => cases eq
+    | ret | literal | request | guard => cases eq
   | request label l r ihl ihr =>
     intro q eq
     cases q with
     | request label' l' r' =>
       obtain ⟨rfl, hl, hr⟩ := Finite.Normal.request.inj eq
       rw [ihl hl, ihr hr]
-    | ret | emit | guard => cases eq
+    | ret | literal | emit | guard => cases eq
   | guard test low fl fr tl tr ifl ifr itl itr =>
     intro q eq
     cases q with
     | guard test' low' fl' fr' tl' tr' =>
       obtain ⟨rfl, rfl, hfl, hfr, htl, htr⟩ := Finite.Normal.testRequest.inj eq
       rw [ifl hfl, ifr hfr, itl htl, itr htr]
-    | ret | emit | request => cases eq
+    | ret | literal | emit | request => cases eq
 
 theorem map_outcomes {L : List (Ty Empty)} {n : Nat} (p : CanonicalLive L n) (env : Finite.Assignment n) :
     ((CanonicalLive.payloadDenote.map p.target.packed).of (replyInput n env)).outcomes = p.normal.outcomes env := by
