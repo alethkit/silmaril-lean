@@ -1,12 +1,13 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Defs
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Observation.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.ExitUB.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Thms
+
 
 public section
 
@@ -29,43 +30,6 @@ universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
-
-private theorem cast_value {X Y : Syntax.Ty} (h : X = Y) (p : Payload X) :
-    (cast (congrArg Payload h) p).val = p.val := by cases h; rfl
-
-private theorem returnPacket_value (g : Endpoint S R A) (caller : Payload (R.get g.control.entry))
-    (p : Packet R) (i : Tag) :
-    (g.returnPacket caller p i).2.val = ((g.output p.1).eval ((g.control.bindings caller).push p.2)).val :=
-  cast_value (exit_type (A := A) i).symm _
-
-theorem raw_step {σ : Type v} (g : Endpoint S R A)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
-    (config : Packet R) (s : σ) :
-    g.feedback caller prim (blockPoint config s) = g.route caller config ((g.control.head caller config).execute prim s) := by
-  obtain ⟨i, incoming⟩ := config
-  rw [Table.head]
-  split
-  · rename_i j rowEq
-    change denote (.native (g.blocks i)) (extendModel (model prim (g.control.bindings caller)).raw incoming.val) s =
-      WithTop.some {Feedback.external R (Exits A) (.ret j (g.returnPacket caller ⟨i, incoming⟩ j).2.val s)}
-    rw [Syntax.denote_push prim _ incoming, Endpoint.blocks, rowEq, returnPacket_value]
-    exact CFG.observe_jump (L := R ++ Exits A) prim ((g.control.bindings caller).push incoming)
-      (exitLabel R (Exits A) j) ((external_type (R := R) (L := Exits A) j).trans (exit_type j)) (g.output i) s
-  · rename_i f arg next typed rowEq
-    let env := (g.control.bindings caller).push incoming
-    let target (j : Fin (S.replies f).length) := Feedback.internal R (Exits A) (next j)
-    let type (j : Fin (S.replies f).length) := (internal_type (L := Exits A) (next j)).trans (typed j)
-    change denote (.native (g.blocks i)) (extendModel (model prim (g.control.bindings caller)).raw incoming.val) s = _
-    rw [Syntax.denote_push prim _ incoming, Endpoint.blocks, rowEq]
-    change Shape.denote (.native (CFG.Dependent.Native.packedRequestTo f arg
-      (S.target f) target type)) (model prim env) s = _
-    rw [← CFG.Dependent.Native.packedRequestTo_agrees, CFG.Dependent.observe_packedRequestTo, Head.execute]
-    cases prim f (arg.eval env) s with
-    | ret a t =>
-      let reply := unpack (cast (congrArg Payload (S.target f)) a)
-      exact congrArg (fun v : Value Unit => WithTop.some ({Outcome.ret (target reply.1) v t} : Set _))
-        (cast_value (typed reply.1).symm reply.2).symm
-    | fault | diverge => rfl
 
 def carrier (codec : Fin results ≃ Packet (Exits A))
     (configs : ConfigurationEnumeration R) (stores : StateInventory states) :
@@ -92,7 +56,7 @@ theorem close_classifies (g : Endpoint S R A) (codec : Fin results ≃ Packet (E
         (g.rows codec caller prim configs stores code).routed D := by
     let input := (configs.invocations stores).get code
     change g.feedback caller prim (blockPoint input.1 input.2) = _
-    rw [raw_step, Endpoint.rows]
+    rw [g.feedback_step, Endpoint.rows]
     dsimp only
     cases (g.control.head caller input.1).execute prim input.2 with
     | exit i _ t =>
@@ -137,61 +101,13 @@ theorem decorate_result (g : Endpoint S R A) (codec : Fin results ≃ Packet (Ex
     cases o <;> simp [Outcome.bind]
   | ub => simp [Endpoint.markExit, resultBehaviour]
 
-theorem observe_entry_state [DecidableEq Φ] {σ : Type v} (g : Endpoint S R A)
-    (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (readback : g.checkNative raw = true)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (s : σ) :
-    Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
-      g.observeAt caller prim ⟨g.control.entry, caller⟩ s := by
-  have same : raw = g.native := Subtype.ext (CFG.Dependent.Native.sameRegion_eq readback)
-  subst raw
-  have start : g.feedback caller prim (.entry s) =
-      WithTop.some {Outcome.ret (Feedback.internal R (Exits A) g.control.entry) caller.val s} :=
-    CFG.observe_jump (L := R ++ Exits A) prim (g.control.bindings caller)
-      (Feedback.internal R (Exits A) g.control.entry) (internal_type g.control.entry) (.var 0) s
-  let M := (model prim (g.control.bindings caller)).raw
-  change (denote (.native g.native) M s).bind _ = _
-  unfold Endpoint.native
-  rw [← denote_native_feedback]
-  change (Feedback.close (g.feedback caller prim) (.entry s)).bind _ = _
-  rw [close_branch start]
-  change (Feedback.close (g.feedback caller prim) (blockPoint ⟨g.control.entry, caller⟩ s)).bind _ = _
-  rfl
-
-theorem observe_state_step {σ : Type v} (g : Endpoint S R A)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
-    (p : Packet R) (s : σ) :
-    g.observeAt caller prim p s =
-      match (g.control.head caller p).execute prim s with
-      | .exit i _ t => if g.control.selected i then ⊤ else WithTop.some {Outcome.ret i (g.returnPacket caller p i).2.val t}
-      | .repeat next t => g.observeAt caller prim next t
-      | .fault t => WithTop.some {Outcome.fault t}
-      | .diverge => WithTop.some {Outcome.diverge} := by
-  have run := raw_step g caller prim p s
-  cases now : (g.control.head caller p).execute prim s <;> rw [now] at run
-  · rename_i i marked t
-    rw [Endpoint.observeAt, close_terminal run]
-    simp only [denote_exitContinuation]
-    cases selected : g.control.selected i <;> simp [selected, Behaviour.bind, Behaviour.possible]
-    ext o
-    cases o <;> simp [Outcome.bind, selected]
-  · rw [Endpoint.observeAt, close_branch run]
-    rfl
-  · rw [Endpoint.observeAt, close_terminal (o := .fault _) run]
-    simp [Behaviour.bind, Behaviour.possible]
-    ext o
-    cases o <;> simp [Outcome.bind]
-  · rw [Endpoint.observeAt, close_terminal (o := .diverge) run]
-    simp [Behaviour.bind, Behaviour.possible]
-    ext o
-    cases o <;> simp [Outcome.bind]
-
 theorem observe_entry [DecidableEq Φ] (g : Endpoint S R A) (codec : Fin results ≃ Packet (Exits A))
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (readback : g.checkNative raw = true)
     (caller : Payload (R.get g.control.entry)) (prim : Primitives Φ states)
     (configs : ConfigurationEnumeration R) (stores : StateInventory states) (s : Fin states) :
     Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
       resultBehaviour codec (g.runFinite codec caller prim configs stores ⟨g.control.entry, caller⟩ s) := by
-  rw [observe_entry_state g raw readback caller prim s, Endpoint.observeAt,
+  rw [g.observe_entry_state raw readback caller prim s, Endpoint.observeAt,
     close_classifies g codec caller prim configs stores]
   exact decorate_result g codec caller prim _
 
@@ -240,18 +156,6 @@ theorem acceptance_iff [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A
         (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_left _ mem))),
       runFinite_congr h codec caller' right stores
         (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_right _ mem)))]
-
-theorem unit_native (g : Table S R) : (Endpoint.unit g).native = g.native := by
-  have same : (Endpoint.unit g).blocks = g.blocks := by
-    funext i
-    unfold Endpoint.blocks Table.blocks
-    simp only [Endpoint.unit]
-    cases g.row i <;> rfl
-  apply Subtype.ext
-  change nativeFeedback (Endpoint.unit g).entryRegion (Endpoint.unit g).blocks =
-    nativeFeedback g.entryRegion g.blocks
-  rw [same]
-  rfl
 
 theorem rejection_iff [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A))

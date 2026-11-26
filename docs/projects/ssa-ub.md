@@ -1436,6 +1436,24 @@ mismatch requires a packet-changing reply. A longer path to the same
 mismatch takes an avoidable self-edge.
 [Reachable-product cutoff][ssa-ub-open-guarded-reachable-cutoff]
 
+`OrderedLiveOut.compareReachable?` applies the same cutoff to two checked
+named packet-local RTL endpoints with an agreed constructor-bit caller.
+The ordered result codec retains the original exit and both Bit fields.
+Product edges still depend only on shared typed requests and replies.
+The terminal test compares the full return packet at ordinary exits.
+Selected exits still produce fresh top, which hides the packet. State
+embedding carries the store of each return or fault, and genuine infinite
+replay produces ordinary divergence.
+
+Both native readbacks are checked before a verdict. The inventories come
+from the recognized profile. At the supplied caller, the two verdicts are
+equivalent to refinement or a counterexample over deterministic stores
+of type `Type` at the original named observations. The cyclic regressions
+use a state-changing shared handler for matched infinite replay and a
+handler that returns after one backedge. On the latter run the exit, final
+state and first field agree, and the second field separates the endpoints.
+[Named ordered live-out cutoff][ssa-ub-named-ordered-liveout-reachable]
+
 The native silent-head profile adds unconditional exact-typed constructor
 jumps to guarded rows. Constructor substitution composes the carried
 payload into the next request operand while keeping the caller binding.
@@ -1637,6 +1655,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
 [ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
 [ssa-ub-open-guarded-reachable-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Reachable/Thms.lean
+[ssa-ub-named-ordered-liveout-reachable]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Reachable/Thms.lean
 [ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

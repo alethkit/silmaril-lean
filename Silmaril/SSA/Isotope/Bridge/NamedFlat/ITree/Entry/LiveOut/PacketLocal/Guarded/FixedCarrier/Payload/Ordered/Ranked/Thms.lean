@@ -23,11 +23,11 @@ attribute [local instance] requestTypes
 universe v
 
 /-- The accepted constructor-bit and unit layout has a fixed exhaustive inventory. -/
-def configurations : ConfigurationEnumeration Incoming :=
+@[noinline] def configurations : ConfigurationEnumeration Incoming :=
   Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.OrderedLiveOut.Ranked.configurations
 
 /-- The native reply signature is the same constructor sum at every opcode. -/
-def replyPackets {Φ : Type} : ReplyEnumeration (Recognize.signature Φ) :=
+@[noinline] def replyPackets {Φ : Type} : ReplyEnumeration (Recognize.signature Φ) :=
   Proofs.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.OrderedLiveOut.Ranked.replyPackets
 
 theorem output_left_inv : Function.LeftInverse outputEncode outputDecode :=

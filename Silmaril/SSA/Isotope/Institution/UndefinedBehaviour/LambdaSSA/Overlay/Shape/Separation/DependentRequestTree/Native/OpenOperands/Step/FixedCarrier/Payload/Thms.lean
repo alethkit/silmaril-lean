@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Defs
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Observation.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload
 
 public section
@@ -17,34 +17,6 @@ universe u v
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
-
-/-- One local native step retains the whole typed packet at an ordinary exit. -/
-theorem Endpoint.feedback_step {σ : Type v} (g : Endpoint S R A)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (p : Packet R) (s : σ) :
-    g.feedback caller prim (blockPoint p s) = g.route caller p ((g.control.head caller p).execute prim s) :=
-  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.raw_step
-    g caller prim p s
-
-/-- The exact checked native entry has the packet-sensitive observation over
-any deterministic store type. -/
-theorem Endpoint.observe_entry_state [DecidableEq Φ] {σ : Type v} (g : Endpoint S R A)
-    (raw : CFG.Dependent.Native.Typed Φ [R.get g.control.entry] (Exits A)) (checked : g.checkNative raw = true)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (s : σ) :
-    Shape.denote (withExitUB raw g.control.selected) (model prim (g.control.bindings caller)) s =
-      g.observeAt caller prim ⟨g.control.entry, caller⟩ s :=
-  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.observe_entry_state
-    g raw checked caller prim s
-
-theorem Endpoint.observe_state_step {σ : Type v} (g : Endpoint S R A)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ) (p : Packet R) (s : σ) :
-    g.observeAt caller prim p s =
-      match (g.control.head caller p).execute prim s with
-      | .exit i _ t => if g.control.selected i then ⊤ else WithTop.some {Outcome.ret i (g.returnPacket caller p i).2.val t}
-      | .repeat next t => g.observeAt caller prim next t
-      | .fault t => WithTop.some {Outcome.fault t}
-      | .diverge => WithTop.some {Outcome.diverge} :=
-  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.observe_state_step
-    g caller prim p s
 
 /-- The existing finite feedback traversal retains the typed exit payload at
 the actual terminal packet, prior to any selection. -/
@@ -115,10 +87,5 @@ theorem Endpoint.rejection_iff [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoi
           Shape.denote (withExitUB raw' h.control.selected) (model prim (h.control.bindings caller')) s :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.rejection_iff
     g h raw raw' codec caller caller' replies left right stores hg hh
-
-/-- The unit specialization re-emits the existing native guarded CFG. -/
-theorem Endpoint.unit_native (g : Table S R) : (Endpoint.unit g).native = g.native :=
-  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.unit_native
-    g
 
 end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload

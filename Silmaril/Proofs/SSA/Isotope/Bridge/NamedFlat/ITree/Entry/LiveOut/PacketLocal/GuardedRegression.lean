@@ -3,7 +3,8 @@ module
 import Mathlib.Tactic.FinCases
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Recognize.Thms
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Ranked.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Payload.Ordered.Reachable.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Thms
 
@@ -736,7 +737,10 @@ private def orderedSource (fixed : Bool) (backedge : Bool := false) : CFG Reg La
   let g := namedSource fixed backedge
   { g with blocks := g.blocks.map fun (label, row) =>
       if label = .left ∨ label = .right then
-        (label, { row with body := .let1 .alt (.app (.literal true) .unit) row.body })
+        let terminal := if label = .right && backedge && !fixed then
+          CFG.Body.let1 .left (.app (.literal true) .unit) (.term (.br .second .unit))
+          else row.body
+        (label, { row with body := .let1 .alt (.app (.literal true) .unit) terminal })
       else (label, row) }
 
 private def orderedAdmission (fixed : Bool) (backedge : Bool := false) :
@@ -783,7 +787,7 @@ private abbrev nativeEndpoint (fixed : Bool) (selected : Tag → Bool) (backedge
     (recordExpr (bitExpr false) (bitExpr false))
     (Fin.cases (motive := fun i : Fin 2 => Syntax.Expr [Incoming.get i.succ, Bit] outputType)
       (recordExpr (bitExpr true) (if fixed then bitExpr false else .var 0))
-      (Fin.cases (recordExpr (bitExpr true) (bitExpr false)) (fun i => Fin.elim0 i)))
+      (Fin.cases (recordExpr (bitExpr true) (bitExpr (backedge && !fixed))) (fun i => Fin.elim0 i)))
 
 private theorem exactNative (fixed : Bool) (selected : Tag → Bool) (backedge : Bool := false) :
     ((inferred fixed backedge).profile.endpoint .poll selected).checkNative
@@ -913,6 +917,111 @@ example : FixedCarrier.OrderedLiveOut.compareRanked? (inferred? false) (inferred
     (exactNative false firstSelected) (exactNative false firstSelected) (.inl (by decide +kernel))).mpr
   intro σ prim s
   exact le_rfl
+
+private abbrev loopEndpoint (fixed : Bool) (selected : Tag → Bool) :=
+  (inferred fixed true).profile.endpoint .poll selected
+
+private def retry : Syntax.StatePrimitives signature.Instr Nat :=
+  fun _ _ n => .ret (pack (L := Replies) ⟨0, leftBit⟩) (n + 1)
+
+private def retryThenExit : Syntax.StatePrimitives signature.Instr Nat :=
+  fun _ _ n => if n = 0 then .ret (pack (L := Replies) ⟨0, rightBit⟩) 1
+    else .ret (pack (L := Replies) ⟨1, unitPacket⟩) (n + 1)
+
+private noncomputable def observeCycle (fixed : Bool) (selected : Tag → Bool)
+    (prim : Syntax.StatePrimitives signature.Instr Nat) :=
+  FixedCarrier.OrderedLiveOut.observeNamedOn (orderedSource fixed true) labels .alt .left seedStore
+    literalValues prim 0 selected
+
+private theorem cycle_native (fixed : Bool) (selected : Tag → Bool)
+    (prim : Syntax.StatePrimitives signature.Instr Nat) :
+    observeCycle fixed selected prim = (loopEndpoint fixed selected).observeAt leftBit prim ⟨0, leftBit⟩ 0 :=
+  ((inferred fixed true).observe_native_on selected leftBit seedStore rfl _
+    (exactNative fixed selected true) prim 0).trans
+    ((loopEndpoint fixed selected).observe_entry_state _ (exactNative fixed selected true) leftBit prim 0)
+
+-- Both named graphs replay infinitely under the same state-changing handler.
+private theorem cycle_infinite (fixed : Bool) :
+    observeCycle fixed noSelection retry = WithTop.some {Outcome.diverge} := by
+  rw [cycle_native]
+  exact (loopEndpoint fixed noSelection).observe_infinite leftBit retry (fun _ => ⟨0, leftBit⟩)
+    (fun n => n) (by intro n; cases fixed <;> rfl)
+
+example : observeCycle false noSelection retry = observeCycle true noSelection retry :=
+  (cycle_infinite false).trans (cycle_infinite true).symm
+
+private theorem cycle_exits (fixed : Bool) :
+    observeCycle fixed noSelection retryThenExit =
+      WithTop.some {Outcome.ret (1 : Tag) (projected 1 true (!fixed)).2.val (2 : Nat)} := by
+  cases fixed <;> rw [cycle_native]
+  all_goals
+    rw [Endpoint.observe_state_step]
+    rw [show Head.execute retryThenExit _ 0 = .repeat (⟨0, rightBit⟩ : Packet Incoming) 1 from rfl]
+    dsimp only
+    rw [Endpoint.observe_state_step]
+    rw [show Head.execute retryThenExit _ 1 = .repeat (⟨2, unitPacket⟩ : Packet Incoming) 2 from rfl]
+    dsimp only
+    rw [Endpoint.observe_state_step]
+    rfl
+
+private theorem cycle_distinguished :
+    ¬ observeCycle false noSelection retryThenExit ≤ observeCycle true noSelection retryThenExit := by
+  rw [cycle_exits false, cycle_exits true]
+  simp [WithTop.coe_le_coe, projected, FixedCarrier.OrderedLiveOut.outputPacket]
+  intro same
+  cases same
+
+example : (loopEndpoint false noSelection).control.entryCheck = false ∧
+    (loopEndpoint true noSelection).control.entryCheck = false := by decide +kernel
+
+example : (loopEndpoint false noSelection).reachableCutoff (loopEndpoint true noSelection)
+    leftBit leftBit replies configs configs = 3 := by
+  decide +kernel
+
+example : FixedCarrier.OrderedLiveOut.compareReachable? (inferred? false true) (inferred? true true)
+    (nativeEndpoint false noSelection true).native (nativeEndpoint true noSelection true).native
+    noSelection noSelection leftBit = some false := by
+  rw [accepted false true, accepted true true]
+  apply (FixedCarrier.OrderedLiveOut.reachable_rejection_iff (inferred false true) (inferred true true)
+    leftBit seedStore seedStore rfl rfl _ _ noSelection noSelection
+    (exactNative false noSelection true) (exactNative true noSelection true)).mpr
+  exact ⟨Nat, retryThenExit, 0, cycle_distinguished⟩
+
+-- The same rejected readback is unsupported if substituted for the left endpoint.
+example : FixedCarrier.OrderedLiveOut.compareReachable? (inferred? false true) (inferred? true true)
+    (nativeEndpoint true noSelection true).native (nativeEndpoint true noSelection true).native
+    noSelection noSelection leftBit = none := by decide +kernel
+
+private def secondSelected : Tag → Bool := fun i => i == 1
+
+example : FixedCarrier.OrderedLiveOut.compareReachable? (inferred? false true) (inferred? true true)
+    (nativeEndpoint false secondSelected true).native (nativeEndpoint true secondSelected true).native
+    secondSelected secondSelected leftBit = some true := by
+  rw [accepted false true, accepted true true]
+  apply (FixedCarrier.OrderedLiveOut.reachable_acceptance_iff (inferred false true) (inferred true true)
+    leftBit seedStore seedStore rfl rfl _ _ secondSelected secondSelected
+    (exactNative false secondSelected true) (exactNative true secondSelected true)).mpr
+  intro σ prim state
+  rw [(inferred false true).observe_native_on secondSelected leftBit seedStore rfl _
+        (exactNative false secondSelected true),
+    (inferred true true).observe_native_on secondSelected leftBit seedStore rfl _
+        (exactNative true secondSelected true),
+    (loopEndpoint false secondSelected).observe_entry_state _ (exactNative false secondSelected true),
+    (loopEndpoint true secondSelected).observe_entry_state _ (exactNative true secondSelected true)]
+  apply (loopEndpoint false secondSelected).closed_relation_sound (loopEndpoint true secondSelected)
+    leftBit leftBit prim (fun p q => p = q ∧ (p.1 = 0 ∨ p.1 = 2)) _ ⟨rfl, .inl rfl⟩ state
+  intro p q related
+  obtain ⟨rfl, live⟩ := related
+  obtain ⟨i, value⟩ := p
+  fin_cases i
+  · refine ⟨rfl, rfl, ?_⟩
+    rintro ⟨i, answer⟩
+    fin_cases i
+    · exact ⟨rfl, .inl rfl⟩
+    · exact ⟨rfl, .inr rfl⟩
+    · exact ⟨rfl, .inr rfl⟩
+  · simp at live
+  · trivial
 
 end Ordered
 
