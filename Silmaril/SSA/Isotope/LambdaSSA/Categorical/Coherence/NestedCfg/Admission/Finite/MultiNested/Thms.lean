@@ -22,7 +22,7 @@ variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 /-- Recover the original source restriction, typed route checks and bounded anchors. -/
 theorem check?_sound {m n : Nat} {keep : Fin m ↪ Fin n} {P : Fin m → Ty Empty} {forms : Fin m → Bool}
     {r : Region Φ} {L : LCtx (Ty Empty)} {p : Plan Φ m n}
-    (ok : check? keep P forms r L = some p) : p.Valid keep P forms r L :=
+    {masks : Fin m → Option InnerMask} (ok : check? keep P forms r L masks = some p) : p.Valid keep P forms r L :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgMultiSyntax.checked ok
 
 variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
@@ -33,11 +33,12 @@ variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
 
 /-- Compare any two original exact denotations of the same written table.
 The checker derives the payload agreements and the per-slot equations.
-The selected nested rows keep their native singleton iterations and all
+The selected nested rows keep their native inner iterations and all
 actual exits keep their original ordinals. -/
 theorem compare?_sound {m n : Nat} {keep : Fin (m + 1) ↪ Fin (n + 1)}
     {P : Fin (m + 1) → Ty Empty} {forms : Fin (m + 1) → Bool} {r : Region Φ} {L : LCtx (Ty Empty)}
-    (roll : IterationRolling C) (ok : compare? keep P forms r L = .certified)
+    {masks : Fin (m + 1) → Option InnerMask}
+    (roll : IterationRolling C) (ok : compare? keep P forms r L masks = .certified)
     {h h' : r.HasType [] L} {f g : J.obj (ctxObj M []) ⟶ J.obj (labelObj M L)}
     (left : RegionDenotes J M h f) (right : RegionDenotes J M h' g) : f = g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgMultiAdmission.compare J M roll ok left right

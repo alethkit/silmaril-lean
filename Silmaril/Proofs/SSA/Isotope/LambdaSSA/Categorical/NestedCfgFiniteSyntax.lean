@@ -4,6 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Adm
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgAdmissionSyntax
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Check.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Restriction.Check.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Check.Thms
 
 /-! # Finite traversal and exact input-type readback -/
 
@@ -18,35 +19,37 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 
 variable {Φ : Type v} [HasTy Φ (Ty Empty)]
 
+theorem inner_checked {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)} {P : Fin (k + 1) → Ty Empty}
+    {body : Region Φ} {p : InnerPlan Φ (k + 1) (n + 1)} {A : Ty Empty} {out : RouteLayout Empty}
+    (ok : checkInner? keep P A out body = some p) : p.Valid keep P A out body := by
+  simp only [checkInner?, Option.bind_eq_some_iff] at ok
+  obtain ⟨table, ht, entry, he, rows, hr, ok⟩ := ok
+  split at ok <;> try contradiction
+  rename_i all
+  cases Option.some.inj ok
+  exact ⟨CfgRestriction.check?_sound ht, he, Region.checkFamily_some hr,
+    fun i => by simpa using List.all_eq_true.mp all i (List.mem_finRange _)⟩
+
 theorem valid {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)} {P : Fin (k + 1) → Ty Empty}
     {r : Region Φ} {p : Plan Φ (k + 1) (n + 1)} {L : LCtx (Ty Empty)}
     (ok : check? keep P r L = some p) : p.Valid keep P r L := by
   simp only [check?] at ok
   split at ok <;> try contradiction
   rename_i blocks
-  simp only [Option.bind_eq_some_iff] at ok
-  obtain ⟨payload, init, body, chosen, ok⟩ := ok
-  split at ok <;> try contradiction
-  rename_i entry size rows
-  split at ok <;> try contradiction
-  rename_i sizeEq
-  subst size
-  simp only [Option.bind_eq_some_iff] at ok
-  obtain ⟨e, he, bs, hbs, ce, hce, cs, hcs, ok⟩ := ok
-  split at ok <;> try contradiction
-  rename_i all
-  cases Option.some.inj ok
-  obtain ⟨scope, restore⟩ := Region.restrictLabels?_sound he
-  have kept := fun i => Region.restrictLabels?_sound (Region.checkFamily_some hbs i)
-  refine ⟨?_, init, ?_, scope, fun i => (kept i).1, hce, Region.checkFamily_some hcs, ?_⟩
+  simp only [Option.bind_eq_some_iff, Option.map_eq_some_iff] at ok
+  obtain ⟨payload, init, body, chosen, p, h, rfl⟩ := ok
+  have i := inner_checked h
+  have sc : ∀ j, (p.table.rows j).LabelsBound (k + 1 + (L.length + 1)) := by
+    simpa only [enclosingLayout, List.length_cons, List.length_map] using i.table.rowScope
+  refine ⟨?_, init, ?_, ?_, sc, i.entryRoute, i.rowRoutes, i.paths⟩
   · congr 1
-    funext i
-    cases Subsingleton.elim i (0 : Fin 1)
+    funext j
+    cases Subsingleton.elim j (0 : Fin 1)
     rfl
-  · rw [restore, funext (fun i => (kept i).2)]
-    exact NestedCfgAdmissionSyntax.selected chosen
-  · intro i
-    simpa using (List.all_eq_true.mp all i (List.mem_finRange _))
+  · have prune := NestedCfgAdmissionSyntax.selected chosen
+    rw [← i.table.source] at prune
+    exact prune
+  · simpa only [enclosingLayout, List.length_cons, List.length_map] using i.table.entryScope
 
 private theorem branch_type {Γ K : List (Ty Empty)} {i : Nat} {a : Tm Φ} {A : Ty Empty}
     (unique : TypeDetermined Γ a A) (typed : (Region.br i a).HasType Γ K) : At K i A := by
@@ -140,11 +143,11 @@ theorem of_worklist {m : Nat} {seed : Fin m → Bool} {edge : Fin m → Fin m �
       · obtain ⟨j, known, next⟩ := List.any_eq_true.mp step
         exact advance j i (ih known) next
 
-theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
-    {L K : LCtx (Ty Empty)} {A : Ty Empty} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
+theorem aligned_inner {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
+    {out : RouteLayout Empty} {K : LCtx (Ty Empty)} {A : Ty Empty} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
     {commonRows : Fin m → Region Φ} (wide : Bool)
-    (er : entry.checkRoutes? (layout P L A) [A] = some commonEntry)
-    (rr : ∀ i, (rows (keep i)).checkRoutes? (layout P L A) [P i, A] = some (commonRows i))
+    (er : entry.checkRoutes? (innerLayout P out) [A] = some commonEntry)
+    (rr : ∀ i, (rows (keep i)).checkRoutes? (innerLayout P out) [P i, A] = some (commonRows i))
     (typedEntry : (if wide then entry else commonEntry).HasType [A] (List.ofFn S ++ K))
     (typedRows : ∀ i, (if wide then rows (keep i) else commonRows i).HasType
       [S i, A] (List.ofFn S ++ K))
@@ -159,5 +162,16 @@ theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
     exact Option.some.inj ((local_at S K i).symm.trans
       (plain_target wide (rr j) next (local_at (fun j => (P j, false)) _ i) typed))
   exact funext fun i => of_worklist entryFixed advance (paths i)
+
+theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
+    {L K : LCtx (Ty Empty)} {A : Ty Empty} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
+    {commonRows : Fin m → Region Φ} (wide : Bool)
+    (er : entry.checkRoutes? (layout P L A) [A] = some commonEntry)
+    (rr : ∀ i, (rows (keep i)).checkRoutes? (layout P L A) [P i, A] = some (commonRows i))
+    (typedEntry : (if wide then entry else commonEntry).HasType [A] (List.ofFn S ++ K))
+    (typedRows : ∀ i, (if wide then rows (keep i) else commonRows i).HasType
+      [S i, A] (List.ofFn S ++ K))
+    {d : Nat} (paths : ∀ i, i ∈ anchored commonEntry commonRows d) : S = P :=
+  aligned_inner wide er rr typedEntry typedRows paths
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax

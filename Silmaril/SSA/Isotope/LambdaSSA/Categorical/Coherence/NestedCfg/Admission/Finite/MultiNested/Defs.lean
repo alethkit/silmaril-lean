@@ -20,42 +20,51 @@ Ordered actual exits are ordinary targets. -/
 def layout (P : Fin m → Ty Empty) (nested : Fin m → Bool) (L : LCtx (Ty Empty)) : RouteLayout Empty :=
   List.ofFn (fun i => (P i, nested i)) ++ L.map (fun A => (A, false))
 
+/-- Candidate retained labels and payloads for one selected inner table.
+Different selected rows may supply different arities and masks. -/
+structure InnerMask where
+  retainedTail : Nat
+  writtenTail : Nat
+  keep : Fin (retainedTail + 1) ↪ Fin (writtenTail + 1)
+  types : Fin (retainedTail + 1) → Ty Empty
+
+def InnerMask.singleton (A : Ty Empty) : InnerMask :=
+  ⟨0, 0, Function.Embedding.refl _, fun _ => A⟩
+
 inductive RowPlan (Φ : Type v) where
   | ordinary (common : Region Φ)
-  | nested (original common : Region Φ)
-
-/-- A selected inner CFG retains its entry and single local loop. -/
-def inner (row : Region Φ) : Region Φ := .cfg (.br 0 (.var 0)) 1 (fun _ => row)
+  | nested (mask : InnerMask) (plan : InnerPlan Φ (mask.retainedTail + 1) (mask.writtenTail + 1))
 
 def RowPlan.commonRegion : RowPlan Φ → Region Φ
   | .ordinary row => row
-  | .nested _ row => inner row
+  | .nested _ plan => plan.common
 
 def RowPlan.targets (i : Nat) : RowPlan Φ → Bool
   | .ordinary row => branchesTo i row
-  | .nested _ row => branchesTo (1 + i) row
+  | .nested mask plan =>
+      let target := mask.retainedTail + 1 + i
+      branchesTo target plan.commonEntry ||
+        (List.finRange (mask.retainedTail + 1)).any fun j => branchesTo target (plan.commonRows j)
 
-/-- Ordinary rows are branch/case rows. A nested row immediately cases on
-its parameter. The selected left arm is a singleton inner CFG entered
-with the already bound payload. -/
-def checkRow? (form : Bool) (A : Ty Empty) (out : RouteLayout Empty) (r : Region Φ) : Option (RowPlan Φ) :=
+/-- Ordinary rows are branch/case rows. For a selected row, check the left
+arm's finite inner mask in the already-bound payload context. Omitting a
+mask selects the singleton inner interface. -/
+def checkRow? (form : Bool) (A : Ty Empty) (out : RouteLayout Empty) (r : Region Φ)
+    (mask : Option InnerMask := none) : Option (RowPlan Φ) :=
   match form with
   | false => (r.checkRoutes? out [A]).map RowPlan.ordinary
   | true =>
+      let mask := mask.getD (InnerMask.singleton A)
       (selectLeft? r).bind fun selected =>
-      match selected with
-      | .cfg (.br 0 (.var 0)) 1 blocks =>
-          let row := blocks 0
-          (row.checkRoutes? ((A, false) :: out) [A, A]).map (RowPlan.nested row)
-      | _ => none
+      (checkInner? mask.keep mask.types A out selected).map (RowPlan.nested mask)
 
 inductive RowPlan.Valid (A : Ty Empty) (out : RouteLayout Empty) (r : Region Φ) : Bool → RowPlan Φ → Prop
   | ordinary {common} (route : r.checkRoutes? out [A] = some common) :
       Valid A out r false (.ordinary common)
-  | nested {row common} (prune : Region.PruneConstructorTests
-      (r.substVars (Tm.replaceNewest (.inl (.var 0)))) (inner row))
-      (route : row.checkRoutes? ((A, false) :: out) [A, A] = some common) :
-      Valid A out r true (.nested row common)
+  | nested {mask plan body} (prune : Region.PruneConstructorTests
+      (r.substVars (Tm.replaceNewest (.inl (.var 0)))) body)
+      (typed : InnerPlan.Valid plan mask.keep mask.types A out body) :
+      Valid A out r true (.nested mask plan)
 
 structure Plan (Φ : Type v) (m n : Nat) where
   outer : CfgRestriction Φ n
@@ -69,17 +78,19 @@ def Plan.anchors (p : Plan Φ m n) (depth : Nat) : List (Fin m) :=
 payloads. A bounded worklist must reach every retained slot by checked
 transfers, including transfers out of a selected inner block. -/
 def check? (keep : Fin m ↪ Fin n) (P : Fin m → Ty Empty) (forms : Fin m → Bool)
-    (r : Region Φ) (L : LCtx (Ty Empty) := exits) : Option (Plan Φ m n) :=
+    (r : Region Φ) (L : LCtx (Ty Empty) := exits)
+    (innerMasks : Fin m → Option InnerMask := fun _ => none) : Option (Plan Φ m n) :=
   let out := layout P forms L
   (CfgRestriction.check? keep L.length r).bind fun c =>
   (c.entry.checkRoutes? out []).bind fun entry =>
-  (Region.checkFamily m (fun i => checkRow? (forms i) (P i) out (c.rows (keep i)))).bind fun rows =>
+  (Region.checkFamily m (fun i => checkRow? (forms i) (P i) out (c.rows (keep i)) (innerMasks i))).bind fun rows =>
   let p := Plan.mk c entry rows
   if (List.finRange m).all (fun i => (p.anchors m).contains i) then some p else none
 
 def compare? (keep : Fin m ↪ Fin n) (P : Fin m → Ty Empty) (forms : Fin m → Bool)
-    (r : Region Φ) (L : LCtx (Ty Empty) := exits) : Comparison :=
-  if (check? keep P forms r L).isSome then .certified else .unknown
+    (r : Region Φ) (L : LCtx (Ty Empty) := exits)
+    (innerMasks : Fin m → Option InnerMask := fun _ => none) : Comparison :=
+  if (check? keep P forms r L innerMasks).isSome then .certified else .unknown
 
 structure Plan.Valid (p : Plan Φ m n) (keep : Fin m ↪ Fin n) (P : Fin m → Ty Empty) (forms : Fin m → Bool)
     (r : Region Φ) (L : LCtx (Ty Empty)) : Prop where

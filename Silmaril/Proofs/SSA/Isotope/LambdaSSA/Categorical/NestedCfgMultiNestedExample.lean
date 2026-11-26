@@ -204,4 +204,175 @@ example (roll : IterationRolling C) :
 
 end Model
 
+namespace SparseInner
+
+private def keepLocal : Fin 2 ↪ Fin 3 :=
+  ⟨fun i => ⟨2 * i.val, by omega⟩, by
+    intro i j h
+    have eq := congrArg Fin.val h
+    apply Fin.ext
+    change 2 * i.val = 2 * j.val at eq
+    omega⟩
+
+private def payloads : Fin 2 → Ty Empty := Fin.cases U (fun _ => Pair)
+private def innerTypes (dead : Ty Empty) : Fin 3 → Ty Empty := Fin.cases U (Fin.cases dead (fun _ => Pair))
+
+private def masks : Fin 3 → Option MultiNested.InnerMask :=
+  Fin.cases (some ⟨1, 2, keepLocal, payloads⟩) (fun _ => none)
+
+private def entry : Region Op := .br 0 (.var 0)
+private def pollRow : Region Op := .case (.op .poll (.var 0)) (.br 1 (.var 0)) (.br 5 (.var 0))
+private def resumeRow : Region Op := .case (.op .resume (.var 0)) (.br 0 (.var 0)) (.br 3 (.inl (.var 0)))
+private def deadRow : Region Op := .br 5 .unit
+
+private def innerRows (wrong : Bool) : Fin 3 → Region Op :=
+  let reindex := retainLabelIndex keepLocal
+  Fin.cases (if wrong then .case (.op .poll (.var 0)) (.br 1 (.var 0)) (.br 6 (.var 0))
+      else pollRow.renameLabels reindex)
+    (Fin.cases (deadRow.renameLabels reindex) (fun _ => resumeRow.renameLabels reindex))
+
+private def innerBody (wrong : Bool) : Region Op :=
+  .cfg (entry.renameLabels (retainLabelIndex keepLocal)) 3 (innerRows wrong)
+
+private def fullTable (wrong : Bool) : CfgRestriction Op 4 :=
+  { table false with rows := Fin.cases (outerGuard (innerBody wrong)) (fun i => (table false).rows i.succ) }
+
+private abbrev graph (wrong : Bool) := (fullTable wrong).source keep
+
+private theorem fullRows_typed (wrong : Bool) (D E deadOuter deadInner : Ty Empty)
+    (badType : wrong = true → deadInner = Pair) (i : Fin 4) :
+    (((fullTable wrong).rows i).renameLabels (retainLabelIndex keep)).HasType
+      [wide D E deadOuter i] (List.ofFn (wide D E deadOuter) ++ exits) := by
+  let L := List.ofFn (fun i => wide D E deadOuter (keep i)) ++ exits
+  let localLabels := List.ofFn (fun i => innerTypes deadInner (keepLocal i)) ++ L
+  have ren := retainLabelRen keepLocal (innerTypes deadInner) L
+  have ent : entry.HasType [U] localLabels := .br rfl (.var rfl)
+  have poll : pollRow.HasType [U, U] localLabels :=
+    .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.var rfl))
+  have resume : resumeRow.HasType [Pair, U] localLabels :=
+    .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.inl (.var rfl)))
+  have omitted : deadRow.HasType [deadInner, U] localLabels := .br rfl .unit
+  have first : (innerRows wrong 0).HasType [U, U] (List.ofFn (innerTypes deadInner) ++ L) := by
+    cases wrong
+    · exact poll.renameLabels ren
+    · have eq := badType rfl
+      subst deadInner
+      exact .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.var rfl))
+  have nested : (innerBody wrong).HasType [U] L :=
+    .cfg (innerTypes deadInner) (ent.renameLabels ren) (Fin.cases first
+      (Fin.cases (omitted.renameLabels ren) (fun _ => resume.renameLabels ren)))
+  have guarded : (outerGuard (innerBody wrong)).HasType [.coprod U D] L :=
+    .case (.var rfl) (nested.renameVars ((Ren.wk [] (.coprod U D)).lift U)) (.br rfl .unit)
+  exact Fin.cases (guarded.renameLabels (retainLabelRen keep _ _))
+    (fun j => rows_typed false D E deadOuter (by intro h; cases h) j.succ) i
+
+/-- The bad source edge reaches a well-typed inner slot that the supplied
+inner mask omits. The full outer restriction still succeeds. -/
+example : (graph true).HasType [] exits ∧
+    (CfgRestriction.check? keep exits.length (graph true)).isSome = true ∧
+    CfgRestriction.check? keepLocal (3 + exits.length) (innerBody true) = none ∧
+    MultiNested.compare? keep types forms (graph true) exits masks = .unknown :=
+  ⟨.cfg (wide U Pair U) (entry_typed false U Pair U)
+    (fullRows_typed true U Pair U Pair (fun _ => rfl)), by decide, rfl, by decide⟩
+
+private def responses (stop : Bool) : Op → Value Empty → Nat → Value Empty → Nat → Prop
+  | .poll, .unit, 0, .inl (.pair .unit .unit), 1 => True
+  | .resume, .pair .unit .unit, 1, .inl .unit, 2 => True
+  | .poll, .unit, 2, .inl (.pair .unit .unit), 3 => stop = false
+  | .poll, .unit, 2, .inr .unit, 3 => stop = true
+  | .resume, .pair .unit .unit, 3, .inr (.pair .unit .unit), 4 => True
+  | .resume, .pair .unit .unit, 4, .inr (.pair .unit .unit), 5 => True
+  | .resume, .pair .unit .unit, 5, .inr (.pair .unit .unit), 6 => True
+  | _, _, _, _, _ => False
+
+/-- In the first written inner graph, visit local slots zero and two,
+return to zero, then take actual exit ordinal zero. -/
+example : Semantics.Region.Eval (responses true) (fun _ => .unit) (graph false) 0 0 .unit 3 := by
+  refine .cfg (.br (.inl .unit)) ?_
+  refine .step (label := 0) (next := 4) (middle := .unit) (s₁ := 3) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .var) ?_)
+  refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := 1) (by decide)
+    (.case_inl (.op .var
+      (show responses true Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro)) (.br .var)) ?_
+  refine .step (label := 2) (next := 0) (middle := .unit) (s₁ := 2) (by decide)
+    (.case_inl (.op .var
+      (show responses true Op.resume (.pair .unit .unit) 1 (.inl .unit) 2 from True.intro)) (.br .var)) ?_
+  exact .step (label := 0) (next := 7) (by decide)
+    (.case_inr (.op .var (show responses true Op.poll .unit 2 (.inr .unit) 3 from rfl)) (.br .var)) (.exit (by decide))
+
+/-- The same local backedge can lead to the second nested outer row.
+Its reply enters the ordinary row and takes actual exit ordinal one. -/
+example : Semantics.Region.Eval (responses false) (fun _ => .unit) (graph false) 0 1 (.pair .unit .unit) 6 := by
+  refine .cfg (.br (.inl .unit)) ?_
+  refine .step (label := 0) (next := 2) (middle := .inl (.pair .unit .unit)) (s₁ := 4) (by decide) ?_ ?_
+  · refine .case_inl .var (.cfg (.br .var) ?_)
+    refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := 1) (by decide)
+      (.case_inl (.op .var
+        (show responses false Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro)) (.br .var)) ?_
+    refine .step (label := 2) (next := 0) (middle := .unit) (s₁ := 2) (by decide)
+      (.case_inl (.op .var
+        (show responses false Op.resume (.pair .unit .unit) 1 (.inl .unit) 2 from True.intro)) (.br .var)) ?_
+    refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := 3) (by decide)
+      (.case_inl (.op .var
+        (show responses false Op.poll .unit 2 (.inl (.pair .unit .unit)) 3 from rfl)) (.br .var)) ?_
+    exact .step (label := 2) (next := 5) (by decide)
+      (.case_inr (.op .var
+        (show responses false Op.resume (.pair .unit .unit) 3 (.inr (.pair .unit .unit)) 4 from True.intro))
+        (.br (.inl .var))) (.exit (by decide))
+  · refine .step (label := 2) (next := 3) (middle := .pair .unit .unit) (s₁ := 5) (by decide) ?_ ?_
+    · exact .case_inl .var (.cfg (.br .var)
+        (.step (label := 0) (next := 4) (by decide)
+          (.case_inr (.op .var
+            (show responses false Op.resume (.pair .unit .unit) 4 (.inr (.pair .unit .unit)) 5 from True.intro))
+            (.br .var)) (.exit (by decide))))
+    · exact .step (label := 3) (next := 5) (by decide)
+        (.case_inr (.op .var
+          (show responses false Op.resume (.pair .unit .unit) 5 (.inr (.pair .unit .unit)) 6 from True.intro))
+          (.br .var)) (.exit (by decide))
+
+/-- On the rejected source, the first reply actually enters the omitted inner block. -/
+example : Semantics.Region.Eval (responses true) (fun _ => .unit) (graph true) 0 0 .unit 1 := by
+  refine .cfg (.br (.inl .unit)) ?_
+  refine .step (label := 0) (next := 4) (middle := .unit) (s₁ := 1) (by decide) ?_ (.exit (by decide))
+  refine .case_inl .var (.cfg (.br .var) ?_)
+  refine .step (label := 0) (next := 1) (middle := .pair .unit .unit) (s₁ := 1) (by decide)
+    (.case_inl (.op .var
+      (show responses true Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro)) (.br .var)) ?_
+  exact .step (label := 1) (next := 7) (by decide) (.br .unit) (.exit (by decide))
+
+section Model
+
+variable {V C : Type} [Category V] [Category C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
+
+local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
+
+/-- The two exact full witnesses vary the outer right summands and the
+omitted outer and inner slot types. -/
+example (roll : IterationRolling C) :
+    ∃ f g : Arrow,
+      CfgDenotesAt J M (wide U Pair U) ((fullTable false).entry.renameLabels (retainLabelIndex keep))
+        (fun i => ((fullTable false).rows i).renameLabels (retainLabelIndex keep)) f ∧
+      CfgDenotesAt J M (wide .empty .empty .empty) ((fullTable false).entry.renameLabels (retainLabelIndex keep))
+        (fun i => ((fullTable false).rows i).renameLabels (retainLabelIndex keep)) g ∧ f = g := by
+  have leftRows := fullRows_typed false U Pair U Pair (fun _ => rfl)
+  have rightRows := fullRows_typed false .empty .empty .empty .empty (by intro h; cases h)
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (wide U Pair U) (entry_typed false U Pair U) leftRows
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (wide .empty .empty .empty)
+    (entry_typed false .empty .empty .empty) rightRows
+  have tl : (graph false).HasType [] exits := .cfg (wide U Pair U) (entry_typed false U Pair U) leftRows
+  have tr : (graph false).HasType [] exits := .cfg (wide .empty .empty .empty)
+    (entry_typed false .empty .empty .empty) rightRows
+  have dl : RegionDenotes J M tl f := left.denotes J M
+  have dr : RegionDenotes J M tr g := right.denotes J M
+  have ok : MultiNested.compare? keep types forms (graph false) exits masks = .certified := by decide
+  exact ⟨f, g, left, right, MultiNested.compare?_sound J M roll ok dl dr⟩
+
+end Model
+
+end SparseInner
+
 end Silmaril.Isotope.LambdaSSA.Semantics.Categorical.NestedCfgMultiNestedExample

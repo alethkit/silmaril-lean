@@ -8,6 +8,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.SlotMaps
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.SlotMaps.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Check.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Check.Thms
@@ -25,6 +26,7 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgMultiAdmiss
 
 open Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LambdaSSA.NestedAdmission.Finite.MultiNested
+open Silmaril.Isotope.LambdaSSA.NestedAdmission.Finite (InnerPlan innerLayout)
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open CartesianMonoidalCategory (snd)
@@ -43,7 +45,6 @@ private abbrev wideTypes {m : Nat} (P : Fin m → Ty Empty) (forms : Fin m → B
   fun i => payloadType (P i) (D i) (forms i)
 
 private abbrev labels {m : Nat} (P : Fin m → Ty Empty) (L : LCtx (Ty Empty)) := List.ofFn P ++ L
-private abbrev single (A : Ty Empty) : Fin 1 → Ty Empty := fun _ => A
 
 private theorem localAt {m : Nat} (P : Fin m → Ty Empty) (L : LCtx (Ty Empty)) (i : Fin m) :
     At (labels P L) i (P i) := by simp [At, labels, List.getElem?_append_left, i.isLt]
@@ -150,40 +151,45 @@ private theorem leaf_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
     exact ⟨D, l, r, by rw [Category.comp_id]; exact e⟩
 
 private theorem inner_routes {out : RouteLayout Empty} {K W : LCtx (Ty Empty)}
-    {post : labelObj M K ⟶ labelObj M W} (coord : Coordinates M out post) (A : Ty Empty)
-    {Γ : VCtx (Ty Empty)} {r s : Region Φ} (checked : CheckedRoutes ((A, false) :: out) Γ r s) :
+    {post : labelObj M K ⟶ labelObj M W} (coord : Coordinates M out post) {n : Nat} (I : Fin n → Ty Empty)
+    {Γ : VCtx (Ty Empty)} {r s : Region Φ} (checked : CheckedRoutes (innerLayout I out) Γ r s) :
     RegionConstructorRoutes M
-      (labelAppendSplit M (List.ofFn (single A)) K ≫ coprod.map post (𝟙 _)) (labelAppendSplit M (List.ofFn (single A)) W) Γ r s := by
+      (labelAppendSplit M (List.ofFn I) K ≫ coprod.map post (𝟙 _))
+      (labelAppendSplit M (List.ofFn I) W) Γ r s := by
   have liftExit {i : Nat} {B T : Ty Empty} (l : At K i B) (r : At W i T) (f : M.obj B ⟶ M.obj T)
       (h : labelInject M i l ≫ post = f ≫ labelInject M i r) :
-      labelInject M (1+i) (exitAt (single A) l) ≫ (labelAppendSplit M (List.ofFn (single A)) K ≫ coprod.map post (𝟙 _)) =
-        f ≫ labelInject M (1+i) (exitAt (single A) r) ≫ labelAppendSplit M (List.ofFn (single A)) W := by
-    rw [← Category.assoc, labelAppendSplit_exit M (single A) K l, Category.assoc,
-      coprod.inl_map, ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M (single A) W r]
+      labelInject M (n+i) (exitAt I l) ≫ (labelAppendSplit M (List.ofFn I) K ≫ coprod.map post (𝟙 _)) =
+        f ≫ labelInject M (n+i) (exitAt I r) ≫ labelAppendSplit M (List.ofFn I) W := by
+    rw [← Category.assoc, labelAppendSplit_exit M I K l, Category.assoc,
+      coprod.inl_map, ← Category.assoc, h, Category.assoc, labelAppendSplit_exit M I W r]
+  have lookup {i : Nat} (h : i < n) : (innerLayout I out)[i]? = some (I ⟨i, h⟩, false) := by
+    simp [innerLayout, List.getElem?_append_left, h]
+  have outward (i : Nat) : (innerLayout I out)[n+i]? = out[i]? := by
+    simp [innerLayout, List.getElem?_append_right]
   apply CheckedRoutes.toConstructorRoutes M checked
   · intro i B hit
-    cases i with
-    | zero =>
-        have eq : A = B := congrArg Prod.fst (Option.some.inj hit)
-        subst B
-        refine ⟨localAt (single A) K 0, localAt (single A) W 0, ?_⟩
-        erw [← Category.assoc, labelAppendSplit_local M (single A) K 0 _ rfl, Category.assoc,
-          coprod.inr_map, Category.id_comp, labelAppendSplit_local M (single A) W 0 _ rfl]
-    | succ i =>
-        obtain ⟨l, r, h⟩ := coord.plain i B hit
-        have e := liftExit l r (𝟙 _) (h.trans (Category.id_comp _).symm)
-        rw [Category.id_comp] at e
-        have hl : At (labels (single A) K) (i + 1) B := l
-        have hr : At (labels (single A) W) (i + 1) B := r
-        exact ⟨hl, hr, by simpa only [Nat.add_comm 1 i] using e⟩
+    by_cases h : i < n
+    · let j : Fin n := ⟨i, h⟩
+      have eq : I j = B := congrArg Prod.fst (Option.some.inj ((lookup h).symm.trans hit))
+      subst B
+      have atLocal : At (List.ofFn I) j (I j) := by simp [At, j.isLt]
+      refine ⟨localAt I K j, localAt I W j, ?_⟩
+      erw [← Category.assoc, labelAppendSplit_local M I K j _ atLocal, Category.assoc,
+        coprod.inr_map, Category.id_comp, labelAppendSplit_local M I W j _ atLocal]
+    · obtain ⟨j, rfl⟩ : ∃ j, i = n+j := ⟨i-n, by omega⟩
+      rw [outward] at hit
+      obtain ⟨l, r, e⟩ := coord.plain j B hit
+      have eq := liftExit l r (𝟙 _) (e.trans (Category.id_comp _).symm)
+      rw [Category.id_comp] at eq
+      exact ⟨exitAt I l, exitAt I r, eq⟩
   · intro i B hit
-    cases i with
-    | zero => simp at hit
-    | succ i =>
-        obtain ⟨D, l, r, h⟩ := coord.left i B hit
-        have hl : At (labels (single A) K) (i + 1) B := l
-        have hr : At (labels (single A) W) (i + 1) (.coprod B D) := r
-        exact ⟨D, hl, hr, by simpa only [Nat.add_comm 1 i] using liftExit l r (inLeft M B D) h⟩
+    by_cases h : i < n
+    · rw [lookup h] at hit
+      cases hit
+    · obtain ⟨j, rfl⟩ : ∃ j, i = n+j := ⟨i-n, by omega⟩
+      rw [outward] at hit
+      obtain ⟨D, l, r, e⟩ := coord.left j B hit
+      exact ⟨D, exitAt I l, exitAt I r, liftExit l r (inLeft M B D) e⟩
 
 end Maps
 
@@ -198,25 +204,26 @@ variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
 
 local notation "Env" => ctxObj M []
 
-private theorem read_inner {A : Ty Empty} {K : LCtx (Ty Empty)} {r : Region Φ}
-    {t : (inner r).HasType [A] K} {f : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M K)}
+private theorem read_selected {k l : Nat} {keep : Fin (k + 1) ↪ Fin (l + 1)} {I : Fin (k + 1) → Ty Empty}
+    {A : Ty Empty} {K : LCtx (Ty Empty)} {out : RouteLayout Empty} {body : Region Φ}
+    {p : InnerPlan Φ (k + 1) (l + 1)} (checked : p.Valid keep I A out body)
+    (roll : IterationRolling C) (len : out.length = K.length)
+    {t : body.HasType [A] K} {f : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M K)}
     (d : RegionDenotes J M t f) :
-    CfgDenotesAt J M (single A) (.br 0 (.var 0)) (fun _ => r) f := by
-  apply d.cfg_readback_of_labels_determined J M
-  intro S he _
-  have eq : S 0 = A := by
-    cases he with
-    | br hit ht =>
-        cases ht with
-        | var var =>
-            exact Option.some.inj ((localAt S K 0).symm.trans hit |>.trans var.symm)
-  exact funext (Fin.cases eq fun i => Fin.elim0 i)
+    CfgDenotesAt J M I p.table.entry (fun i => p.table.rows (keep i)) f := by
+  have valid : p.table.Valid keep K.length body := len ▸ checked.table
+  obtain ⟨S, _, slim⟩ := valid.readback J M roll d
+  have eq : (fun i => S (keep i)) = I := by
+    obtain ⟨ent, rows, _⟩ := slim
+    exact checked.retained_types ent rows
+  rw [eq] at slim
+  exact slim
 
-private theorem select_inner {A D : Ty Empty} {K : LCtx (Ty Empty)} {raw row : Region Φ}
-    (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (.inl (.var 0)))) (inner row))
+private theorem select_inner {A D : Ty Empty} {K : LCtx (Ty Empty)} {raw body : Region Φ}
+    (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (.inl (.var 0)))) body)
     {t : raw.HasType [.coprod A D] K} {b : J.obj (ctxObj M [.coprod A D]) ⟶ J.obj (labelObj M K)}
     (w : RegionDenotes J M t b) :
-    ∃ h : (inner row).HasType [A] K, RegionDenotes J M h (J.map (Env ◁ inLeft M A D) ≫ b) := by
+    ∃ h : body.HasType [A] K, RegionDenotes J M h (J.map (Env ◁ inLeft M A D) ≫ b) := by
   have da : Denotes J M (.inl (.var rfl) (B := D) : (Tm.inl (.var 0) : Tm Φ).HasType [A] (.coprod A D))
       (J.map (snd Env (M.obj A) ≫ inLeft M A D)) := by
     rw [J.map_comp]
@@ -224,23 +231,27 @@ private theorem select_inner {A D : Ty Empty} {K : LCtx (Ty Empty)} {raw row : R
   obtain ⟨_, restricted⟩ := w.replaceNewest J M da
   exact prune.denotes J M restricted
 
-private theorem inner_compare {A : Ty Empty} {K W : LCtx (Ty Empty)} {out : RouteLayout Empty}
-    {post : labelObj M K ⟶ labelObj M W} (coord : Coordinates M out post)
-    {r s : Region Φ} (check : CheckedRoutes ((A, false) :: out) [A, A] r s)
-    {tl : (inner r).HasType [A] K} {tr : (inner s).HasType [A] W}
+private theorem inner_compare {k l : Nat} {keep : Fin (k + 1) ↪ Fin (l + 1)} {I : Fin (k + 1) → Ty Empty}
+    {A : Ty Empty} {K W : LCtx (Ty Empty)} {out : RouteLayout Empty} {body : Region Φ}
+    {post : labelObj M K ⟶ labelObj M W} {p : InnerPlan Φ (k + 1) (l + 1)}
+    (coord : Coordinates M out post) (checked : p.Valid keep I A out body)
+    (roll : IterationRolling C) (len : out.length = W.length)
+    {tl : p.common.HasType [A] K} {tr : body.HasType [A] W}
     {f : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M K)}
     {g : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M W)}
     (left : RegionDenotes J M tl f) (right : RegionDenotes J M tr g) : g = f ≫ J.map post := by
-  have entry : CheckedRoutes (Φ := Φ) ((A, false) :: out) [A] (.br 0 (.var 0)) (.br 0 (.var 0)) :=
-    .plain rfl (.var rfl) (.var rfl)
-  exact CfgDenotesAt.postmap_of_routes J M (single A) post
-    (RegionConstructorRoutes.denotes J M (inner_routes M coord A entry))
-    (fun _ => RegionConstructorRoutes.denotes J M (inner_routes M coord A check))
-    (read_inner J M left) (read_inner J M right)
+  have shape : LabelsDetermined [A] K p.commonEntry p.commonRows I := by
+    intro S he hr
+    exact NestedCfgFiniteSyntax.aligned_inner false checked.entryRoute checked.rowRoutes he hr checked.paths
+  exact CfgDenotesAt.postmap_of_routes J M I post
+    (RegionConstructorRoutes.denotes J M (inner_routes M coord I (Region.checkRoutes?_sound checked.entryRoute)))
+    (fun i => RegionConstructorRoutes.denotes J M
+      (inner_routes M coord I (Region.checkRoutes?_sound (checked.rowRoutes i))))
+    (left.cfg_readback_of_labels_determined J M shape) (read_selected J M checked roll len right)
 
 private theorem row_anchor {m : Nat} {P S : Fin m → Ty Empty} {F : Fin m → Bool}
     {L : LCtx (Ty Empty)} {A B : Ty Empty} {form : Bool} {raw : Region Φ} {p : RowPlan Φ}
-    (row : p.Valid A (layout P F L) raw form) (fit : NestedCfgMultiSyntax.Fits A form B)
+    (roll : IterationRolling C) (row : p.Valid A (layout P F L) raw form) (fit : NestedCfgMultiSyntax.Fits A form B)
     {h : raw.HasType [B] (labels S L)} {f : J.obj (ctxObj M [B]) ⟶ J.obj (labelObj M (labels S L))}
     (d : RegionDenotes J M h f) (i : Fin m) (edge : p.targets i = true) :
     NestedCfgMultiSyntax.Fits (P i) (F i) (S i) := by
@@ -249,14 +260,23 @@ private theorem row_anchor {m : Nat} {P S : Fin m → Ty Empty} {F : Fin m → B
       change B = A at fit
       subst B
       exact NestedCfgMultiSyntax.target [] route h i (by simpa [RowPlan.targets] using edge)
-  | nested prune route =>
+  | @nested mask plan body prune checked =>
       obtain ⟨D, rfl⟩ := fit
       obtain ⟨_, selected⟩ := select_inner J M prune d
-      obtain ⟨_, rows, _⟩ := read_inner J M selected
-      exact NestedCfgMultiSyntax.target [(A, false)] route (rows 0) i edge
+      have len : (layout P F L).length = (labels S L).length := by simp [layout, labels]
+      obtain ⟨entry, rows, _⟩ := read_selected J M checked roll len selected
+      rcases Bool.or_eq_true_iff.mp edge with throughEntry | throughRow
+      · exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, false))) checked.entryRoute
+          (by simpa only [List.map_ofFn, Function.comp_def] using entry) i
+          (by simpa only [List.length_ofFn] using throughEntry)
+      · obtain ⟨j, _, next⟩ := List.any_eq_true.mp throughRow
+        exact NestedCfgMultiSyntax.target (List.ofFn (fun j => (mask.types j, false))) (checked.rowRoutes j)
+          (by simpa only [List.map_ofFn, Function.comp_def] using (rows j)) i
+          (by simpa only [List.length_ofFn] using next)
 
 private theorem row_eq {A D : Ty Empty} {form : Bool} {out : RouteLayout Empty}
-    {K W : LCtx (Ty Empty)} {post : labelObj M K ⟶ labelObj M W} (coord : Coordinates M out post)
+    {K W : LCtx (Ty Empty)} {post : labelObj M K ⟶ labelObj M W}
+    (roll : IterationRolling C) (len : out.length = W.length) (coord : Coordinates M out post)
     {raw : Region Φ} {p : RowPlan Φ} (checked : p.Valid A out raw form)
     {tl : p.commonRegion.HasType [A] K} {tw : raw.HasType [payloadType A D form] W}
     {f : J.obj (ctxObj M [A]) ⟶ J.obj (labelObj M K)}
@@ -270,9 +290,9 @@ private theorem row_eq {A D : Ty Empty} {form : Bool} {out : RouteLayout Empty}
       change J.map (Env ◁ 𝟙 (M.obj A)) ≫ g = _
       rw [MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp]
       exact eq.symm
-  | nested prune route =>
+  | nested prune typed =>
       obtain ⟨_, selected⟩ := select_inner J M prune right
-      exact inner_compare J M coord (Region.checkRoutes?_sound route) left selected
+      exact inner_compare J M coord typed roll len left selected
 
 variable {m n : Nat} {keep : Fin (m + 1) ↪ Fin (n + 1)} {P : Fin (m + 1) → Ty Empty}
   {F : Fin (m + 1) → Bool} {r : Region Φ} {L : LCtx (Ty Empty)} {p : Plan Φ (m + 1) (n + 1)}
@@ -281,7 +301,7 @@ local notation "Arrow" => J.obj Env ⟶ J.obj (labelObj M L)
 local notation "ActualRows" => fun i => p.outer.rows (keep i)
 local notation "CommonRows" => fun i => RowPlan.commonRegion (p.rows i)
 
-private theorem align (ok : p.Valid keep P F r L) {S : Fin (m + 1) → Ty Empty}
+private theorem align (roll : IterationRolling C) (ok : p.Valid keep P F r L) {S : Fin (m + 1) → Ty Empty}
     {f : Arrow} (d : CfgDenotesAt J M S p.outer.entry ActualRows f) :
     ∃ D : Fin (m + 1) → Ty Empty, S = wideTypes P F D := by
   obtain ⟨he, _, _, _, _, _, rows, _⟩ := d
@@ -291,7 +311,7 @@ private theorem align (ok : p.Valid keep P F r L) {S : Fin (m + 1) → Ty Empty}
   have advance (j i : Fin (m + 1)) (fit : NestedCfgMultiSyntax.Fits (P j) (F j) (S j))
       (edge : (p.rows j).targets i = true) :
       NestedCfgMultiSyntax.Fits (P i) (F i) (S i) :=
-    row_anchor J M (ok.rows j) fit (rows j) i edge
+    row_anchor J M roll (ok.rows j) fit (rows j) i edge
   have tails (i : Fin (m + 1)) : ∃ D, S i = payloadType (P i) D (F i) := by
     have fit := NestedCfgFiniteSyntax.of_worklist initial advance (ok.anchors i)
     cases hi : F i with
@@ -300,7 +320,7 @@ private theorem align (ok : p.Valid keep P F r L) {S : Fin (m + 1) → Ty Empty}
   choose D eq using tails
   exact ⟨D, funext eq⟩
 
-private theorem compare_reduced (ok : p.Valid keep P F r L) (D : Fin (m + 1) → Ty Empty)
+private theorem compare_reduced (roll : IterationRolling C) (ok : p.Valid keep P F r L) (D : Fin (m + 1) → Ty Empty)
     {f g : Arrow} (small : CfgDenotesAt J M P p.entry CommonRows f)
     (wide : CfgDenotesAt J M (wideTypes P F D) p.outer.entry ActualRows g) : f = g := by
   let post := mapSlotBoundary M (slot M P F D) L
@@ -319,7 +339,7 @@ private theorem compare_reduced (ok : p.Valid keep P F r L) (D : Fin (m + 1) →
       rw [J.map_id, Category.comp_id] at eq
       exact split_eq eq.symm)
     (fun i _ _ a b dl dr => by
-      have eq := row_eq J M (D := D i) coord (ok.rows i) dl dr
+      have eq := row_eq J M (D := D i) roll (by simp [layout]) coord (ok.rows i) dl dr
       have component := split_eq (Γ := [P i]) (a := a) (b := J.map (Env ◁ slot M P F D i) ≫ b) eq
       rw [Category.assoc] at component
       exact component)
@@ -330,8 +350,11 @@ private theorem common_type {out : RouteLayout Empty} {A : Ty Empty} {form : Boo
     {row : RowPlan Φ} (ok : row.Valid A out raw form) : row.commonRegion.HasType [A] (out.map Prod.fst) := by
   cases ok with
   | ordinary h => exact (Region.checkRoutes?_sound h).hasType
-  | nested prune route =>
-      exact .cfg (single A) (.br rfl (.var rfl)) (fun _ => (Region.checkRoutes?_sound route).hasType)
+  | @nested mask plan body prune checked =>
+      have shape : (innerLayout mask.types out).map Prod.fst = List.ofFn mask.types ++ out.map Prod.fst := by
+        simp [innerLayout, List.map_ofFn, Function.comp_def]
+      exact .cfg mask.types (shape ▸ (Region.checkRoutes?_sound checked.entryRoute).hasType)
+        (fun i => shape ▸ (Region.checkRoutes?_sound (checked.rowRoutes i)).hasType)
 
 private theorem compare_checked (roll : IterationRolling C) (ok : p.Valid keep P F r L)
     {h h' : r.HasType [] L} {f g : Arrow}
@@ -342,15 +365,16 @@ private theorem compare_checked (roll : IterationRolling C) (ok : p.Valid keep P
     (shape ▸ (Region.checkRoutes?_sound ok.entry).hasType) (fun i => shape ▸ common_type (ok.rows i))
   have agree {ht : r.HasType [] L} {b : Arrow} (w : RegionDenotes J M ht b) : base = b := by
     obtain ⟨_, _, trimmed⟩ := ok.outer.readback J M roll w
-    obtain ⟨D, eq⟩ := align J M ok trimmed
+    obtain ⟨D, eq⟩ := align J M roll ok trimmed
     rw [eq] at trimmed
-    exact compare_reduced J M ok D small trimmed
+    exact compare_reduced J M roll ok D small trimmed
   exact (agree left).symm.trans (agree right)
 
-theorem compare (roll : IterationRolling C) (ok : compare? keep P F r L = .certified)
+theorem compare {masks : Fin (m + 1) → Option InnerMask}
+    (roll : IterationRolling C) (ok : compare? keep P F r L masks = .certified)
     {h h' : r.HasType [] L} {f g : Arrow}
     (left : RegionDenotes J M h f) (right : RegionDenotes J M h' g) : f = g := by
-  cases found : check? keep P F r L with
+  cases found : check? keep P F r L masks with
   | none => simp [compare?, found] at ok
   | some p => exact compare_checked J M roll (NestedCfgMultiSyntax.checked found) left right
 
