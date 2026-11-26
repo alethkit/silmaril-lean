@@ -1060,14 +1060,14 @@ private theorem visit_unroll {newBlocks : Nat} (oldBlocks : Nat)
   simp only [partitionStepByTarget, map_eq_pure_bind, bind_assoc, pure_bind]
   rfl
 
-private theorem scheduled_visit {transfer : Region F} (instr : Primitive E F α) (ambient : Env α)
+private theorem outlined_visit {n : Nat} (instr : Primitive E F α) (ambient : Env α)
     (graph : FiniteCFG F (blocks + count) exits captures) (i : Fin blocks) (packet : Value α)
-    (row : ScheduledTransfer sig packets outputs (packets i) transfer)
+    (tree : EntryTree sig packets outputs [packets i] n)
     (sourceRow : region instr (extend ambient packet) (source.block i).erase =
-      region instr (extend ambient packet) transfer)
-    (labels : Fin row.count → Fin (blocks + count)) (fresh : ∀ j, blocks ≤ (labels j).val)
-    (head : (graph.block (oldLabel count i)).erase = row.tree.entry (oldLabel count) labels)
-    (rows : ∀ j, (graph.block (labels j)).erase = (row.tree.cells (oldLabel count) labels j).2) :
+      region instr (extend ambient packet) tree.written)
+    (labels : Fin n → Fin (blocks + count)) (fresh : ∀ j, blocks ≤ (labels j).val)
+    (head : (graph.block (oldLabel count i)).erase = tree.entry (oldLabel count) labels)
+    (rows : ∀ j, (graph.block (labels j)).erase = (tree.cells (oldLabel count) labels j).2) :
     Sum.map id (embed count) <$> step instr ambient source (i, packet) =
       iter (partitionStepByTarget (step instr ambient graph) (inFresh blocks)) (embed count (i, packet)) := by
   let env := extend ambient packet
@@ -1078,10 +1078,9 @@ private theorem scheduled_visit {transfer : Region F} (instr : Primitive E F α)
       fun out => pure (splitTransfer blocks out))) =
     ((region instr env (graph.block (oldLabel count i)).erase >>=
       fun out => pure (splitTransfer (blocks + count) out)) >>= finish)
-  change region instr env (source.block i).erase = region instr env transfer at sourceRow
+  change region instr env (source.block i).erase = region instr env tree.written at sourceRow
   rw [sourceRow]
-  simp only [head, row.source_eq, boundary_run row.boundary instr env, row.tree_eq, map_eq_pure_bind,
-    bind_assoc, pure_bind, EntryTree.entry]
+  simp only [head, map_eq_pure_bind, bind_assoc, pure_bind, EntryTree.entry]
   apply tree_run instr ambient graph (fun out => pure (Sum.map id (embed count) out)) finish
   · exact finish_old (inFresh blocks) (oldLabel count) (old_outside count) _
   · intro label value inside
@@ -1094,6 +1093,24 @@ private theorem scheduled_visit {transfer : Region F} (instr : Primitive E F α)
   · exact rows
   · intro ty slot
     rfl
+
+private theorem scheduled_visit {transfer : Region F} (instr : Primitive E F α) (ambient : Env α)
+    (graph : FiniteCFG F (blocks + count) exits captures) (i : Fin blocks) (packet : Value α)
+    (row : ScheduledTransfer sig packets outputs (packets i) transfer)
+    (sourceRow : region instr (extend ambient packet) (source.block i).erase =
+      region instr (extend ambient packet) transfer)
+    (labels : Fin row.count → Fin (blocks + count)) (fresh : ∀ j, blocks ≤ (labels j).val)
+    (head : (graph.block (oldLabel count i)).erase = row.tree.entry (oldLabel count) labels)
+    (rows : ∀ j, (graph.block (labels j)).erase = (row.tree.cells (oldLabel count) labels j).2) :
+    Sum.map id (embed count) <$> step instr ambient source (i, packet) =
+      iter (partitionStepByTarget (step instr ambient graph) (inFresh blocks)) (embed count (i, packet)) := by
+  refine outlined_visit instr ambient graph i packet row.tree ?_ labels fresh head rows
+  let env := extend ambient packet
+  calc
+    _ = region instr env transfer := sourceRow
+    _ = region instr env row.boundary.written := congrArg (region instr env) row.source_eq
+    _ = region instr env row.boundary.lower := boundary_run row.boundary instr env
+    _ = _ := congrArg (region instr env) row.tree_eq
 
 private theorem unchanged_visit (instr : Primitive E F α) (ambient : Env α)
     (graph : FiniteCFG F (blocks + count) exits captures) (i : Fin blocks) (packet : Value α)
@@ -1247,6 +1264,9 @@ private theorem step_square (instr : Primitive E F α) (ambient : Env α) (state
       rcases origin with same | folded
       · rw [same]
       · exact folded_transfer_run instr (extend ambient packet) _ _ folded
+    | outlined _ tree origin =>
+      exact outlined_visit instr ambient result.code i packet tree
+        (congrArg (region instr (extend ambient packet)) origin) labels fresh head cells
     | unchanged _ _ => exact unchanged_visit instr ambient result.code i packet head
   apply atRow (g.row i) (g.fresh i)
   · intro j

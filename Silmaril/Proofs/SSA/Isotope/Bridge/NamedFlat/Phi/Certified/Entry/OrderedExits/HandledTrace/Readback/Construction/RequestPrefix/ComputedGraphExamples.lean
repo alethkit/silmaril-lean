@@ -73,7 +73,7 @@ private def twoRequestRow : LambdaSSA.Flat Bool 5 3 :=
 private def twoRequests : FiniteCFG Bool 3 2 2 :=
   { source with block := fun i => if i.val = 0 then twoRequestRow else source.block i }
 
--- Effects inside a branch still fall outside the ordinary straight-row grammar.
+-- Both requests in this original case arm now admit.
 private def branchingRow : LambdaSSA.Flat Bool 5 3 :=
   .let₂ (.bv 0) (.case (.bv 1)
     (.let₁ (.op false (.bv 3)) (.let₁ (.op false (.bv 4)) (.br 1 (.bv 5))))
@@ -86,10 +86,21 @@ private def ambientRead : FiniteCFG Bool 3 2 2 :=
   { source with block := fun i => if i.val = 0 then .br 1 (.pair (.bv 1) (.bv 2)) else source.block i }
 
 example : (compileGraph sig inputs (fun _ => packet) outputs twoRequests).isSome = true := by decide +kernel
-example : let _ := sig.typing; NamedFlat.check branching inputs (fun _ => packet) outputs = true := rfl
-example : (compileGraph sig inputs (fun _ => packet) outputs branching).isNone = true := rfl
+example : (compileGraph sig inputs (fun _ => packet) outputs branching).isSome = true := by decide +kernel
 example : (EffectfulEntry.Multiple.Computed.Block.Graph.Capture.compile sig inputs
-    (fun _ => packet) outputs branching).isNone = true := rfl
+    (fun _ => packet) outputs branching).isSome = true := by decide +kernel
+
+private def effectfulTestRow : LambdaSSA.Flat Bool 5 3 :=
+  .case (.op false (.bv 0)) (.br 1 (.bv 1)) (.br 2 (.bv 1))
+
+private def effectfulTest : FiniteCFG Bool 3 2 2 :=
+  { source with block := fun i => if i.val = 0 then effectfulTestRow else source.block i }
+
+example : let _ := sig.typing; NamedFlat.check effectfulTest inputs (fun _ => packet) outputs = true := rfl
+example : (compileGraph sig inputs (fun _ => packet) outputs effectfulTest).isNone = true := rfl
+example : (EffectfulEntry.Multiple.Computed.Block.Graph.Capture.compile sig inputs
+    (fun _ => packet) outputs effectfulTest).isNone = true := rfl
+
 example : let _ := sig.typing; NamedFlat.check ambientRead inputs (fun _ => packet) outputs = true := rfl
 example : (compileGraph sig inputs (fun _ => packet) outputs ambientRead).isNone = true := rfl
 
