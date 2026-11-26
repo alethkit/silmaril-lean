@@ -70,6 +70,19 @@ theorem Table.observeAt_congr (g : Table S R) (caller : Syntax.Payload (R.get g.
     Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.runFinite_congr
       g caller configs stores agree]
 
+/-- The same exhaustive restrictions decide any pointwise comparison of
+the two finite results. The comparison receives no interpreter or query. -/
+theorem Table.checkAllInterpretersBy_iff [DecidableEq Φ] (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) :
+    g.checkAllInterpretersBy h caller caller' replies left right stores compare = true ↔
+      ∀ (prim : Syntax.Primitives Φ states) (s : Fin states),
+        compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+          (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) = true :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.check_results_by
+    g h caller caller' replies left right stores compare
+
 /-- Independently run the two original typed CFGs under each common
 interpreter restriction and compare the installed shaped observations. -/
 theorem Table.checkAllInterpreters_iff [DecidableEq Φ] (g : Table S R) (h : Table S T)

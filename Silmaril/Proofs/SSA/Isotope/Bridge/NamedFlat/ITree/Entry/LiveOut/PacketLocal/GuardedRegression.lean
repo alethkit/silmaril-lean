@@ -1,7 +1,7 @@
 module
 
 import Mathlib.Tactic.FinCases
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.LiveBit.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 
 /-! # A named request changes its loop packet before taking an ordered exit -/
@@ -18,7 +18,7 @@ open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet pack)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands (Table ReplyEnumeration ConfigurationEnumeration)
 
-private inductive Op where | poll | flip
+private inductive Op where | poll | flip | literal (bit : Bool)
   deriving DecidableEq
 
 private inductive Reg : Type 1 where
@@ -40,10 +40,14 @@ private abbrev nativeSig := Recognize.signature Op
 private abbrev SortName := ULift.{1} Empty
 private abbrev bit : Ty SortName := .coprod .unit .unit
 private instance : HasTy Op (Ty SortName) :=
-  ⟨fun _ => bit, fun
+  ⟨(fun
+    | .poll | .flip => bit
+    | .literal _ => .unit), fun
     | .poll => LambdaSSA.Region.packedExitType [bit, .unit, .unit]
-    | .flip => bit⟩
-private instance : HasEff Op Bool := ⟨fun _ => true⟩
+    | .flip | .literal _ => bit⟩
+private instance : HasEff Op Bool := ⟨fun
+  | .poll | .flip => true
+  | .literal _ => false⟩
 
 private def signature : FlatInstitution.Signature.{0, 0} SortName := { Instr := Op }
 private instance : DecidableEq signature.Instr := inferInstanceAs (DecidableEq Op)
@@ -112,6 +116,7 @@ private def raw : Primitive Event signature.Instr Runtime :=
   fun
     | .poll, x => vis (.poll (isRight x)) fun reply => pure (Recognize.replyValue ULift.up reply)
     | .flip, x => pure (if isRight x then .inl .unit else .inr .unit)
+    | .literal b, _ => pure (Recognize.bitValue b)
 
 private def input (x : Syntax.Payload Bit) : Reg × Nat → Value Runtime :=
   fun reg => if reg = (.seed, 0) then Recognize.encodeValue ULift.up x.val else .unit
@@ -147,7 +152,9 @@ private theorem recognized (alternate reroute : Bool) :
 
 private def checkedAdapter (alternate : Bool) (caller : Syntax.Payload Bit) (reroute : Bool := false) :=
   (adapter alternate caller reroute).get (by
-    simpa only [adapter, Recognize.recognizeAdapter, Option.isSome_map] using recognized alternate reroute)
+    unfold adapter Recognize.recognizeAdapter
+    rw [Option.isSome_map]
+    exact recognized alternate reroute)
 
 private abbrev nativeRoutes := (checkedAdapter false leftBit).1
 private abbrev native := Recognize.guardedTable Op.poll nativeRoutes
@@ -381,6 +388,95 @@ private theorem repeating_cycle :
 -- Every request resumes the original loop with the alternating machine state.
 example : named false repeating selectedExit = resultBehaviour .diverge := by
   rw [named_classifies false repeating selectedExit, repeating_cycle]
+
+namespace LiveBitRegression
+
+open FixedCarrier (resultWithPayload)
+
+private def exitBits (value : Bool) (i : Tag) : Bool := if i = 0 then value else false
+private def literalOps (value : Bool) (i : Tag) : Op := .literal (exitBits value i)
+
+private def liveSource (value : Bool) : CFG Reg Label signature.Instr :=
+  let g := source false
+  { g with blocks := g.blocks.map fun (k, row) =>
+      match k with
+      | .left => (k, { row with body := .let1 .left (.app (literalOps value 0) .unit) row.body })
+      | .right => (k, { row with body := .let1 .left (.app (literalOps value 1) .unit) row.body })
+      | _ => (k, row) }
+
+private def liveAdmission? (value : Bool) :=
+  PacketLocal.admit (P := signature) ports (FixedCarrier.LiveBit.fields Reg.left) (liveSource value) arguments
+
+private def liveAdmitted (value : Bool) :
+    Admission signature ports (FixedCarrier.LiveBit.fields Reg.left) (liveSource value) :=
+  (liveAdmission? value).get (by cases value <;> decide +kernel)
+
+private def liveChecked? (value : Bool) :=
+  Recognize.recognize (seed := Reg.seed) (names := labels) (liveAdmitted value) .poll
+    (fun i => some (literalOps value i))
+
+-- The other program's assignment is rejected by exact lexical readback.
+example : (Recognize.recognize (seed := Reg.seed) (names := labels) (liveAdmitted true) .poll
+    (fun i => some (literalOps false i))).isNone = true := by decide +kernel
+
+private def liveChecked (value : Bool) :=
+  (liveChecked? value).get (by cases value <;> decide +kernel)
+
+private abbrev liveControl (value : Bool) := Recognize.guardedTable Op.poll (liveChecked value).routes
+
+private theorem liveNativeValid (value : Bool) : (liveControl value).checkNative (inferred false).native = true := by
+  cases value <;> decide +kernel
+
+private def literals : Op → Option Bool
+  | .literal b => some b
+  | _ => none
+
+private theorem literalsAgree (value : Bool) (i : Tag) :
+    literals (literalOps value i) = some (exitBits value i) := rfl
+
+private def callerStore (r : Reg) := input leftBit (r, 0)
+
+private noncomputable def observed (value : Bool) (selected : Tag → Bool := fun _ => false) :=
+  FixedCarrier.LiveBit.observeNamed (liveSource value) labels .left callerStore literals rerouteInterpreter 0 selected
+
+private theorem classified (value : Bool) (selected : Tag → Bool) :
+    observed value selected = resultWithPayload (fun i => Recognize.exitPayload (some (exitBits value i)))
+      ((FixedCarrier.withSelectedExits Op.poll (liveChecked value).routes selected).runFinite
+        leftBit rerouteInterpreter inventory states ⟨0, leftBit⟩ 0) :=
+  FixedCarrier.LiveBit.observeNamed_runFinite (liveChecked value) leftBit callerStore rfl literals (literalsAgree value)
+    rerouteInterpreter inventory states 0 selected
+
+private theorem liveReturned (value : Bool) :
+    observed value = resultWithPayload (fun i => Recognize.exitPayload (some (exitBits value i))) (.ret 0 1) := by
+  cases value <;> rw [classified] <;> rfl
+
+example (value : Bool) :
+    LambdaSSA.UB.Overlay.Shape.denote (FixedCarrier.LiveBit.nativeEndpoint (inferred false).native (exitBits value) (fun _ => false))
+      (Syntax.model rerouteInterpreter ((liveControl value).bindings leftBit)) 0 =
+        resultWithPayload (fun i => Recognize.exitPayload (some (exitBits value i))) (.ret 0 1) :=
+  (FixedCarrier.LiveBit.observeNamed_native (liveChecked value) leftBit callerStore rfl literals
+    (literalsAgree value) rerouteInterpreter inventory states _ (liveNativeValid value) 0 _).symm.trans
+    (liveReturned value)
+
+private theorem differingLiveOut : ¬ observed false ≤ observed true := by
+  rw [liveReturned false, liveReturned true, ← FixedCarrier.LiveBit.compare_iff]
+  decide +kernel
+
+-- Both controls return unit at the same position in state one under this script.
+-- The negative verdict is caused by the projected assignment.
+example : FixedCarrier.LiveBit.check? .poll .poll (liveChecked false).routes (liveChecked true).routes
+    (inferred false).native (inferred false).native (exitBits false) (exitBits true)
+    (fun _ => false) (fun _ => false) leftBit replies inventory states = some false := by
+  apply (FixedCarrier.LiveBit.rejection_iff (liveChecked false) (liveChecked true) leftBit callerStore rfl
+    literals (literalsAgree false) (literalsAgree true) replies inventory states _ _
+    (liveNativeValid false) (liveNativeValid true) _ _).mpr
+  exact ⟨rerouteInterpreter, 0, differingLiveOut⟩
+
+-- Selecting that ordered exit erases the whole payload on each endpoint.
+example (value : Bool) : observed value (fun i => i == 0) = ⊤ := by
+  cases value <;> rw [classified] <;> rfl
+
+end LiveBitRegression
 
 end FixedCarrier
 

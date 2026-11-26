@@ -49,32 +49,32 @@ private theorem exitTag_unit (i : Fin 2) : exitTag (unitExit (α := Runtime) i) 
   fin_cases i <;> rfl
 
 private theorem run_head (g : Table (Recognize.signature Φ) Packets)
-    (caller : Syntax.Payload (Packets.get g.entry)) (p : Packet Packets) :
-    iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock p) =
+    (caller : Syntax.Payload (Packets.get g.entry)) (result : Tag → Nat × Value Runtime) (p : Packet Packets) :
+    iter (m := Tree (Request Φ)) (step g caller query result) (atBlock p) =
       match g.head caller p with
-      | .exit i _ => ret (unitExit i)
+      | .exit i _ => ret (result i)
       | .request f arg next =>
         vis (.call f arg) (fun reply =>
-          iter (step g caller query (unitExit (α := Runtime))) (atBlock (next reply.1 reply.2))) := by
-  rw [congrFun (iterate_fixpoint (step g caller query (unitExit (α := Runtime)))) (atBlock p)]
+          iter (step g caller query result) (atBlock (next reply.1 reply.2))) := by
+  rw [congrFun (iterate_fixpoint (step g caller query result)) (atBlock p)]
   change (headStep query (g.head caller p) >>= _) = _
   cases g.head caller p with
   | exit i selected =>
     simp only [headStep, pure_bind, Sum.elim_inr]
-    rw [congrFun (iterate_fixpoint (step g caller query (unitExit (α := Runtime)))) (atExit i)]
+    rw [congrFun (iterate_fixpoint (step g caller query result)) (atExit i)]
     simp only [step, atExit, pure_bind, Sum.elim_inl]
     rfl
   | request f arg next =>
     simp only [headStep, query, vis_bind, pure_bind, Sum.elim_inr]
 
 private noncomputable def carrier (g : Table (Recognize.signature Φ) Packets)
-    (caller : Syntax.Payload (Packets.get g.entry))
-    (configs : ConfigurationEnumeration Packets) (stores : StateInventory states) :
+    (caller : Syntax.Payload (Packets.get g.entry)) (result : Tag → Nat × Value Runtime)
+    (payload : Tag → Value Unit) (configs : ConfigurationEnumeration Packets) (stores : StateInventory states) :
     PositionalCarrier Loop Exits (RunTree Φ) (Fin states) (configs.invocations stores).length 2 states where
   invocation code :=
     let input := (configs.invocations stores).get code
-    (0, .atom (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock input.1)), input.2)
-  result := ⟨fun i => (i, .unit), fun _ _ eq => congrArg Prod.fst eq⟩
+    (0, .atom (iter (m := Tree (Request Φ)) (step g caller query result) (atBlock input.1)), input.2)
+  result := ⟨fun i => (i, Recognize.encodeValue (fun _ => Silmaril.Elgot.ITree.diverge) (payload i)), fun _ _ eq => congrArg Prod.fst eq⟩
   final := ⟨id, fun _ _ eq => eq⟩
 
 private theorem get_encode (configs : ConfigurationEnumeration Packets) (stores : StateInventory states)
@@ -83,18 +83,20 @@ private theorem get_encode (configs : ConfigurationEnumeration Packets) (stores 
 
 private theorem step_row (g : Table (Recognize.signature Φ) Packets)
     (caller : Syntax.Payload (Packets.get g.entry)) (prim : Syntax.Primitives Φ states)
+    (result : Tag → Nat × Value Runtime) (decode : ExitDecoder) (payload : Tag → Value Unit)
+    (decodes : ∀ i, decode (result i) = some (i, payload i))
     (configs : ConfigurationEnumeration Packets) (stores : StateInventory states)
     (code : Fin (configs.invocations stores).length) :
-    feedback prim (invocationPoint (carrier g caller configs stores).invocation code) =
-      (rows g caller prim configs stores code).routed (carrier g caller configs stores) := by
+    feedback prim decode (invocationPoint (carrier g caller result payload configs stores).invocation code) =
+      (rows g caller prim configs stores code).routed (carrier g caller result payload configs stores) := by
   let i := (configs.invocations stores).get code
   change treeStep prim
-    (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock i.1)) i.2 = _
+    (iter (m := Tree (Request Φ)) (step g caller query result) (atBlock i.1)) i.2 decode = _
   rw [run_head, rows]
   dsimp only
   cases h : g.head caller i.1 with
   | exit tag selected =>
-    simp [Head.execute, treeStep, exitTag_unit, Row.routed, carrier, terminal]
+    simp [Head.execute, treeStep, decodes, Row.routed, carrier, terminal]
     rfl
   | request f arg next =>
     simp only [Head.execute, treeStep, out_vis, Part.some_dom, ↓reduceDIte, Part.get_some]
@@ -106,37 +108,49 @@ private theorem step_row (g : Table (Recognize.signature Φ) Packets)
     | fault t => rfl
     | diverge => rfl
 
+private theorem lower_lift {Φ : Type} (p : Value Unit) :
+    Recognize.encodeValue (fun _ => ()) (Recognize.encodeValue
+      (fun _ => (Silmaril.Elgot.ITree.diverge : RunTree Φ)) p) = p := by
+  induction p with
+  | atom a => cases a; rfl
+  | unit => rfl
+  | pair _ _ l r => simp [Recognize.encodeValue, l, r]
+  | inl _ ih | inr _ ih => simp [Recognize.encodeValue, ih]
+
 private theorem project_result (g : Table (Recognize.signature Φ) Packets)
-    (caller : Syntax.Payload (Packets.get g.entry))
-    (configs : ConfigurationEnumeration Packets) (stores : StateInventory states) (r : Result 2 states) :
-    (r.routed (carrier g caller configs stores)).map (Set.image project) = resultBehaviour r := by
-  cases r <;> simp [Result.routed, carrier, project, resultBehaviour]
-  rfl
+    (caller : Syntax.Payload (Packets.get g.entry)) (result : Tag → Nat × Value Runtime)
+    (payload : Tag → Value Unit) (configs : ConfigurationEnumeration Packets)
+    (stores : StateInventory states) (r : Result 2 states) :
+    (r.routed (carrier g caller result payload configs stores)).map (Set.image project) =
+      resultWithPayload payload r := by
+  cases r <;> simp [Result.routed, carrier, project, resultWithPayload]
+  exact ⟨rfl, lower_lift _⟩
 
 private theorem decorate_result (g : Table (Recognize.signature Φ) Packets)
-    (prim : Syntax.Primitives Φ states) (r : Result 2 states) :
-    decorate prim g.selected (resultBehaviour r) = resultBehaviour (g.markExit r) := by
+    (prim : Syntax.Primitives Φ states) (payload : Tag → Value Unit) (r : Result 2 states)
+    (exitType : Syntax.Ty) :
+    decorate prim g.selected (resultWithPayload payload r) exitType = resultWithPayload payload (g.markExit r) := by
   simp only [decorate, denote_exitContinuation]
   cases r with
   | ret i t =>
     cases h : g.selected i <;>
-      simp [Table.markExit, h, resultBehaviour, Behaviour.bind, Behaviour.possible]
+      simp [Table.markExit, h, resultWithPayload, Behaviour.bind, Behaviour.possible]
     ext outcome
     cases outcome <;> simp [Outcome.bind, h]
   | fault t =>
-    simp [Table.markExit, resultBehaviour, Behaviour.bind, Behaviour.possible]
+    simp [Table.markExit, resultWithPayload, Behaviour.bind, Behaviour.possible]
     ext outcome
     cases outcome <;> simp [Outcome.bind]
   | diverge =>
-    simp [Table.markExit, resultBehaviour, Behaviour.bind, Behaviour.possible]
+    simp [Table.markExit, resultWithPayload, Behaviour.bind, Behaviour.possible]
     ext outcome
     cases outcome <;> simp [Outcome.bind]
-  | ub => simp [Table.markExit, resultBehaviour]
+  | ub => simp [Table.markExit, resultWithPayload]
 
-private theorem step_selected (op : Φ) (routes : Recognize.Routes) (selected : Tag → Bool)
-    (caller : Syntax.Payload Bit) :
-    step (withSelectedExits op routes selected) caller query (unitExit (α := Runtime)) =
-      step (guardedTable op routes) caller query (unitExit (α := Runtime)) := by
+theorem step_selected (op : Φ) (routes : Recognize.Routes) (selected : Tag → Bool)
+    (caller : Syntax.Payload Bit) (result : Tag → Nat × Value Runtime) :
+    step (withSelectedExits op routes selected) caller query result =
+      step (guardedTable op routes) caller query result := by
   funext cursor
   obtain ⟨c⟩ := cursor
   cases c with
@@ -147,23 +161,25 @@ private theorem step_selected (op : Φ) (routes : Recognize.Routes) (selected : 
     unfold Table.head
     cases (guardedTable op routes).row packet.1 <;> rfl
 
-theorem observe_runFinite (g : Table (Recognize.signature Φ) Packets)
+theorem observe_decoded_runFinite (g : Table (Recognize.signature Φ) Packets)
     (caller : Syntax.Payload (Packets.get g.entry)) (prim : Syntax.Primitives Φ states)
     (configs : ConfigurationEnumeration Packets) (stores : StateInventory states)
-    (p : Packet Packets) (s : Fin states) :
+    (result : Tag → Nat × Value Runtime) (decode : ExitDecoder) (payload : Tag → Value Unit)
+    (decodes : ∀ i, decode (result i) = some (i, payload i))
+    (p : Packet Packets) (s : Fin states) (exitType : Syntax.Ty := .unit) :
     decorate prim g.selected (FixedCarrier.observe prim
-      (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock p)) s) =
-      resultBehaviour (g.runFinite caller prim configs stores p s) := by
-  have h := classify_routed (f := feedback prim) (carrier g caller configs stores)
-    (rows g caller prim configs stores) (encode configs stores (p, s)) (step_row g caller prim configs stores)
-  have atStart : invocationPoint (carrier g caller configs stores).invocation
+      (iter (m := Tree (Request Φ)) (step g caller query result) (atBlock p)) s decode) exitType =
+      resultWithPayload payload (g.runFinite caller prim configs stores p s) := by
+  have h := classify_routed (f := feedback prim decode) (carrier g caller result payload configs stores)
+    (rows g caller prim configs stores) (encode configs stores (p, s)) (step_row g caller prim result decode payload decodes configs stores)
+  have atStart : invocationPoint (carrier g caller result payload configs stores).invocation
       (encode configs stores (p, s)) =
-      .block 0 (.atom (iter (m := Tree (Request Φ)) (step g caller query (unitExit (α := Runtime))) (atBlock p))) s := by
+      .block 0 (.atom (iter (m := Tree (Request Φ)) (step g caller query result) (atBlock p))) s := by
     simp only [invocationPoint, carrier, get_encode]
   rw [atStart] at h
   unfold FixedCarrier.observe Table.runFinite
   rw [h, project_result]
-  exact decorate_result g prim _
+  exact decorate_result g prim payload _ exitType
 
 variable {κ V K : Type 1} [DecidableEq V] [DecidableEq K]
   {P : FlatInstitution.Signature.{0, 0} κ} {seed : V} {names : Fin 5 ≃ K}
@@ -179,7 +195,9 @@ theorem observeNamed_runFinite (checked : Recognize.Checked a op) (caller : Synt
     observeNamed source names input prim s selected =
       resultBehaviour ((withSelectedExits op checked.routes selected).runFinite caller prim configs stores ⟨0, caller⟩ s) := by
   let c := checked.corresponds ULift.up query raw (fun reg => input reg.1) (query_agrees op) caller value
-  have classified := observe_runFinite (withSelectedExits op checked.routes selected) caller prim configs stores ⟨0, caller⟩ s
+  have classified := observe_decoded_runFinite (withSelectedExits op checked.routes selected)
+    caller prim configs stores unitExit unitDecoder (fun _ => .unit)
+    (fun i => by simp [unitDecoder, exitTag_unit]) ⟨0, caller⟩ s
   rw [step_selected] at classified
   exact (congrArg (fun tree => decorate prim selected (FixedCarrier.observe prim tree s)) c.observe_eq).trans classified
 

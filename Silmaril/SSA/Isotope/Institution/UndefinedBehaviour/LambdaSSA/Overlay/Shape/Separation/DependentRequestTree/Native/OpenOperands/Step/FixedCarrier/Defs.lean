@@ -92,16 +92,24 @@ def Table.runFinite (g : Table S R) (caller : Syntax.Payload (R.get g.entry)) (p
 
 variable [DecidableEq Φ]
 
-def Table.checkAllInterpreters (g : Table S R) (h : Table S T)
+/-- Compare the existing finite results under each interpreter restriction.
+The comparison can retain extra information determined by each terminal result. -/
+def Table.checkAllInterpretersBy (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
-    (stores : StateInventory states) : Bool :=
+    (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) : Bool :=
   let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
   (InterpreterScript.assignments replies stores keys).all fun script =>
     let prim := InterpreterScript.interpret script
     stores.values.all fun s =>
-      decide ((g.runFinite caller prim left stores ⟨g.entry, caller⟩ s).refines
-        (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s))
+      compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+        (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s)
+
+def Table.checkAllInterpreters (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory states) : Bool :=
+  g.checkAllInterpretersBy h caller caller' replies left right stores (fun result other => decide (result.refines other))
 
 /-- Exact readback is a separate admission gate for each original typed CFG. -/
 def Table.checkAllInterpreters? (g : Table S R) (h : Table S T)

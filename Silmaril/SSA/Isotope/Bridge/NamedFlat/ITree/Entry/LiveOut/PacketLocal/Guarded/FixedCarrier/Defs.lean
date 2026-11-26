@@ -50,10 +50,16 @@ def exitTag : Transfer Runtime → Option (Fin 2)
   | (0, .inr (.inl (.pair .unit .unit))) => some 1
   | _ => none
 
-def terminal {Φ : Type} {states : Nat} (result : Result 2 states) :
+/-- Parse a packed weak-tree return into its original ordered tag and payload. -/
+abbrev ExitDecoder := Transfer Runtime → Option (Tag × Value Unit)
+
+def unitDecoder : ExitDecoder := fun p => (exitTag p).map fun i => (i, .unit)
+
+def terminal {Φ : Type} {states : Nat} (result : Result 2 states)
+    (payload : Value (RunTree Φ) := .unit) :
     Behaviour (Loop ++ Exits).length (RunTree Φ) (Fin states) :=
   match result with
-  | .ret i t => WithTop.some {Feedback.external Loop Exits (.ret i .unit t)}
+  | .ret i t => WithTop.some {Feedback.external Loop Exits (.ret i payload t)}
   | .fault t => WithTop.some {Outcome.fault t}
   | .diverge => WithTop.some {Outcome.diverge}
   | .ub => ⊤
@@ -62,13 +68,14 @@ def terminal {Φ : Type} {states : Nat} (result : Result 2 states) :
 at the new machine state. A handler fault retains its state. The row
 correspondence supplies a valid packed tag at every recognized return. -/
 noncomputable def treeStep {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states)
-    (tree : RunTree Φ) (s : Fin states) : Behaviour (Loop ++ Exits).length (RunTree Φ) (Fin states) := by
+    (tree : RunTree Φ) (s : Fin states) (decode : ExitDecoder := unitDecoder) :
+    Behaviour (Loop ++ Exits).length (RunTree Φ) (Fin states) := by
   classical
   exact if h : (out tree).Dom then
     match (out tree).get h with
     | .ret value =>
-      match exitTag value with
-      | some i => terminal (.ret i s)
+      match decode value with
+      | some (i, payload) => terminal (.ret i s) (Recognize.encodeValue (fun _ => diverge) payload)
       | none => terminal .diverge
     | .vis (.call op arg) next =>
       match prim op arg s with
@@ -80,22 +87,31 @@ noncomputable def treeStep {Φ : Type} {states : Nat} (prim : Syntax.Primitives 
 
 /-- Reuse positional feedback closure with the residual weak tree as the
 internal packet. No new finite search is needed. -/
-noncomputable def feedback {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states) :
+noncomputable def feedback {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states)
+    (decode : ExitDecoder := unitDecoder) :
     Feedback.Run Loop Exits (RunTree Φ) (Fin states)
-  | .block _ (.atom tree) s => treeStep prim tree s
+  | .block _ (.atom tree) s => treeStep prim tree s decode
   | _ => terminal .diverge
 
-/-- Only the outward unit payload is projected. Machine states on both
+/-- Recover the decoded constructor payload. Machine states on both
 ordinary exits and faults stay in the observation. -/
 def project {Φ : Type} {states : Nat} :
     Outcome Exits.length (RunTree Φ) (Fin states) → Outcome Exits.length Unit (Fin states)
-  | .ret i _ s => .ret i .unit s
+  | .ret i a s => .ret i (Recognize.encodeValue (fun _ => ()) a) s
   | .fault s => .fault s
   | .diverge => .diverge
 
 noncomputable def observe {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states)
-    (tree : RunTree Φ) (s : Fin states) : Behaviour Exits.length Unit (Fin states) :=
-  (Feedback.close (feedback prim) (.block 0 (.atom tree) s)).map (Set.image project)
+    (tree : RunTree Φ) (s : Fin states) (decode : ExitDecoder := unitDecoder) : Behaviour Exits.length Unit (Fin states) :=
+  (Feedback.close (feedback prim decode) (.block 0 (.atom tree) s)).map (Set.image project)
+
+/-- Interpret a finite output code with its exact decoded return payload. -/
+def resultWithPayload {states : Nat} (payload : Tag → Value Unit) :
+    Result 2 states → Behaviour Exits.length Unit (Fin states)
+  | .ret i s => WithTop.some {Outcome.ret i (payload i) s}
+  | .fault s => WithTop.some {Outcome.fault s}
+  | .diverge => WithTop.some {Outcome.diverge}
+  | .ub => ⊤
 
 /-- The annotation belongs to the outward continuation. Entry, rows, and
 the emitted native CFG are the same as in exact lexical recognition. -/
@@ -106,10 +122,11 @@ abbrev withSelectedExits {Φ : Type} (op : Φ) (routes : Recognize.Routes)
 /-- Apply the native exit continuations to the named result at its decoded
 ordered tag and final machine state. -/
 noncomputable def decorate {Φ : Type} {states : Nat} (prim : Syntax.Primitives Φ states)
-    (selected : Tag → Bool) (observed : Behaviour Exits.length Unit (Fin states)) :
+    (selected : Tag → Bool) (observed : Behaviour Exits.length Unit (Fin states))
+    (exitType : Syntax.Ty := .unit) :
     Behaviour Exits.length Unit (Fin states) :=
   let M := (Syntax.model prim Syntax.emptyBindings).raw
-  observed.bind fun i a t => LambdaSSA.UB.Overlay.denote (exitContinuation (Γ := []) (L := Exits) selected i) (extendModel M a) t
+  observed.bind fun i a t => LambdaSSA.UB.Overlay.denote (exitContinuation (Γ := []) (L := List.replicate 2 exitType) selected i) (extendModel M a) t
 
 /-- Observe the original mutable runner with its ordered unit exits and empty
 live-outs under a deterministic typed primitive interpreter. The optional

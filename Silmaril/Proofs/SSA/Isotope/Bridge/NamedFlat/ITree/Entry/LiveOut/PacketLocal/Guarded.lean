@@ -13,7 +13,7 @@ open Silmaril.Elgot (iter mapReturn liftPure)
 open Silmaril.Elgot.ITree (Tree iterate_uniformity iterate_naturality)
 open Silmaril.SSA.LambdaRTL (CFG obs)
 open LambdaSSA (FiniteCFG)
-open LambdaSSA.Semantics.Interaction (Primitive)
+open LambdaSSA.Semantics.Interaction (Primitive Transfer)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay.Shape
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
@@ -28,9 +28,9 @@ variable {κ V K α : Type 1} [DecidableEq V] [DecidableEq K]
   {I : Interface κ V K} {fields : K → List (V × Ty κ)} {source : CFG V K P.Instr}
   {N : RequestSignature P.Instr} {R : List Syntax.Ty} {E : Type → Type}
   {a : Admission P I fields source} {g : Table N R} {caller : Syntax.Payload (R.get g.entry)}
-  {query : Query N E} {instr : Primitive E P.Instr α} {input : V × Nat → Value α}
+  {result : TwoRequest.Tag → Transfer α} {query : Query N E} {instr : Primitive E P.Instr α} {input : V × Nat → Value α}
 
-theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cursor R)
+theorem mutable_step (c : Corresponds a g caller query instr input result) (state : Cursor R)
     (pending : CFG.Cyclic.Transfer V K (Value α))
     (encoded : c.encode state =
       let m := treeModel instr
@@ -43,7 +43,7 @@ theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cur
       (treeExitNumber I.exits (obs (CFG.Cyclic.LiveOut.project m selected p)))
     let again := fun p => CFG.Cyclic.Versioning.encodePacketLocal m (CFG.Cyclic.LiveOut.attach selected source)
       (CFG.Cyclic.LiveOut.encode m selected source p)
-    (step g caller query unitExit state >>= liftPure (Sum.map id c.encode)) =
+    (step g caller query result state >>= liftPure (Sum.map id c.encode)) =
       Sum.map outgoing again <$> CFG.Cyclic.step m source.blocks pending := by
   let m := treeModel instr
   let selected := fun k => (fields k).map Prod.fst
@@ -71,22 +71,22 @@ theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cur
     rfl
   | inr => rfl
 
-theorem observe_eq (c : Corresponds a g caller query instr input) :
+theorem observe_eq (c : Corresponds a g caller query instr input result) :
     LiveOut.observeRaw instr I.exits (fun k => (fields k).map Prod.fst) source
       (fun reg => input (reg, 0)) =
-      iter (step g caller query unitExit) (atBlock ⟨g.entry, caller⟩) := by
+      iter (step g caller query result) (atBlock ⟨g.entry, caller⟩) := by
   let m := treeModel instr
   let number := fun (p : K × Value α) => FiniteCFG.packedTreeOutput (treeExitNumber I.exits p)
   let lexicalStep := CFG.Cyclic.stepSSA m a.versioned.source.blocks input
   let actual := mapReturn lexicalStep (liftPure number)
   let start := atBlock (R := R) ⟨g.entry, caller⟩
-  have same := congrFun (iterate_uniformity (step g caller query unitExit) actual c.encode
+  have same := congrFun (iterate_uniformity (step g caller query result) actual c.encode
     (funext fun i => by
-      change (step g caller query unitExit i >>= liftPure (Sum.map id c.encode)) =
+      change (step g caller query result i >>= liftPure (Sum.map id c.encode)) =
         (pure (c.encode i) >>= actual)
       rw [pure_bind]
       exact c.localStep i)) start
-  change iter (step g caller query unitExit) start = (pure (c.encode start) >>= iter actual) at same
+  change iter (step g caller query result) start = (pure (c.encode start) >>= iter actual) at same
   rw [pure_bind] at same
   have versioned := CFG.Cyclic.Versioning.runPacketLocal_commutes m ⟨fun _ _ => rfl⟩
     (CFG.Cyclic.LiveOut.attach (fun k => (fields k).map Prod.fst) source) a.closed input

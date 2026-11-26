@@ -11,7 +11,7 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.Re
 open Silmaril.Elgot.ITree (Tree)
 open Silmaril.SSA.LambdaRTL (CFG)
 open LambdaSSA (FiniteCFG Flat Region)
-open LambdaSSA.Semantics.Interaction (Primitive)
+open LambdaSSA.Semantics.Interaction (Primitive Transfer)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay.Shape
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
@@ -64,10 +64,18 @@ abbrev guardedTable {Φ : Type} (opcode : Φ) (routes : Routes) : Table (signatu
       (.exit 0) (fun _ => .exit 1))
   selected := fun _ => false
 
+/-- A terminal assignment of a constructor bit to the sole projected field. -/
+def exitRow {Φ : Type} (label : Fin 5) : Option Φ → Flat Φ 5 2
+  | none => .let₂ (.bv 0) (.br label (.pair .unit .unit))
+  | some f => .let₂ (.bv 0)
+      (.let₁ (.op f .unit)
+        (.br label (.pair .unit (.pair (.bv 0) .unit))))
+
 /-- Literal lexical readback of the argument-plus-unit entry, the request
-with three replies, and its two unit exit rows. The empty reply tail has
+with three replies, and its two ordered exit rows. The empty reply tail has
 a written branch to row two. -/
-def expected {Φ : Type} (opcode : Φ) (routes : Routes) : FiniteCFG Φ 3 2 1 :=
+def expected {Φ : Type} (opcode : Φ) (routes : Routes)
+    (live : TwoRequest.Tag → Option Φ := fun _ => none) : FiniteCFG Φ 3 2 1 :=
   ⟨.br 0 (.pair (.bv 0) .unit), Fin.cases (motive := fun _ : Fin 3 => Flat Φ 5 2)
     (.let₂ (.bv 0) (.case (.op opcode (.bv 1))
       (.br ((routes.destination 0).castAdd 2) (.pair (.bv 0) .unit))
@@ -77,8 +85,7 @@ def expected {Φ : Type} (opcode : Φ) (routes : Routes) : FiniteCFG Φ 3 2 1 :=
           (.br ((routes.destination 2).castAdd 2) (.pair (.bv 0) .unit))
           (.br 2 (.pair .unit .unit))))))
     (Fin.cases (motive := fun _ : Fin 2 => Flat Φ 5 2)
-      (.let₂ (.bv 0) (.br 3 (.pair .unit .unit)))
-      (fun _ => .let₂ (.bv 0) (.br 4 (.pair .unit .unit))))⟩
+      (exitRow 3 (live 0)) (fun _ => exitRow 4 (live 1)))⟩
 
 variable {κ V K α : Type 1} [DecidableEq V] [DecidableEq K]
   {P : FlatInstitution.Signature.{0, 0} κ} {E : Type → Type}
@@ -93,16 +100,17 @@ variable {seed : V} {names : Fin 5 ≃ K} {source : CFG V K P.Instr}
 
 local notation "I" => (interface (κ := κ) seed names)
 
-variable (a : Admission P (interface (κ := κ) seed names) (fun _ => []) source)
+variable {fields : K → List (V × Ty κ)}
+variable (a : Admission P (interface (κ := κ) seed names) fields source)
 
 local notation "lexical" => a.versioned.source
 
 /-- Success records the extracted routes and certifies the exact admitted lexical
 readback and first-match numbering of all five labels, independent of reachable rank. -/
-structure Checked (opcode : P.Instr) : Type where
+structure Checked (opcode : P.Instr) (live : TwoRequest.Tag → Option P.Instr := fun _ => none) : Type where
   routes : Routes
   count : (lexical).blocks.length = 3
-  accepted : elaborateAt lexical (I).exits (I).version.names 3 count = some (expected opcode routes)
+  accepted : elaborateAt lexical (I).exits (I).version.names 3 count = some (expected opcode routes live)
   numbered : ∀ i : Fin 5, (labelIndex (lexical).blocks (I).exits (names i)).map Fin.val = some i.val
 
 /-- Transport literal readback across the checked written row count. -/
@@ -117,12 +125,13 @@ theorem recover_readback {source : CFG V K P.Instr} {d n : Nat} {exits : List K}
 
 /-- Compare the existing admitted code with the exact entry and row shapes,
 then check its named label numbering. No row proof is supplied by the caller. -/
-def recognize [DecidableEq P.Instr] (opcode : P.Instr) : Option (Checked a opcode) :=
+def recognize [DecidableEq P.Instr] (opcode : P.Instr)
+    (live : TwoRequest.Tag → Option P.Instr := fun _ => none) : Option (Checked a opcode live) :=
   if h : a.versioned.table.blocks = 3 then do
     let code : FiniteCFG P.Instr 3 2 1 :=
       cast (congrArg (fun x => FiniteCFG P.Instr x 2 1) h) a.versioned.table.code
     let routes ← readRoutes (code.block 0)
-    let want := expected opcode routes
+    let want := expected opcode routes live
     if rows : code.entry = want.entry ∧ ∀ i, code.block i = want.block i then
       have same : code = want := congrArg₂ FiniteCFG.mk rows.1 (funext rows.2)
       let count := a.versioned.count.trans h
@@ -137,7 +146,7 @@ def recognize [DecidableEq P.Instr] (opcode : P.Instr) : Option (Checked a opcod
 
 /-- Re-encode constructor values in the named runtime. The atom arm completes
 the function on raw values. No typed packet in this fragment can take it. -/
-def encodeValue (atom : Unit → α) : Value Unit → Value α
+def encodeValue {β : Type*} {γ : Type*} (atom : β → γ) : Value β → Value γ
   | .atom a => .atom (atom a)
   | .unit => .unit
   | .pair a b => .pair (encodeValue atom a) (encodeValue atom b)
@@ -148,10 +157,37 @@ def encodeValue (atom : Unit → α) : Value Unit → Value α
 def replyValue (atom : Unit → α) (reply : Packet Packets) : Value α :=
   encodeValue atom (pack reply).val
 
-def encodeCursor (names : Fin 5 ≃ K) (atom : Unit → α) (c : Cursor Packets) : K × Value α :=
+def bitValue {α : Type*} (bit : Bool) : Value α :=
+  if bit then .inr .unit else .inl .unit
+
+def exitPayload {α : Type*} : Option Bool → Value α
+  | none => .pair .unit .unit
+  | some bit => .pair .unit (.pair (bitValue bit) .unit)
+
+/-- The optional terminal instruction and its exact constructor result.
+Every terminal instruction here is interpreted purely on unit. -/
+abbrev LiveProfile (Φ : Type) := TwoRequest.Tag → Option (Φ × Bool)
+
+def liveOpcodes {Φ : Type} (profile : LiveProfile Φ) (i : TwoRequest.Tag) : Option Φ :=
+  (profile i).map Prod.fst
+
+def liveValues {Φ : Type} (profile : LiveProfile Φ) (i : TwoRequest.Tag) : Option Bool :=
+  (profile i).map Prod.snd
+
+def LiveAgreement {Φ : Type} (profile : LiveProfile Φ) (instr : Primitive E Φ α) : Prop :=
+  ∀ i f bit, profile i = some (f, bit) → instr f .unit = pure (bitValue bit)
+
+def exitResult (live : TwoRequest.Tag → Option Bool) (i : TwoRequest.Tag) : Transfer α :=
+  LambdaSSA.FiniteCFG.packedTreeOutput (i.val, exitPayload (live i))
+
+def encodeCursorWith (live : TwoRequest.Tag → Option Bool) (names : Fin 5 ≃ K)
+    (atom : Unit → α) (c : Cursor Packets) : K × Value α :=
   match c.down with
-  | .inl i => (names (i.natAdd 3), .pair .unit .unit)
+  | .inl i => (names (i.natAdd 3), exitPayload (live i))
   | .inr p => (names (p.1.castAdd 2), .pair (encodeValue atom p.2.val) .unit)
+
+abbrev encodeCursor (names : Fin 5 ≃ K) (atom : Unit → α) :=
+  encodeCursorWith (fun _ => none) names atom
 
 /-- The shared query evaluator returns the same tagged replies as the raw
 named primitive at every typed bit argument. -/
