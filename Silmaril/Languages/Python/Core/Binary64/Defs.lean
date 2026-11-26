@@ -161,4 +161,76 @@ def divideFloat (operands : FloatOperands) : Except FloatDivisionError F64.Finit
   if rhs = 0 then .error .zeroDivisionError
   else (roundExact? (left.val.signBit != right.val.signBit) (lhs / rhs)).elim (.error .nonfiniteResult) .ok
 
+/-- Encode an exact representable value and verify its decoded value. -/
+def encodeExact? (negative : Bool) (value : ℚ) : Option F64.Finite :=
+  (roundExact? negative value).filter fun result => result.val.toRat? == some value
+
+/-- The remainder for truncation toward zero, before Python's sign adjustment. -/
+def truncatingRemainder (lhs rhs : ℚ) : ℚ :=
+  let divisor := |rhs|
+  let quotient := (|lhs| / divisor).floor
+  let magnitude := |lhs| - (quotient : ℚ) * divisor
+  if lhs < 0 then -magnitude else magnitude
+
+def fmodFinite? (left right : F64.Finite) : Option F64.Finite := do
+  let lhs ← left.val.toRat?
+  let rhs ← right.val.toRat?
+  if rhs = 0 then none else encodeExact? left.val.signBit (truncatingRemainder lhs rhs)
+
+/-- The correction uses the signs of the divisor and nonzero raw remainder. -/
+def needsDivModCorrection (right remainder : F64.Finite) (value : ℚ) : Bool :=
+  decide (value ≠ 0) && (right.val.signBit != remainder.val.signBit)
+
+def signRemainder? (right remainder : F64.Finite) (value : ℚ) : Option F64.Finite :=
+  if value = 0 then roundExact? right.val.signBit 0
+  else if needsDivModCorrection right remainder value then addFinite? remainder right
+  else some remainder
+
+def divModOne : F64.Finite := ⟨F64.ofBits 0x3ff0000000000000, by decide⟩
+
+/-- Snap CPython's rounded quotient to an integral float. The fractional
+test itself uses rounded subtraction and a strict comparison with one half. -/
+def snapQuotient? (negative : Bool) (quotient : F64.Finite) : Option F64.Finite := do
+  let value ← quotient.val.toRat?
+  if value = 0 then roundExact? negative 0
+  else
+    let floor := value.floor
+    let integral ← encodeExact? (decide (floor < 0)) (floor : ℚ)
+    let fraction ← subFinite? quotient integral
+    let delta ← fraction.val.toRat?
+    if delta > 1 / 2 then addFinite? integral divModOne else some integral
+
+/-- CPython forms a rounded difference before dividing. It subtracts one
+from that binary64 quotient when the remainder's sign needs correction. -/
+def floorQuotient? (left right remainder : F64.Finite) (adjust : Bool) :
+    Option F64.Finite := do
+  let rhs ← right.val.toRat?
+  (subFinite? left remainder).bind fun difference => do
+    let delta ← difference.val.toRat?
+    let negative := left.val.signBit != right.val.signBit
+    let quotient ← roundExact? (difference.val.signBit != right.val.signBit) (delta / rhs)
+    let corrected := if adjust then subFinite? quotient divModOne else some quotient
+    corrected.bind (snapQuotient? negative)
+
+inductive FloatDivModOp where
+  | floorDiv
+  | modulo
+
+def FloatDivModOp.finite? (op : FloatDivModOp) (left right : F64.Finite) :
+    Option F64.Finite := do
+  let remainder ← fmodFinite? left right
+  let value ← remainder.val.toRat?
+  match op with
+  | .floorDiv => floorQuotient? left right remainder (needsDivModCorrection right remainder value)
+  | .modulo => signRemainder? right remainder value
+
+/-- Finite-operand CPython float floor division and modulo. Modulo does
+not compute a quotient, so quotient overflow does not restrict it. -/
+def FloatDivModOp.eval (op : FloatDivModOp) (operands : FloatOperands) :
+    Except FloatDivisionError F64.Finite := do
+  let some (left, right) := operands.convert? | .error .conversionOverflow
+  let some rhs := right.val.toRat? | .error .nonfiniteResult
+  if rhs = 0 then .error .zeroDivisionError
+  else (op.finite? left right).elim (.error .nonfiniteResult) .ok
+
 end Silmaril.Languages.Python.Core.Binary64

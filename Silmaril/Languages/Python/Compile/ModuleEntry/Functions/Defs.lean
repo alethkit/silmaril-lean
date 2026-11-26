@@ -158,6 +158,7 @@ inductive CallValue (scope : Scope) where
   | intDivMod (op : Core.Closure.IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
   | floatDiv (operands : Core.Binary64.FloatOperands)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : F64.Finite)
   | floatAdd (left right : F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -215,12 +216,18 @@ def intDivModSourceOp : Core.Closure.IntDivModOp → Source.BinaryOperator
   | .floorDiv => .floorDiv
   | .modulo => .modulo
 
+def floatDivModOp : Core.Closure.IntDivModOp → Core.Binary64.FloatDivModOp
+  | .floorDiv => .floorDiv
+  | .modulo => .modulo
+
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
   | intDivMod {op left right numerator divisor}
       (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
       CallValueTranslation scope (.binary (intDivModSourceOp op) left right) (.intDivMod op numerator divisor)
+  | floatDivMod {op left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary (intDivModSourceOp op) left right) (.floatDivMod (floatDivModOp op) operands)
   | intTrueDiv {left right numerator divisor}
       (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
       CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
@@ -255,18 +262,21 @@ def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
   ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
     ⟨.scalar operand.val, .scalar operand.property⟩
 
-def lowerIntDivMod (scope : Scope) (op : Core.Closure.IntDivModOp) (left right : Source.Expr) :
+def lowerDivMod (scope : Scope) (op : Core.Closure.IntDivModOp) (left right : Source.Expr) :
     Except Error {value // CallValueTranslation scope (.binary (intDivModSourceOp op) left right) value} :=
   match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
   | some numerator, some divisor => .ok ⟨.intDivMod op numerator divisor, .intDivMod lhs rhs⟩
-  | _, _ => lowerScalarCallValue scope (.binary (intDivModSourceOp op) left right)
+  | _, _ =>
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatDivMod (floatDivModOp op) operands.val, .floatDivMod operands.property⟩
+    | none => lowerScalarCallValue scope (.binary (intDivModSourceOp op) left right)
 
 def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     Except Error {value // CallValueTranslation scope source value}
   | .tuple elements =>
     (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
-  | .binary .floorDiv left right => lowerIntDivMod scope .floorDiv left right
-  | .binary .modulo left right => lowerIntDivMod scope .modulo left right
+  | .binary .floorDiv left right => lowerDivMod scope .floorDiv left right
+  | .binary .modulo left right => lowerDivMod scope .modulo left right
   | .binary .trueDiv left right =>
     match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
     | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩

@@ -97,6 +97,17 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intTrueDiv_operand_agrees
     space globals heap frame numerator divisor
 
+theorem floatDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDivMod op operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDivMod op operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatDivMod_operand_agrees
+    space globals heap frame op operands
+
 theorem floatDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
     (operands : Core.Binary64.FloatOperands) :

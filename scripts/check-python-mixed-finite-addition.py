@@ -2,6 +2,7 @@
 """Replay checked binary64 call arithmetic against CPython."""
 
 import argparse
+from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
@@ -290,6 +291,74 @@ def division_controls():
     return fixtures, observations, expected_bits
 
 
+def divmod_controls():
+    cases = {
+        "mixed_left": ("5", "2.0"),
+        "mixed_right": ("5.0", "2"),
+        "floats": ("5.0", "2.0"),
+        "negative_left": ("-5.0", "2"),
+        "negative_right": ("5", "-2.0"),
+        "both_negative": ("-5.0", "-2.0"),
+        "positive_zero_negative_divisor": ("0.0", "-2"),
+        "negative_zero_positive_divisor": ("-0.0", "2"),
+        "negative_zero_negative_divisor": ("-0.0", "-2.0"),
+        "negative_exact_multiple": ("4.0", "-2.0"),
+        "signed_zero_integer_numerator": ("0", "-2.0"),
+        "near_multiple_rounded_division": ("1.0", "0.1"),
+        "just_above_multiple": ("1.0000000000000002", "0.1"),
+        "near_multiple_after_subtraction": ("4.069759835666074e16", "1.7315091173318338"),
+        "subnormal": ("1.5e-323", "1e-323"),
+        "subnormal_sign_correction": ("-1.5e-323", "1e-323"),
+        "tiny_negative_numerator": ("-5e-324", "1.0"),
+        "int_numerator_conversion": ("9007199254740993", "3.0"),
+        "int_divisor_conversion": ("9007199254740992.0", "9007199254740993"),
+    }
+    expressions = {f"{name}_{suffix}": f"{left} {op} {right}"
+                   for name, (left, right) in cases.items() for suffix, op in (("quotient", "//"), ("remainder", "%"))}
+    expressions["finite_remainder_after_quotient_overflow"] = "1e308 % 1e-308"
+    finite = PREFIX + "".join(f"{name} = relay({expression})\n" for name, expression in expressions.items())
+    namespace = EQUALITY["cpython"](finite, "ordinary")[2]
+    expected = {name: bits(namespace[name]) for name in expressions}
+    assert namespace["near_multiple_rounded_division_quotient"] == 9.0 and int(1.0 / 0.1) == 10
+    left, right = 4.069759835666074e16, 1.7315091173318338
+    assert namespace["near_multiple_after_subtraction_quotient"] != float(Fraction(left) // Fraction(right))
+    assert expected["positive_zero_negative_divisor_quotient"] == "8000000000000000"
+    assert expected["negative_zero_positive_divisor_remainder"] == "0000000000000000"
+    assert expected["negative_exact_multiple_remainder"] == "8000000000000000"
+    assert expected["finite_remainder_after_quotient_overflow"] != "0000000000000000"
+    fixtures, observations = [], {}
+    for label, source, outcomes in (
+        ("finite float quotient and remainder bits", finite, expect("normal", "normal")),
+        ("floor cast before signed zero divisor", PREFIX + "bad = relay(2**1024 // -0.0)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("modulo cast before signed zero divisor", PREFIX + "bad = relay(2**1024 % -0.0)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("modulo divisor cast with zero numerator", PREFIX + "bad = relay(0.0 % 2**1024)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("floor zero divisor", PREFIX + "bad = relay(1.0 // 0)\ntail = 9\n",
+         expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("modulo signed zero divisor", PREFIX + "bad = relay(1 % -0.0)\ntail = 9\n",
+         expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("missing callee before floor conversion", PREFIX + "___assertEqual(2**1024 // 0.0, missing)\ntail = 9\n",
+         expect("NameError:___assertEqual", "OverflowError")),
+        ("modulo failure before lookup and callability", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(1.0 % 0, missing)\ntail = 9\n", expect("ZeroDivisionError", "ZeroDivisionError")),
+        ("left lookup before floor error", PREFIX + "___assertEqual(missing, 1 // 0.0)\ntail = 9\n",
+         expect("NameError:___assertEqual", "NameError:missing")),
+        ("earlier modulo receipt before floor error", PREFIX + "___assertEqual(relay(-0.0 % -2), 1.0 // 0)\ntail = 9\n",
+         expect("NameError:___assertEqual", "ZeroDivisionError")),
+    ):
+        fixture, observed = observe(source, outcomes)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    fixtures.extend((
+        nonfinite_control("1e308 // 1e-308", "7ff0000000000000"),
+        nonfinite_control("-2.0 // 5e-324", "fff0000000000000"),
+    ))
+    return fixtures, observations, expected
+
+
 def controls(upstream):
     forward = "___assertEqual(4 + 2.0, 6.0)\n"
     reverse = "___assertEqual(4.0 + 2, 6.0)\n"
@@ -374,6 +443,9 @@ def controls(upstream):
     div_fixtures, div_observations, div_bits = division_controls()
     fixtures.extend(div_fixtures)
     observations.update(div_observations)
+    divmod_fixtures, divmod_observations, divmod_bits = divmod_controls()
+    fixtures.extend(divmod_fixtures)
+    observations.update(divmod_observations)
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
@@ -384,8 +456,9 @@ def controls(upstream):
         assert EQUALITY["cpython"](source, "ordinary")[0] == "TypeError"
         fixtures.append((source, rejected))
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
-                    ("1e999 - 2.0", "2.0 - 1e999", "1e999 * 2.0", "2.0 * 1e999", "1e999 / 2.0", "2.0 / 1e999"))
-    return fixtures, observations, expected_bits, float_bits, sub_bits, mul_bits, div_bits
+                    ("1e999 - 2.0", "2.0 - 1e999", "1e999 * 2.0", "2.0 * 1e999", "1e999 / 2.0", "2.0 / 1e999",
+                     "1e999 // 2.0", "2.0 % 1e999"))
+    return fixtures, observations, expected_bits, float_bits, sub_bits, mul_bits, div_bits, divmod_bits
 
 
 if __name__ == "__main__":
@@ -398,14 +471,14 @@ if __name__ == "__main__":
         assert sys.version_info[:3] == (3, 13, 5), sys.version
         revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
         assert revision == QUOTIENT["UPSTREAM"]
-    fixtures, observed, result_bits, float_bits, sub_bits, mul_bits, div_bits = controls(args.upstream)
+    fixtures, observed, result_bits, float_bits, sub_bits, mul_bits, div_bits, divmod_bits = controls(args.upstream)
     with tempfile.TemporaryDirectory() as directory:
         source, lean = Path(directory) / "Fixture.py", Path(directory) / "Fixtures.lean"
         INTAKE["check_lean_batch"](source, lean, fixtures, EQUALITY["LEAN"], extra_imports=TRANSPORT["SUITE"]["IMPORTS"])
     print(json.dumps({"cpython": ".".join(map(str, sys.version_info[:3])), "upstream": revision,
                       "fixtures": len(fixtures), "result_bits": result_bits, "float_result_bits": float_bits,
                       "subtraction_bits": sub_bits, "multiplication_bits": mul_bits, "division_bits": div_bits,
-                      "observations": observed,
+                      "divmod_bits": divmod_bits, "observations": observed,
                       "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"},
                       "float_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
                                          "lean": "unsupported"},

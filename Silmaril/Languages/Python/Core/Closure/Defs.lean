@@ -224,11 +224,20 @@ def trueDivideInt (numerator divisor : Int) : Except RuntimeError Silmaril.Numer
     | .zeroDivisionError => .arithmetic .zeroDivisionError
     | .overflowError => .overflowError
 
-def trueDivideFloat (operands : Core.Binary64.FloatOperands) : Except Failure Silmaril.Numeric.Ieee754.F64.Finite :=
-  (Core.Binary64.divideFloat operands).mapError fun
+def floatDivisionResult
+    (result : Except Core.Binary64.FloatDivisionError Silmaril.Numeric.Ieee754.F64.Finite) :
+    Except Failure Silmaril.Numeric.Ieee754.F64.Finite :=
+  result.mapError fun
     | .conversionOverflow => .defined .overflowError
     | .zeroDivisionError => .defined (.arithmetic .zeroDivisionError)
     | .nonfiniteResult => .unsupportedFloatOperand
+
+def trueDivideFloat (operands : Core.Binary64.FloatOperands) : Except Failure Silmaril.Numeric.Ieee754.F64.Finite :=
+  floatDivisionResult (Core.Binary64.divideFloat operands)
+
+def floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+    Except Failure Silmaril.Numeric.Ieee754.F64.Finite :=
+  floatDivisionResult (op.eval operands)
 
 def floatArithmeticResult
     (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :
