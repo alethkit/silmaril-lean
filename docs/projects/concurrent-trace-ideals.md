@@ -5,8 +5,9 @@ The development is parameterized by the finite word interpretation. For a
 Mazurkiewicz trace monoid, use its finite word quotient as the interpretation
 and order finite classes by left divisibility, so `x ≤ y` means
 `y = x * z` for some finite class `z`. A word extension gives exactly this
-factorization. The instance can be supplied by a finite trace library using
-only these public interfaces. [The Book of Traces][book-of-traces] gives the
+factorization. The [event/sync instance][event-sync] uses these public
+interfaces to connect finite classes and ideal-prefix observations.
+[The Book of Traces][book-of-traces] gives the
 standard finite trace-monoid terminology.
 
 ## Observations and equality
@@ -98,6 +99,7 @@ lake build --wfail +Silmaril.Semantics.ConcurrentTrace.Ideals.Thms \
 [sequences]: ../../Silmaril/Semantics/ConcurrentTrace/PartialSequence/Defs.lean
 [prefixes]: ../../Silmaril/Semantics/ConcurrentTrace/PartialSequence/Thms.lean
 [ideals]: ../../Silmaril/Semantics/ConcurrentTrace/Ideals/Thms.lean
+[event-sync]: ../../Silmaril/Semantics/ConcurrentTrace/EventSync/Thms.lean
 [regression]: ../../Silmaril/Proofs/Semantics/ConcurrentTrace/Ideals/Regression.lean
 [paths]: ../../Silmaril/Foundations/InfiniteTrace.lean
 [itrees]: ../../Silmaril/Semantics/ITree/Defs.lean
