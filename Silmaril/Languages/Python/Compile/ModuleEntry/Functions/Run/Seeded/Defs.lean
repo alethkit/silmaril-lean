@@ -101,6 +101,7 @@ def legacyTextSeed (placement : SeedPlacement) : Namespace :=
 
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
+  | .intDivMod op numerator divisor => .intDivMod op numerator divisor
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .floatDiv operands => .floatDiv operands
   | .mixedAdd integer floating => .mixedAdd integer floating

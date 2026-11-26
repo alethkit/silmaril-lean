@@ -183,18 +183,29 @@ infinity stops outside the finite runtime profile. Integer–integer true
 division uses its exact integer ratio and raises its defined overflow
 error when rounding reaches infinity.
 
+Positional floor division and modulo accept two closed integer expressions
+from the same integer checker. After live callee lookup, both runners
+evaluate the deferred operation as they prepare arguments left to right.
+A zero divisor raises `ZeroDivisionError` before call entry. For a nonzero
+divisor, the quotient and remainder satisfy `numerator = divisor * quotient + remainder`.
+For a positive divisor the remainder lies in `[0, divisor)`. For a negative
+divisor it lies in `(divisor, 0]`. These intervals uniquely determine the
+floor quotient and the remainder for either numerator sign.
+
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first thirty-five unchanged lines complete with `legacyNumericIsinstanceSeed`
+The first thirty-eight unchanged lines complete with `legacyNumericIsinstanceSeed`
 in both helper placements. It installs the stock `float` class in the
 builtin table and the Boolean assertion helper in the selected placement.
-All sixteen probes record exact Boolean `True` before the outer helper's
+All seventeen probes record exact Boolean `True` before the outer helper's
 `None` receipt. The mixed and float–float sums, differences, and products
 supply finite binary64 `6.0`, `2.0`, and `8.0` respectively. The four
-true-division pairs supply binary64 `2.5`.
+true-division pairs supply binary64 `2.5`. Lines 37–38 supply integer `2`
+and complete the prefix with 51 receipts per placement. The isolated
+integer remainder checks on lines 46–47 supply integer `1` and three receipts.
 Instance dispatch uses the live module-first
 descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
 mask yields exact `False` before the assertion fails. The checked pairs use
@@ -206,8 +217,9 @@ Ordinary and empty-seeded runs stop at the missing equality helper on
 line 1. The fixed stock profiles reach the missing Boolean assertion
 helper on line 2. Supplying that helper and only the integer and Boolean
 classes leaves the `float` lookup on line 4 undefined. The first
-rejected compiler prefix reports `callOperand` on line 37,
-`___assertEqual(5 // 2, 2)`. The full file reports `expressionProfile`.
+rejected compiler prefix reports `expressionProfile` on line 39,
+`___assertEqual(5.0 // 2, 2.0)`. The full file has the same diagnostic.
+Float floor division and modulo require a separate checked rule.
 Run the binary64 arithmetic differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional arithmetic differential with
