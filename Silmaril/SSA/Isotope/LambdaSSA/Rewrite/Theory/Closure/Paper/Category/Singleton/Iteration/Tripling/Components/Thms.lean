@@ -71,6 +71,11 @@ theorem phaseInterleave_hom (A D : C) : (phaseInterleave A D).hom =
       (coprod.map (coprod.inr ≫ coprod.inr) (coprod.inr ≫ coprod.inr))) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.phaseInterleave_hom A D
 
+theorem phaseInterleave_inv (A D : C) : (phaseInterleave A D).inv =
+    coprod.desc (coprod.map coprod.inl (coprod.map coprod.inl coprod.inl))
+      (coprod.map coprod.inr (coprod.map coprod.inr coprod.inr)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling.phaseInterleave_inv A D
+
 end PhaseInterleave
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory.ComponentTripling

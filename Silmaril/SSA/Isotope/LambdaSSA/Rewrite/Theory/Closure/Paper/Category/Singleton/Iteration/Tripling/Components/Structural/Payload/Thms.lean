@@ -11,6 +11,7 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton.ThreeCycle.Payload
 
 open CategoryTheory CategoryTheory.Limits
+open Paper.TypeCategory.ComponentTripling (phaseInterleave)
 
 universe u v
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
@@ -26,6 +27,17 @@ noncomputable def bitPayloadIso
     (includeUnit : ∀ {Γ L r s}, Paper.WithUnitEta.Step Γ r s L → Seed Γ r s L) (A : τ) :
     Obj (Silmaril.product (Silmaril.coprod U U) A) ≅ Obj A ⨿ Obj A :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.StructuralTriplingPayload.bitPayloadIso Seed includeUnit A
+
+/-- Phase regrouping commutes with forgetting the phase of either tag. -/
+theorem regroup_fold (A D : Q) :
+    (phaseInterleave A D).hom ≫ coprod.map (fold A) (fold D) = fold (A ⨿ D) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.StructuralTriplingPayload.regroup_fold Seed A D
+
+/-- Both rows commute with phase discard, keeping the exit and both tag ports. -/
+theorem rows_square {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
+    groupedRows Seed g ≫ coprod.map (coprod.map (𝟙 B) (fold A)) (fold D) =
+      coprod.map (fold A) (fold D) ≫ g ≫ (coprod.associator B A D).inv :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.StructuralTriplingPayload.rows_square Seed g
 
 /-- The local right-row iteration is the Bekić right cut with the opposite
 tag's phase erased at its outward port. -/

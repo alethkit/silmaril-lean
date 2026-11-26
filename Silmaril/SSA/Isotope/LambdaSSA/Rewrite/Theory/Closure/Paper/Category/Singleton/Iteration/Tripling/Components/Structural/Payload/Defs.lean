@@ -18,13 +18,18 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "Q" => TypeCategory Seed
 local notation "Phases" A:max => (A ⨿ (A ⨿ A))
 
-/-- In the three-phase schedule, expose the opposite tag with its phase as
-an outward port during Bekić elimination. -/
+/-- Group the written three-phase schedule by tag and expose the left tag
+beside the exit for right-block elimination. -/
+noncomputable def groupedRows {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
+    Phases A ⨿ Phases D ⟶ (B ⨿ Phases A) ⨿ Phases D :=
+  let c := Paper.TypeCategory.ComponentTripling.phaseInterleave A D
+  c.inv ≫ step g ≫ coprod.map (𝟙 B) c.hom ≫
+    (coprod.associator B (Phases A) (Phases D)).inv
+
+/-- The right row with the opposite tag and its phase exposed. -/
 noncomputable def groupedRightRow {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
     Phases D ⟶ (B ⨿ Phases A) ⨿ Phases D :=
-  let c := Paper.TypeCategory.ComponentTripling.phaseInterleave A D
-  coprod.inr ≫ c.inv ≫ step g ≫ coprod.map (𝟙 B) c.hom ≫
-    (coprod.associator B (Phases A) (Phases D)).inv
+  coprod.inr ≫ groupedRows Seed g
 
 /-- Forget the phase of the opposite tag on its outward port. -/
 noncomputable def rightRow {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :

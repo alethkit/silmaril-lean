@@ -36,7 +36,7 @@ noncomputable def bitPayloadIso
     coprod.mapIso (rightUnitIsoOfEta Seed (unit_eta_of_include Seed includeUnit) (Obj A))
       (rightUnitIsoOfEta Seed (unit_eta_of_include Seed includeUnit) (Obj A))
 
-private theorem regroup_fold (A D : Q) :
+theorem regroup_fold (A D : Q) :
     (phaseInterleave A D).hom ≫ coprod.map (fold A) (fold D) = fold (A ⨿ D) := by
   apply coprod.hom_ext
   · apply coprod.hom_ext <;> simp [phaseInterleave_hom]
@@ -49,18 +49,23 @@ private theorem group_square {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
   rw [coprod.map_map, Category.id_comp, regroup_fold, square Seed g,
     ← regroup_fold Seed A D, Category.assoc, Iso.inv_hom_id_assoc]
 
-theorem right_square {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
-    rightRow Seed g ≫ coprod.map (𝟙 (B ⨿ A)) (fold D) = fold D ≫ targetRightRow Seed g := by
+theorem rows_square {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
+    groupedRows Seed g ≫ coprod.map (coprod.map (𝟙 B) (fold A)) (fold D) =
+      coprod.map (fold A) (fold D) ≫ g ≫ (coprod.associator B A D).inv := by
   have ports : (coprod.associator B (Phases A) (Phases D)).inv ≫
       coprod.map (coprod.map (𝟙 B) (fold A)) (fold D) =
       coprod.map (𝟙 B) (coprod.map (fold A) (fold D)) ≫ (coprod.associator B A D).inv := by
     apply coprod.hom_ext
     · simp [coprod.associator]
     · apply coprod.hom_ext <;> simp [coprod.associator]
-  rw [rightRow, groupedRightRow, targetRightRow]
-  simp only [Category.assoc, coprod.map_map, Category.comp_id, Category.id_comp]
+  simp only [groupedRows, Category.assoc]
   rw [ports, ← Category.assoc (coprod.map (𝟙 B) (phaseInterleave A D).hom),
-    ← Category.assoc (step g), ← Category.assoc (phaseInterleave A D).inv, group_square]
-  simp only [Category.assoc, coprod.inr_map_assoc]
+    ← Category.assoc (step g), ← Category.assoc (phaseInterleave A D).inv, group_square, Category.assoc]
+
+theorem right_square {A D B : Q} (g : A ⨿ D ⟶ B ⨿ (A ⨿ D)) :
+    rightRow Seed g ≫ coprod.map (𝟙 (B ⨿ A)) (fold D) = fold D ≫ targetRightRow Seed g := by
+  simpa only [rightRow, groupedRightRow, targetRightRow, Category.assoc, coprod.map_map,
+    Category.comp_id, Category.id_comp, coprod.inr_map_assoc] using
+    congrArg ((coprod.inr : Phases D ⟶ Phases A ⨿ Phases D) ≫ ·) (rows_square Seed g)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.StructuralTriplingPayload
