@@ -31,6 +31,16 @@ theorem Site.step_iff (allocated : site.Allocated base) (contract : site.Contrac
         dst = site.pending (memory.store bytes) outer context args) :=
   Proofs.step_iff allocated contract live typed
 
+/-- Read an answered callout through a context that preserves the presence
+of the active callout and plugs the same redex. -/
+theorem answer_through {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
+    (plugged : wrapped.code = context.plug value inner.code) (store : wrapped.store = inner.store)
+    (present : (decompose? wrapped).isSome = (decompose? inner).isSome)
+    (located : CalloutAt wrapped call) (answer : Answer host wrapped call dst) :
+    ∃ c mid, CalloutAt inner c ∧ Answer host inner c mid ∧
+      dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ :=
+  Proofs.answer_through plugged store present located answer
+
 /-- Read an answered native callout back through a surrounding evaluation
 context that preserves the selected redex. -/
 theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}

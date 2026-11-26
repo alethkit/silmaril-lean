@@ -408,16 +408,16 @@ private theorem programContract : program.Contract mem checkedHost := by
           exact .inr ⟨nestedHost.code, directHostLinked⟩
       · intro callee found index sig used
         rcases registered found with rfl | rfl | rfl
-        · simp [target, fn] at used
+        · simp [target, fn, MemoryTarget.sourceOps, MemoryTarget.descendants] at used
         · have same : Graph.Memory32.Op.callIndirect index sig = nestedCall := by
-            simpa [parentTarget, parent, afterDirect, nestedSite, reloadOps] using used
+            simpa [parentTarget, parent, afterDirect, nestedSite, nestedCall, reloadOps, MemoryTarget.sourceOps, MemoryTarget.descendants] using used
           change Graph.Memory32.Op.callIndirect index sig =
             .callIndirect ⟨1⟩ ⟨signature.params, signature.results⟩ at same
           have pair := Graph.Memory32.Op.callIndirect.inj same
           rcases pair with ⟨rfl, rfl⟩
           exact nestedLinked
         · have same : Graph.Memory32.Op.callIndirect index sig = hostCall := by
-            simpa [nestedTarget, nestedFn, hostOps, hostTail] using used
+            simpa [nestedTarget, nestedFn, hostOps, hostCall, hostTail, MemoryTarget.sourceOps, MemoryTarget.descendants] using used
           change Graph.Memory32.Op.callIndirect index sig =
             .callIndirect ⟨1⟩ ⟨nestedHost.type.params, nestedHost.type.results⟩ at same
           obtain ⟨rfl, rfl⟩ := Graph.Memory32.Op.callIndirect.inj same
