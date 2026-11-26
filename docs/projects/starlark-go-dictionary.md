@@ -200,16 +200,65 @@ cached codes and live fields, as well as a bound that makes every reached
 collision comparison total.
 [Paired depth controls](../../scripts/starlark/go-dictionary/check.go) · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Checks.lean)
 
-The read theorem permits frozen cells. The write theorem assumes a live
-unfrozen dictionary and no active iterator on its address. A backend
-integration needs to preserve the canonical and Go guard order, including
-rejection before hashing, and connect physical iterator lifetimes to the
-shared store. Changing key reads across writes requires an explicit
-stability proof. Strings need the pinned short-string hash and a stable
-seed for longer keys. Functions and builtins need identity and hash laws
-covering their names and bound receivers. Dictionary displays use a
-separate duplicate-key rule.
+The read theorem permits frozen cells. The successful-write theorem
+assumes a live unfrozen dictionary and no active iterator on its address.
+The guard bridge below extends this result to rejected writes. Changing
+key reads across writes requires a stability proof. Strings need the
+pinned short-string hash and a stable seed for longer keys. Functions and
+builtins need identity and hash laws covering their names and bound
+receivers.
 [Pinned mutability guards][guards] · [Pinned string hashing][string-hash] · [Pinned function hash][function-hash] · [Pinned builtin hash][builtin-hash]
+
+## Mutation guards and allocation
+
+`GoDictionary.Guards.Thms` adds a stateful wrapper for assignment and
+direct deletion. A freeze flag and an active iterator count gate both
+operations before hashing. Freeze wins when both guards apply.
+`guard_agrees` proves the exact canonical write error and the unchanged
+state on both sides. The canonical error carries the receiver address.
+The Go wrapper observes the guard reason, and the oracle checks Go's
+operation-specific error text. Entering an iterator preserves the
+relation. A frozen Go dictionary leaves its count alone while the
+canonical loop pushes the address. The shared guard still observes
+freeze. Go iterator lifetime and shared-store execution remain separate
+from this wrapper's mutation proofs.
+[Pinned mutability guards][guards] · [Pinned iterator entry][go-iterators] · [Guard theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Guards/Thms.lean)
+
+A zero-value Go dictionary has no allocated buckets and can represent a
+live empty canonical cell. After the guards pass, Go assignment allocates
+storage before hashing, so even a hash error leaves the empty buckets
+allocated. A rejected guard leaves allocation and rows intact. Direct
+deletion of unallocated storage misses before hashing. Direct deletion
+of initialized empty storage hashes, and a reached hash error leaves
+that table intact. The direct-delete proof also lifts the exact removed
+value and state of an admitted deletion. Go's `popitem` checks emptiness
+before calling `Delete`, and a frozen empty dictionary reports
+`popitem: empty dict`.
+[Pinned assignment][insert] · [Pinned deletion][delete] · [Pinned popitem][go-popitem]
+
+`writeDict_lockstep` covers scalar insertion and replacement, including
+initialization, and classifies shared unhashable list, dictionary and
+range keys. Canonical key validation reports `unhashableKey`, and the
+standalone hash reports `unsupportedKey` for those carriers. The paired
+outcome records the exact state on each side. An uninitialized canonical
+binding fails while evaluating the receiver, and a missing canonical
+heap cell reports its address error. These failures are separate from
+Go's zero-value dictionary. Canonical display insertion checks key and
+duplicate entries before calling its cell edit. Its raw helper can
+therefore report a key error on a frozen receiver. Actual displays
+construct their own dictionary and follow a separate evaluation rule.
+[Canonical coverage](starlark-lists.md#dictionary-mutation-guards) · [Pinned display instruction][go-display]
+
+The denotation theorem starts the physical mutation after right-hand
+side, receiver and key evaluation, in that order. A key-expression
+error precedes the guards. Earlier effects are retained at the state
+reached by the failing operand or guard. Both fixtures exercise keys
+that fail if hashing or encoding is reached. The Go controls record
+operand and hash calls, and the Lean controls observe allocation effects
+retained on rejection. Canonical and standalone backends remain separate.
+Tuple cache stability, strings and callable keys remain outside the
+guard bridge.
+[Pinned RHS compilation][go-assignment] · [Pinned target compilation][go-assignment-target] · [Pinned subscript instruction][go-setindex] · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Guards/Checks.lean) · [Go controls](../../scripts/starlark/go-dictionary/check.go)
 
 ## Reproduction
 
@@ -217,7 +266,8 @@ separate duplicate-key rule.
 lake build --wfail +Silmaril.Languages.Starlark.Lists.GoDictionary.Checks \
   +Silmaril.Languages.Starlark.Lists.GoDictionary.Growth.Checks \
   +Silmaril.Languages.Starlark.Lists.GoDictionary.Deletion.Checks \
-  +Silmaril.Languages.Starlark.Lists.GoDictionary.Abstraction.Checks
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Abstraction.Checks \
+  +Silmaril.Languages.Starlark.Lists.GoDictionary.Guards.Checks
 fixture="$(pwd)/scripts/starlark/go-dictionary/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
@@ -239,3 +289,9 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [string-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L430-L450
 [function-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L759-L765
 [builtin-hash]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L832-L851
+[go-iterators]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L393-L427
+[go-popitem]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L1273-L1288
+[go-display]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L487
+[go-assignment]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1093-L1098
+[go-assignment-target]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1265-L1273
+[go-setindex]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L427-L436

@@ -191,12 +191,13 @@ cache. For ten-level tuple keys the cache can decide a hit or miss where
 the physical scan reaches a depth error.
 [Abstraction and limits](starlark-go-dictionary.md#agreement-with-canonical-dictionary-operations) · [Lean controls](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Abstraction/Checks.lean)
 
-The read observation permits frozen dictionaries. The assignment proof
-requires an unfrozen cell with no active iterator and coherent key reads
-in the reached heap. Integration beyond scalar keys needs a frame result
-for live tuple fields and cached codes, a totality bound for reached tuple
-comparisons, and coherent string and callable hashes. A backend change
-also needs to transfer freeze and iterator guards before key hashing.
+The read observation permits frozen dictionaries. The successful
+assignment proof requires an unfrozen cell with no active iterator and
+coherent key reads in the reached heap. The mutation guard theorem below
+connects rejection in the two backends. Integration beyond scalar keys
+needs a frame result for live tuple fields and cached codes, a totality
+bound for reached tuple comparisons, and coherent string and callable
+hashes.
 [Guard and key families](starlark-go-dictionary.md#agreement-with-canonical-dictionary-operations)
 
 ## Dictionary keys and order
@@ -220,6 +221,29 @@ dictionary operations. The `hash` built-in and general value equality remain
 open. Public raw heap constructors can supply malformed key caches. The
 normal expression evaluator computes them on allocation.
 [Lists][lists] · [Hashing][hashing] · [Pinned oracle][go]
+
+## Dictionary mutation guards
+
+`denote_setIndex` fixes the source order as right-hand side, receiver,
+key, then mutation. Source failures keep the reached state, including an
+uninitialized receiver after right-hand-side evaluation or a key error
+before a frozen write. Once the operands succeed, `writeDict` reads the
+receiver cell, checks freeze, checks active iteration, and validates the
+key. Freeze takes precedence over iteration. A guard or key-validation
+error leaves the dictionary and reached canonical state intact.
+[Canonical guard and order theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Guards/Thms.lean) · [Paired controls](starlark-go-dictionary.md#mutation-guards-and-allocation)
+
+`setIndex_lockstep` applies after the operands evaluate. It relates
+scalar insertions and replacements, guard rejection, and shared
+unhashable list, dictionary and range keys. An unallocated Go table can
+represent a live empty canonical cell. Go may allocate that storage
+during a failed assignment, while the live rows stay related. A missing
+canonical binding or heap cell reports its own error. An active iterator
+on a mutable cell agrees with a positive Go count. Frozen iterator counts
+can differ because freeze wins over iteration. Display insertion has its
+own key-validation and duplicate rule, and direct deletion is proved as
+a standalone Go operation.
+[Go guard policy](starlark-go-dictionary.md#mutation-guards-and-allocation)
 
 ## Reachable freezing
 
