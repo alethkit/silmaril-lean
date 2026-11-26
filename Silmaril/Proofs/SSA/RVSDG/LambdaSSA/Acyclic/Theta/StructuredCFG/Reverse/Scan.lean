@@ -45,7 +45,7 @@ private theorem cons_append (head : Option (Entry τ Φ)) (rest tail : Option (L
       (do let xs ← (do let h ← head; pure (h :: (← rest))); let ys ← tail; pure (xs ++ ys)) := by
   cases head <;> cases rest <;> cases tail <;> rfl
 
-private theorem scan_append {a : Data args} {b : Data input} {c : Data outs}
+theorem scan_append {a : Data args} {b : Data input} {c : Data outs}
     {live : Origin (Threaded args) past runtime}
     {p : NestedTheta.Term (Wires.Op Φ) (Threaded args) past sigs (Threaded input)}
     {q : NestedTheta.Term (Wires.Op Φ) (Threaded input) [] after (Threaded outs)}
