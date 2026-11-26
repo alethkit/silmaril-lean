@@ -1108,6 +1108,35 @@ request-guarded grammar. Search and completeness are separate from this
 soundness result.
 [Product certificate][ssa-ub-open-guarded-product]
 
+### Reachable search for a guarded product certificate
+
+`Table.searchProduct` starts at the pair of typed entries. Each side
+supplies an exhaustive list of exact label-and-payload configurations,
+and the opcode signature supplies exhaustive typed reply packets.
+Discovering a pair removes its copies from the remaining Cartesian
+inventory. The initial inventory length bounds the number of discoveries.
+The search uses the label and evaluated payload as its configuration key,
+so a backedge can revisit the same label with a new packet.
+
+The local test is `Head.checkPair` with the successor predicate always
+true. The outgoing edges enumerate the paired successors of equal
+requests. The factorization theorem recovers the entire `Head.checkPair`
+check by testing the local clause and the successor predicate on each
+edge. A successful search returns a certificate accepted by
+`Table.checkProduct`, and every listed pair has a path from the entry.
+Search succeeds exactly when some accepted certificate exists.
+
+A rejection reports a reached pair, the failing local comparison and
+the shared reply path in forward order. The path records the opcode,
+reply position and typed payload at each edge. This is a syntactic
+certificate. A semantic completeness proof would have to realize the
+whole path in one deterministic interpreter, including repeated queries
+and their machine states. Exact native readback is the separate premise
+when applying the existing semantic soundness theorem to an accepted
+certificate. The regressions exercise a changed packet on a revisit and
+the later payload at the same reply tag.
+[Product search and correctness][ssa-ub-open-guarded-search]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1270,5 +1299,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-caller-interface]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Refinement/Checker/Interface/Thms.lean
 [ssa-ub-open-guarded-step]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Thms.lean
 [ssa-ub-open-guarded-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Thms.lean
+[ssa-ub-open-guarded-search]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
