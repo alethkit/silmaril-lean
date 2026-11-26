@@ -95,6 +95,12 @@ theorem TraceLE.bind_pure {t s : Tree E A} (h : TraceLE t s) (f : A → B) :
     TraceLE (t >>= fun a => pure (f a)) (s >>= fun a => pure (f a)) :=
   h.bind_left (fun a => pure (f a))
 
+/-- An injective pure result encoding reflects the trace order. All requests
+and actual typed replies remain in the original event signature. -/
+theorem TraceLE.bind_pure_iff {t s : Tree E A} {f : A → B} (hf : Function.Injective f) :
+    TraceLE (t >>= fun a => pure (f a)) (s >>= fun a => pure (f a)) ↔ TraceLE t s :=
+  ⟨Silmaril.Proofs.Semantics.Elgot.ITree.trace_bind_pure_reflect hf, fun h => h.bind_pure f⟩
+
 /-- A visible root of a resumed computation is witnessed by a finite run
 of the normalizer. Each recursive return goes to another body. The final
 step exposes a return or an indexed request with resumed continuations. -/
