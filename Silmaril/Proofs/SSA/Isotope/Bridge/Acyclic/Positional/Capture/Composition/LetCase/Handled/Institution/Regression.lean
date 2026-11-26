@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Renaming.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Renaming.Category.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Reflection.Fixture
 
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Free.Tests
@@ -9,7 +9,8 @@ open CategoryTheory Silmaril.Elgot.ITree
 open Silmaril.Logic.ITree (Model)
 open Silmaril.Logic.ITree.TraceInstitution (allRepliesModel)
 open Silmaril.Isotope.Institution.Acyclic (CaseEquation)
-open Silmaril.Isotope.Institution.Acyclic.Captured (RankedEquation numberGrammar readGrammar grammarCase)
+open Silmaril.Isotope.Institution.Acyclic.Captured (RankedEquation numberGrammar readGrammar grammarCase
+  mapRanked mapGrammar)
 open Region (packedExitType)
 open Reverse (CheckedTable)
 open LetCase.Structural.Finite (StructuralContext)
@@ -168,5 +169,126 @@ example : SatLe (alternatingModel.reduct (renameEvents rename)) compositesQuery 
     SatLe (alternatingModel.reduct (renameEvents rename)) (swap compositesQuery) :=
   ⟨(satLe_rename rename_injective alternatingModel compositesQuery).mp alternating_satisfies.1,
     (satLe_rename rename_injective alternatingModel (swap compositesQuery)).mp alternating_satisfies.2⟩
+
+/-! ## A renaming into a larger signature
+
+The target has a second primitive with other shapes. The source is the
+fixture's signature with its own instance, so the renaming is a morphism of
+the category of structural signatures and not a pulled-back presentation. -/
+
+private inductive Wide | first | second
+
+local instance : LetCase.Structural.Finite.Signature Wide where
+  source
+    | .first => .pair bitShape bitShape
+    | .second => .unit
+  target _ := bitShape
+
+private abbrev narrow : StructuralSig := ⟨Op⟩
+private abbrev wide : StructuralSig := ⟨Wide⟩
+
+/-- The single primitive goes to the first of two. Its shapes are kept. -/
+private def widen : narrow ⟶ wide :=
+  ⟨⟨fun _ => Wide.first, fun _ => rfl, fun _ => rfl, fun _ => rfl⟩, fun a b _ => by cases a; cases b; rfl⟩
+
+/-- The single stage written directly over the larger signature, with the
+same older capture. -/
+private def routeWide : Operand Wide Source Packet :=
+  ⟨.let₁ (.op Wide.first (.pair (.bv 1) (.case (.bv 0) (.inl .unit) (.inr .unit))))
+    (.case (.bv 0) (.inl (.bv 0)) (.inr (.inl (.bv 0)))),
+    .let₁ (.op (.pair .bv (.case .bv (.inl .unit) (.inr .unit))))
+      (.case .bv (.inl .bv) (.inr (.inl .bv)))⟩
+
+private def echoWide : Operand Wide Source Packet :=
+  ⟨.let₁ (.op Wide.first (.pair (.bv 1) (.case (.bv 0) (.inl .unit) (.inr .unit))))
+    (.case (.bv 1) (.inr (.inl .unit)) (.inl .unit)),
+    .let₁ (.op (.pair .bv (.case .bv (.inl .unit) (.inr .unit))))
+      (.case .bv (.inr (.inl .unit)) (.inl .unit))⟩
+
+/-- The sentence map of the bundled institution gives the sentence written
+directly over the larger signature, at the same typing index. -/
+example : (caseInst.map widen).sen composites =
+    captured (Case.seq routeWide routeWide) (Case.seq routeWide echoWide) := rfl
+
+/-- The existing type-changing sentence map gives the same sentence. -/
+example : Silmaril.Isotope.Institution.Acyclic.mapCaseSignature widen.hom.toSignatureMap composites =
+    captured (Case.seq routeWide routeWide) (Case.seq routeWide echoWide) :=
+  mapCaseSignature_primitive widen.hom composites
+
+private abbrev allRepliesWide : HandledModel Wide := allRepliesModel (events Wide)
+
+private def replyBitWide : (f : Wide) → LetCase.Structural.Finite.Value (instrTrg f) → Bool
+  | _, .inl _ => false
+  | _, .inr _ => true
+
+/-- The state-flipping policy over the larger signature. -/
+private def alternatingWide : Handler Bool (Events Wide)
+  | ⟨_, .call f _⟩, state, reply, next => replyBitWide f reply = state ∧ next = !state
+
+private abbrev alternatingWideModel : HandledModel Wide := ⟨Bool, fun _ => True, alternatingWide⟩
+
+/-- Its reduct is the fixture's state-flipping model. -/
+private theorem reduct_alternatingWide :
+    alternatingWideModel.reduct (eventsHom widen.hom) = alternatingModel := by
+  refine congrArg (Model.mk Bool fun _ => True) ?_
+  funext q state reply next
+  obtain ⟨_, ⟨f, argument⟩⟩ := q
+  cases f
+  refine propext ⟨?_, fun step => ⟨reply, rfl, ?_⟩⟩
+  · rintro ⟨answer, rfl, step⟩
+    rcases answer with _ | _ <;> exact step
+  · rcases reply with _ | _ <;> exact step
+
+/-- The satisfaction condition of the bundled institution moves the lost
+reflection across the renaming: the larger fixed-policy model satisfies the
+translated sentence in both directions. -/
+example : (caseRoom Wide).Sat ⟨alternatingWideModel⟩ ((caseInst.map widen).sen composites) ∧
+    (caseRoom Wide).Sat ⟨alternatingWideModel⟩ ((caseInst.map widen).sen (swap composites)) := by
+  have reduced (e : CaseEquation (sig Op)) :
+      (caseRoom Wide).Sat ⟨alternatingWideModel⟩ ((caseInst.map widen).sen e) ↔ SatLe alternatingModel e := by
+    rw [← reduct_alternatingWide]
+    exact (caseInst.map widen).sat ⟨alternatingWideModel⟩ e
+  exact ⟨(reduced composites).mpr alternating_satisfies.1, (reduced (swap composites)).mpr alternating_satisfies.2⟩
+
+/-- The larger model that admits every reply rejects the translated sentence. -/
+example : ¬ (caseRoom Wide).Sat ⟨allRepliesWide⟩ ((caseInst.map widen).sen composites) := by
+  intro holds
+  have reduced := ((caseInst.map widen).sat ⟨allRepliesWide⟩ composites).mp holds
+  change SatLe (allRepliesWide.reduct (eventsHom widen.hom)) composites at reduced
+  rw [reduct_allReplies_hom] at reduced
+  exact native_differ (Quotient.sound ((satLe_iff_equiv input allReplies_exposing _ _).mp reduced))
+
+/-! ## Ranked and grammar sentences across the renaming -/
+
+/-- Emission commutes with the renaming on the actual ranked sentence. -/
+example : readGrammar (mapRanked widen.hom.toSignatureMap numbered) =
+    mapGrammar widen.hom.toSignatureMap (readGrammar numbered) :=
+  congrArg (fun c => c.sen numbered) (readNatural.naturality widen)
+
+/-- Rendering commutes with the renaming on the actual grammar sentence. -/
+example : grammarCase (mapGrammar widen.hom.toSignatureMap (readGrammar numbered)) =
+    (caseInst.map widen).sen (grammarCase (readGrammar numbered)) :=
+  congrArg (fun c => c.sen (readGrammar numbered)) (grammarCaseNatural.naturality widen)
+
+/-- The translated ranked sentence holds in the larger fixed-policy model
+and fails in the larger model that admits every reply. -/
+example : (rankedRoom Wide).Sat ⟨alternatingWideModel⟩ (mapRanked widen.hom.toSignatureMap numbered) ∧
+    ¬ (rankedRoom Wide).Sat ⟨allRepliesWide⟩ (mapRanked widen.hom.toSignatureMap numbered) := by
+  constructor
+  · refine ((rankedInst.map widen).sat ⟨alternatingWideModel⟩ numbered).mpr ?_
+    change (rankedRoom Op).Sat ⟨alternatingWideModel.reduct (eventsHom widen.hom)⟩ numbered
+    rw [reduct_alternatingWide]
+    exact (sat_readback nonempty _ _ ⟨alternatingModel⟩).mpr alternating_satisfies.1
+  · intro holds
+    have reduced := ((rankedInst.map widen).sat ⟨allRepliesWide⟩ numbered).mp holds
+    change (rankedRoom Op).Sat ⟨allRepliesWide.reduct (eventsHom widen.hom)⟩ numbered at reduced
+    rw [reduct_allReplies_hom] at reduced
+    exact native_differ (Quotient.sound ((satLe_iff_equiv input allReplies_exposing _ _).mp
+      ((sat_readback nonempty _ _ ⟨allReplies⟩).mp reduced)))
+
+/-- Identity and composition are those of the bundled functors. -/
+example : caseInst.map (𝟙 narrow) = 𝟙 (caseRoom Op) := caseInst.map_id narrow
+example : rankedInst.map (widen ≫ 𝟙 wide) = rankedInst.map widen ≫ rankedInst.map (𝟙 wide) :=
+  rankedInst.map_comp widen (𝟙 wide)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Free.Tests
