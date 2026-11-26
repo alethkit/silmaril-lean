@@ -42,29 +42,15 @@ structure Wrapper where
 @[expose] def Wrapper.parent (wrapper : Wrapper) : LexicalBlock :=
   block wrapper.alias [wrapper.name, wrapper.destination]
 
-@[expose] def Wrapper.expression (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr :=
-  .call (.scalar (.read wrapper.alias)) wrapper.arguments wrapper.keywords.source
-    (wrapper.star.map Spread.source) (wrapper.mapping.map Mapping.source)
+@[expose] def Wrapper.declaration (wrapper : Wrapper) : WrapperDeclaration wrapper.alias [wrapper.name, wrapper.destination] :=
+  ⟨wrapper.name, by simp, wrapper.legalAlias, wrapper.arguments, wrapper.codes, wrapper.reads,
+    wrapper.operands, wrapper.keywords, wrapper.star, wrapper.mapping, wrapper.selects⟩
 
-@[expose] def Wrapper.code (wrapper : Wrapper) : Functions.Lowering.Expr :=
-  expressionAt (fileSlot wrapper.alias) wrapper.codes wrapper.keywords.codes
-    (wrapper.star.map Spread.code) (wrapper.mapping.map Mapping.code)
+@[expose] def Wrapper.expression (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr := wrapper.declaration.expression
 
-@[expose] def Wrapper.site (wrapper : Wrapper) : Site wrapper.parent [] none none .global where
-  name := wrapper.name
-  target := by simp [Wrapper.parent, block]
-  parameters := ⟨[], []⟩
-  source := .ret (some wrapper.expression)
-  binders := []
-  locals := []
-  collects := .ret _
-  localOrder := .nil
-  body := ⟨.returnExpr wrapper.code, fileSlot wrapper.alias :: (wrapper.reads ++ wrapper.keywords.reads ++
-    spreadReads wrapper.star ++ mappingReads wrapper.mapping)⟩
-  free := [⟨fileSlot wrapper.alias, fileSlot wrapper.alias⟩]
-  selects := wrapper.selects
-  defaults := []
-  lexical := .nil
+@[expose] def Wrapper.code (wrapper : Wrapper) : Functions.Lowering.Expr := wrapper.declaration.code
+
+@[expose] def Wrapper.site (wrapper : Wrapper) : Site wrapper.parent [] none none .global := wrapper.declaration.site
 
 @[expose] def Wrapper.invoke (wrapper : Wrapper) : Functions.Lowering.Resolve.SourceExpr :=
   .call (.scalar (.read wrapper.name)) [] [] none none
@@ -85,14 +71,8 @@ structure Wrapper where
 @[expose] def Wrapper.graph (wrapper : Wrapper) (producer consumer : ResolvedModule) : Loader.Manifest :=
   #[⟨producer.source, []⟩, ⟨consumer.source, [(wrapper.label, 0)]⟩]
 
-/-- Returning the imported call uses its independent operand, binder and
-body rules in the reached wrapper activation. -/
-@[expose] def Wrapper.Returns (wrapper : Wrapper) (callee : Callable)
-    (active : State) (out : Outcome Flow) : Prop :=
-  ∃ result, RunsAt callee.site callee.BodyRuns wrapper.site.block callee.id wrapper.alias
-      (fileSlot wrapper.alias) wrapper.arguments wrapper.codes wrapper.keywords.source wrapper.keywords.codes
-      wrapper.star wrapper.mapping active result ∧
-    out = result.resume (fun value => pure (.returned value))
+abbrev Wrapper.Returns (wrapper : Wrapper) (callee : Callable) :=
+  wrapper.declaration.Returns callee
 
 /-- The checked suffix installs the definition, then calls it and writes
 the answer only on success. -/

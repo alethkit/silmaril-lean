@@ -8,7 +8,7 @@ public section
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 
 open Silmaril.Languages.Starlark
-open Silmaril.Languages.Starlark.Modules (globalSlot)
+open Silmaril.Languages.Starlark.Modules (globalSlot validateSource)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
@@ -17,6 +17,25 @@ open Silmaril.Languages.Starlark.Functions (Program)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
 open Silmaril.Languages.Starlark.Lists (State)
 open Silmaril.Languages.Starlark.Modules.Loader (Session)
+
+theorem revalidate {producer consumer : Modules.Source} {earlier later : Program}
+    (old : validateSource earlier producer = .ok ())
+    (new : validateSource later consumer = .ok ()) :
+    validateSource later producer = .ok () := by
+  unfold validateSource at old new ⊢
+  split at old
+  · cases old
+  · split at new
+    · cases new
+    · generalize h₁ : Functions.validate earlier (.total (.atomic .pass)) = x at old
+      generalize h₂ : Functions.validate later (.total (.atomic .pass)) = y at new ⊢
+      cases x with
+      | error => cases old
+      | ok result =>
+        cases result
+        cases y with
+        | error => cases new
+        | ok result => cases result; exact old
 
 theorem observed_eq (id : Nat) (source : Modules.Source) (caller : State)
     (before : Session) (out : Modules.Result Unit) :
@@ -129,23 +148,5 @@ theorem producer_cold_extending {commands : List Modules.Resolve.Command} {linke
       cases success
       refine ⟨rfl, live _ _ rfl, fun name value loaded => ?_⟩
       exact (plan_globals profile checked) ▸ exports_declared loaded
-
-theorem producer_cold {commands : List Modules.Resolve.Command} {linked final : Program}
-    {code : List Modules.Command} {producer consumer : ResolvedModule} {exports : Environment}
-    (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
-    (checked : resolve commands linked = .ok producer)
-    (plan : Consumer) (active : List Nat) (permitted : 0 ∉ active) (session : Session)
-    (cold : session.cache.lookup 0 = none) :
-    ∃ out, Producer commands producer.source session out ∧
-      Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0) session out ∧
-      (reachedSession out).runtime.slots = session.runtime.slots ∧
-      KeepsContents session.runtime (reachedSession out).runtime ∧
-      ∀ published next, out = .ok published next →
-        next.cache = (0, published) :: session.cache ∧
-        PublishedLive exports producer.program published next.runtime ∧
-        ∀ name value, published.exports.lookup name = some value → name ∈ Trace.names commands := by
-  exact producer_cold_extending profile checked checked (fun _ _ found => found)
-    (checked_of_resolve checked).2.2.2 (manifest := graph producer consumer plan)
-    (by simp [graph]) (by simp [graph]) active permitted session cold
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

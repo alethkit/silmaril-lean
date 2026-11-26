@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Defs
-import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Thms
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Definition
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Thms
 
@@ -28,16 +28,10 @@ theorem layout (wrapper : Wrapper) {producer : Program} {consumer : ResolvedModu
     consumer.source.fileNames = [wrapper.alias] := by
   have detail := checked_of_resolve checked
   have distinct := wrapper.separate
-  have imported : Body.Operand wrapper.site.block (.scalar (.read wrapper.alias))
-      (Leaf.readOperand (fileSlot wrapper.alias)) [fileSlot wrapper.alias] :=
-    .read wrapper.legalAlias (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by simp [Site.block, Wrapper.parent, block]))
-      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by simp [Site.block, Wrapper.parent, block]))
-  have compiledBody : compileBody ⟨wrapper.site.block.context, .local⟩ wrapper.site.source producer =
-      .ok (wrapper.site.body, producer) :=
-    compileBody_plainReturn _ _ _ _ _ (resolves_at _ imported wrapper.operands wrapper.keywords wrapper.star wrapper.mapping)
-  have compiledDef := elaborateCommand_nativeDefinition ⟨wrapper.parent.context, .local⟩ .global
-    wrapper.name wrapper.site.sourceSignature wrapper.site.source producer (producer.push wrapper.site.declaration) _ _
-    (compile_site wrapper.site .nil compiledBody)
+  have compiledDef : elaborateCommand ⟨wrapper.parent.context, .global⟩
+      (.define wrapper.name wrapper.site.sourceSignature wrapper.site.source) producer =
+        .ok (.exec (.define wrapper.name producer.size), producer.push wrapper.site.declaration) :=
+    wrapper_compiles wrapper.declaration producer
   have caller : Body.Operand wrapper.parent (.scalar (.read wrapper.name))
       (Leaf.readOperand (globalSlot wrapper.name)) [globalSlot wrapper.name] :=
     .read wrapper.legalName (.global (by simpa [Wrapper.parent, block] using distinct) (by simp [Wrapper.parent, block])

@@ -277,9 +277,9 @@ private def consumer (test : ImportCase) : Consumer where
   declared := rfl
   separate := by decide
 
-private theorem covered (test : ImportCase) : Covered exports (commands false) (consumer test) := by
-  have ready : ReadyFor (initial "loaded" root.callable) (consumer test).body := by
-    exact ⟨root.callable, rfl, ⟨.nested returned, rfl, trivial⟩⟩
+private theorem covered (test : ImportCase) (program : Program) : Covered exports (commands false) (consumer test) program := by
+  have ready : ReadyFor root.callable program (initial "loaded" root.callable) (consumer test).body := by
+    exact ⟨.regular root.callable, rfl, ⟨.regular (.nested returned), rfl, trivial⟩⟩
   cases test
   · exact .inl ⟨root.callable, rfl, ready⟩
   · exact .inl ⟨root.callable, rfl, ready⟩
@@ -290,17 +290,17 @@ example (test : ImportCase) {producer importer : ResolvedModule}
     (imp : resolve (consumer test).commands producer.program = .ok importer)
     (caller : Lists.State) :
     Agrees (commands false) producer importer (consumer test) exports ⟨caller, []⟩ :=
-  cold_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test) caller
+  cold_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test producer.program) caller
 
 example (test : ImportCase) {producer importer : ResolvedModule}
     (prod : resolve (commands false) #[] = .ok producer)
     (imp : resolve (consumer test).commands producer.program = .ok importer)
     (caller : Lists.State) :
     ∃ preload, Producer (commands false) producer.source ⟨caller, []⟩ preload ∧
-      Loader.load producer.program (graph producer importer (consumer test)) 0 ⟨caller, []⟩ = preload ∧
+      Loader.load importer.program (graph producer importer (consumer test)) 0 ⟨caller, []⟩ = preload ∧
       ∀ published reached, preload = .ok published reached →
         reached.cache = [(0, published)] ∧ Agrees (commands false) producer importer (consumer test) exports reached :=
-  preloaded_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test) caller
+  preloaded_agrees (commands := commands false) (plan false) prod (consumer test) imp (covered test producer.program) caller
 
 private def runImport (test : ImportCase) (warm : Bool) : Option (Loader.Result Modules.Published) := do
   let producer ← (resolve (commands false)).toOption
@@ -308,11 +308,11 @@ private def runImport (test : ImportCase) (warm : Bool) : Option (Loader.Result 
   let manifest := graph producer importer (consumer test)
   let caller : Loader.Session := { runtime := {iterators := [123]} }
   if warm then
-    match Loader.load producer.program manifest 0 caller with
-    | .ok _ state => some (Loader.load producer.program manifest 1 state)
+    match Loader.load importer.program manifest 0 caller with
+    | .ok _ state => some (Loader.load importer.program manifest 1 state)
     | .error .. => none
   else
-    some (Loader.load producer.program manifest 1 caller)
+    some (Loader.load importer.program manifest 1 caller)
 
 private def imported (warm : Bool) : Bool :=
   match runImport .ok warm with
@@ -478,6 +478,197 @@ private def failedWrapper (test : ImportCase) (warm : Bool) (expected : Modules.
 #guard failedWrapper .missing true (.missingExport "prodé.star" "absent") [61, 44]
 #guard failedWrapper .bodyError false (.runtime .indexTarget) [61, 44, 71, 44]
 #guard failedWrapper .bodyError true (.runtime .indexTarget) [61, 44, 71, 44]
+
+
+private def declarationGlobals : List String :=
+  ["first", "copied", "marker", "second", "firstOut", "secondOut", "after"]
+
+private def relayMapping (second bad : Bool) : Mapping ⟨[], ["loaded"], declarationGlobals⟩ :=
+  if second then
+    if bad then
+      ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
+        .entry (.string "key") (.plain (.int 8)) .empty⟩
+    else
+      ⟨[(.string "key", starlark%[[72]])], [(.atom (.string "key"), boxed 72)], [],
+        .entry (.string "key") (.plain (.list (.int 72))) .empty⟩
+  else
+    ⟨[(.string "extra", starlark%[9])], [(.atom (.string "extra"), int 9)], [],
+      .entry (.string "extra") (.plain (.int 9)) .empty⟩
+
+private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "loaded" declarationGlobals where
+  name := if second then "second" else "first"
+  target := by cases second <;> decide
+  legalAlias := by decide
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := ⟨[("another", starlark%[[71]])], [("another", boxed 71)], [],
+    .cons (.list (.int 71)) .nil, by decide⟩
+  star := some (.list (.cons (.int 17) (.cons (.int 18) .nil)))
+  mapping := some (relayMapping second bad)
+  selects := by cases second <;> cases bad <;> exact .enclosing (.enclosing (by decide) (by decide)) .nil
+
+private def callDeclaration (second : Bool) : Imports.Invocation "loaded" declarationGlobals where
+  callee := if second then "second" else "copied"
+  declared := .inr (by cases second <;> decide)
+  legal := by cases second <;> decide
+  destination := if second then "secondOut" else "firstOut"
+  destinationGlobal := by cases second <;> decide
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := .empty
+
+private def declarationSuite (bad : Bool) : Consumer where
+  label := "prodé.star"
+  name := "escaped"
+  alias := "loaded"
+  publicName := by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]
+  globals := declarationGlobals
+  body :=
+    [.define (relayDeclaration false bad),
+     .assign "copied" (by decide) (.read (by decide) (.global (by decide) (by decide) (by decide))
+       (.module (by decide) (by decide) (by decide))) (.name "first"),
+     .assign "marker" (by decide) (.list (.int 88)) .forget,
+     .define (relayDeclaration true bad),
+     .invoke (callDeclaration false),
+     .invoke (callDeclaration true),
+     .assign "after" (by decide) (.list (.int 199)) .forget]
+  declared := rfl
+  separate := by decide
+
+private theorem declarationCovered (bad : Bool) (program : Program) :
+    Covered exports (commands false) (declarationSuite bad) program :=
+  .inl ⟨.nested returned, rfl,
+    ⟨.wrapper (relayDeclaration false bad) program.size, rfl,
+      ⟨.wrapper (relayDeclaration true bad) (program.push (relayDeclaration false bad).site.declaration).size, rfl, trivial⟩⟩⟩
+
+example (bad : Bool) {producer importer : ResolvedModule}
+    (prod : resolve (commands false) #[] = .ok producer)
+    (imp : resolve (declarationSuite bad).commands producer.program = .ok importer)
+    (caller : Lists.State) :
+    Agrees (commands false) producer importer (declarationSuite bad) exports ⟨caller, []⟩ :=
+  cold_agrees (commands := commands false) (plan false) prod (declarationSuite bad) imp
+    (declarationCovered bad producer.program) caller
+
+private def runDeclarationSuite (consumer : Consumer) (warm : Bool) : Option (Loader.Result Modules.Published × Lists.State) := do
+  let producer ← (resolve (commands false)).toOption
+  let importer ← (resolve consumer.commands producer.program).toOption
+  let manifest := graph producer importer consumer
+  let caller : Loader.Session := { runtime := { iterators := [123] } }
+  let entry ← if warm then
+      match Loader.load importer.program manifest 0 caller with
+      | .ok _ reached => some reached
+      | .error .. => none
+    else some caller
+  some (Loader.load importer.program manifest 1 entry, enter importer.source entry.runtime)
+
+private def relaySuiteSuccess (warm : Bool) : Bool :=
+  match runDeclarationSuite (declarationSuite false) warm with
+  | some (.ok published final, _) =>
+    let heap := final.runtime.heap
+    match final.cache.lookup 0, published.exports.lookup "first", published.exports.lookup "second" with
+    | some producer, some (.function first), some (.function second) =>
+      match producer.exports.lookup "late", producer.exports.lookup "escaped", producer.exports.lookup "data",
+        heap[first]?, heap[second]? with
+      | some (.list late), some (.function escaped), some (.list data),
+          some ⟨.function firstRecord, true⟩, some ⟨.function secondRecord, true⟩ =>
+        first != second && firstRecord.declaration == 2 && secondRecord.declaration == 3 &&
+        firstRecord.captures == secondRecord.captures &&
+        (match firstRecord.captures, heap[escaped]? with
+         | [capture], some ⟨.function original, true⟩ =>
+           original.declaration == 0 && original.defaults == [(fileSlot "key", .list data)] &&
+           heap[capture.address]? == some ⟨.binding (some (.function escaped)), true⟩
+         | _, _ => false) &&
+        published.exports.lookup "copied" == some (.function first) &&
+        published.exports.lookup "firstOut" == some (.list late) &&
+        published.exports.lookup "secondOut" == some (.list late) &&
+        final.cache.map Prod.fst == [1, 0] && final.runtime.iterators == [123]
+      | _, _, _, _, _ => false
+    | _, _, _ => false
+  | _ => false
+
+private def relaySuiteFailure (warm : Bool) : Bool :=
+  match runDeclarationSuite (declarationSuite true) warm with
+  | some (.error (.initialization 1 (.runtime .indexTarget)) final, entered) =>
+    let cell name := (entered.slots (globalSlot name)).bind (fun slot => final.runtime.heap[slot.address]?)
+    let allocations := final.runtime.heap.toList.filterMap fun cell =>
+      match cell.contents, cell.frozen with
+      | .list [.scalar (.int n)], false => some n
+      | _, _ => none
+    match final.cache.lookup 0 with
+    | some producer =>
+      final.cache.map Prod.fst == [0] && final.runtime.iterators == [123] &&
+      (final.runtime.slots (fileSlot "loaded")).isNone &&
+      cell "first" == cell "copied" &&
+      cell "firstOut" == some ⟨.binding (producer.exports.lookup "late"), false⟩ &&
+      cell "secondOut" == some ⟨.binding none, false⟩ && cell "after" == some ⟨.binding none, false⟩ &&
+      allocations == [61, 44, 88, 71, 44, 71, 44]
+    | none => false
+  | _ => false
+
+#guard relaySuiteSuccess false
+#guard relaySuiteSuccess true
+#guard relaySuiteFailure false
+#guard relaySuiteFailure true
+
+
+private def factoryWrapperGlobals : List String := ["make", "held", "result"]
+
+private def factoryWrapper : Imports.WrapperDeclaration "loaded" factoryWrapperGlobals where
+  name := "make"
+  target := by decide
+  legalAlias := by decide
+  arguments := [starlark%[[41]]]
+  codes := [boxed 41]
+  reads := []
+  operands := .cons (.list (.int 41)) .nil
+  keywords := .empty
+  selects := .enclosing (.enclosing (by decide) (by decide)) .nil
+
+private def factoryWrapperConsumer : Consumer where
+  label := "prodé.star"
+  name := "factory"
+  alias := "loaded"
+  publicName := by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]
+  globals := factoryWrapperGlobals
+  body := [.define factoryWrapper,
+    .invoke { callee := "make", declared := .inr (by decide), legal := by decide
+              destination := "held", destinationGlobal := by decide
+              arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
+    .invoke { callee := "held", declared := .inr (by decide), legal := by decide
+              destination := "result", destinationGlobal := by decide
+              arguments := [starlark%[17]], codes := [int 17], reads := [], operands := .cons (.int 17) .nil
+              keywords := .empty }]
+  declared := rfl
+  separate := by decide
+
+example {producer importer : ResolvedModule} (prod : resolve (commands false) #[] = .ok producer)
+    (imp : resolve factoryWrapperConsumer.commands producer.program = .ok importer)
+    (caller : Lists.State) :
+    Agrees (commands false) producer importer factoryWrapperConsumer exports ⟨caller, []⟩ :=
+  cold_agrees (commands := commands false) (plan false) prod factoryWrapperConsumer imp
+    (.inl ⟨root.callable, rfl, ⟨.wrapper factoryWrapper producer.program.size, rfl,
+      ⟨.regular (.nested returned), rfl, trivial⟩⟩⟩) caller
+
+#guard
+  match runDeclarationSuite factoryWrapperConsumer false with
+  | some (.ok published final, _) =>
+    match final.cache.lookup 0, published.exports.lookup "held" with
+    | some producer, some (.function held) =>
+      match producer.exports.lookup "escaped", final.runtime.heap[held]? with
+      | some (.function escaped), some ⟨.function closure, true⟩ =>
+        held != escaped && closure.declaration == 0 &&
+        published.exports.lookup "result" == producer.exports.lookup "late" &&
+        (match closure.defaults with
+         | [(slot, .list saved)] =>
+           slot == fileSlot "key" && final.runtime.heap[saved]? == some ⟨.list [.scalar (.int 41)], true⟩
+         | _ => false)
+      | _, _ => false
+    | _, _ => false
+  | _ => false
 
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

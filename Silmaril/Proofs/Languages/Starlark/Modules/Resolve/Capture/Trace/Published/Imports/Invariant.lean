@@ -47,12 +47,12 @@ theorem keeps_frame {importName globals} {state next : State}
   · obtain ⟨address, value, frozen, owned, found⟩ := frame.2 binding member
     exact ⟨address, value, frozen, kept.1 ▸ owned, keep_cell kept found⟩
 
-theorem keeps_live {importName program env} {state next : State} (live : Live importName program env state)
-    (kept : Body.Keeps state.heap.size state next) : Live importName program env next := by
+theorem keeps_live {importName globals producer program} {env : Tracked importName globals} {state next : State} (live : Live importName producer program env state)
+    (kept : Body.Keeps state.heap.size state next) : Live importName producer program env next := by
   intro name callee tracked
-  obtain ⟨slot, address, frozen, defining, owned, cell, linked, ⟨closure⟩⟩ := live name callee tracked
+  obtain ⟨slot, address, frozen, defining, owned, cell, linked, ⟨closure⟩, inherited⟩ := live name callee tracked
   exact ⟨slot, address, frozen, defining, kept.1 ▸ owned, keep_cell kept cell, linked,
-    keep_record (callee := callee) closure kept⟩
+    keep_record (callee := callee.layout) closure kept, kept.1.symm ▸ inherited⟩
 
 private theorem write_other {state : State} {target binding : Binding} {address : Nat}
     (distinct : RootCall.DistinctOwned state) (different : target ≠ binding)
@@ -72,50 +72,53 @@ theorem writes_frame {importName globals} {state : State} (frame : Frame importN
       exact ⟨address, some value, frozen, same.symm ▸ owned, written_cell value owned cell⟩
     · exact ⟨address, old, frozen, same.symm ▸ owned, (write_other frame.1 hit owned value).trans cell⟩
 
-theorem initial_live {plan : Consumer} {program : Program} {state defining : State}
+theorem initial_live {plan : Consumer} {producer program : Program} {state defining : State}
     {callee : Callable} {address : Nat} (frame : Frame plan.alias plan.globals state)
     (record : ClosureAt callee.site callee.id defining state address) (linked : callee.Linked program) :
-    Live plan.alias program (initial plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
+    Live plan.alias producer program (initial (globals := plan.globals) plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
   intro name tracked found
   have hit : name = plan.alias := by
     by_contra different
-    simp [initial, update, different] at found
+    simp [initial, track, different] at found
   subst name
-  have same : callee = tracked := by simpa [initial, update] using found
+  have same : Callee.regular callee = tracked := by simpa [initial, track] using found
   subst tracked
   obtain ⟨slot, old, frozen, owned, cell⟩ := frame.2 (fileSlot plan.alias) List.mem_cons_self
-  refine ⟨slot, address, frozen, defining, ?_, written_cell _ owned cell, linked, write_slot_record record owned cell _⟩
+  refine ⟨slot, address, frozen, defining, ?_, written_cell _ owned cell, linked, write_slot_record record owned cell _, trivial⟩
   simp [readSlot, write_slots, owned]
 
-theorem read_live {importName program env} {state : State} {name : String} {callee : Callable}
-    (live : Live importName program env state) (tracked : env name = some callee) :
+theorem read_live {importName globals producer program} {env : Tracked importName globals}
+    {state : State} {name : String} {callee : Callee importName globals}
+    (live : Live importName producer program env state) (tracked : env name = some callee) :
     ∃ address defining, state.bindingValue (readSlot importName name) = .ok (.function address) ∧
-      callee.Linked program ∧ Nonempty (ClosureAt callee.site callee.id defining state address) := by
-  obtain ⟨_, address, _, defining, owned, cell, linked, record⟩ := live name callee tracked
-  exact ⟨address, defining, by simp [State.bindingValue, Slot.address, owned, cell], linked, record⟩
+      callee.Linked producer program ∧ Nonempty (ClosureAt callee.layout.site callee.layout.id defining state address) ∧
+      callee.SharesImport defining.slots state.slots := by
+  obtain ⟨_, address, _, defining, owned, cell, linked, record, inherited⟩ := live name callee tracked
+  exact ⟨address, defining, by simp [State.bindingValue, Slot.address, owned, cell], linked, record, inherited⟩
 
-theorem writes_live {importName globals program env} {state : State} {destination : String}
-    (frame : Frame importName globals state) (live : Live importName program env state) (declared : destination ∈ globals)
-    (separate : destination ≠ importName) (value : Lists.Value) (updated : Option Callable)
+theorem writes_live {importName globals producer program} {env : Tracked importName globals} {state : State} {destination : String}
+    (frame : Frame importName globals state) (live : Live importName producer program env state) (declared : destination ∈ globals)
+    (separate : destination ≠ importName) (value : Lists.Value) (updated : Option (Callee importName globals))
     (new : ∀ callee, updated = some callee → ∃ address defining, value = .function address ∧
-      callee.Linked program ∧ Nonempty (ClosureAt callee.site callee.id defining state address)) :
-    Live importName program (update env destination updated) (state.write (globalSlot destination) value) := by
+      callee.Linked producer program ∧ Nonempty (ClosureAt callee.layout.site callee.layout.id defining state address) ∧
+      callee.SharesImport defining.slots state.slots) :
+    Live importName producer program (track env destination updated) (state.write (globalSlot destination) value) := by
   obtain ⟨slot, old, frozen, owned, cell⟩ := frame.2 (globalSlot destination)
     (List.mem_cons_of_mem _ (List.mem_map_of_mem declared))
   have slots := write_slots state (globalSlot destination) value
   intro name callee found
   by_cases same : name = destination
   · subst name
-    obtain ⟨address, defining, equal, linked, ⟨record⟩⟩ := new callee (by simpa [update] using found)
+    obtain ⟨address, defining, equal, linked, ⟨record⟩, inherited⟩ := new callee (by simpa [track] using found)
     subst value
     exact ⟨slot, address, frozen, defining, by simpa [readSlot, separate, slots] using owned,
-      written_cell _ owned cell, linked, write_slot_record record owned cell _⟩
-  · obtain ⟨other, address, flag, defining, read, bindingCell, linked, ⟨closure⟩⟩ :=
-      live name callee (by simpa [update, same] using found)
+      written_cell _ owned cell, linked, write_slot_record (callee := callee.layout) record owned cell _, slots.symm ▸ inherited⟩
+  · obtain ⟨other, address, flag, defining, read, bindingCell, linked, ⟨closure⟩, inherited⟩ :=
+      live name callee (by simpa [track, same] using found)
     have different : globalSlot destination ≠ readSlot importName name := by
       intro equal
       exact same (by simpa [readSlot, globalSlot, fileSlot, apply_ite] using (congrArg Binding.name equal).symm)
     exact ⟨other, address, flag, defining, slots.symm ▸ read,
-      (write_other frame.1 different read value).trans bindingCell, linked, write_slot_record closure owned cell value⟩
+      (write_other frame.1 different read value).trans bindingCell, linked, write_slot_record (callee := callee.layout) closure owned cell value, slots.symm ▸ inherited⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

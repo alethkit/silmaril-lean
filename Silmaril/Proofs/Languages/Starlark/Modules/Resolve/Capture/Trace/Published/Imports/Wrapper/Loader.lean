@@ -23,25 +23,6 @@ open Silmaril.Languages.Starlark.Functions (Program)
 open Silmaril.Languages.Starlark.Lists (State)
 open Silmaril.Languages.Starlark.Modules.Loader (Session)
 
-private theorem revalidate {producer consumer : Modules.Source} {earlier later : Program}
-    (old : validateSource earlier producer = .ok ())
-    (new : validateSource later consumer = .ok ()) :
-    validateSource later producer = .ok () := by
-  unfold validateSource at old new ⊢
-  split at old
-  · cases old
-  · split at new
-    · cases new
-    · generalize h₁ : Functions.validate earlier (.total (.atomic .pass)) = x at old
-      generalize h₂ : Functions.validate later (.total (.atomic .pass)) = y at new ⊢
-      cases x with
-      | error => cases old
-      | ok result =>
-        cases result
-        cases y with
-        | error => cases new
-        | ok result => cases result; exact old
-
 private theorem concludes (wrapper : Wrapper) {commands : List Modules.Resolve.Command}
     {producer consumer : ResolvedModule} {exports : Environment} (caller : Session)
     (checked : resolve wrapper.commands producer.program = .ok consumer)
