@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Check.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
@@ -369,8 +369,6 @@ private theorem returnedCalls :
 
 open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted)
 
-private def loopNumbering : Renaming := .region (Equiv.refl Nat) (fun _ _ => numbering)
-
 local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
 
 private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
@@ -397,8 +395,18 @@ example (map : Renaming) :
   change Address.output (map.vertices 1) 0 :: _ = Address.arg 0 :: _ at wires
   cases (List.cons.inj wires).1
 
-example : (RecursiveCall.Numbered.check instructionKeys numbering
+example : (RecursiveCall.Numbered.infer instructionKeys
     (embed termL).toGraph (embed wrongFeedback).toGraph).isSome = false := by cbv
+
+-- One side has an extra immediately empty γ in the body table. Its
+-- number does not need a graph partner to infer the active row map.
+private def withoutIdle : Term Op carried [] [bodyResults] bodyResults :=
+  .bind advance (fun i => i.elim0)
+    (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head))
+      (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil))))
+
+example : (RecursiveCall.Numbered.infer instructionKeys
+    (embed termL).toGraph (embed withoutIdle).toGraph).isSome = true := by cbv
 
 private inductive LoopFamily (callee : machine.Val fn.port) : Family machine where
   | data (n : Nat) : LoopFamily callee (.data (t := ()) n)
@@ -420,7 +428,7 @@ private theorem loopClosed {sigs : List (Ports T)} (body : Body Op carried sigs)
 
 set_option maxHeartbeats 800000 in
 private theorem loopAccepts :
-    (RecursiveCall.Numbered.checkResolved instructionKeys loopNumbering
+    (RecursiveCall.Numbered.inferResolved instructionKeys
       (resolve machine (callable left)) (resolve machine (callable right))).isSome = true := by cbv
 
 private theorem numberedFamily :
@@ -431,7 +439,7 @@ private theorem numberedFamily :
     intro _ _ _ _ leftMember rightMember _
     cases leftMember
     cases rightMember
-    exact RecursiveCall.Numbered.checkResolved_sound loopAccepts
+    exact RecursiveCall.Numbered.inferResolved_sound loopAccepts
 
 private theorem loopFamily :
     ClosedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) :=
