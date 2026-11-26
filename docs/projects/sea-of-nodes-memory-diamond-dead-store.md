@@ -615,8 +615,42 @@ It exercises both occurrence orders, then runs the same emitted pair
 under different predicates and valuations. A read of the nominated cell
 on one route blocks the cut. A read through a different symbolic port
 also blocks it, even at a valuation where the concrete checker can
-certify disjointness. The API checks one supplied table. Automatic
-composition of entry discovery and cross-route nomination remains open.
+certify disjointness. The API checks one supplied table.
+[Staged entry and route discovery](#compose-equality-only-entry-discovery-with-the-two-route-cut)
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
+
+## Compose equality-only entry discovery with the two-route cut
+
+`Entry.Composition.Static.Staged.lower graph entry input` runs
+equality-only discovery and passes its exact residual table to the
+static singleton check. The result reports `entryNotSingleton`,
+`routesRefused`, or `applied`. Both refusal outcomes use the actual
+entry-only artifact. Success takes the optimized artifact from the
+two-route emitter while keeping the original artifact from the first
+emitter. Both stages use identity of the original typed address ports.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Staged/Defs.lean)
+
+`lower_checked` replays the entry plan through the explicit sequence
+checker. On success it identifies the route emitter's original artifact
+with the entry emitter's optimized artifact and reuses the existing
+two-occurrence check. `lower_observations` compares the original and
+final emitted CFGs at either predicate, every typed valuation,
+every initialized buffer, and every CF budget. The successor packets
+and final return and full buffer agree. When the second cut succeeds,
+the entry buffers can differ until the selected arm overwrites the cell.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Static/Staged/Thms.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The fixture passes the original two-Store table to the staged driver.
+The second Store moves to version one before the two-route check.
+Both Region orders run through the actual emitted CFGs. A one-route
+read blocks the second cut and keeps the first, and a larger residual
+table reports its own refusal while preserving both earlier deletions.
 [Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
 
 ```sh
