@@ -32,4 +32,14 @@ theorem Site.rewriteAt_guarded (root : Region Φ → Option (Region Φ))
     ValueBranches Γ s L ∧ Extension.Eqv Seed Γ r s L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetTraversal.rewriteAt_guarded root sound site hr hm
 
+/-- An exact root equation lifts through all region addresses, including
+regions with computed branch arguments away from or at the address. -/
+theorem Site.rewriteAt_exact (root : Region Φ → Option (Region Φ))
+    (sound : ∀ {Γ : VCtx τ} {L : LCtx τ} {r s}, HasType Γ r L → root r = some s →
+      HasType Γ s L ∧ Extension.Eqv Seed Γ r s L)
+    (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : HasType Γ r L) (hm : site.rewriteAt root r = some s) :
+    HasType Γ s L ∧ Extension.Eqv Seed Γ r s L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetTraversal.rewriteAt_exact root sound site hr hm
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet
