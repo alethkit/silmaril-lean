@@ -1272,6 +1272,26 @@ number at every backedge, so no finite list covers that run. The
 compression theorem applies to the finite branch.
 [Finite refutation support][ssa-ub-open-guarded-finite-support]
 
+For a mixed finite and infinite pair, preserving the observation needs
+only the finite side's full typed query table. The infinite side follows
+every recorded reply up to its first unlisted key. That lookup gives
+primitive divergence, with no further replay. If every key is listed,
+the compressed runner has a genuine infinite path. All stores through the
+cut or along the retained path belong to the finite run's support, so the
+bound is one plus the finite run's query count. Both cases give the same
+ordinary divergence as the original infinite run, while the finite
+observation still decodes exactly. A mixed refutation in either direction
+therefore gives a negative pointwise check at the same caller and a
+negative shared-entry verdict. The bound is specific to the finite run.
+
+Ordinary divergence refines itself and a selected-exit top. Returns,
+faults and selected-exit top all fail to refine ordinary divergence.
+Two infinite guarded runs give the same singleton divergence and cannot
+refute each other in this order. The regression exercises a shared first
+reply of a Nat run, a first missing key at the changed store, and a retained
+one-state replay.
+[Mixed finite and infinite refutations][ssa-ub-open-guarded-mixed-support]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1441,5 +1461,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-entries]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/Thms.lean
 [ssa-ub-open-guarded-carrier-embedding]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/State/Thms.lean
 [ssa-ub-open-guarded-finite-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Thms.lean
+[ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

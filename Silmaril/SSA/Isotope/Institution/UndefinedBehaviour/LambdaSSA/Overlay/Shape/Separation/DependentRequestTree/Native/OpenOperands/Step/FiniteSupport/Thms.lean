@@ -49,6 +49,11 @@ theorem FiniteRun.supported (run : FiniteRun g caller prim p s rows stop)
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.covered
     run support start returned
 
+/-- Every row keeps exactly the original typed interpreter answer. -/
+theorem FiniteRun.records (run : FiniteRun g caller prim p s rows stop) :
+    ∀ r ∈ rows, prim r.op r.arg r.incoming = r.answer :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.records run
+
 variable [DecidableEq σ]
 
 theorem RunSupport.ofRows_bound (initial : σ) (rows : List (RunRow Φ σ)) :
@@ -56,16 +61,48 @@ theorem RunSupport.ofRows_bound (initial : σ) (rows : List (RunRow Φ σ)) :
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.ofRows_bound
     initial rows
 
+theorem RunSupport.returned_ofRows (initial : σ) (rows : List (RunRow Φ σ)) :
+    rows.filterMap RunRow.returned? ⊆ (RunSupport.ofRows initial rows).values :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.returned_ofRows initial rows
+
 theorem RunSupport.embed_code (support : RunSupport σ initial) {s : σ} (listed : s ∈ support.values) :
     support.embed (support.code s) = s :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.decode_code
     support listed
+
+/-- One finite run's script preserves the observation and all recorded answers. -/
+theorem FiniteRun.reconstructs [DecidableEq Φ]
+    {caller : Payload (R.get g.entry)} {p : Packet R} {rows : List (RunRow Φ σ)} {stop : RunStop σ}
+    (run : FiniteRun g caller prim p initial rows stop) (input : Payload A) :
+    let support := RunSupport.ofRows initial rows
+    let w := support.witness input rows
+    ((g.observeAt caller w.interpreter p w.initial).mapState support.embed = g.observeAt caller prim p initial) ∧
+    ∀ row ∈ rows, w.interpreter row.op row.arg (support.code row.incoming) = row.answer.mapState support.code :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.reconstructs
+    run input
 
 variable [DecidableEq Φ]
   {raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits}
   {raw' : CFG.Dependent.Native.Typed Φ [T.get h.entry] Exits}
   {decodeLeft : Payload A → Payload (R.get g.entry)} {decodeRight : Payload A → Payload (T.get h.entry)}
   {input : Payload A} {rows₀ rows₁ : List (RunRow Φ σ)} {stop₀ stop₁ : RunStop σ}
+
+omit [DecidableEq σ] in
+/-- The witnessed caller refutes the pointwise check and hence the shared-entry check. -/
+theorem Table.checkers_reject_of_counterexample {n : Nat} (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true)
+    (w : EntryCounterexample Φ A n)
+    (refutes : ¬ Shape.denote (withExitUB raw g.selected)
+        (Syntax.model w.interpreter (g.bindings (decodeLeft w.input))) w.initial ≤
+      Shape.denote (withExitUB raw' h.selected)
+        (Syntax.model w.interpreter (h.bindings (decodeRight w.input))) w.initial)
+    (callers : CallerEnumeration A) (replies : ReplyEnumeration S)
+    (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory n) :
+    g.checkAllInterpreters? h raw raw' (decodeLeft w.input) (decodeRight w.input) replies left right stores = some false ∧
+    ∃ witness, g.compareEntries? h raw raw' callers decodeLeft decodeRight replies left right stores =
+      some (.counterexample witness) :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.refuted_checkers
+    hg hh w refutes callers replies left right stores
 
 /-- One script on the union of the two finite run supports preserves both
 original decorated observations and refutes them at the same caller. The

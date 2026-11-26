@@ -42,7 +42,7 @@ theorem decode_code (support : RunSupport σ initial) {s : σ} (listed : s ∈ s
   exact List.getElem_idxOf _
 
 omit [DecidableEq Φ] in
-private theorem decode_stop (support : RunSupport σ initial) (stop : RunStop σ)
+theorem decode_stop (support : RunSupport σ initial) (stop : RunStop σ)
     (listed : ∀ t, stop.final? = some t → t ∈ support.values) :
     (stop.mapState support.code).behaviour.mapState support.embed = stop.behaviour := by
   cases stop with
@@ -52,6 +52,43 @@ private theorem decode_stop (support : RunSupport σ initial) (stop : RunStop σ
   | fault t =>
     simp [RunStop.mapState, RunStop.behaviour, Behaviour.mapState, Outcome.mapState, decode_code support (listed t rfl)]
   | diverge => simp [RunStop.mapState, RunStop.behaviour, Behaviour.mapState, Outcome.mapState]
+
+omit [DecidableEq Φ] in
+theorem returned_ofRows (initial : σ) (rows : List (RunRow Φ σ)) :
+    rows.filterMap RunRow.returned? ⊆ (RunSupport.ofRows initial rows).values :=
+  fun _ mem => List.mem_dedup.mpr (List.mem_cons_of_mem _ mem)
+
+theorem witness_records (support : RunSupport σ initial) (input : Payload A) (rows : List (RunRow Φ σ))
+    (incoming : ∀ row ∈ rows, row.incoming ∈ support.values)
+    (recorded : ∀ row ∈ rows, prim row.op row.arg row.incoming = row.answer) :
+    ∀ row ∈ rows, (support.witness input rows).interpreter row.op row.arg (support.code row.incoming) =
+      row.answer.mapState support.code := by
+  let w := support.witness input rows
+  have realizes : InterpreterScript.Realizes (support.restrict prim) w.script := by
+    intro row mem
+    obtain ⟨source, present, rfl⟩ := List.mem_map.mp mem
+    change (prim source.op source.arg (support.embed (support.code source.incoming))).mapState support.code = _
+    rw [decode_code support (incoming source present), recorded source present]
+    rfl
+  have consistent := (InterpreterScript.feasible_iff w.script).mp ⟨_, realizes⟩
+  intro row mem
+  exact InterpreterScript.extend_realizes consistent _ _ (List.mem_map_of_mem mem)
+
+theorem reconstructs
+    {caller : Payload (R.get g.entry)} {p : Packet R} {rows : List (RunRow Φ σ)} {stop : RunStop σ}
+    (run : FiniteRun g caller prim p initial rows stop) (input : Payload A) :
+    let support := RunSupport.ofRows initial rows
+    let w := support.witness input rows
+    ((g.observeAt caller w.interpreter p w.initial).mapState support.embed = g.observeAt caller prim p initial) ∧
+    ∀ row ∈ rows, w.interpreter row.op row.arg (support.code row.incoming) = row.answer.mapState support.code := by
+  let support := RunSupport.ofRows initial rows
+  let w := support.witness input rows
+  obtain ⟨incoming, final⟩ := covered run support support.initial_mem (returned_ofRows initial rows)
+  have agrees := witness_records support input rows incoming (records run)
+  refine ⟨?_, agrees⟩
+  change (g.observeAt caller w.interpreter p (support.code initial)).mapState support.embed = _
+  rw [replay run support.code w.interpreter agrees, observes run]
+  exact decode_stop support stop final
 
 private theorem pair_observations (a : Payload (R.get g.entry)) (b : Payload (T.get h.entry))
     (input : Payload A)
@@ -65,27 +102,14 @@ private theorem pair_observations (a : Payload (R.get g.entry)) (b : Payload (T.
       h.observeAt b prim ⟨h.entry, b⟩ initial := by
   let support := RunSupport.ofRows initial (rows₀ ++ rows₁)
   let w := support.witness input (rows₀ ++ rows₁)
-  have listed : (rows₀ ++ rows₁).filterMap RunRow.returned? ⊆ support.values := by
-    intro _ mem
-    exact List.mem_dedup.mpr (List.mem_cons_of_mem _ mem)
+  have listed := returned_ofRows initial (rows₀ ++ rows₁)
   obtain ⟨incoming₀, final₀⟩ := covered lower support support.initial_mem (fun _ mem =>
     listed (by rw [List.filterMap_append]; exact List.mem_append_left _ mem))
   obtain ⟨incoming₁, final₁⟩ := covered upper support support.initial_mem (fun _ mem =>
     listed (by rw [List.filterMap_append]; exact List.mem_append_right _ mem))
-  have realizes : InterpreterScript.Realizes (support.restrict prim) w.script := by
-    intro row mem
-    obtain ⟨source, present, rfl⟩ := List.mem_map.mp mem
-    change (prim source.op source.arg (support.embed (support.code source.incoming))).mapState support.code = _
-    rcases List.mem_append.mp present with first | second
-    · rw [decode_code support (incoming₀ source first), records lower source first]
-      rfl
-    · rw [decode_code support (incoming₁ source second), records upper source second]
-      rfl
-  have consistent := (InterpreterScript.feasible_iff w.script).mp ⟨_, realizes⟩
-  have recorded : ∀ row ∈ rows₀ ++ rows₁,
-      w.interpreter row.op row.arg (support.code row.incoming) = row.answer.mapState support.code := by
-    intro row mem
-    exact InterpreterScript.extend_realizes consistent _ _ (List.mem_map_of_mem mem)
+  have recorded := witness_records support input (rows₀ ++ rows₁)
+    (fun row mem => (List.mem_append.mp mem).elim (incoming₀ row) (incoming₁ row))
+    (fun row mem => (List.mem_append.mp mem).elim (records lower row) (records upper row))
   change (g.observeAt a w.interpreter ⟨g.entry, a⟩ (support.code initial)).mapState support.embed =
       g.observeAt a prim ⟨g.entry, a⟩ initial ∧
     (h.observeAt b w.interpreter ⟨h.entry, b⟩ (support.code initial)).mapState support.embed =
@@ -101,6 +125,36 @@ variable {raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits}
   {decodeLeft : Payload A → Payload (R.get g.entry)} {decodeRight : Payload A → Payload (T.get h.entry)}
   {input : Payload A} {callers : CallerEnumeration A}
   {replies : ReplyEnumeration S} {left : ConfigurationEnumeration R} {right : ConfigurationEnumeration T}
+
+omit [DecidableEq σ] in
+theorem refuted_checkers {n : Nat} (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true)
+    (w : EntryCounterexample Φ A n)
+    (refutes : ¬ Shape.denote (withExitUB raw g.selected)
+        (Syntax.model w.interpreter (g.bindings (decodeLeft w.input))) w.initial ≤
+      Shape.denote (withExitUB raw' h.selected)
+        (Syntax.model w.interpreter (h.bindings (decodeRight w.input))) w.initial)
+    (callers : CallerEnumeration A) (replies : ReplyEnumeration S)
+    (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory n) :
+    g.checkAllInterpreters? h raw raw' (decodeLeft w.input) (decodeRight w.input) replies left right stores = some false ∧
+    ∃ witness, g.compareEntries? h raw raw' callers decodeLeft decodeRight replies left right stores =
+      some (.counterexample witness) := by
+  have pointwise : g.checkAllInterpreters h (decodeLeft w.input) (decodeRight w.input) replies left right stores = false := by
+    cases verdict : g.checkAllInterpreters h (decodeLeft w.input) (decodeRight w.input) replies left right stores with
+    | false => rfl
+    | true =>
+      have ordered := (g.checkAllInterpreters_iff h raw raw' hg hh (decodeLeft w.input) (decodeRight w.input)
+        replies left right stores).mp verdict
+      exact False.elim (refutes (ordered w.interpreter w.initial))
+  refine ⟨by simp [Table.checkAllInterpreters?, hg, hh, pointwise], ?_⟩
+  cases verdict : g.compareEntries? h raw raw' callers decodeLeft decodeRight replies left right stores with
+  | none =>
+    have unsupported := Table.compareEntries_none_iff.mp verdict
+    simp [hg, hh] at unsupported
+  | some result =>
+    cases result with
+    | refines => exact False.elim (refutes ((Table.compareEntries_accepts_iff.mp verdict).2.2 w.input w.interpreter w.initial))
+    | counterexample witness => exact ⟨witness, rfl⟩
 
 theorem compress_refutation (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true)
     (lower : FiniteRun g (decodeLeft input) prim ⟨g.entry, decodeLeft input⟩ initial rows₀ stop₀)
@@ -148,23 +202,7 @@ theorem compress_refutation (hg : g.checkNative raw = true) (hh : h.checkNative 
       ((Behaviour.mapState_le_iff support.embed _ _).mpr ordered))
   refine ⟨by simpa [List.length_append, Nat.add_assoc] using ofRows_bound initial (rows₀ ++ rows₁),
     lower_eq, upper_eq, refutes, ?_⟩
-  intro stores
-  have pointwise : g.checkAllInterpreters h (decodeLeft input) (decodeRight input) replies left right stores = false := by
-    cases verdict : g.checkAllInterpreters h (decodeLeft input) (decodeRight input) replies left right stores with
-    | false => rfl
-    | true =>
-      have ordered := (g.checkAllInterpreters_iff h raw raw' hg hh (decodeLeft input) (decodeRight input)
-        replies left right stores).mp verdict
-      exact False.elim (refutes (ordered w.interpreter w.initial))
-  refine ⟨by simp [Table.checkAllInterpreters?, hg, hh, pointwise], ?_⟩
-  cases verdict : g.compareEntries? h raw raw' callers decodeLeft decodeRight replies left right stores with
-  | none =>
-    have unsupported := Table.compareEntries_none_iff.mp verdict
-    simp [hg, hh] at unsupported
-  | some result =>
-    cases result with
-    | refines => exact False.elim (refutes ((Table.compareEntries_accepts_iff.mp verdict).2.2 input w.interpreter w.initial))
-    | counterexample witness => exact ⟨witness, rfl⟩
+  exact refuted_checkers hg hh w refutes callers replies left right
 
 omit [DecidableEq σ] in
 theorem finite_carrier
