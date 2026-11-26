@@ -1,7 +1,8 @@
 module
 
 import Mathlib.Tactic.FinCases
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.Recognize.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 
 /-! # A named request changes its loop packet before taking an ordered exit -/
 
@@ -14,7 +15,7 @@ open LambdaSSA.Semantics.Interaction (Primitive Transfer)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay.Shape
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
-open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet)
+open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent (Packet pack)
 open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands (Table ReplyEnumeration ConfigurationEnumeration)
 
 private inductive Op where | poll | flip
@@ -264,5 +265,73 @@ example : HasTrace (observation false)
   apply (hasTrace_vis_exchange_iff _ _ _ _).mpr
   rw [runsRight]
   exact out_ret _
+
+section FixedCarrier
+
+open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
+open LambdaSSA.UB.Overlay.Shape.TwoRequest (resultBehaviour result_order)
+open LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduleSearch (StateInventory)
+
+private def checkedReadback (reroute : Bool) :=
+  (Recognize.recognize (seed := Reg.seed) (names := labels) (admitted false reroute) .poll).get
+    (recognized false reroute)
+
+private abbrev inferred (reroute : Bool) := Recognize.guardedTable Op.poll (checkedReadback reroute).routes
+
+private theorem nativeValid (reroute : Bool) : (inferred reroute).checkNative (inferred reroute).native = true := by
+  cases reroute <;> decide +kernel
+
+private def states : StateInventory 2 := ⟨List.finRange 2, List.mem_finRange⟩
+
+/-- Change the packet and machine state before returning reply tag one. -/
+private def rerouteInterpreter : Syntax.Primitives Op 2 :=
+  InterpreterScript.interpret [
+    InterpreterScript.Row.success (S := nativeSig) ⟨.poll, leftBit, 0⟩ ⟨0, rightBit⟩ 1,
+    InterpreterScript.Row.success (S := nativeSig) ⟨.poll, rightBit, 1⟩ ⟨1, unitPacket⟩ 1]
+
+private noncomputable def named (reroute : Bool) (prim : Syntax.Primitives Op 2) :=
+  FixedCarrier.observeNamed (source false reroute) labels (fun reg => input leftBit (reg, 0)) prim 0
+
+private theorem named_classifies (reroute : Bool) (prim : Syntax.Primitives Op 2) :
+    named reroute prim = resultBehaviour ((inferred reroute).runFinite leftBit prim inventory states ⟨0, leftBit⟩ 0) :=
+  FixedCarrier.observeNamed_runFinite (checkedReadback reroute) leftBit _ rfl prim inventory states 0
+
+example : named false rerouteInterpreter = resultBehaviour (.ret 0 1) := by
+  rw [named_classifies]
+  rfl
+
+example : named true rerouteInterpreter = resultBehaviour (.ret 1 1) := by
+  rw [named_classifies]
+  rfl
+
+private theorem rerouteWitness : ¬ named false rerouteInterpreter ≤ named true rerouteInterpreter := by
+  rw [named_classifies false, named_classifies true, result_order]
+  change ¬ (Result.ret (0 : Fin 2) (1 : Fin 2)).refines (.ret 1 1)
+  decide
+
+-- Both exact native readbacks pass. The verdict uses a typed, total
+-- deterministic interpreter at the original named endpoints.
+example : (inferred false).checkAllInterpreters? (inferred true)
+    (inferred false).native (inferred true).native leftBit leftBit replies inventory inventory states = some false := by
+  apply (FixedCarrier.rejection_iff (checkedReadback false) (checkedReadback true) leftBit (fun reg => input leftBit (reg, 0)) rfl
+    replies inventory states _ _ (nativeValid false) (nativeValid true)).mpr
+  exact ⟨rerouteInterpreter, 0, rerouteWitness⟩
+
+example : named false (fun _ _ _ => .fault 1) = resultBehaviour (.fault 1) := by
+  rw [named_classifies]
+  rfl
+
+private def repeating : Syntax.Primitives Op 2 :=
+  fun _ arg s => .ret (pack (L := Packets) ⟨0, arg⟩) (if s = 0 then 1 else 0)
+
+private theorem repeating_cycle :
+    (inferred false).runFinite leftBit repeating inventory states ⟨0, leftBit⟩ 0 = .diverge := by
+  decide +kernel
+
+-- Every request resumes the original loop with the alternating machine state.
+example : named false repeating = resultBehaviour .diverge := by
+  rw [named_classifies, repeating_cycle]
+
+end FixedCarrier
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.Tests
