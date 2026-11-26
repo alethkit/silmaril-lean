@@ -66,6 +66,17 @@ theorem solve_arrives (covered : TupleCovers input concrete)
     incomingIndex via ∈ (solve m p input).1 ∧ BankCovers (solve m p input).2.1 old :=
   Proofs.fixed_arrives (solve_fixed m p input) covered arrived
 
+/-- Every dispatch reached from a covered header arrival selects a marked
+feedback occurrence, irrespective of whether the execution later returns. -/
+theorem solve_dispatch_marked (covered : TupleCovers input concrete)
+    {via : Incoming} {count : Nat} {old : Bank (regs := regs) m}
+    (arrived : p.Arrives m concrete via count old)
+    (continues : ((p.header.eval m old).get p.again).down = true) :
+    incomingIndex (.feedback ((p.header.eval m old).get p.select).down) ∈ (solve m p input).1 := by
+  let side := ((p.header.eval m old).get p.select).down
+  have taken : p.step m old = .inr (side, (p.feedback side).eval m (p.header.eval m old)) := by simp [Program.step, continues, side]
+  exact (solve_arrives m p covered (.feedback arrived taken)).1
+
 /-- Every actual bounded source return marks exit and is covered by the
 inferred result. The source fuel counts native blocks. -/
 theorem solve_source_return (covered : TupleCovers input concrete)
