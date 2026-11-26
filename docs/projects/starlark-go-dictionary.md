@@ -51,56 +51,67 @@ supplied value comparator. A deep key collision can produce a raw error
 before the cyclic value is reached. The paired fixtures exercise this case.
 [Pinned membership][membership] · [Pinned dictionary equality][equality] · [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Checks.lean)
 
-## First rehash
+## Growth and overflow chains
 
-`GoDictionary.Growth.Thms` exposes a separate table that starts at one
-bucket and can grow to two. Go hashes the query, then scans the selected
-primary bucket and its overflow links in ascending slot order. It compares
-only matching full stored hashes. An error aborts the insertion, and a hit
-updates only the value. A miss at eight entries requests the first grow. A
-miss at thirteen entries in a two-bucket table requests a second grow in Go
-and returns a capacity error in this profile. A hit can replace its value
-at either threshold.
+`GoDictionary.Growth.Thms` exposes a table starting at one bucket. Its
+width is a power of two. Go hashes the query once, selects a home with the
+32-bit mask, and walks the primary bucket and overflow links in ascending
+slot order. It compares only matching full stored hashes. An error aborts
+the insertion, and a hit replaces the value in place. Only a miss tests
+overload. The exact predicate is at least eight entries and twice the entry
+count at least thirteen times the bucket count. This is Go's 6.5 load test
+on representable counts and power-of-two widths. The first thresholds are
+eight, thirteen, and twenty-six entries. After doubling, the old count
+always leaves room for the retried insert.
 [Pinned insertion][insert] · [Pinned overload and rehash][grow]
 
-The model derives each home chain from chronological entries. Rehash uses
-the low bit of the stored hash for the new home. A new entry takes the last
-vacant slot in the chain. When every slot is occupied, the first entry of a
-new overflow block goes in slot zero. Subsequent entries fill that block's
-suffix from the end. The profile's bound allows at most one overflow block
-per home. `slots_wellFormed` proves the occupied-slot permutation and chain
-size. The append theorems give the physical updates, and `candidates_slots`
-proves that the probe consumes the matching occupied slots in order.
+The model derives each home chain from the chronological rows. A new entry
+takes the last vacant slot in that chain. When every slot is occupied, the
+first entry of a new overflow block goes in slot zero. Later entries fill
+that block from its last slot down. `slots_wellFormed` proves the occupied
+slots form a permutation of the indexed home rows and gives the exact
+number of eight-slot blocks. The append theorems give the slot updates and
+`probe_slots_iff` connects the executable probe to independent ordered
+rules for hits, misses, and first reached comparison errors.
 [Growth definitions](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Defs.lean) · [Growth theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Thms.lean)
 
-Go reinserts in linked insertion order and recomputes each key's hash. For
-every prefix of the eight original rows there is no overflow, and the
-candidates for each full hash are the same indexed rows in reverse
-chronological order at both widths. `reinserts_two` lifts a successful
-stable-hash replay to the wider table, and `reinsert_run` relates those
-steps to actual insertions. The model can therefore derive the new
-placement directly from those stored rows. `lookup_grow` preserves the
-entire raw lookup result across a split before the ninth row is appended.
-`set_first_grow` gives the miss, split and retry result, and replacement
-preserves each row's stored hash and key at the same chronological index.
-These results concern the no-deletion layout and replay rules with stable
-key reads. Go's mutable pointers are outside the model.
+Go rehashes in linked insertion order, recomputing each stored key's hash.
+For every chronological prefix, `home_double` identifies the new home as
+the old home's stable subsequence under the wider mask. `candidates_double`
+lays out that subsequence before selecting full-hash matches. The second
+split can change the order of collisions by moving an entry from overflow
+back into the primary bucket. An exhausted miss still transfers between
+widths because it already tested every matching hash and each test returned
+false. Errors reached before overload propagate, and lookups after growth
+follow the new slot order.
 [Pinned rehash][grow] · [Growth theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Thms.lean)
 
-Both membership and outer equality use the grown table's lookup. Paired
-Lean and Go controls exercise a reached key-depth error before growth and
-after growth, where equality treats it as a miss before reaching a cyclic
-value. Ordinary numeric keys check the low-bit split, collisions, and key
-identity across float alias replacement and rehash. Oracle-only trace keys
-observe the actual probe order and recomputation of the eight stored
-hashes.
+`Replayable` records stable hashes and the comparisons required for
+successful replay. Each later key must miss every earlier key with the
+same stored hash. It holds for an empty table and successful inserts and
+replacements preserve it in a fixed key heap. `reinserts_of_replayable`
+gives the replay steps from any permitted prefix, and `reinserts_double`
+lifts them to the wider mask. `rehash_run` proves that replay from an empty
+wider table returns the exact widened table with the original stored
+keys, values, and chronological order. `set_grow` connects this layout
+to the overloaded miss and its retry.
+[Growth theorems](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Thms.lean)
+
+The paired controls cover the second rehash, multiple overflow links, and
+the reordered same-hash candidates when a different hash moves to the other
+home. Ordinary numeric keys check iteration order and key identity after
+float alias replacement. Oracle-only trace keys observe the actual probe
+order and hash recomputation. The depth controls exercise errors at both
+thresholds and verify that equality treats a reached lookup error as a miss
+before comparing a cyclic value after the second rehash.
 [Growth fixtures](../../Silmaril/Languages/Starlark/Lists/GoDictionary/Growth/Checks.lean) · [Go fixture](../../scripts/starlark/go-dictionary/check.go)
 
-The profiles start empty and assume an unfrozen table without active
-iterators and immutable tuple key fields. Further growth, deletion,
+The profiles assume an unfrozen table without active iterators and stable
+tuple key reads. The mathematical layout and replay proofs quantify over
+every power-of-two width. Go correspondence assumes successful allocation
+and representable Go widths and entry counts. Deletion, mutable keys,
 process-dependent string hashing, callable keys, recursive Go-profile
-dictionary values, and resolved interpreter integration are outside this
-slice.
+dictionary values, and resolved interpreter integration remain separate.
 
 ## Reproduction
 

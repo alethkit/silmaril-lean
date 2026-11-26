@@ -198,6 +198,72 @@ func checkGrowth() {
 	fmt.Println("PASS first rehash, full-hash collisions, low-bit split, overflow slots and stored keys")
 }
 
+func checkSecondRehash() {
+	for _, split := range []bool{false, true} {
+		traced, dict := starlark.NewDict(0), starlark.NewDict(0)
+		var hashCalls int
+		count := 18
+		if split {
+			count = 14
+		}
+		for i := range count {
+			if i == 13 {
+				var visited []int
+				_, found, err := traced.Get(traceKey{id: -1, word: 3, visits: &visited})
+				if split {
+					require(err == nil && !found && slices.Equal(visited, []int{7, 6, 5, 4, 3, 2, 1, 8, 12, 11, 10, 9}),
+						fmt.Sprintf("unexpected candidates before second split %v (%v)", visited, err))
+				}
+				before := hashCalls
+				word, alias := uint32(3), fromBits(0x8000000000000000)
+				if split {
+					word, alias = 1, starlark.Float(2)
+				}
+				require(traced.SetKey(traceKey{id: 0, word: word}, starlark.MakeInt(99)) == nil &&
+					hashCalls == before, "replacement at thirteen triggered a rehash")
+				require(dict.SetKey(alias, starlark.MakeInt(99)) == nil, "replacement at thirteen failed")
+			}
+			word, integer := uint32(3), int64(i)<<32
+			if i == 0 && split {
+				word, integer = 1, 2
+			}
+			require(traced.SetKey(traceKey{id: i, word: word, hashCalls: &hashCalls}, starlark.MakeInt(i)) == nil,
+				"second rehash trace insertion failed")
+			require(dict.SetKey(starlark.MakeInt64(integer), starlark.MakeInt(i)) == nil,
+				"second rehash integer insertion failed")
+			if i == 13 {
+				require(hashCalls == 14+8+13, "fourteenth miss must recompute the thirteen stored hashes")
+			}
+		}
+		want := []int{7, 6, 5, 4, 3, 2, 1, 0, 8, 15, 14, 13, 12, 11, 10, 9, 16, 17}
+		if split {
+			want = []int{8, 7, 6, 5, 4, 3, 2, 1, 9, 13, 12, 11, 10}
+		}
+		var visited []int
+		_, found, err := traced.Get(traceKey{id: -1, word: 3, visits: &visited})
+		require(err == nil && !found && slices.Equal(visited, want),
+			fmt.Sprintf("unexpected width-four probe order %v (%v)", visited, err))
+		require(dict.Len() == count, "wrong numeric count after second rehash")
+		for i, key := range dict.Keys() {
+			integer, ok := key.(starlark.Int)
+			require(ok, "second rehash changed the stored integer to its float alias")
+			bits, fits := integer.Int64()
+			wantKey, wantValue := int64(i)<<32, i
+			if i == 0 {
+				wantValue = 99
+				if split {
+					wantKey = 2
+				}
+			}
+			require(fits && bits == wantKey, "second rehash changed iteration order or key")
+			value, found, err := dict.Get(key)
+			require(err == nil && found && value == starlark.MakeInt(wantValue),
+				"second rehash lost a numeric key or value")
+		}
+	}
+	fmt.Println("PASS second rehash, reordered collisions after splitting, and multiple overflow links")
+}
+
 func checkDepthError() {
 	zero, one := starlark.MakeInt(0), starlark.MakeInt(1)
 	deep, colliding := wrap(zero), wrap(starlark.MakeInt64(1<<32))
@@ -229,11 +295,11 @@ func checkGrownDepthError() {
 
 	left, right := starlark.NewDict(0), starlark.NewDict(0)
 	require(left.SetKey(deep, cycle) == nil && right.SetKey(alias, cycle) == nil, "growth deep key insertion failed")
-	for i := range 8 {
-		if i == 7 {
+	for i := range 13 {
+		if i == 7 || i == 12 {
 			err := right.SetKey(deep, cycle)
-			require(err != nil && strings.Contains(err.Error(), "maximum recursion depth") && right.Len() == 8,
-				"key depth error must precede growth at eight")
+			require(err != nil && strings.Contains(err.Error(), "maximum recursion depth") && right.Len() == i+1,
+				"key depth error must precede growth at either threshold")
 		}
 		key := starlark.MakeInt(i)
 		require(left.SetKey(key, cycle) == nil && right.SetKey(key, cycle) == nil, "growth filler insertion failed")
@@ -253,6 +319,7 @@ func main() {
 	checkHashes()
 	checkSlots()
 	checkGrowth()
+	checkSecondRehash()
 	checkDepthError()
 	checkGrownDepthError()
 }
