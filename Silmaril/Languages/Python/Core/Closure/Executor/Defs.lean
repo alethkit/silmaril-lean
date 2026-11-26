@@ -39,6 +39,7 @@ inductive Operand (layout : Layout) where
   | read (slot : Slot layout)
   | readGlobal (name : String)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -232,6 +233,7 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .read slot => frame.read heap slot
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
   | .intTrueDiv numerator divisor => (trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined
+  | .floatDiv operands => (trueDivideFloat operands).map Value.float64
   | .mixedAdd integer floating => Closure.mixedAdd integer floating
   | .floatAdd left right => Closure.floatAdd left right
   | .floatSub operands => Closure.floatSub operands
@@ -362,6 +364,8 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.readGlobal name) (.error (.defined (.nameError name)))
   | intTrueDiv (numerator divisor : Int) : EvaluatesIn globals heap frame (.intTrueDiv numerator divisor)
       ((trueDivideInt numerator divisor).map Value.float64 |>.mapError .defined)
+  | floatDiv (operands : Core.Binary64.FloatOperands) : EvaluatesIn globals heap frame (.floatDiv operands)
+      ((trueDivideFloat operands).map Value.float64)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
       EvaluatesIn globals heap frame (.mixedAdd integer floating) (Closure.mixedAdd integer floating)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite) :

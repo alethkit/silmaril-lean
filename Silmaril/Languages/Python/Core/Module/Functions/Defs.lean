@@ -50,6 +50,7 @@ inductive Operand where
   | literal (value : Closure.Value)
   | readGlobal (name : GlobalName)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -61,6 +62,7 @@ def Operand.lower {layout : Layout} : Operand → Executor.Operand layout
   | .literal value => .literal value
   | .readGlobal name => .readGlobal name
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
+  | .floatDiv operands => .floatDiv operands
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .floatAdd left right => .floatAdd left right
   | .floatSub operands => .floatSub operands

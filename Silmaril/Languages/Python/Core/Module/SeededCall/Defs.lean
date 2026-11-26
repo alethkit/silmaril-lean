@@ -155,6 +155,7 @@ def Namespace.bindGlobal (space : Namespace) (name : String) (value : Value) : N
 inductive Operand (slots : Nat) where
   | literal (value : Value)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatAdd (left right : Silmaril.Numeric.Ieee754.F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
@@ -187,6 +188,10 @@ def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Ope
   | .literal value => .ok value
   | .intTrueDiv numerator divisor =>
     (Core.Closure.trueDivideInt numerator divisor).map Value.float64 |>.mapError (Failure.raised ∘ .runtime)
+  | .floatDiv operands =>
+    (Core.Closure.trueDivideFloat operands).map Value.float64 |>.mapError fun
+      | .defined error => .raised (.runtime error)
+      | _ => .unsupported
   | .mixedAdd integer floating => floatArithmeticResult (Core.Binary64.mixedAdd integer floating)
   | .floatAdd left right =>
     (Core.Binary64.addFinite? left right).elim (.error .unsupported) (.ok ∘ Value.float64)
