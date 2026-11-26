@@ -10,12 +10,13 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.RVSDGProofs
 
 open RVSDG (Locals Origin Port Tuple Wires)
 open RVSDG.OrderedRuntime.Structured
-  (Threaded Ty nextRuntime newestIndex newestPort primitiveNode readOrigin
+  (Data Threaded Ty nextRuntime newestIndex newestPort primitiveNode readOrigin
     read_appended read_cons runtime runtimePort withRuntime)
 open RVSDG.NestedTheta.ExplicitRuntime.Splice (olderIndex olderPort weaken)
 
 variable {args : List ValueSort} {past : List (List ValueSort)} {version cells : Nat}
 variable {target : List (List (Ty ValueSort))}
+variable {entryPorts : List (Ty ValueSort)}
 
 theorem load_run (address : Address cells) (heap : Heap cells) :
     (leafModel cells).toRVSDG.run (.ordered (.value .nil) wordData (.effect .load))
@@ -56,13 +57,13 @@ private theorem read_next {data entry : List (Ty ValueSort)}
   (read_newest (runtimePort data) locals _).trans
     (RVSDG.OrderedRuntime.Structured.get_runtime heap value)
 
-private abbrev Reads (routing : Routing args past target)
+private abbrev Reads (routing : Routing args past target entryPorts)
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past)
-    (entry : Tuple (WireVal cells) (Threaded (dataPorts args))) (regs : Locals (WireVal cells) target) :=
+    (entry : Tuple (WireVal cells) (Threaded entryPorts)) (regs : Locals (WireVal cells) target) :=
   ∀ {sort} (wire : Origin args past sort),
     readOrigin (routing wire) entry regs = readValue wire input locals
 
-private theorem read_argument {sort : ValueSort} (port : Port args sort)
+theorem encodeInput_get {sort : ValueSort} (port : Port args sort)
     (input : Tuple (Val cells) args) (heap : Heap cells) :
     (encodeInput heap input).get (argumentPort port) = input.get port := by
   induction port with
@@ -73,7 +74,7 @@ private theorem read_entry (input : Tuple (Val cells) args) (heap : Heap cells) 
     Reads (Routing.entry args) input PUnit.unit (encodeInput heap input) PUnit.unit := by
   intro sort wire
   cases wire with
-  | arg p => exact read_argument p input heap
+  | arg p => exact encodeInput_get p input heap
   | output i _ => exact i.elim0
 
 private theorem read_start_heap (input : Tuple (Val cells) args) (heap : Heap cells) :
@@ -82,9 +83,9 @@ private theorem read_start_heap (input : Tuple (Val cells) args) (heap : Heap ce
   | nil => rfl
   | cons _ _ ih => exact ih
 
-variable {routing : Routing args past target} {input : Tuple (Val cells) args}
+variable {routing : Routing args past target entryPorts} {input : Tuple (Val cells) args}
 variable {locals : Locals (Val cells) past}
-variable {entry : Tuple (WireVal cells) (Threaded (dataPorts args))}
+variable {entry : Tuple (WireVal cells) (Threaded entryPorts)}
 variable {regs : Locals (WireVal cells) target}
 
 private theorem after_store (agree : Reads routing input locals entry regs) (heap : Heap cells) :
@@ -113,19 +114,20 @@ private theorem read_nil {ins : List (Ty ValueSort)} (entry : Tuple (WireVal cel
     (regs : Locals (WireVal cells) target) : Wires.read (.nil : Wires ins target []) entry regs = .nil :=
   rfl
 
-private theorem lower_eval (body : Body args past version)
-    (routing : Routing args past target) (live : Origin (Threaded (dataPorts args)) target runtime)
+theorem lowerAt_eval (body : Body args past version) (data : Data entryPorts)
+    (routing : Routing args past target entryPorts) (live : Origin (Threaded entryPorts) target runtime)
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past)
-    (entry : Tuple (WireVal cells) (Threaded (dataPorts args))) (regs : Locals (WireVal cells) target)
-    (agree : Reads routing input locals entry regs) :
-    (body.lowerFrom routing live).term.eval (leafModel cells).toRVSDG entry regs =
+    (entry : Tuple (WireVal cells) (Threaded entryPorts)) (regs : Locals (WireVal cells) target)
+    (agree : ∀ {sort} (wire : Origin args past sort),
+      readOrigin (routing wire) entry regs = readValue wire input locals) :
+    (body.lowerAt data routing live).term.eval (leafModel cells).toRVSDG entry regs =
       let result := body.denote input locals (readOrigin live entry regs)
       encodeResult result.1 result.2 := by
   induction body generalizing target with
   | ret memory value =>
-    simp only [Body.lowerFrom, RVSDG.Term.eval, read_appended, read_cons, read_nil, agree, Body.denote, encodeResult]
+    simp only [Body.lowerAt, RVSDG.Term.eval, read_appended, read_cons, read_nil, agree, Body.denote, encodeResult]
   | load memory address rest ih =>
-    simp only [Body.lowerFrom, RVSDG.Term.eval, primitiveNode, RVSDG.Shape.eval, read_appended,
+    simp only [Body.lowerAt, RVSDG.Term.eval, primitiveNode, RVSDG.Shape.eval, read_appended,
       read_cons, read_nil, agree, Body.denote]
     let heap := readOrigin live entry regs
     let word := heap.read (readValue address input locals)
@@ -135,7 +137,7 @@ private theorem lower_eval (body : Body args past version)
     rw [state] at next
     exact next
   | store memory address value rest ih =>
-    simp only [Body.lowerFrom, RVSDG.Term.eval, primitiveNode, RVSDG.Shape.eval, read_appended,
+    simp only [Body.lowerAt, RVSDG.Term.eval, primitiveNode, RVSDG.Shape.eval, read_appended,
       read_cons, read_nil, agree, Body.denote]
     let heap := (readOrigin live entry regs).write
       (readValue address input locals) (readValue value input locals)
@@ -150,9 +152,10 @@ theorem lower_run (graph : Graph args) (input : Tuple (Val cells) args) (heap : 
       let result := graph.denote input heap
       encodeResult result.1 result.2 := by
   rw [Graph.lower, RVSDG.Term.run_toGraph]
-  have run := lower_eval graph (Routing.entry args) (.arg (runtimePort (dataPorts args))) input PUnit.unit
+  have run := lowerAt_eval graph (inputData args) (Routing.entry args)
+    (.arg (runtimePort (dataPorts args))) input PUnit.unit
     (encodeInput heap input) PUnit.unit (read_entry input heap)
-  simpa only [Graph.denote, Graph.lowered, RVSDG.Term.run, readOrigin, read_start_heap] using run
+  simpa only [Graph.denote, Graph.lowered, Body.lowerFrom, RVSDG.Term.run, readOrigin, read_start_heap] using run
 
 theorem lower_returns_iff (graph : Graph args) (input : Tuple (Val cells) args) (heap : Heap cells)
     (value : Word) (final : Heap cells) :
