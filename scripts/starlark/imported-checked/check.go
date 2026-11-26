@@ -291,22 +291,26 @@ reexport = loaded
 before = loaded(17, key=8)
 `
 	}
-	request := "relay"
-	if failure == "export" {
-		request = "absent"
+	first, last := "reexport", "relay"
+	if failure == "first" || failure == "both" {
+		first = "absentFirst"
+	}
+	if failure == "last" || failure == "both" {
+		last = "absentLast"
 	}
 	skip := ""
 	if failure != "" {
 		skip = "load(\"skip.star\", skipped=\"relay\")\n"
 	}
 	source := fmt.Sprintf(`load("left.star", left="relay")
-load("right.star", right=%q)
+load("right.star", rightExtra=%q, right=%q)
 %sdef wrapRight():
     return right()
 leftResult = left()
 rightResult = wrapRight()
+rightCopy = rightExtra
 after = [199]
-`, request, skip)
+`, first, last, skip)
 
 	sources := map[string]string{"prodé.star": producer, "left.star": left, "right.star": right, "skip.star": left}
 	cache := make(map[string]starlark.StringDict)
@@ -348,11 +352,16 @@ after = [199]
 		require(err == nil, err)
 		require(leftPub["relay"] != rightPub["relay"] && rightPub["reexport"] == prod["escaped"], rightPub)
 		require(partial["leftResult"] == prod["late"] && partial["rightResult"] == prod["late"] &&
-			partial["left"] == nil && partial["right"] == nil && partial["after"].String() == "[199]", partial)
+			partial["left"] == nil && partial["right"] == nil && partial["rightExtra"] == nil &&
+			partial["rightCopy"] == prod["escaped"] && partial["after"].String() == "[199]", partial)
 		require(partial["rightResult"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
 		require(strings.Join(prints, ",") == "44,31 52,44,31 52,44,31 52,44,31 52,44,31 52", prints)
-	case "export":
-		require(err != nil && strings.Contains(err.Error(), "absent"), err)
+	case "first", "last", "both":
+		missing := "absentLast"
+		if failure == "first" {
+			missing = "absentFirst"
+		}
+		require(err != nil && strings.Contains(err.Error(), "load: name "+missing+" not found in module right.star"), err)
 		require(rightPub != nil && rightPub["reexport"] == prod["escaped"] && len(partial) == 0, partial)
 		require(strings.Join(prints, ",") == "44,31 52,44,31 52,44,31 52", prints)
 	case "dependency":
@@ -373,7 +382,7 @@ func main() {
 		checkDeclarationSuite(warm, false)
 		checkDeclarationSuite(warm, true)
 		checkReturnedClosure(warm)
-		for _, failure := range []string{"", "export", "dependency"} {
+		for _, failure := range []string{"", "first", "last", "both", "dependency"} {
 			checkDiamond(warm, failure)
 		}
 	}
@@ -392,5 +401,5 @@ func main() {
 	fmt.Println("PASS a consumer wrapper returns a fresh imported closure that remains callable")
 	fmt.Println("PASS three-module re-export with cold, root-preloaded and middle-preloaded histories")
 	fmt.Println("PASS direct and nested calls through the published middle wrapper, including reached failures")
-	fmt.Println("PASS ordered diamond imports share a dependency across cold and mixed requests and stop on later export/dependency failure")
+	fmt.Println("PASS grouped diamond loads reuse one dependency per command, choose the rightmost missing export, and skip later commands")
 }

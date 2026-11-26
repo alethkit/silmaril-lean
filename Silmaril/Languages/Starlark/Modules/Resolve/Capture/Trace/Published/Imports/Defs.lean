@@ -212,28 +212,43 @@ after its successful return. Declaration IDs follow the current table. -/
     | .define (alias := alias) _ => ∃ callee, env alias = some callee ∧ callee.layout.id < program.size ∧ tail
     | .assign .. => tail
 
-/-- One leading load with one public callable bound under a file-local name. -/
-structure ImportSite where
-  label : String
+/-- A requested public symbol and its file-local alias. -/
+structure ImportBinding where
   name : String
   alias : String
   publicName : Modules.isPublic name = true
 
-@[expose] def ImportSite.item (site : ImportSite) : Modules.Import :=
-  ⟨site.name, site.alias⟩
+@[expose] def ImportBinding.item (binding : ImportBinding) : Modules.Import :=
+  ⟨binding.name, binding.alias⟩
+
+/-- A single load command. Bindings are stored in source order. -/
+structure ImportSite where
+  label : String
+  bindings : List ImportBinding
+  nonempty : bindings ≠ []
+
+@[expose] def ImportSite.single (label name alias : String) (publicName : Modules.isPublic name = true) :
+    ImportSite :=
+  ⟨label, [⟨name, alias, publicName⟩], by simp⟩
+
+@[expose] def ImportSite.aliases (site : ImportSite) : List String :=
+  site.bindings.map ImportBinding.alias
 
 @[expose] def ImportSite.source (site : ImportSite) : Command :=
-  .load site.label [site.item]
+  .load site.label (site.bindings.map ImportBinding.item)
 
 @[expose] def ImportSite.code (site : ImportSite) : Modules.Command :=
-  .load site.label [site.item]
+  .load site.label (site.bindings.map ImportBinding.item)
 
 /-- All load aliases are in lexical scope throughout the normalized suite. -/
 structure OrderedConsumer where
   imports : List ImportSite
   globals : List String
-  body : List (Step (imports.map ImportSite.alias) globals)
+  body : List (Step (imports.flatMap ImportSite.aliases) globals)
   declared : body.map Step.destination = globals
+
+@[expose] def OrderedConsumer.aliases (plan : OrderedConsumer) : List String :=
+  plan.imports.flatMap ImportSite.aliases
 
 @[expose] def OrderedConsumer.commands (plan : OrderedConsumer) : List Command :=
   plan.imports.map ImportSite.source ++ plan.body.map Step.source
