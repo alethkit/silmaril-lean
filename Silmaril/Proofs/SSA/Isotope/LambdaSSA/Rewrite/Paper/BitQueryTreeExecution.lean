@@ -193,7 +193,7 @@ private theorem word_head {a b : Event} {v w : Word}
   exact ⟨eq.1, congrArg FreeMonoid.ofList eq.2⟩
 
 /-- Recover an actual ordered history before interpreting its next continuation. -/
-private theorem outcome_with_head {n : Nat} (env : Assignment n) (label : Bool) (q : Expr n)
+theorem outcome_with_head {n : Nat} (env : Assignment n) (label : Bool) (q : Expr n)
     (l r : Tree (n + 1)) (e : Event) (tail : Word) (result : Except Bool Result) :
     (result, FreeMonoid.of e * tail) ∈ (Tree.ask label q l r).outcomes env ↔
       e.label = label ∧ e.query = q.eval env ∧
