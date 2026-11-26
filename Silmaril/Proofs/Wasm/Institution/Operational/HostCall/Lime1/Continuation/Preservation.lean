@@ -36,6 +36,16 @@ theorem checked_call
   cases h with
   | call resolved allocated tail => exact ⟨_, rfl, resolved, allocated, tail⟩
 
+theorem checked_indirect {indirect : IndirectSite}
+    (h : Checked base active.module (active.locals.map Value.type) targets results types
+      (.callIndirect indirect :: ops)) :
+    ∃ saved, types = (saved ++ indirect.signature.params) ++ [.int .i32] ∧
+      indirect.Linked base active.module ∧
+      Checked base active.module (active.locals.map Value.type) targets results
+        (saved ++ indirect.signature.results) ops := by
+  cases h with
+  | callIndirect linked tail => exact ⟨_, rfl, linked, tail⟩
+
 theorem checked_br {depth : LabelIdx}
     (h : Checked base active.module (active.locals.map Value.type) targets results types (.br depth :: ops)) :
     ∃ scratch payload, types = scratch ++ payload ∧ targets[depth.toNat]? = some payload := by
@@ -187,6 +197,17 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
     rw [show _ = _ from typed] at split
     have same := List.append_cancel_right split
     exact ⟨ready.1, allocated, typed, contract_call ready.2.2, same ▸ tail, contract_tail ready.2.2 trivial⟩
+  | @callIndirect bytes saved args selector indirect target ops labels typed found =>
+    cases found with
+    | bounds | null | mismatch => exact ⟨ready.1, trivial⟩
+    | @host address code entry allocated =>
+      obtain ⟨_, split, _, tail⟩ := checked_indirect ready.2.1
+      simp only [List.map_append, List.map_cons, List.map_nil, Value.int, typed] at split
+      have same := List.append_cancel_right (List.append_cancel_right split)
+      cases ready.2.2 with
+      | callIndirect contract tailContract =>
+        exact ⟨ready.1, allocated, typed, contract address code (List.mem_of_getElem? entry) allocated,
+          same ▸ tail, tailContract⟩
   | returned _ typed _ =>
     refine ⟨ready.1, ?_, ready.2.2.2.2.2⟩
     simpa only [List.map_append, show _ = _ from typed] using ready.2.2.2.2.1
