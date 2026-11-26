@@ -181,8 +181,8 @@ theorem readback {H : Type} {mode : MemoryMode} {calls : CallMode} {p : Program}
         (fun c : Config H => (⟨c.store, c.frame, [.label 0 [.loop result body] c.code]⟩ : Config H)) eq⟩
   | frame move n outer ih =>
     have guard := single_allowed.mp ready
-    cases guard with | frame found permitted scope arity inside =>
-      obtain ⟨next, rule, eq⟩ := ih bytes same inside
+    cases guard <;> rename_i inside <;>
+      obtain ⟨next, rule, eq⟩ := ih bytes same inside <;>
       exact ⟨_, .frame rule n outer, congrArg
         (fun c : Config H => (⟨c.store, outer, [.frame n c.frame c.code]⟩ : Config H)) eq⟩
   | localGet s f i v found => exact ⟨_, .get found, by simp [render, ← same]⟩
