@@ -164,8 +164,9 @@ private theorem checked_export (ordinary : OrdinaryOutputs Op) {args outs : Port
       | inherited fromR => rw [shapeL, member_is_not_lambda fromR] at paired; cases paired
       | exported => exact body
 
-private theorem group_has_no_key (code : OpcodeCode (Instruction Op)) {group : Group m members} {port : Ty V S} {value : m.Val port}
-    (known : group.In value) : lambdaKey code value = none := by
+private theorem group_has_no_key (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m)
+    {group : Group m members} {port : Ty V S} {value : m.Val port}
+    (known : group.In value) : lambdaKey code captureCode value = none := by
   cases known with
   | ordinary _ plain => cases value <;> first | rfl | cases plain
   | member => rfl
@@ -244,14 +245,14 @@ theorem checkExport_sound (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty
           ordinary_tuple Group.In.ordinary tuple plain⟩⟩
     next => cases accepted
 
-theorem linked_groups (ordinary : OrdinaryOutputs Op) {membersL membersR : List (Function V S)}
+theorem linked_groups (captureCode : CaptureCode m) (ordinary : OrdinaryOutputs Op) {membersL membersR : List (Function V S)}
     (left : Group m membersL) (right : Group m membersR)
-    (accepted : checkGroupPair keys left right = true) : LinkedFamily primitives ids keys left.In right.In ⟨[], []⟩ where
+    (accepted : checkGroupPair keys left right = true) : LinkedFamily primitives ids keys captureCode left.In right.In ⟨[], []⟩ where
   checked := checked_group_pair ordinary left right accepted
   ordinaryL := Group.In.ordinary
   ordinaryR := Group.In.ordinary
-  keysL known key := by rw [group_has_no_key keys known] at key; cases key
-  keysR known key := by rw [group_has_no_key keys known] at key; cases key
+  keysL known key := by rw [group_has_no_key keys captureCode known] at key; cases key
+  keysR known key := by rw [group_has_no_key keys captureCode known] at key; cases key
 
 private theorem ofFn_equiv {α : Type*} {n k : Nat} (vertices : Fin n ≃ Fin k) (labels : Fin k → α) :
     (List.ofFn (labels ∘ vertices)).Perm (List.ofFn labels) := by
@@ -275,19 +276,38 @@ theorem outer_profile (code : OpcodeCode (Instruction Op))
     exact ofFn_equiv vertices (fun i => labelCode code (right.nodes i).label)
 
 omit [DecidableEq (Ty V S)] in
-theorem related_key (code : OpcodeCode (Instruction Op)) {port : Ty V S} {left right : m.Val port}
-    (related : ValueRelated m ids left right) : lambdaKey code left = lambdaKey code right := by
-  cases related <;> try rfl
-  rename_i body
-  simp only [lambdaKey, outer_profile code body]
+private theorem capture_value_eq (code : CaptureCode m) :
+    ∀ {port : Ty V S} {left right : m.Val port}, ValueRelated m ids left right → code.value left = code.value right
+  | _, _, _, .global _ payload => by
+    simp only [CaptureCode.value]
+    exact capture_value_eq code payload
+  | _, _, _, .data _ | _, _, _, .state _ | _, _, _, .control _
+  | _, _, _, .closure _ _ | _, _, _, .member _ _ _ => rfl
+termination_by structural _ _ _ related => related
 
 omit [DecidableEq (Ty V S)] in
-private theorem extend_keys {code : OpcodeCode (Instruction Op)} {family : Family m} {args outs : Ports (Ty V S)}
-    {root : m.Val (.value (.function args outs))} {keys : List (LambdaKey V S code.Key)} {key : LambdaKey V S code.Key}
-    (earlier : ∀ {port : Ty V S} {value : m.Val port} {candidate : LambdaSummary V S code.Key},
-      family value → lambdaKey code value = some candidate → candidate ∈ keys.map LambdaKey.summary)
-    (rootKey : lambdaKey code root = some key.summary) {port : Ty V S} {value : m.Val port} {candidate : LambdaSummary V S code.Key}
-    (known : WithExport family root value) (found : lambdaKey code value = some candidate) :
+theorem capture_tuple_eq (code : CaptureCode m) :
+    ∀ {portsL portsR : Ports (Ty V S)} {left : Tuple m.Val portsL} {right : Tuple m.Val portsR},
+      TupleRelated m ids left right → code.tuple left = code.tuple right
+  | _, _, _, _, .nil => rfl
+  | _, _, _, _, .cons head tail => congrArg₂ List.cons (capture_value_eq code head) (capture_tuple_eq code tail)
+termination_by structural _ _ _ _ related => related
+
+omit [DecidableEq (Ty V S)] in
+theorem related_key (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m)
+    {port : Ty V S} {left right : m.Val port}
+    (related : ValueRelated m ids left right) : lambdaKey code captureCode left = lambdaKey code captureCode right := by
+  cases related <;> try rfl
+  rename_i captures body
+  simp only [lambdaKey, capture_tuple_eq captureCode captures, outer_profile code body]
+
+omit [DecidableEq (Ty V S)] in
+private theorem extend_keys {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {family : Family m} {args outs : Ports (Ty V S)}
+    {root : m.Val (.value (.function args outs))} {keys : List (LambdaKey V S code.Key captureCode.Key)} {key : LambdaKey V S code.Key captureCode.Key}
+    (earlier : ∀ {port : Ty V S} {value : m.Val port} {candidate : LambdaSummary V S code.Key captureCode.Key},
+      family value → lambdaKey code captureCode value = some candidate → candidate ∈ keys.map LambdaKey.summary)
+    (rootKey : lambdaKey code captureCode root = some key.summary) {port : Ty V S} {value : m.Val port} {candidate : LambdaSummary V S code.Key captureCode.Key}
+    (known : WithExport family root value) (found : lambdaKey code captureCode value = some candidate) :
     candidate ∈ (key :: keys).map LambdaKey.summary := by
   cases known with
   | inherited earlierValue => exact List.mem_cons_of_mem _ (earlier earlierValue found)
@@ -298,20 +318,20 @@ private theorem extend_keys {code : OpcodeCode (Instruction Op)} {family : Famil
 
 omit [DecidableEq (Ty V S)] in
 theorem linked_extension (ordinary : OrdinaryOutputs Op)
-    {code : OpcodeCode (Instruction Op)} {familyL familyR : Family m} {prior : LambdaKeys V S code.Key}
-    (earlier : LinkedFamily primitives ids code familyL familyR prior)
+    {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {familyL familyR : Family m} {prior : LambdaKeys V S code.Key captureCode.Key}
+    (earlier : LinkedFamily primitives ids code captureCode familyL familyR prior)
     {args outs : Ports (Ty V S)} {left right : m.Val (.value (.function args outs))}
-    {newL newR : LambdaKey V S code.Key} (fresh : newL.Fresh prior.right ∧ newR.Fresh prior.left)
-    (keyL : lambdaKey code left = some newL.summary) (keyR : lambdaKey code right = some newR.summary)
+    {newL newR : LambdaKey V S code.Key captureCode.Key} (fresh : newL.Fresh prior.right ∧ newR.Fresh prior.left)
+    (keyL : lambdaKey code captureCode left = some newL.summary) (keyR : lambdaKey code captureCode right = some newR.summary)
     (capturesL : TupleIn familyL (resolve m left).values) (capturesR : TupleIn familyR (resolve m right).values)
     (body : Resolved m ⟨args, outs⟩ (resolve m left) (resolve m right)) :
-    LinkedFamily primitives ids code (WithExport familyL left) (WithExport familyR right) ⟨newL :: prior.left, newR :: prior.right⟩ where
+    LinkedFamily primitives ids code captureCode (WithExport familyL left) (WithExport familyR right) ⟨newL :: prior.left, newR :: prior.right⟩ where
   checked :=
     { closedL := closed_export ordinary left earlier.ordinaryL earlier.checked.closedL capturesL
       closedR := closed_export ordinary right earlier.ordinaryR earlier.checked.closedR capturesR
       graphs := by
         intro _ _ _ _ knownL knownR related
-        have same := related_key code related
+        have same := related_key code captureCode related
         cases knownL with
         | inherited oldL =>
           cases knownR with
@@ -327,8 +347,8 @@ theorem linked_extension (ordinary : OrdinaryOutputs Op)
   keysR := extend_keys earlier.keysR keyR
 
 omit [DecidableEq (Ty V S)] in
-theorem linked_exports {code : OpcodeCode (Instruction Op)} {familyL familyR : Family m} {prior : LambdaKeys V S code.Key}
-    (family : LinkedFamily primitives ids code familyL familyR prior)
+theorem linked_exports {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {familyL familyR : Family m} {prior : LambdaKeys V S code.Key captureCode.Key}
+    (family : LinkedFamily primitives ids code captureCode familyL familyR prior)
     {args outs : Ports (Ty V S)} {left right : m.Val (.value (.function args outs))}
     (knownL : familyL left) (knownR : familyR right) : ExportAdmission primitives ids left right :=
   ⟨familyL, familyR, family.checked, knownL, knownR, fun values plain =>

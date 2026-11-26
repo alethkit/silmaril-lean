@@ -114,29 +114,31 @@ def exportWire {family : Family m} {entry : Tuple m.Val imports} {locals : Local
 variable {primitives : Primitives m σ} {ids : GlobalRel}
 
 structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
+    (captureCode : CaptureCode m)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
   familyL : Family m
   familyR : Family m
-  keys : LambdaKeys V S code.Key
-  certified : LinkedFamily primitives ids code familyL familyR keys
+  keys : LambdaKeys V S code.Key captureCode.Key
+  certified : LinkedFamily primitives ids code captureCode familyL familyR keys
   left : Table familyL localsL
   right : Table familyR localsR
 
 inductive State (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
+    (captureCode : CaptureCode m)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) : Bool → Type (max u v w) where
-  | unseeded : State primitives ids code localsL localsR false
-  | seeded (checked : Checked primitives ids code localsL localsR) : State primitives ids code localsL localsR true
+  | unseeded : State primitives ids code captureCode localsL localsR false
+  | seeded (checked : Checked primitives ids code captureCode localsL localsR) : State primitives ids code captureCode localsL localsR true
 
-def State.skipL {code : OpcodeCode (Instruction Op)} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
+def State.skipL {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
     (values : Tuple m.Val ports) :
-    {seeded : Bool} → State primitives ids code localsL localsR seeded → State primitives ids code (localsL.snoc values) localsR seeded
+    {seeded : Bool} → State primitives ids code captureCode localsL localsR seeded → State primitives ids code captureCode (localsL.snoc values) localsR seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
     .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left.snoc (fun _ => none), checked.right⟩
 
-def State.skipR {code : OpcodeCode (Instruction Op)} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
+def State.skipR {code : OpcodeCode (Instruction Op)} {captureCode : CaptureCode m} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
     (values : Tuple m.Val ports) :
-    {seeded : Bool} → State primitives ids code localsL localsR seeded → State primitives ids code localsL (localsR.snoc values) seeded
+    {seeded : Bool} → State primitives ids code captureCode localsL localsR seeded → State primitives ids code captureCode localsL (localsR.snoc values) seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
     .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left, checked.right.snoc (fun _ => none)⟩
@@ -174,7 +176,8 @@ variable [DecidableEq (Ty V S)]
 /-- Walk each module in its own link order. Skipped rows still run the
 actual linker, including any partial δ initialization. The selected φ/λ
 rows use the exact values of the linker's non-effectful binding rules. -/
-def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
+def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (captureCode : CaptureCode m)
+    (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
     (inputsL : Tuple m.Val importsL) (inputsR : Tuple m.Val importsR)
     {fn : Function V S} (port : Port exports fn.port) :
@@ -182,7 +185,7 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
     {left : ModuleTerm Op importsL pastL sigsL exports} → {right : ModuleTerm Op importsR pastR sigsR exports} →
     (localsL : Locals m.Val pastL) → (localsR : Locals m.Val pastR) → (storeL storeR : σ) →
     Plan Op importsL importsR exports seeded left right →
-    State actions.toPrimitives ids keys localsL localsR seeded →
+    State actions.toPrimitives ids keys captureCode localsL localsR seeded →
     Option (PLift (AdmittedExport actions.toPrimitives ids port
       (linkTerm actions unitL inputsL localsL left storeL) (linkTerm actions unitR inputsR localsR right storeR)))
   | _, _, _, _, _, _, _, _, _, _, _, .done (left := outputsL) (right := outputsR), .seeded checked => do
@@ -193,24 +196,24 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
     match ran : Executable.linkVertex actions unitL inputsL localsL node.toGraph storeL with
     | .undefined _ => none
     | .linked values middle => do
-      let checked ← walk keys actions ids ordinary unitL unitR inputsL inputsR port
+      let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
         (localsL.snoc values) localsR middle storeR next (state.skipL values)
       pure ⟨by rw [linkTerm_bind, ran]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR, .skipR (node := node) next, state =>
     match ran : Executable.linkVertex actions unitR inputsR localsR node.toGraph storeR with
     | .undefined _ => none
     | .linked values middle => do
-      let checked ← walk keys actions ids ordinary unitL unitR inputsL inputsR port
+      let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
         localsL (localsR.snoc values) storeL middle next (state.skipR values)
       pure ⟨by rw [linkTerm_bind, ran]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .seed (membersL := membersL) (membersR := membersR) (left := left) (right := right) next, .unseeded => do
     let groupL : Group m membersL := ⟨_, left.captures.read inputsL localsL, left.toGraph.definitions⟩
     let groupR : Group m membersR := ⟨_, right.captures.read inputsR localsR, right.toGraph.definitions⟩
-    let seed ← LinkedFamily.ofGroups keys actions.toPrimitives ids ordinary groupL groupR
+    let seed ← LinkedFamily.ofGroups keys actions.toPrimitives ids captureCode ordinary groupL groupR
     let leftTable := (Table.empty groupL.In localsL).snoc (memberRow membersL groupL.ref (fun slot => .member slot))
     let rightTable := (Table.empty groupR.In localsR).snoc (memberRow membersR groupR.ref (fun slot => .member slot))
-    let checked ← walk keys actions ids ordinary unitL unitR inputsL inputsR port
+    let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (memberValues membersL groupL.ref)) (localsR.snoc (memberValues membersR groupR.ref))
       storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, leftTable, rightTable⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
@@ -231,26 +234,27 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
       | .tail p => nomatch p
     let tableL := (earlier.left.lift (fun known => WithExport.inherited known)).snoc rowL
     let tableR := (earlier.right.lift (fun known => WithExport.inherited known)).snoc rowR
-    let checked ← walk keys actions ids ordinary unitL unitR inputsL inputsR port
+    let checked ← walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (.cons calleeL .nil)) (localsR.snoc (.cons calleeR .nil)) storeL storeR next
       (.seeded ⟨familyL, familyR, _, certified.down, tableL, tableR⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
 
 /-- Check an ordered pair of complete link prefixes, then read the
 selected export from the generated membership tables. The plan contains
-only binding selections. Each λ step checks separation using signatures,
-ordered capture types and outer label multisets. Related successful link outcomes
-and primitive compatibility remain premises for paired invocation. -/
+only binding selections. Each λ step checks separation using actual
+capture observations as well as the body profile. Related successful link
+outcomes and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
     (inputsL : Tuple m.Val importsL) (inputsR : Tuple m.Val importsR)
     (left : OmegaTerm Op importsL exports sigsL) (right : OmegaTerm Op importsR exports sigsR)
     (plan : Plan Op importsL importsR exports false left.region right.region)
-    {fn : Function V S} (port : Port exports fn.port) (storeL storeR : σ) :
+    {fn : Function V S} (port : Port exports fn.port) (storeL storeR : σ)
+    (captureCode : CaptureCode m := .controlOnly m) :
     Option (PLift (AdmittedExport actions.toPrimitives ids port
       (Executable.link actions unitL left.toGraph inputsL storeL)
       (Executable.link actions unitR right.toGraph inputsR storeR))) :=
-  walk keys actions ids ordinary unitL unitR inputsL inputsR port (pastL := []) (pastR := [])
+  walk keys captureCode actions ids ordinary unitL unitR inputsL inputsR port (pastL := []) (pastR := [])
     (left := left.region) (right := right.region) PUnit.unit PUnit.unit storeL storeR plan .unseeded
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Prefix

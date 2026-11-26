@@ -1223,6 +1223,72 @@ example :
     (bothScan true).isSome = false := by
   refine ⟨?_, ?_, ?_⟩ <;> cbv
 
+private def captureCode : RecursiveCall.Numbered.CaptureCode machine where
+  Key := Nat
+  decideKey := inferInstance
+  data n := some n
+  state _ := none
+
+private abbrev sameBodyInput := global :: branchFn.args
+
+private def sameBody : RecursiveCall.Code Op sameBodyInput [] [[num]] [num] :=
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private def sameBodyLambda {past : List (Ports T)} (source : Origin args past global) :
+    LambdaTerm Op args past branchFn :=
+  ⟨[global], .cons source .nil, _, sameBody⟩
+
+private abbrev captureExports := [branchFn.port, branchFn.port, branchFn.port]
+
+private def captureModule (duplicate : Bool) :
+    OmegaTerm Op args captureExports [[global], [global], [], [branchFn.port], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda (sameBodyLambda (.output (0 : Fin 3) .head))) <|
+    .bind (.lambda (sameBodyLambda (if duplicate then .output (0 : Fin 4) .head else .output (1 : Fin 4) .head))) <|
+    .bind (.lambda (combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))) <|
+    .ret (.cons (.output (3 : Fin 6) .head) (.cons (.output (4 : Fin 6) .head)
+      (.cons (.output (5 : Fin 6) .head) .nil)))⟩
+
+private def capturePlan (duplicate : Bool) :
+    Plan Op args args captureExports false (captureModule duplicate).region (captureModule duplicate).region :=
+  .skipL (.skipR (.skipL (.skipR (.seed (.lambda (.lambda (.lambda .done)))))))
+
+private def captureScan (duplicate : Bool) (observer : RecursiveCall.Numbered.CaptureCode machine) :=
+  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    (captureModule duplicate) (captureModule duplicate) (capturePlan duplicate) (fn := branchFn)
+    (.tail (.tail .head)) 20 20 observer
+
+-- The initializers produce payloads 8 and 9. Both λs have the same
+-- body, so the payload observation is what separates the two dispatches.
+set_option maxHeartbeats 800000 in
+example : (captureScan false captureCode).isSome = true ∧
+    (captureScan false (.controlOnly machine)).isSome = false := by
+  constructor <;> cbv
+
+-- The actual caller passes the first result into the second application
+-- and resumes its own stateful suffix after the two distinct calls.
+example :
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 9) 33) ∧
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) (.tail .head) (branchArgs 1) 20 =
+      .ok (.returned (number 10) 33) ∧
+    Executable.run actions 60 73 (captureModule false).toGraph (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+      .ok (.returned (number 17) 41) := by
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
+
+-- The duplicate graph links with the same initialized value captured by
+-- both closures. The observer cannot separate those two bindings.
+set_option maxHeartbeats 800000 in
+example : (match Executable.link actions 73 (captureModule true).toGraph (number 1) 20 with
+    | .linked exports store => exports.get .head = exports.get (.tail .head) ∧ store = 28
+    | .undefined _ => False) ∧ (captureScan true captureCode).isSome = false := by
+  constructor
+  · cbv
+    exact ⟨rfl, trivial⟩
+  · cbv
+
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
 
