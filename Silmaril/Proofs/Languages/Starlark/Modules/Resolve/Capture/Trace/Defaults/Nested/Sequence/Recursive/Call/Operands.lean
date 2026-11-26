@@ -49,7 +49,7 @@ theorem resolves {block : LexicalBlock} {name : String}
   simp [spine, Body.resolves_at callee, resolves_arguments related, expression, bind, StateT.bind, Except.bind,
     pure, StateT.pure, Except.pure, Except.map]
 
-private theorem keeps_all {first middle last : State}
+theorem keeps_all {first middle last : State}
     (head : Body.Keeps first.heap.size first middle) (tail : Body.Keeps middle.heap.size middle last) :
     Body.Keeps first.heap.size first last := by
   refine ⟨tail.1.trans head.1, ?_⟩

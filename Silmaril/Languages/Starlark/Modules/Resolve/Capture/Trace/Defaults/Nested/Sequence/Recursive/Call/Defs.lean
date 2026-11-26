@@ -49,7 +49,7 @@ inductive Evaluates (block : LexicalBlock) :
 /-- Evidence for the actual record reached at a function value. The
 defining frame supplies the addresses and the current heap supplies the
 live cells and still-stored default values. -/
-structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords)
+structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs)
     (id : DeclarationId) (defining state : State) (address : Nat) where
   captures : List Lists.Capture
   defaults : List Value
@@ -61,7 +61,7 @@ structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParamet
   live : Body.CaptureCells state captures
 
 /-- The body proof operates at the callee's reduced declaration set. -/
-abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) (program : Program)
+abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs) (program : Program)
     (available : List DeclarationId) (id : DeclarationId) (bodyRuns : State → Outcome Flow → Prop) : Prop :=
   ∀ (caller defining : State) (captures : List Lists.Capture), Installs defining site.free captures →
     Body.CaptureCells caller captures → ∀ (assigned : List (Binding × Lists.Value)),
@@ -69,42 +69,48 @@ abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter}
     ∃ out, bodyRuns active out ∧ Exec program (withoutDeclaration available id) active site.body.code out ∧
       Body.Keeps caller.heap.size caller (finishState (Leaf.returnTo caller out))
 
-abbrev BindingRule := List Value → Actual → Except Lists.Error (List (Binding × Value)) → Prop
+abbrev BindingRule (Bound : Type) := List Value → Actual → Except Lists.Error Bound → Prop
+
+abbrev PackRule (Bound : Type) := State → Bound → List (Binding × Value) → State → Prop
+
+abbrev Unpacked : PackRule (List (Binding × Value)) :=
+  fun caller bound assigned packed => assigned = bound ∧ packed = caller
 
 /-- The call first reads the local callee and then evaluates its
 explicit operands. Binding consults the reached heap only after all
 operands succeed. A failed bind has no activation premise. -/
-inductive RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) (bodyRuns : State → Outcome Flow → Prop)
+inductive RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock)
     (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr)
-    (collect : List Value → Actual) (binds : BindingRule) : State → Outcome Value → Prop where
+    {Bound : Type} (collect : List Value → Actual) (binds : BindingRule Bound) (packs : PackRule Bound) : State → Outcome Value → Prop where
   | calleeError {state next : State} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.error error next) →
-      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error next)
+      RunsPacked site bodyRuns block id callee arguments codes collect binds packs state (.error error next)
   | operandError {state next : State} {address : Nat} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.error error next) →
-      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error next)
+      RunsPacked site bodyRuns block id callee arguments codes collect binds packs state (.error error next)
   | bindingError {state actualState defining : State} {address : Nat} {values : List Value} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
       binds record.defaults (collect values) (.error error) →
-      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error actualState)
-  | invoked {state actualState defining : State} {address : Nat} {values : List Value} {bodyOut : Outcome Flow}
-      {assigned : List (Binding × Value)} :
+      RunsPacked site bodyRuns block id callee arguments codes collect binds packs state (.error error actualState)
+  | invoked {state actualState defining packed : State} {address : Nat} {values : List Value} {bodyOut : Outcome Flow}
+      {bound : Bound} {assigned : List (Binding × Value)} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
-      binds record.defaults (collect values) (.ok assigned) →
-      bodyRuns (activate actualState site.declaration record.captures assigned) bodyOut →
-      RunsPacked site bodyRuns block id callee arguments codes collect binds state (Leaf.returnTo actualState bodyOut)
+      binds record.defaults (collect values) (.ok bound) →
+      packs actualState bound assigned packed →
+      bodyRuns (activate packed site.declaration record.captures assigned) bodyOut →
+      RunsPacked site bodyRuns block id callee arguments codes collect binds packs state (Leaf.returnTo actualState bodyOut)
 
 abbrev RunsWith {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock) (id : DeclarationId) (callee : String)
     (arguments : List NormalizedExpr) (codes : List Lowering.Expr) :=
   RunsPacked site bodyRuns block id callee arguments codes (fun values => ⟨values, []⟩)
-    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional)
+    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional) Unpacked
 
 abbrev Runs {parent : LexicalBlock} (site : Site parent) :=
   RunsWith site (fun state out => Sequence.Runs site.block state site.source site.body.code out)

@@ -972,7 +972,7 @@ caller on failure.
 
 Callable provenance from parameters, captures, module names, heap
 reads or returned values, calls through untracked values, other
-expression positions, spreads, variadic signatures, general dispatch,
+expression positions, spreads, keyword collection, general dispatch,
 loads, text parsing and module publication remain outside the profile.
 [Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
@@ -987,12 +987,14 @@ resolved positional count and keyword names. The reached closure
 record supplies the declaration, saved values and live capture
 cells. Its body runs under the existing declaration guard.
 
-The independent binder checks surplus positional arguments, then
-delivers keyword values to formal slots in source order. An unknown
+For a signature without a positional collector, the independent
+binder checks positional overflow before delivering keyword values
+to formal slots in source order. An unknown
 name or a parameter already filled by another operand ends delivery.
 Saved defaults fill the remaining slots and the binder then reports
 missing required parameters in declaration order. Agreement with
-`bindArguments` is exact for the admitted non-variadic signatures. Binding failure
+`bindArguments` is exact for the admitted signatures without
+keyword collection. Binding failure
 allocates no activation. A reached operand failure takes precedence
 over any binding failure and preserves earlier allocations.
 
@@ -1044,9 +1046,40 @@ The pinned prose and existing Lean validator require at least one
 defaulted formal after bare `*`. Pinned Go also accepts a suffix
 consisting only of required formals. This extension keeps the
 existing checked validation rule. The nullary call diagnostic
-difference is tracked separately above. Variadic collection,
-spreads, general dispatch and module publication remain separate.
+difference is tracked separately above. The tracked suite also supports
+named positional collection as described below.
 [Recursive header theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Thms.lean) · [Binder and call theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Pinned function-definition spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-definitions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L819-L899) · [Pinned Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Named positional collection in checked local suites
+
+A checked nested definition may declare a named `*args` collector and
+trailing required or defaulted keyword-only parameters. The independent
+header names the collector slot after the ordinary parameter slots in
+the resolved frame. The collector contributes no default expression.
+Elaboration preserves the default order across the star boundary and
+lexical default evaluation saves each value at its formal key.
+
+The independent binder records surplus positional values in source
+order. It finishes keyword delivery, fills omitted defaults and checks
+required parameters before packing. Successful packing allocates the
+ordinary tuple and supplies its address to the collector slot before
+activation. The tuple retains the original element values and addresses.
+The empty tuple has the existing canonical key and a fresh heap cell.
+An operand or binding failure leaves the reached heap without a packed
+tuple. A body failure retains the tuple and any body effects. The same
+guarded suite theorem restores the caller and skips the destination and
+continuation on failure.
+
+Lean and pinned Go cover an empty and a nonempty surplus, an aliased
+list element, a live lexical capture, a child with no lexical captures,
+and required keyword-only parameters after named `*args`. They also
+cover omitted binding, a reached operand failure and a reached body
+failure. Lean checks ordered retained allocations, the empty tuple key,
+the exact packed contents and restored caller state. The requirements
+and Go differences for bare `*` and nullary calls remain as documented
+above. Keyword collection, call-site spreads, general dispatch and
+module publication remain outside this proof.
+[Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/VarargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

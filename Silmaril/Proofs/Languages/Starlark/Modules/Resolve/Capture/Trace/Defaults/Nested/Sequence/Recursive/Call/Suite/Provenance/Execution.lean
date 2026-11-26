@@ -54,8 +54,8 @@ private abbrev Correspondence (program : Program) (available : List DeclarationI
     ∃ out, Runs block state source code.code out ∧ Body.Frame block free floor (finishState out) ∧
       Body.Keeps floor state (finishState out) ∧ Exec program available state code.code out
 
-private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter}
-    (site : Site parent formals) (caller defining : State)
+private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
+    (site : Site parent formals varargs) (caller defining : State)
     (captures : List Capture) (installed : Installs defining site.free captures)
     (live : Body.CaptureCells caller captures) (assigned : List (Binding × Value)) :
     Body.Frame site.block site.free caller.heap.size (activate caller site.declaration captures assigned) :=
@@ -113,7 +113,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
           (rest := rest) (tail := tail.code) (.cons trace .nil)
           (fun _ same => by cases same; exact tailTrace)
         exact ⟨out, sourceTrace, finalFrame, Body.keeps_trans retained last, .seq (.assignExpr evaluates) tailExec⟩
-    | @define block locals rest seed childTable tail final descendants later formals site kw child suffix _ ih =>
+    | @define block locals rest seed childTable tail final descendants later formals varargs site kw child suffix _ ih =>
       have selectedDefinition : Selects block (before ++ site.reads ++ (tail.reads ++ after)) free := by
         simpa only [List.append_assoc] using stateSelection
       have selectedTail : Selects block ((before ++ site.reads) ++ tail.reads ++ after) free := by
@@ -131,7 +131,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
         exact mem_withoutDeclaration.mpr ⟨
           guarded (List.mem_map.mpr ⟨entry, List.mem_append_left _ emitted, rfl⟩),
           Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp ((links child).2 entry emitted)).choose⟩
-      have nextReady : Ready program available (setLocal locals site.name (some ⟨childTable.size, formals, site⟩)) := by
+      have nextReady : Ready program available (setLocal locals site.name (some ⟨childTable.size, formals, varargs, site⟩)) := by
         apply ready_updated ready
         intro entry same
         cases same
@@ -210,7 +210,7 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
     runs_guarded checked available profile table guarded (fun _ _ no => nomatch no) selected state frame distinct (empty_live _)
   exact ⟨out, trace, lastFrame, kept, exec, (exec_iff_denoteBody _ _ _ _ _).mp exec⟩
 
-theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals) {seed final : Program} {emissions : Emissions}
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String} (site : Site parent formals varargs) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
