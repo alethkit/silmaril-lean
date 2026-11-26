@@ -42,15 +42,18 @@ def armLiterals? (known : Literals args past) (arm : Arms.Arm Pure.SubZero.Opcod
     Option Operands :=
   literalInputs? (scanLiterals known arm.dataflow) arm.outputs
 
-/-- Each Φ must be nonconstant as a whole. At least one occurrence must
-distinguish the columns by value, which rules out the earlier same-node add. -/
+def Operands.left (row : Operands) : BitVec 64 := row.get .head
+
+def Operands.right (row : Operands) : BitVec 64 := row.get (.tail .head)
+
+/-- Each original Φ column has different values across the two occurrences. -/
+def nonconstantColumns (first second : Operands) : Bool :=
+  decide (first.left ≠ second.left ∧ first.right ≠ second.right)
+
+/-- For the direct add, different values in a row rule out a same-node add. -/
 def eligible (first second : Operands) : Bool :=
-  let firstLeft : BitVec 64 := first.get .head
-  let firstRight : BitVec 64 := first.get (.tail .head)
-  let secondLeft : BitVec 64 := second.get .head
-  let secondRight : BitVec 64 := second.get (.tail .head)
-  decide (firstLeft ≠ secondLeft ∧ firstRight ≠ secondRight ∧
-    (firstLeft ≠ firstRight ∨ secondLeft ≠ secondRight))
+  nonconstantColumns first second &&
+    decide (first.left ≠ first.right ∨ second.left ≠ second.right)
 
 /-- Use the same Region and emit one folded word for each old predecessor. -/
 def emit (g : Source inputs sigs) (first second : Operands) : Result inputs sigs where
@@ -61,12 +64,17 @@ def emit (g : Source inputs sigs) (first second : Operands) : Result inputs sigs
     | .first => literalArm (add first)
     | .second => literalArm (add second)
 
-/-- The input type supplies the one complete Region and both columns at
-each slot. Check all four word literals and the earlier add cases. -/
-def rewrite? (g : Source inputs sigs) : Option (Result inputs sigs) := do
+/-- Check the four actual literal operands in Region order, then apply
+the caller's admission guard to the two rows. -/
+def rewriteWith? (admit : Operands → Operands → Bool) (g : Source inputs sigs) :
+    Option (Result inputs sigs) := do
   let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
   let first ← armLiterals? known (g.arms .first)
   let second ← armLiterals? known (g.arms .second)
-  if eligible first second then some (emit g first second) else none
+  if admit first second then some (emit g first second) else none
+
+/-- Fold the direct add when its source precedence checks admit both rows. -/
+def rewrite? (g : Source inputs sigs) : Option (Result inputs sigs) :=
+  rewriteWith? eligible g
 
 end Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Pair
