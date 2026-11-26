@@ -4,7 +4,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairRetur
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Indexed.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Mixed.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Transfer.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Iteration.RequestBlocks.LetIter.Transfer.ITree.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.StructuralValues.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
@@ -4920,6 +4920,126 @@ example :
   obtain ⟨hf, he, hn, r, s, hl, hr, _, _, eq⟩ :=
     Transfer.endpoint_transport (e := strict) nativeCycle state₁ (fun _ => le_rfl) (by rfl)
   exact ⟨lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h)), hf, he, hn, r, s, hl, hr, eq⟩
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+open Silmaril.Isotope.LambdaSSA.Semantics.Interaction (region)
+open Silmaril.Isotope.Semantics (InstructionModel)
+
+private abbrev CycleEvents := Event (Φ := Opcode family) carriers
+private abbrev CycleTree (A : Type 1) := ITree.Tree CycleEvents A
+
+private theorem cycleVisible (f : Opcode family) : ¬ IsPure (⊥ : Fx) f := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private def noPureCycle : PureMaps (Φ := Opcode family) (ε := Fx) carriers :=
+  fun f h => (cycleVisible f h).elim
+
+private noncomputable def cycleInstr := instructions carriers noPureCycle
+
+private noncomputable def cycleRun (s : Bit.Value) : CycleTree Code.unit.Large :=
+  Silmaril.Elgot.iter (nativeCycle.fused.denote cycleInstr) (Bit.raise s)
+
+private def round {A : Type 1} (done again : CycleTree A) : CycleTree A :=
+  ITree.vis (.call read PUnit.unit) (fun
+    | .inl _ => ITree.vis (.call read PUnit.unit) (fun
+        | .inl _ => again
+        | .inr _ => done)
+    | .inr _ => ITree.vis (.call notify state₁) (fun _ => done))
+
+-- The first state transfer is silent. The repeating reply goes back to that
+-- same state, so the next visible event is another read on the unit argument.
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem cycle_unfold :
+    cycleRun state₁ = round (pure PUnit.unit) (cycleRun state₁) := by
+  let body : Bit.Large → CycleTree (Code.unit.Large ⊕ Bit.Large) :=
+    nativeCycle.fused.denote cycleInstr
+  have jump := congrFun (ITree.iterate_fixpoint body) (Bit.raise state₁)
+  have step : body (Bit.raise state₁) = pure (Sum.inr (Bit.raise state₀)) := rfl
+  change cycleRun state₁ = (body (Bit.raise state₁) >>= _) at jump
+  rw [step, pure_bind] at jump
+  change cycleRun state₁ = cycleRun state₀ at jump
+  refine jump.trans ?_
+  have first := congrFun (ITree.iterate_fixpoint body) (Bit.raise state₀)
+  change cycleRun state₀ = (body (Bit.raise state₀) >>= _) at first
+  rw [first]
+  change ((cycleInstr.eval read (Code.unit.raise PUnit.unit) >>= _) >>= _) = _
+  rw [bind_assoc]
+  change ((instructions carriers noPureCycle).eval read _ >>= _) = _
+  rw [eval_bind_of_not_pure carriers noPureCycle (cycleVisible read)]
+  unfold round
+  congr 1
+  funext firstReply
+  cases firstReply with
+  | inl v =>
+    change (((instructions carriers noPureCycle).eval read (Code.unit.raise PUnit.unit) >>= _) >>= _) = _
+    rw [bind_assoc, eval_bind_of_not_pure carriers noPureCycle (cycleVisible read)]
+    congr 1
+    funext secondReply
+    cases secondReply <;> exact pure_bind _ _
+  | inr v =>
+    change (((instructions carriers noPureCycle).eval notify (Bit.raise state₁) >>= _) >>= _) = _
+    rw [bind_assoc, eval_bind_of_not_pure carriers noPureCycle (cycleVisible notify)]
+    congr 1
+    funext secondReply
+    exact pure_bind _ _
+
+private def packCycleResult (b : Code.unit.Large) : CycleTree (Nat × RawValue) :=
+  pure (0, encode .unit b)
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem ordered_round :
+    (round (pure PUnit.unit) (cycleRun state₁) >>= packCycleResult) =
+      round (pure (0, .unit)) (cycleRun state₁ >>= packCycleResult) := by
+  unfold round
+  rw [ITree.vis_bind]
+  congr 1
+  funext firstReply
+  cases firstReply with
+  | inl _ =>
+    rw [ITree.vis_bind]
+    congr 1
+    funext secondReply
+    cases secondReply
+    · rfl
+    · exact pure_bind _ _
+  | inr _ =>
+    rw [ITree.vis_bind]
+    congr 1
+    funext secondReply
+    exact pure_bind _ _
+
+local notation "Free" => (Ctx.nil : Ctx Empty (Ty Unit))
+local notation "D" => Ty.denote (Lifted carriers)
+local notation "γ" => (fun x : Empty => x.elim)
+local notation "ρ₀" => (fun i : Fin 0 => i.elim0)
+
+/-- Both actual native lowerings and both exact erased CFGs exhibit the same
+request order. The terminating branches return label zero and unit. -/
+example
+    (d : Derivation (Opcode family) Free .nil (Transfer.fusedLoop nativeCycle state₁) Ty.unit)
+    (d' : Derivation (Opcode family) Free .nil (Transfer.expandedLoop nativeCycle state₁) Ty.unit) :
+    d.denote D cycleInstr γ ρ₀ = round (pure PUnit.unit) (cycleRun state₁) ∧
+    d'.denote D cycleInstr γ ρ₀ = round (pure PUnit.unit) (cycleRun state₁) ∧
+    ∃ r s, eraseLoop Bit (Transfer.fusedLoop nativeCycle state₁) = some r ∧
+      eraseLoop (.sum Bit nativeCycle.pending) (Transfer.expandedLoop nativeCycle state₁) = some s ∧
+      region (rawInstructions cycleInstr) (fun _ => .unit) r =
+        round (pure (0, .unit)) (cycleRun state₁ >>= packCycleResult) ∧
+      region (rawInstructions cycleInstr) (fun _ => .unit) s =
+        round (pure (0, .unit)) (cycleRun state₁ >>= packCycleResult) := by
+  have pureInstr := respectsPure carriers noPureCycle
+  have same := TransferPlans.denote_expand_eq nativeCycle.plans state₁ cycleInstr pureInstr
+    rfl (Transfer.fused_lowers nativeCycle) rfl (Transfer.expanded_lowers nativeCycle) d d'
+  obtain ⟨_, r, s, hr, hs, _, _, _, er, es⟩ :=
+    Transfer.endpoint_observations (e := strict) pureInstr (rawInstructions_compatible cycleInstr)
+      nativeCycle state₁ (fun _ => le_rfl) (by rfl) (fun _ => .unit) d d'
+  have left := (native_loop_denote pureInstr nativeCycle.fused state₁ d).trans cycle_unfold
+  have right := same.symm.trans left
+  exact ⟨left, right, r, s, hr, hs,
+    er.trans ((congrArg (· >>= packCycleResult) left).trans ordered_round),
+    es.trans ((congrArg (· >>= packCycleResult) right).trans ordered_round)⟩
 
 end LambdaSSAMixedRequestBlockTransport
 
