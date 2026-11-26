@@ -323,6 +323,38 @@ borrowing (`seqCase_entails_iff_of_any`, `caseIter_entails_iff_of_any`);
 `Observational.iterSSAIso` in `CoIns` between let-iter and single-exit λSSA modulo
 observational equivalence.
 
+### Lower parallel observation institutions
+
+Import `Silmaril.SSA.Isotope.Institution.Parallel.Inclusions.Thms` for
+`Silmaril.Isotope.LetPar.observation`, `Silmaril.Isotope.LetParCase.observation`
+and their comparison theorems. Each institution has the existing `InstrSig`
+category of instruction alphabets over fixed type and effect universes. An arrow
+preserves the exact source, target and effect of each opcode, so it preserves
+the chosen purity judgment as well. Both free and bound contexts retain their
+types. The value interpretation and its product, unit and, where available,
+coproduct and empty equivalences are fixed throughout.
+
+Sentences carry two native `Parallel.Derivation` endpoints in a common scope
+and result type. The interpreter evaluates both endpoints with the supplied
+`ParOp`. Satisfaction compares full computations at every environment.
+A model has a lawful monad, a typed primitive interpreter and an explicit
+parallel operation. Strict model arrows preserve monadic operations,
+parallel pairing and primitive evaluation. Signature reducts restrict primitive
+evaluation and retain the action of these arrows on computations.
+`denote_mapInstr` and `denote_hom` are the corresponding interpreter squares.
+
+`LetPar.mapInstr_equiv` and `LetParCase.mapInstr_equiv` preserve the native
+typed congruences, including their purity-guarded schemes. Observation models
+accept any supplied parallel operation, so a derivable swap may fail as an
+observation in a model that sequences effects. The regression also compares
+native parallel pairing with ordinary ordered pairing within one model.
+
+`letParCaseInclusion` is an institution comorphism with identity signature
+and model maps. `Equation.ofLetSeq_sat` and `Equation.ofLetCase_sat` restrict
+observation to the native sequential fragments in the same monad and
+primitive interpretation. The bundled observation institutions cover the
+two lower parallel tiers.
+
 LetIter denotational soundness (`Silmaril.Isotope.LetIter.ProofRelevant.Semantics`).
 `sound` and `related_sound` preserve the denotations at the given proof-relevant
 typing endpoints. `categorical_denote_eq` identifies the associated Kleisli arrow
