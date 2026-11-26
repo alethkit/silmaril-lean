@@ -3,6 +3,8 @@ module
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Recovery.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Recovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Defs
@@ -239,5 +241,71 @@ example : explained.checkedPrefix = prefixOnly := Reuse.Chain.Diagnostic.lower_p
 
 -- A stale original request is stopped by admission and never enters the recorded chain.
 #guard (Reuse.Chain.Diagnostic.lower stale entry input).refusal.isNone
+
+-- A different Store can still be cut after the recorded right Store refuses.
+-- The final side write uses the first entry Load and is killed in every arm.
+private def entryWithSide : Memory.Graph Args :=
+  .load (.latest 0) (.arg sink)
+    (.store (.latest 0) (.arg left) (.output 0 .head)
+      (.load (.latest 1) (.arg side)
+        (.store (.latest 1) (.arg right) (.output 0 .head)
+          (.load (.latest 2) (.arg reader)
+            (.store (.latest 2) (.arg sink) (.output 0 .head)
+              (.load (.latest 3) (.arg sink)
+                (.store (.latest 3) (.arg side) (.output 3 .head)
+                  (.ret (.latest 4) (.output 0 .head)))))))))
+
+private def writeSideBeforeReturn :
+    {past : List (List ValueSort)} → {live : Nat} → Memory.Body Args past live → Memory.Body Args past live
+  | _, live, .ret memory word =>
+    .store memory (.arg side) word (.ret (.latest (live + 1)) word)
+  | _, _, .load memory address rest => .load memory address (writeSideBeforeReturn rest)
+  | _, _, .store memory address word rest => .store memory address word (writeSideBeforeReturn rest)
+
+private def recoveryArms (arrival : Occurrence preds) := writeSideBeforeReturn (arms arrival)
+
+private def twoRecorded := lower preds fits entryWithSide recoveryArms suffix input plan
+private theorem twoRecorded_trace :
+    Trace fits recoveryArms suffix input entryWithSide (lowerBank preds fits 5 (some entryWithSide) recoveryArms suffix)
+      plan twoRecorded :=
+  lower_trace
+
+private def recovered := Reuse.Chain.Recovery.lower twoRecorded entryWithSide fits recoveryArms suffix secondAlias
+
+#guard twoRecorded.admitted.map (fun stage => stage.emission.edit.address.index) == [0, 1]
+#guard recovered.diagnostic.checkedPrefix.replay.deleted == 1 && recovered.deleted == 2
+#guard (recovered.diagnostic.refusal.map fun report => (report.stageIndex, report.version, report.conflict.address.val)) ==
+  some (1, 1, 3)
+#guard recovered.diagnostic.checkedPrefix.pending.map (fun stage => stage.emission.edit.address.index) == [1]
+#guard (recovered.fresh.map fun fresh =>
+  fresh.admitted.map (fun stage => (stage.version, stage.emission.edit.address.index))) == some [(3, 2)]
+#guard storeVersions recovered.retained == [1, 2]
+
+example {fresh : Result 5 Args preds} (resumed : recovered.fresh = some fresh) :
+    fresh.programs.original = recovered.diagnostic.checkedPrefix.replay.programs.optimized :=
+  (Reuse.Chain.Recovery.lower_fresh_trace twoRecorded_trace resumed).1
+
+private def recoveryArtifacts : List (Program 5 Args preds) :=
+  artifacts recovered.diagnostic.checkedPrefix.replay ++
+    (recovered.fresh.map fun fresh => fresh.admitted.map (fun stage => stage.emission.programs.optimized)).getD []
+
+#guard recoveryArtifacts.map (fun program => contents (entryTransition program secondAlias 1 newBuffer).2) ==
+  [[80, 80, 60, 60, 100], [80, 70, 60, 60, 100], [60, 70, 60, 60, 100]]
+#guard (List.ofFn fun i => recoveryArtifacts.map fun program => newSnapshot program secondAlias i) ==
+  newExpected.map (List.replicate 3)
+#guard newProbes recovered.retained secondAlias == newProbes entryWithSide secondAlias
+
+private def fullReuse := Reuse.Chain.Recovery.lower twoRecorded entryWithSide fits recoveryArms suffix newInput
+#guard fullReuse.diagnostic.refusal.isNone && fullReuse.fresh.isNone && fullReuse.deleted == 2
+
+-- The original fixture has no alternative cut. A refused recovery attempt
+-- returns the same endpoint and retains the same diagnostic.
+private def noAlternative := Reuse.Chain.Recovery.lower success entry fits arms suffix secondAlias
+#guard noAlternative.diagnostic.refusal.isSome && noAlternative.fresh.map Result.deleted == some 0
+#guard contents (entryTransition noAlternative.optimized secondAlias 1 newBuffer).2 == [60, 70, 60, 60, 100]
+
+example (zero : (noAlternative.fresh.map Result.deleted).getD 0 = 0) :
+    noAlternative.optimized = noAlternative.diagnostic.checkedPrefix.replay.programs.optimized :=
+  (Reuse.Chain.Recovery.lower_no_fresh_cuts recorded zero).1
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay
