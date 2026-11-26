@@ -18,14 +18,18 @@ inductive Key (τ Φ : Type u)
   | finish (a b k d : τ) (op : Φ)
   deriving DecidableEq
 
+def effectKey : {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} →
+    Effect Φ ins outs → Key τ Φ
+  | _, _, .enter (A := a) (B := b) (K := k) (D := d) op =>
+    .enter a b k d op.op
+  | _, _, .inner (B := b) (K := k) op =>
+    .inner b k op.op
+  | _, _, .finish (A := a) (B := b) (K := k) (D := d) op =>
+    .finish a b k d op.op
+
 def opcodeKey : {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} →
     Op Φ ins outs → Key τ Φ
   | _, _, .ordered _ _ (.pure op) => nomatch op
-  | _, _, .ordered _ _ (.effect (.enter (A := a) (B := b) (K := k) (D := d) op)) =>
-    .enter a b k d op.op
-  | _, _, .ordered _ _ (.effect (.inner (B := b) (K := k) op)) =>
-    .inner b k op.op
-  | _, _, .ordered _ _ (.effect (.finish (A := a) (B := b) (K := k) (D := d) op)) =>
-    .finish a b k d op.op
+  | _, _, .ordered _ _ (.effect op) => effectKey op
 
 end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse

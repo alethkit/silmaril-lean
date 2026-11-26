@@ -84,17 +84,19 @@ private theorem jump_denotes {i : Nat} (h : At L i X) :
   simpa only [Env.get, pure_bind, labelInject_eq_recursive] using
     RegionDenotes.br (m := m) (ε := ε) (h := h) (Denotes.var (Φ := Φ) (Γ := X :: Γ) (i := 0) rfl)
 
-private def externalExit (d : TyDen D) : LabelDen [D] := .inl d
-private def outerTarget (a : TyDen A) : LabelDen [A,B,D] := .inl a
-private def innerTarget (b : TyDen B) : LabelDen [A,B,D] := .inr (.inl b)
-private def exitTarget (d : TyDen D) : LabelDen [A,B,D] := .inr (.inr (externalExit d))
+variable {extra : List τ}
+
+private def externalExit (d : TyDen D) : LabelDen (D :: extra) := .inl d
+private def outerTarget (a : TyDen A) : LabelDen (A :: B :: D :: extra) := .inl a
+private def innerTarget (b : TyDen B) : LabelDen (A :: B :: D :: extra) := .inr (.inl b)
+private def exitTarget (d : TyDen D) : LabelDen (A :: B :: D :: extra) := .inr (.inr (externalExit d))
 
 variable (s : Loop Φ A B K D)
 
-private def dispatchOuter (a : TyDen A) : m (LabelDen [A,B,D]) :=
+private def dispatchOuter (a : TyDen A) : m (LabelDen (A :: B :: D :: extra)) :=
   TwoBlock.call (ε := ε) s.enter a >>= fun b => pure (innerTarget b)
 
-private def dispatchInner (b : TyDen B) : m (LabelDen [A,B,D]) :=
+private def dispatchInner (b : TyDen B) : m (LabelDen (A :: B :: D :: extra)) :=
   callCase (ε := ε) s.inner b >>= fun
     | .inl k => callCase (ε := ε) s.finish k >>= fun result =>
       pure (Sum.elim exitTarget outerTarget result)
@@ -102,23 +104,23 @@ private def dispatchInner (b : TyDen B) : m (LabelDen [A,B,D]) :=
 
 omit [LawfulElgotMonad m] in
 private theorem outer_denotes :
-    RegionDenotes (m := m) ε (outerTyping s) (fun env => dispatchOuter (ε := ε) s env.2) := by
+    RegionDenotes (m := m) ε (outerTypingWithTail s extra) (fun env => dispatchOuter (ε := ε) s env.2) := by
   convert (by simpa only [labelInject_eq_recursive] using
-    RegionDenotes.br (m := m) (ε := ε) (h := (rfl : At [A,B,D] 1 B)) (call_denotes (ε := ε) (m := m) (Γ := [A]) s.enter) :
-    RegionDenotes (m := m) ε (outerTyping s)
+    RegionDenotes.br (m := m) (ε := ε) (h := (rfl : At (A :: B :: D :: extra) 1 B)) (call_denotes (ε := ε) (m := m) (Γ := [A]) s.enter) :
+    RegionDenotes (m := m) ε (outerTypingWithTail s extra)
       (fun env => TwoBlock.call (ε := ε) s.enter env.2 >>= fun b =>
-        pure (LabelValue.inject 1 (rfl : At [A,B,D] 1 B) b))) using 1
+        pure (LabelValue.inject 1 (rfl : At (A :: B :: D :: extra) 1 B) b))) using 1
   rfl
 
 omit [LawfulElgotMonad m] in
 private theorem inner_denotes :
-    RegionDenotes (m := m) ε (innerTyping s) (fun env => dispatchInner (ε := ε) s env.2) := by
+    RegionDenotes (m := m) ε (innerTypingWithTail s extra) (fun env => dispatchInner (ε := ε) s env.2) := by
   have d := RegionDenotes.case (call_denotes (ε := ε) (m := m) (Γ := [A]) s.inner)
     (RegionDenotes.case (call_denotes (ε := ε) (m := m) (Γ := [B,A]) s.finish)
-      (jump_denotes (ε := ε) (m := m) (Γ := [K,B,A]) (rfl : At [A,B,D] 2 D))
-      (jump_denotes (ε := ε) (m := m) (Γ := [K,B,A]) (rfl : At [A,B,D] 0 A)))
-    (jump_denotes (ε := ε) (m := m) (Γ := [B,A]) (rfl : At [A,B,D] 1 B))
-  convert (show RegionDenotes (m := m) ε (innerTyping s) _ from d) using 1
+      (jump_denotes (ε := ε) (m := m) (Γ := [K,B,A]) (rfl : At (A :: B :: D :: extra) 2 D))
+      (jump_denotes (ε := ε) (m := m) (Γ := [K,B,A]) (rfl : At (A :: B :: D :: extra) 0 A)))
+    (jump_denotes (ε := ε) (m := m) (Γ := [B,A]) (rfl : At (A :: B :: D :: extra) 1 B))
+  convert (show RegionDenotes (m := m) ε (innerTypingWithTail s extra) _ from d) using 1
   funext env
   simp only [dispatchInner, callCase, bind_assoc, pure_bind]
   congr 1
@@ -130,21 +132,21 @@ private theorem inner_denotes :
     cases TypeModel.coprodEquiv D A w <;> rfl
   | inr b => rfl
 
-private def actions (i : Fin 2) : TyDen (localTypes A B i) → m (LabelDen [A,B,D]) :=
-  Fin.cases (motive := fun j => TyDen (localTypes A B j) → m (LabelDen [A,B,D]))
+private def actions (i : Fin 2) : TyDen (localTypes A B i) → m (LabelDen (A :: B :: D :: extra)) :=
+  Fin.cases (motive := fun j => TyDen (localTypes A B j) → m (LabelDen (A :: B :: D :: extra)))
     (dispatchOuter (ε := ε) s) (fun _ => dispatchInner (ε := ε) s) i
 
-private def collect (p : Env [A] × FiniteLabelDen (localTypes A B)) : m (LabelDen [A,B,D]) :=
+private def collect (p : Env [A] × FiniteLabelDen (localTypes A B)) : m (LabelDen (A :: B :: D :: extra)) :=
   actions (ε := ε) s p.2.1 p.2.2
 
 omit [LawfulElgotMonad m] in
 private theorem cfg_denotes :
-    RegionDenotes (m := m) ε (regionTyping s)
+    RegionDenotes (m := m) ε (regionTypingWithTail s extra)
       (cfgDenotation (R := localTypes A B) (fun env => pure (outerTarget env.2)) (collect (ε := ε) s)) := by
   apply RegionDenotes.cfg
-  · exact jump_denotes (ε := ε) (m := m) (Γ := []) (rfl : At [A,B,D] 0 A)
+  · exact jump_denotes (ε := ε) (m := m) (Γ := []) (rfl : At (A :: B :: D :: extra) 0 A)
   · intro i
-    refine Fin.cases (motive := fun j => RegionDenotes (m := m) ε (blockTyping s j)
+    refine Fin.cases (motive := fun j => RegionDenotes (m := m) ε (blockTypingWithTail s j extra)
       (fun env => actions (ε := ε) s j env.2)) ?_ (fun j => ?_) i
     · exact outer_denotes (ε := ε) s
     · exact inner_denotes (ε := ε) s
@@ -160,16 +162,16 @@ private def flat : (TyDen A ⊕ TyDen B) → m (TyDen D ⊕ (TyDen A ⊕ TyDen B
 
 private theorem denote_flat
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :
-    Region.denote (ε := ε) (m := m) (regionTyping s) env =
+    Region.denote (ε := ε) (m := m) (regionTypingWithTail s extra) env =
       iter (mapReturn (flat (ε := ε) s) (pure ∘ externalExit)) (.inl env.2) := by
   rw [TwoBlock.regionDenote_eq_of coherent (cfg_denotes (ε := ε) s)]
   simp only [cfgDenotation, pure_bind, binaryCoproductIso_hom_labelAppendSplit]
   change iter (fun current : LabelDen [A,B] =>
     collect (ε := ε) s (env, labelDenToFinite (localTypes A B) current) >>= fun target =>
-      pure (LabelValue.appendSplit [A,B] [D] target)) (injectLocal (.inl env.2)) = _
-  let raw : LabelDen [A,B] → m (LabelDen [D] ⊕ LabelDen [A,B]) := fun current =>
+      pure (LabelValue.appendSplit [A,B] (D :: extra) target)) (injectLocal (.inl env.2)) = _
+  let raw : LabelDen [A,B] → m (LabelDen (D :: extra) ⊕ LabelDen [A,B]) := fun current =>
     collect (ε := ε) s (env, labelDenToFinite (localTypes A B) current) >>= fun target =>
-      pure (LabelValue.appendSplit [A,B] [D] target)
+      pure (LabelValue.appendSplit [A,B] (D :: extra) target)
   have comm : (mapReturn (flat (ε := ε) s) (pure ∘ externalExit) >=> liftPure (Sum.map id injectLocal)) =
       (liftPure injectLocal >=> raw) := by
     funext x
@@ -187,7 +189,7 @@ private theorem denote_flat
         labelDenToFinite_recursiveInject (localTypes A B) 1 rfl b
       rw [h]
       change (flat (ε := ε) s (.inr b) >>= _) =
-        dispatchInner (ε := ε) s b >>= fun target => pure (LabelValue.appendSplit [A,B] [D] target)
+        dispatchInner (ε := ε) s b >>= fun target => pure (LabelValue.appendSplit [A,B] (D :: extra) target)
       simp only [flat, flattenBody, grouped, dispatchInner, Bind.kleisliRight, liftPure,
         Function.comp_apply, bind_assoc]
       congr 1
@@ -203,13 +205,19 @@ private theorem denote_flat
   exact (by simpa only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind] using
     (congrFun (LawfulElgotMonad.uniformity _ _ _ comm) (.inl env.2)).symm)
 
-theorem region_round
+theorem region_round_withTail
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :
-    Region.denote (ε := ε) (m := m) (regionTyping s) env =
+    Region.denote (ε := ε) (m := m) (regionTypingWithTail s extra) env =
       iter (round (ε := ε) s) env.2 >>= fun d => pure (Sum.inl d) := by
   rw [denote_flat (ε := ε) s coherent env, ← LawfulElgotMonad.naturality]
   change iter (flat (ε := ε) s) (.inl env.2) >>= _ = _
   rw [flat, iterate_grouped]
   rfl
+
+theorem region_round
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :
+    Region.denote (ε := ε) (m := m) (regionTyping s) env =
+      iter (round (ε := ε) s) env.2 >>= fun d => pure (Sum.inl d) :=
+  region_round_withTail s coherent env
 
 end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Proofs

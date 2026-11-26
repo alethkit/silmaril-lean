@@ -44,6 +44,7 @@ private theorem instruction_packed {i o i' o' : Ports (OrderedRuntime.Structured
   case' pure x => cases x
   case' effect x =>
     cases x
+    case' nested x => cases x
     case' loop x =>
       cases x
       case' acyclic x => cases x
@@ -52,10 +53,11 @@ private theorem instruction_packed {i o i' o' : Ports (OrderedRuntime.Structured
     case' pure y => cases y
     case' effect y =>
       cases y
+      case' nested y => cases y
       case' loop y =>
         cases y
         case' acyclic y => cases y
-  all_goals simp [instructionKey, pureKey, effectKey, loopKey, acyclicKey] at h
+  all_goals simp [instructionKey, pureKey, effectKey, loopKey, acyclicKey, NestedFeedback.Reverse.effectKey] at h
   all_goals
     first
     | obtain ⟨rfl, rfl, rfl, rfl, route, op⟩ := h
@@ -65,6 +67,8 @@ private theorem instruction_packed {i o i' o' : Ports (OrderedRuntime.Structured
     | obtain ⟨rfl, rfl, rfl, rfl, op⟩ := h
       rw [op_eq _ _ op]
     | obtain ⟨rfl, rfl, rfl, rfl⟩ := h; rfl
+    | obtain ⟨rfl, rfl, op⟩ := h
+      rw [op_eq _ _ op]
 
 private def PackedInstruction.toOpcode (p : PackedInstruction (τ := τ) Φ) :
     Σ i o : Ports (OrderedRuntime.Structured.Ty τ), Wires.Op Φ i o :=

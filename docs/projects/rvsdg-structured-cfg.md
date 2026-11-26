@@ -173,13 +173,43 @@ the inner types. Other loop layouts, arbitrary renumbering, and
 general CFG structuring are outside this API.
 [Nested feedback reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Reverse/Thms.lean)
 
+## Use nested feedback as a structured leaf
+
+`WithNestedFeedback.Syntax` adds the two-header loop at the
+homogeneous join interface used by the structured compiler. Its flat
+block table keeps the original local edges and exit index. The wider
+type has a second external label of the same payload type. The
+`Leaf.source_rounds` theorem shows every return uses the first label.
+
+The leaf is the original checked nested θ with an entry and exit
+carrier conversion. The conversions preserve the token, and the exit
+conversion injects the returned payload at label zero. Links and forks
+reuse the existing flat relocation, checked splice and denotation laws.
+The observation theorems cover both finite returns with their exact
+final token and absence of a finite return in coherent `StateT σ Part`
+models.
+
+`recoverLink` reads a supplied standalone nested graph and an existing
+structured consumer graph with their local recognizers. It compares
+their re-emission against the actual joint graph before returning a
+typed flat CFG and relation witness. The supplied component views
+identify the cut. Automatic cut discovery for mixed graphs and
+grammar-wide mixed reverse recovery remain separate.
+
+The regression links the nested loop to an acyclic-body loop. The
+consumer reads both the returned payload 1223122 and token 12231223,
+then returns payload 13454345 and token 122312234. Input 99 has no
+finite return and never reaches the consumer. The same observations
+are checked for the recovered flat CFG.
+[Mixed structured API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Thms.lean)
+
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms
 ```
 
 ## Sources

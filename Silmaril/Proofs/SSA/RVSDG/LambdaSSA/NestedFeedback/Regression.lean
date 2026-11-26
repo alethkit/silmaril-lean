@@ -1,9 +1,12 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
 
@@ -44,12 +47,13 @@ local instance : TypeModel Ty where
   emptyEquiv := ⟨PEmpty.elim, Empty.elim, fun x => PEmpty.elim x, fun x => Empty.elim x⟩
   coe := coerceValue
 
-private inductive Op | enter | inner | finish
+private inductive Op | enter | inner | finish | tailHeader | tailBody
   deriving DecidableEq
 
 local instance : HasTy Op Ty :=
-  ⟨fun | .enter | .finish => number | .inner => innerPayload,
-   fun | .enter => innerPayload | .inner => .coprod number innerPayload | .finish => .coprod number number⟩
+  ⟨fun | .inner => innerPayload | _ => number,
+   fun | .enter => innerPayload | .inner => .coprod number innerPayload
+       | .finish | .tailHeader => .coprod number number | .tailBody => number⟩
 
 local instance : HasEff Op Bool := ⟨fun _ => true⟩
 
@@ -61,6 +65,9 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
       10 * token + 2)
   | .finish, n => StateT.mk fun token =>
     Part.some (if (show Nat from n) = 0 then .inr (1 : Nat) else .inl token, 10 * token + 3)
+  | .tailHeader, n => StateT.mk fun token =>
+    Part.some (.inl ((show Nat from n) + token), 10 * token + 4)
+  | .tailBody, n => pure n
 
 local instance : InstructionModel Op Ty Bool Runtime where
   denote := instruction
@@ -282,5 +289,95 @@ example : Reverse.recognize stale = none :=
     throw (IO.userError "could not reverse the nested feedback graph")
   unless (Reverse.candidate stale).isSome && (Reverse.recover stale).isNone do
     throw (IO.userError "the nested feedback recognizer accepted a stale token")
+
+section Composition
+
+open Acyclic.Theta
+open Acyclic.Theta.StructuredCFG
+open Acyclic.Theta.Sequential
+
+private def tailLoop : Acyclic.Theta.Loop Op number number number number number :=
+  ⟨op .tailHeader, .instruction (op .tailBody), op .finish⟩
+
+private def tailNormal : StructuredCFG.Reverse.Normal Op number number number number number number
+    [Flat.Serial.WirePorts number number number] := .loop tailLoop
+
+private def composed :=
+  WithNestedFeedback.Syntax.link (.nested program) (.structured tailNormal.toSyntax)
+
+private def mixed := WithNestedFeedback.lower composed
+
+private theorem tailReturns :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) tailLoop) (1223122 : Nat)).run 12231223 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  have header : callCase (ε := Bool) (m := Runtime) tailLoop.header (1223122 : Nat) =
+      instruction .tailHeader (1223122 : Nat) := by
+    unfold callCase
+    refine (congrArg (fun (x : Runtime (Value (.coprod number number))) => x >>= pure) ?_).trans
+      (bind_pure _)
+    exact call_eq .tailHeader _
+  simp [Elgot.StateT.body, Elgot.StateT.distribute, ExplicitRuntime.round, header, instruction]
+
+private theorem composedReturns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (0 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, returning]
+  simp only [StateT.run_pure, Part.bind_eq_bind, Part.pure_eq_some, Part.bind_some]
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact tailReturns
+
+private theorem composedUndefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (99 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, noReturn]
+  simp only [Part.bind_eq_bind, Part.bind_none]
+
+private theorem mixedReturn (coherent : Coherent) :
+    Flat.Serial.returns (ε := Bool) mixed.1 (0 : Nat) 0 (.inl (13454345 : Nat)) 122312234 :=
+  (mixed.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (.inl (13454345 : Nat)) 0 122312234).mpr
+    (composedReturns coherent)
+
+private theorem mixedUndefined (coherent : Coherent) :
+    Flat.Serial.observe (ε := Bool) mixed.1 (99 : Nat) 0 = Part.none :=
+  (mixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr (composedUndefined coherent)
+
+private def recoverMixed :=
+  WithNestedFeedback.recoverLink lowered.1 tailNormal.toSyntax.graph mixed.1
+
+private theorem cutAccepted : recoverMixed = some ⟨composed.source.region, mixed.2⟩ := by
+  have left : Reverse.recognize lowered.1 = some ⟨⟨innerPayload, number, program⟩, rfl⟩ := by
+    change Reverse.recognize (graph program) = _
+    simp [Reverse.recognize, Reverse.candidate_generated, Reverse.certify]
+  have right := StructuredCFG.Reverse.recognize_generated tailNormal
+    (show StructuredCFG.Reverse.Supported tailNormal from .instruction (op .tailBody))
+  change WithNestedFeedback.recoverLink lowered.1 tailNormal.toSyntax.graph mixed.1 = _
+  exact WithNestedFeedback.recoverLink_of_matches left right ⟨rfl⟩
+
+private def recoveredMixed : WithNestedFeedback.Fibre mixed.1 :=
+  recoverMixed.get (by rw [cutAccepted]; rfl)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) :=
+  (recoveredMixed.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) _ 0 122312234).mp (mixedReturn coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none :=
+  (recoveredMixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mp (mixedUndefined coherent)
+
+#eval show IO Unit from do
+  unless recoverMixed.isSome do
+    throw (IO.userError "could not certify the nested feedback and acyclic loop cut")
+
+end Composition
 
 end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
