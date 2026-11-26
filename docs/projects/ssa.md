@@ -311,10 +311,42 @@ The continuation cannot jump back to its own label.
 - The [central-unit Freyd counterexample](../../Silmaril/SSA/Isotope/LetIter/Counterexample/Diagonal/Thms.lean)
   shows that a central unit alone can fail to centralize the transported
   diagonal in a plain Freyd category. The checked shared-tensor hypothesis
-  gives a sufficient condition in the distributive setting. Soundness of the full exact
-  equational presentation and the signature naturality and satisfaction
-  laws required for an institution morphism remain open here.
-  [Let-family institutions](../../Silmaril/SSA/Isotope/Institution/Thms.lean)
+  gives a sufficient condition in the distributive setting.
+
+### Exact equations and signature change
+
+- `Code.toLetCase_mapSignature` and `Code.ofLetCase_mapSignature` commute
+  with primitive and type translation, including the exact derivations.
+  `Code.toSSA_mapSignature` identifies the resulting positional code with
+  the existing λSSA instruction map. These statements use preservation of
+  unit, products, sums and the empty type. [Typed signature change](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Signature/Thms.lean)
+- The existing [LetCase institution](../../Silmaril/Raw/SSA/Isotope/Institution/LetCase.lean#L61)
+  has exact equation sentences and operation-algebra models over
+  `InstrSig τ ε`. Its primitive maps fix types and effects.
+  `reify_mapSentence` commutes with its actual sentence map in positional
+  syntax. Reification into positional code is independent of the typing
+  derivation. The more general type-changing `SignatureMap` acts on syntax
+  and contexts outside that fixed-type signature category.
+  [Signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
+- For small signatures and an empty named context, `reifyCorridor` sends
+  LetCase equations to the exact structured SSA room at a fixed signature.
+  The model functor goes back from the discrete class of
+  `CoherentRegionModel` objects to LetCase operation algebras. The class
+  uses a fixed strong Elgot Freyd category with central unit and locally
+  small arrows, with interpretations satisfying region typing coherence.
+  `sat_compile_iff` and `sat_reify_iff` give satisfaction in both directions
+  under this reduct. `sat_reify_map_iff` further compares satisfaction
+  after a primitive signature map with satisfaction in the source LetCase
+  signature reduct. `denote_eq_of_sameTerm` gives agreement for independently
+  chosen exact derivations in this class.
+  [Exact equation comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Thms.lean)
+- The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
+  uses scoped operational sentences over discrete scope signatures. The
+  exact SSA room has typed equations and categorical models. A full
+  comparison by institution comorphism still needs an exact SSA signature
+  functor, with a coherent-model reduct along each primitive relabelling
+  and its naturality against the LetCase algebra reduct. Soundness of the
+  full exact equational presentation remains separate.
 
 ## Guarded iteration and resumptions
 
@@ -386,7 +418,8 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.
