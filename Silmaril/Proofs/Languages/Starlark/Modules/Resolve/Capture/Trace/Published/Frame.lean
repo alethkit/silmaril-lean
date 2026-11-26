@@ -49,7 +49,7 @@ theorem keep_captures {state next : State} {captures : List Capture} (live : Bod
   obtain ⟨value, frozen, cell⟩ := live capture member
   exact ⟨value, frozen, keep_cell kept cell⟩
 
-theorem keep_live {globals : List String} {env : Environment globals} {state next : State}
+theorem keep_live {globals : List String} {env : Environment} {state next : State}
     (frame : Frame globals state) (live : Live env state)
     (tracked : ∀ name root, env name = some root → name ∈ globals)
     (kept : Body.Keeps state.heap.size state next) : Live env next := by
@@ -106,7 +106,7 @@ private theorem write_captures {state : State} {captures : List Capture}
   · exact ⟨some value, frozen, written_cell value hit stored⟩
   · exact ⟨old, frozen, (RootCall.write_other_cell state binding value _ hit).trans stored⟩
 
-theorem write_record {globals : List String} {root : Root globals} {defining state : State}
+theorem write_record {globals : List String} {root : Callable} {defining state : State}
     {address : Nat} (record : ClosureAt root.site root.id defining state address)
     (frame : Frame globals state) {name : String} (member : name ∈ globals) (value : Value) :
     Nonempty (ClosureAt root.site root.id defining (state.write (globalSlot name) value) address) := by
@@ -121,10 +121,10 @@ theorem write_record {globals : List String} {root : Root globals} {defining sta
     recorded := (RootCall.write_other_cell state _ _ _ other).trans record.recorded
     live := write_captures record.live _ _}⟩
 
-theorem write_live {globals : List String} {state : State} {env : Environment globals}
+theorem write_live {globals : List String} {state : State} {env : Environment}
     (frame : Frame globals state) (live : Live env state)
     (tracked : ∀ name root, env name = some root → name ∈ globals)
-    {name : String} (member : name ∈ globals) (value : Value) (updated : Option (Root globals))
+    {name : String} (member : name ∈ globals) (value : Value) (updated : Option Callable)
     (new : ∀ root, updated = some root → ∃ address defining, value = .function address ∧
       Nonempty (ClosureAt root.site root.id defining state address)) :
     Live (update env name updated) (state.write (globalSlot name) value) := by
