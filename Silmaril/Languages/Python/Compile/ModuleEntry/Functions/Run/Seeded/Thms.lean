@@ -119,6 +119,17 @@ theorem floatSub_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatSub_operand_agrees
     space globals heap frame operands
 
+theorem floatMul_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatMul operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatMul operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatMul_operand_agrees
+    space globals heap frame operands
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls :=

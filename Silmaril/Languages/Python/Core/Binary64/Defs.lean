@@ -61,8 +61,11 @@ def sumSign (leftNegative rightNegative : Bool) (sum : ℚ) : Bool :=
 def sumNegative (left right : F64.Finite) (sum : ℚ) : Bool :=
   sumSign left.val.signBit right.val.signBit sum
 
+def roundExact? (negative : Bool) (value : ℚ) : Option F64.Finite :=
+  F64.Finite.ofRaw? (F64.ofBits (roundSigned negative |value|))
+
 def roundSum? (leftNegative rightNegative : Bool) (sum : ℚ) : Option F64.Finite :=
-  F64.Finite.ofRaw? (F64.ofBits (roundSigned (sumSign leftNegative rightNegative sum) |sum|))
+  roundExact? (sumSign leftNegative rightNegative sum) sum
 
 /-- Round the exact dyadic sum once. The finite profile excludes overflow. -/
 def addFinite? (left right : F64.Finite) : Option F64.Finite := do
@@ -75,6 +78,13 @@ def subFinite? (left right : F64.Finite) : Option F64.Finite := do
   let lhs ← left.val.toRat?
   let rhs ← right.val.toRat?
   roundSum? left.val.signBit (!right.val.signBit) (lhs - rhs)
+
+/-- Round the exact dyadic product once, keeping XOR of the input signs
+even when the product is zero or rounds to zero. -/
+def mulFinite? (left right : F64.Finite) : Option F64.Finite := do
+  let lhs ← left.val.toRat?
+  let rhs ← right.val.toRat?
+  roundExact? (left.val.signBit != right.val.signBit) (lhs * rhs)
 
 /-- Conversion and result errors shared by floating-point arithmetic. -/
 inductive MixedAddError where
@@ -102,11 +112,18 @@ def FloatOperands.convert? : FloatOperands → Option (F64.Finite × F64.Finite)
   | .floatInt left right => (intToFinite? right).map (left, ·)
   | .floatFloat left right => some (left, right)
 
-/-- Convert the integer, if any, before the exact subtraction rounds. -/
-def subtract (operands : FloatOperands) : Except FloatArithmeticError F64.Finite :=
+/-- Convert the integer, if any, before evaluating the finite operation. -/
+def FloatOperands.evaluate (operands : FloatOperands) (operation : F64.Finite → F64.Finite → Option F64.Finite) :
+    Except FloatArithmeticError F64.Finite :=
   match operands.convert? with
   | none => .error .conversionOverflow
-  | some (left, right) => (subFinite? left right).elim (.error .nonfiniteResult) .ok
+  | some (left, right) => (operation left right).elim (.error .nonfiniteResult) .ok
+
+def subtract (operands : FloatOperands) : Except FloatArithmeticError F64.Finite :=
+  operands.evaluate subFinite?
+
+def multiply (operands : FloatOperands) : Except FloatArithmeticError F64.Finite :=
+  operands.evaluate mulFinite?
 
 inductive DivisionError where
   | zeroDivisionError

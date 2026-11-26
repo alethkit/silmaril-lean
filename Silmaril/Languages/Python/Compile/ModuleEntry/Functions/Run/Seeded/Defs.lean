@@ -105,6 +105,7 @@ def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .floatAdd left right => .floatAdd left right
   | .floatSub operands => .floatSub operands
+  | .floatMul operands => .floatMul operands
   | .tuple items => .tuple items
   | .textSlice receiver bounds => .textSlice receiver bounds
   | .literal (.int value) => .literal (.int value)

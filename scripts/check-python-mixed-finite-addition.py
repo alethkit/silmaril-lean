@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Replay finite binary64 addition and subtraction in call operands against CPython."""
+"""Replay checked binary64 call arithmetic against CPython."""
 
 import argparse
 import hashlib
@@ -25,6 +25,9 @@ MAX_FINITE_INTEGER = (2**53 - 1) * 2**971
 CONVERSION_MIDPOINT = 2**1024 - 2**970
 FLOAT_OVERFLOW = "1.7976931348623157e308 + 9.9792015476736e291"
 SUB_OVERFLOW = "1.7976931348623157e308 - -9.9792015476736e291"
+MUL_OVERFLOW_LEFT = "1.3407807830046643e154"
+MUL_OVERFLOW_RIGHT = "1.340780802983855e154"
+MUL_OVERFLOW = f"{MUL_OVERFLOW_LEFT} * {MUL_OVERFLOW_RIGHT}"
 
 
 def nonfinite_control(expression, expected_bits):
@@ -155,6 +158,73 @@ def subtraction_controls():
     return fixtures, observations, expected_bits
 
 
+def multiplication_controls():
+    # The exact product of these binary64 integers is the overflow midpoint.
+    assert int(float(MUL_OVERFLOW_LEFT)) * int(float(MUL_OVERFLOW_RIGHT)) == CONVERSION_MIDPOINT
+    cases = {
+        "mixed_left": ("4 * 2.0", "4020000000000000"),
+        "mixed_right": ("2.0 * -4", "c020000000000000"),
+        "floats": ("4.0 * 2.0", "4020000000000000"),
+        "integer_left_rounding": ("9007199254740993 * 3.0", "4358000000000000"),
+        "integer_right_rounding": ("3.0 * 9007199254740993", "4358000000000000"),
+        "negative_zero": ("-0.0 * 2.0", "8000000000000000"),
+        "positive_zero": ("-0.0 * -2.0", "0000000000000000"),
+        "integer_zero_left": ("0 * -2.0", "8000000000000000"),
+        "integer_zero_right": ("-2.0 * 0", "8000000000000000"),
+        "half_minimum_subnormal": ("5e-324 * 0.5", "0000000000000000"),
+        "negative_underflow": ("-5e-324 * 0.5", "8000000000000000"),
+        "above_half_minimum_subnormal": ("5e-324 * 0.5000000000000001", "0000000000000001"),
+        "subnormal_tie_up": ("5e-324 * 1.5", "0000000000000002"),
+        "subnormal_tie_down": ("-5e-324 * 2.5", "8000000000000002"),
+        "half_minimum_normal": ("2.2250738585072014e-308 * 0.5", "0008000000000000"),
+        "normal_tie_up": ("1.0000000000000002 * 1.5", "3ff8000000000002"),
+        "normal_tie_down": ("1.0000000000000007 * 1.5", "3ff8000000000004"),
+        "below_overflow_midpoint": (f"1.3407807830046642e154 * {MUL_OVERFLOW_RIGHT}", "7feffffffffffffe"),
+    }
+    finite = PREFIX + "".join(f"{name} = relay({expression})\n" for name, (expression, _) in cases.items())
+    expected_bits = {name: result for name, (_, result) in cases.items()}
+    namespace = EQUALITY["cpython"](finite, "ordinary")[2]
+    assert {name: bits(namespace[name]) for name in cases} == expected_bits
+    assert bits(float(9007199254740993 * 3)) == "4358000000000001"
+
+    missing = "NameError:___assertEqual"
+    integer_products = PREFIX + (
+        "___assertEqual(-4 * 2, -8)\n___assertEqual((2 - 5) * -3, 9)\n"
+        "___assertEqual(2**1024 * 2**1024, 2**2048)\n"
+    )
+    fixture, observed = observe(integer_products, expect(missing, "normal"), {"empty": HELPER})
+    fixtures, observations = [fixture], {"exact integer products": observed}
+    for label, source, expected in (
+        ("multiplication bits", finite, expect("normal", "normal")),
+        ("left integer conversion before zero product", PREFIX +
+         f"bad = relay({CONVERSION_MIDPOINT} * 0.0)\ntail = 9\n", expect("OverflowError", "OverflowError")),
+        ("right integer conversion before zero product", PREFIX +
+         f"bad = relay(0.0 * {CONVERSION_MIDPOINT})\ntail = 9\n", expect("OverflowError", "OverflowError")),
+        ("multiplication conversion before right lookup and mask", PREFIX + "___assertEqual = 0\n"
+         f"___assertEqual(0.0 * {CONVERSION_MIDPOINT}, missing)\ntail = 9\n",
+         expect("OverflowError", "OverflowError")),
+        ("multiplication operand lookup before noncallable mask", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(4.0 * 2.0, missing)\ntail = 9\n", expect("NameError:missing", "NameError:missing")),
+        ("multiplication mask after preparation", PREFIX + "___assertEqual = 0\n"
+         "___assertEqual(4.0 * 2.0, 8.0)\ntail = 9\n", expect("TypeError", "TypeError")),
+        ("missing callee before multiplication conversion", PREFIX +
+         f"___assertEqual({CONVERSION_MIDPOINT} * 0.0, missing)\ntail = 9\n", expect(missing, "OverflowError")),
+        ("left lookup before right product overflow", PREFIX +
+         f"___assertEqual(missing, {MUL_OVERFLOW})\ntail = 9\n", expect(missing, "NameError:missing")),
+        ("product receipt before right lookup", PREFIX +
+         "___assertEqual(relay(2.0 * -4), missing)\ntail = 9\n", expect(missing, "NameError:missing")),
+    ):
+        fixture, observed = observe(source, expected)
+        fixtures.append(fixture)
+        observations[label] = observed
+
+    fixtures.extend((
+        nonfinite_control(MUL_OVERFLOW, "7ff0000000000000"),
+        nonfinite_control(f"-{MUL_OVERFLOW}", "fff0000000000000"),
+    ))
+    return fixtures, observations, expected_bits
+
+
 def controls(upstream):
     forward = "___assertEqual(4 + 2.0, 6.0)\n"
     reverse = "___assertEqual(4.0 + 2, 6.0)\n"
@@ -233,17 +303,21 @@ def controls(upstream):
     sub_fixtures, sub_observations, sub_bits = subtraction_controls()
     fixtures.extend(sub_fixtures)
     observations.update(sub_observations)
+    mul_fixtures, mul_observations, mul_bits = multiplication_controls()
+    fixtures.extend(mul_fixtures)
+    observations.update(mul_observations)
     rejected = """#guard (match compile pythonSource with
   | .error (.source (.scalar .expressionProfile)) => true
   | _ => false)"""
     fixtures.extend((f"relay({expression})\n", rejected) for expression in
                     ("(4 + 2.0) + 1", "(4.0 + 2.0) + 1.0", "4 + 1e999", "4.0 + 1e999", "1e999 + 2.0"))
-    for expression in ("None - 2", "1.0 - None"):
+    for expression in ("None - 2", "1.0 - None", "None * 2", "1.0 * None"):
         source = PREFIX + f"relay({expression})\n"
         assert EQUALITY["cpython"](source, "ordinary")[0] == "TypeError"
         fixtures.append((source, rejected))
-    fixtures.extend((f"relay({expression})\n", rejected) for expression in ("1e999 - 2.0", "2.0 - 1e999"))
-    return fixtures, observations, expected_bits, float_bits, sub_bits
+    fixtures.extend((f"relay({expression})\n", rejected) for expression in
+                    ("1e999 - 2.0", "2.0 - 1e999", "1e999 * 2.0", "2.0 * 1e999"))
+    return fixtures, observations, expected_bits, float_bits, sub_bits, mul_bits
 
 
 if __name__ == "__main__":
@@ -256,15 +330,17 @@ if __name__ == "__main__":
         assert sys.version_info[:3] == (3, 13, 5), sys.version
         revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
         assert revision == QUOTIENT["UPSTREAM"]
-    fixtures, observed, result_bits, float_bits, sub_bits = controls(args.upstream)
+    fixtures, observed, result_bits, float_bits, sub_bits, mul_bits = controls(args.upstream)
     with tempfile.TemporaryDirectory() as directory:
         source, lean = Path(directory) / "Fixture.py", Path(directory) / "Fixtures.lean"
         INTAKE["check_lean_batch"](source, lean, fixtures, EQUALITY["LEAN"], extra_imports=TRANSPORT["SUITE"]["IMPORTS"])
     print(json.dumps({"cpython": ".".join(map(str, sys.version_info[:3])), "upstream": revision,
                       "fixtures": len(fixtures), "result_bits": result_bits, "float_result_bits": float_bits,
-                      "subtraction_bits": sub_bits, "observations": observed,
+                      "subtraction_bits": sub_bits, "multiplication_bits": mul_bits, "observations": observed,
                       "nonfinite_result": {"cpython_bits": "7ff0000000000000", "lean": "unsupported"},
                       "float_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
                                          "lean": "unsupported"},
                       "subtraction_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
-                                               "lean": "unsupported"}}))
+                                               "lean": "unsupported"},
+                      "multiplication_overflow": {"cpython_bits": ["7ff0000000000000", "fff0000000000000"],
+                                                  "lean": "unsupported"}}))

@@ -158,6 +158,7 @@ inductive CallValue (scope : Scope) where
   | mixedAdd (integer : Int) (floating : F64.Finite)
   | floatAdd (left right : F64.Finite)
   | floatSub (operands : Core.Binary64.FloatOperands)
+  | floatMul (operands : Core.Binary64.FloatOperands)
   | float64 (value : F64.Finite)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
@@ -183,6 +184,30 @@ def lowerDecimalCallLiteral? (source : Source.Expr) : Option {value // DecimalCa
     | none => none
   | none => none
 
+inductive FloatOperandsTranslation : Source.Expr → Source.Expr → Core.Binary64.FloatOperands → Prop where
+  | intFloat {left right integer floating}
+      (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
+      FloatOperandsTranslation left right (.intFloat integer floating)
+  | floatInt {left right integer floating}
+      (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
+      FloatOperandsTranslation left right (.floatInt floating integer)
+  | floatFloat {left right first second}
+      (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
+      FloatOperandsTranslation left right (.floatFloat first second)
+
+def lowerFloatOperands? (left right : Source.Expr) :
+    Option {operands // FloatOperandsTranslation left right operands} :=
+  match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
+  | some integer, some floating =>
+    some ⟨.intFloat integer floating.val, .intFloat lhs floating.property⟩
+  | _, rightFloat =>
+    match lowerDecimalCallLiteral? left, rightFloat, rhs : NumericArgument.integer? right with
+    | some first, some second, _ =>
+      some ⟨.floatFloat first.val second.val, .floatFloat first.property second.property⟩
+    | some floating, none, some integer =>
+      some ⟨.floatInt floating.val integer, .floatInt floating.property rhs⟩
+    | _, _, _ => none
+
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
@@ -198,15 +223,10 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
   | floatAdd {left right first second}
       (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
       CallValueTranslation scope (.binary .add left right) (.floatAdd first second)
-  | intFloatSub {left right integer floating}
-      (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
-      CallValueTranslation scope (.binary .sub left right) (.floatSub (.intFloat integer floating))
-  | floatIntSub {left right integer floating}
-      (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
-      CallValueTranslation scope (.binary .sub left right) (.floatSub (.floatInt floating integer))
-  | floatSub {left right first second}
-      (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
-      CallValueTranslation scope (.binary .sub left right) (.floatSub (.floatFloat first second))
+  | floatSub {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .sub left right) (.floatSub operands)
+  | floatMul {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .mul left right) (.floatMul operands)
   | float64 {source value} (literal : DecimalCallLiteral source value) :
       CallValueTranslation scope source (.float64 value)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
@@ -240,16 +260,13 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
       | some floating, none, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
       | _, _, _ => lowerScalarCallValue scope (.binary .add left right)
   | .binary .sub left right =>
-    match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
-    | some integer, some floating =>
-      .ok ⟨.floatSub (.intFloat integer floating.val), .intFloatSub lhs floating.property⟩
-    | _, rightFloat =>
-      match lowerDecimalCallLiteral? left, rightFloat, rhs : NumericArgument.integer? right with
-      | some first, some second, _ =>
-        .ok ⟨.floatSub (.floatFloat first.val second.val), .floatSub first.property second.property⟩
-      | some floating, none, some integer =>
-        .ok ⟨.floatSub (.floatInt floating.val integer), .floatIntSub floating.property rhs⟩
-      | _, _, _ => lowerScalarCallValue scope (.binary .sub left right)
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatSub operands.val, .floatSub operands.property⟩
+    | none => lowerScalarCallValue scope (.binary .sub left right)
+  | .binary .mul left right =>
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatMul operands.val, .floatMul operands.property⟩
+    | none => lowerScalarCallValue scope (.binary .mul left right)
   | .text points =>
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩
