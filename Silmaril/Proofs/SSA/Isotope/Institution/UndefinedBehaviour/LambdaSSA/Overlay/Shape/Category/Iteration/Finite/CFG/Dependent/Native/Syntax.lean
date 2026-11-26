@@ -24,7 +24,12 @@ theorem sameRegion_eq {r t : Isotope.LambdaSSA.Region Φ} (same : sameRegion r t
     case case b l r =>
       obtain ⟨⟨rfl, lEq⟩, rEq⟩ := same
       rw [hl lEq, hr rEq]
-  | let₁ | let₂ => cases t <;> simp [sameRegion] at same
+  | let₁ a body ih =>
+    cases t <;> simp [sameRegion] at same
+    case let₁ b body' =>
+      obtain ⟨rfl, bodyEq⟩ := same
+      rw [ih bodyEq]
+  | let₂ => cases t <;> simp [sameRegion] at same
   | cfg entry n blocks he hb =>
     cases t <;> try (solve | simp [sameRegion] at same)
     case cfg e m bs =>

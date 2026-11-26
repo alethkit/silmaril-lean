@@ -713,6 +713,25 @@ external positions. It also rejects a well-typed dispatcher with an extra
 native binder after the entry and producers have been read.
 [Native readback and transport][ssa-ub-native-packed-readback] [Native regression][ssa-ub-native-packed-regression]
 
+### Checked router normalization
+
+The optional normalization accepts at most one redundant literal unit binder in
+each packed router. It re-emits the actual CFG with the selected wrappers
+and checks exact syntax equality, including the weakening of every old
+value variable. The installed pure let substitution rule cancels that
+weakening. Native CFG congruence and shaped soundness transport this
+equation to complete observations of the original program. The existing
+exact recognizer then runs on the canonical form.
+
+The regression accepts the previously rejected redundant wrapper. A
+well-typed variant that passes the bound unit to another exit passes
+the initial producer read but fails the exact wrapper check. The accepted
+program retains its ordered return, fault state, primitive divergence and
+infinite replay. A literal UB continuation at the first exit is reached
+after the return and skipped during silent replay. The original entry
+comparison still distinguishes equal payloads at different exits.
+[Normalization and soundness][ssa-ub-native-router-normalize]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -852,3 +871,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-dependent-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Regression.lean
 [ssa-ub-native-packed-readback]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 [ssa-ub-native-packed-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Regression.lean
+[ssa-ub-native-router-normalize]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Normalize/Thms.lean
