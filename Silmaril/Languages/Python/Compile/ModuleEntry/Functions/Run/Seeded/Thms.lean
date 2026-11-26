@@ -305,6 +305,19 @@ theorem acceptsFactory_returnClosure {context : CallContext} {closure : Function
   simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, recorded, resolved, slots,
     factoryCode, body, returnsClosure]
 
+theorem acceptsFactory_returnClosureCall {context : CallContext} {closure : Function} {arity : Nat}
+    {definition : Core.Closure.Dispatch.Definition Core.Closure.Executor.Body closure.code.layout}
+    {ref : Core.Closure.CodeRef} {captures : Fin ref.layout.captures → Core.Closure.CaptureSlot closure.code.layout}
+    {arguments : List (Core.Closure.Executor.Operand closure.code.layout)}
+    (recorded : closure ∈ context.published ++ context.escaped)
+    (resolved : Core.Closure.Dispatch.resolve context.table closure.code = .ok definition)
+    (slots : definition.parameters.slots.length = arity)
+    (body : definition.body = .returnCall (.closure ref captures) arguments)
+    (bounded : arguments.length ≤ 1) (child : factoryCode context.table ref 1 = true) :
+    context.acceptsFactory closure arity = true := by
+  simpa [CallContext.acceptsFactory, CallContext.acceptsCallFrom, recorded, resolved, slots,
+    factoryCode, body, returnsClosure, bounded] using child
+
 theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments : List Core.Module.Functions.Operand}
     {values : List Value} {rest : List (Instruction scope)}
