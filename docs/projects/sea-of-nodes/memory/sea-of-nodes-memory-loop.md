@@ -137,25 +137,55 @@ cell in either case.
 buffer. `observeActivation_eq_step` decodes the outcome and identifies it
 with the native heap-threaded step for any starting buffer. This is a
 one-activation law for one initialized, contiguous, statically sized
-rank-one `i64` buffer with `Fin n` indices. It gives a step law for a
-future effectful feedback runner: take the updated buffer from the
-restart outcome and reuse the invariant entry operands. The scalar
-MLIR CF comparison above uses its separate heap-as-SSA encoding.
+rank-one `i64` buffer with `Fin n` indices.
 [Activation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Thms.lean)
 
-Save this example to a Lean file and run `lake env lean <file>`. Each
-result lists the selector, the loaded word, and both final cells.
+The activation regression also passes a restart buffer into a second
+activation. Its one-cell case uses coincident indices and checks that
+the last store wins. The same fixture requires a typed address, so its
+entry valuation is uninhabited at zero cells.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Regression.lean)
+
+### Executing MemRef feedback
+
+`MemRef.runAfter` repeatedly executes that emitted activation. An exit
+returns the loaded word and whole final buffer. A backedge passes the
+post-store buffer to the next activation with the original typed operands.
+The budget counts **exactly** the requested backedges, so even budget zero
+executes the entry activation and an earlier exit yields `none` at a larger
+count. `MemRef.observe` describes the finite return across all counts.
+
+This is a driver around the emitted ordered block. The repository's CF
+evaluator takes a pure operation interpretation over bit-vector tuple
+values, and its structured feedback evaluator takes a stateless model.
+Full emission of an effectful CF loop remains open. The scalar MLIR CF
+comparison above uses its separate heap-as-SSA encoding.
+[Driver definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Feedback/Defs.lean) ·
+[Pure CF evaluator](../../../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean)
+
+`runAfter_eq_evalAfter` agrees with the native evaluator at every exact
+count. `returnsAfter_iff_runAfter` and `returns_iff_mem_observe` preserve
+and reflect the word and every cell in counted and finite returns.
+`observe_eq_none_iff` identifies the absence of a finite return with
+`none` at every count.
+[Feedback theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Feedback/Thms.lean) ·
+[Feedback regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Feedback/Regression.lean)
+
+Save this example to a Lean file and run `lake env lean <file>`. The
+activation results list the selector, word, and both final cells. The
+feedback results list the word and both final cells on return.
 
 ```lean
 module
 
-import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Thms
-meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Defs
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Feedback.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.Feedback.Defs
 
 open Silmaril.SSA.RVSDG (Tuple)
 open Silmaril.SSA.SeaOfNodes.Memory (Address ValueSort Val Word)
 open Silmaril.SSA.SeaOfNodes.Memory.Loop (Graph)
-open Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef (runActivation)
+open Silmaril.MLIR.MemRef (Buffer)
+open Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef (runActivation runAfter)
 
 private abbrev args : List ValueSort := [.address, .word]
 
@@ -169,18 +199,23 @@ private def graph : Graph args where
 private def input : Tuple (Val 2) args :=
   .cons (0 : Address 2) (.cons (7 : Word) .nil)
 
+private def start (old : Word) : Buffer 2 :=
+  ⟨fun i => if i = 0 then old else 99⟩
+
 private def exampleResult (old : Word) : Nat × Nat × Nat × Nat :=
   let (.cons selector values, final) :=
-    runActivation graph input ⟨fun i => if i = 0 then old else 99⟩
+    runActivation graph input (start old)
   (selector.down.val, (values.get .head : Word).toNat,
     (final.cell 0).toNat, (final.cell 1).toNat)
 
 #eval exampleResult 7  -- (0, 7, 7, 99)
 #eval exampleResult 8  -- (1, 8, 7, 99)
-```
 
-The executable regression also passes a restart buffer into a second
-activation. Its one-cell case uses coincident indices and checks that
-the last store wins. The same fixture requires a typed address, so its
-entry valuation is uninhabited at zero cells.
-[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/MLIR/MemRef/Regression.lean)
+private def feedbackResult (count : Nat) (old : Word) : Option (Nat × Nat × Nat) :=
+  (runAfter graph input count (start old)).map fun (word, final) =>
+    (word.toNat, (final.cell 0).toNat, (final.cell 1).toNat)
+
+#eval feedbackResult 0 7  -- some (7, 7, 99)
+#eval feedbackResult 0 8  -- none
+#eval feedbackResult 1 8  -- some (7, 7, 99)
+```
