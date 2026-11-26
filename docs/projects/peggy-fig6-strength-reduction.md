@@ -145,6 +145,36 @@ limit 0 and `[25, 3, 21, 25]` at limit 3. The successful-return theorem
 requires the three opcode role laws. The finite execution supplies
 definedness of the scheduled work, including the exit slice.
 
+## Constructing a finite run from the PEG exit
+
+`Recovered.runFuel_of_firstExit` runs the emitted SIMPLE with fuel equal
+to the certified pass count. `FirstExit` means that the shared pass
+has that count in the Figure 11 valuation on the same typed input.
+Its semantics give a defined false guard prefix and a true exit guard.
+The proof uses the checked schedules to maintain the corresponding
+SIMPLE store, including every carried θ and the unchanged parameters.
+The zero, unit tick, and negation laws connect the stored clock and
+continuation test to that prefix.
+
+`Accepted.Total` requires the initializer, guard, simultaneous step, and
+exit slices to succeed on defined stores. Totality of the primitive
+family implies this condition by induction on the checked schedules.
+The converse proof under slice totality obtains the full defined carried
+prefix as it constructs the run. The supplied ordered PEG observation
+then fixes the return, including repeated entries. The relational
+`Recovered.exec_iff_firstExit` combines this result with the existing
+successful-return theorem. Only the construction of a run needs slice
+totality.
+
+A defined pass guarantees the guard prefix. A defined eval additionally
+guarantees the prefix of its sampled θ. Even when every ordered root is
+defined, slots outside those dependencies can fail. The pass-only
+regression keeps the exit count at three while a partial add makes the
+first full accumulator update fail, so the emitted SIMPLE has no
+successful return. The total regression derives the pass and full
+ordered output from the PEG equations for both zero and three trips,
+then constructs the corresponding successful SIMPLE executions.
+
 Discovery remains limited to a single parentless loop with primitive
 slices and one recognized unit counter. It collects every θ, so unsupported
 slices in extra carried rows can cause rejection. Boundary and rank
