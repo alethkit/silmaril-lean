@@ -48,4 +48,25 @@ private def stock : Namespace := legacyBoolCallableSeed .builtin
 #guard lengthRun .empty (.name "missing_right")
   (.error (.raised (.runtime (.nameError "len")))) (.error (.raised (.runtime (.nameError "len"))))
 
+private def moduleTextEvidence (placement : SeedPlacement) : Bool := Id.run do
+  let source : Source.Module := ⟨[
+    .assign "text" (.text [233, 128512, 55296]),
+    .assign "saved" (.name "text"),
+    .assign "text" (.text [122]),
+    .expression (.call (.name "___assertEqual") [.name "saved", .text [233, 128512, 55296]]),
+    .assign "saved" (.name "missing")]⟩
+  let .ok compiled := Run.compile source | return false
+  let space := legacySeed placement
+  let result := run space compiled
+  return result.completion == .error (.raised (.runtime (.nameError "missing"))) &&
+    result.residual.moduleGlobals ==
+      [("text", .text ⟨[122], by decide⟩), ("saved", .text ⟨[233, 128512, 55296], by decide⟩)] ++ space.moduleGlobals &&
+    result.residual.builtins == space.builtins &&
+    result.heap.next == 0 && result.lists.objects.isEmpty &&
+    result.calls.map (fun call => (call.callee, call.observation.result, call.observation.caught)) ==
+      [("___assertEqual", .ok .none, none)]
+
+#guard moduleTextEvidence .builtin
+#guard moduleTextEvidence .preamble
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
