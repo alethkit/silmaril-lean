@@ -8,6 +8,7 @@ import Silmaril.SSA.PEG.Simple.Structured.Completion.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Conditional.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Recursive.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Defs
@@ -559,6 +560,98 @@ example : conditionalToken.source.Returns model (triple 0 3 0) ⟨7⟩ := by
     xs.get .head) roots
   cases Option.some.inj eq
   exact returned
+
+example : Structured.Token.Recursive.observe nestedLoops .not model (triple 0 2 0) (fun _ => 0) =
+    .cons (some ⟨4⟩) (.cons (some ⟨true⟩) .nil) :=
+  Structured.Token.Recursive.observe_of_returns nestedLoops .not model _ (fun _ => rfl) _
+    ⟨triple 4 0 0, outerExec 0 2, rfl⟩
+
+example : Structured.Token.Recursive.observe conditionalToken.source .not model (triple 0 3 0) (fun _ => 0) =
+    .cons (some ⟨7⟩) (.cons (some ⟨true⟩) .nil) :=
+  Structured.Token.Recursive.observe_of_returns conditionalToken.source .not model _ (fun _ => rfl) _
+    ⟨triple 7 0 0, mixedTrace.exec, rfl⟩
+
+private def threeLevels : Program Op true [.count, .count, .count] .count :=
+  ⟨[.count, .count, .count], .while rfl outerTest nestedLoops.body, .head⟩
+
+private theorem deeperObservation :
+    Structured.Token.Recursive.observe threeLevels .not model (triple 0 2 0) (fun _ => 0) =
+      .cons (some ⟨4⟩) (.cons (some ⟨true⟩) .nil) :=
+  Structured.Token.Recursive.observe_of_returns threeLevels .not model _ (fun _ => rfl) _
+    ⟨triple 4 0 0, .whileStep rfl (outerExec 0 2) (.whileStop rfl), rfl⟩
+
+example : threeLevels.Returns model (triple 0 2 0) ⟨4⟩ := by
+  have done : ((Structured.Token.Recursive.observe threeLevels .not model (triple 0 2 0) (fun _ => 0)).get
+      (.tail .head)).isSome := by rw [deeperObservation]; rfl
+  obtain ⟨_, ran, roots⟩ := Structured.Token.Recursive.returns_of_completion threeLevels .not model _ (fun _ => rfl) _ done
+  rw [deeperObservation] at roots
+  have data := congrArg (fun xs : Tuple (fun t => Option (model.Value t)) [.count, .bool] =>
+    xs.get .head) roots
+  cases Option.some.inj data
+  exact ran
+
+-- The zero-trip loop retains the data input even when the preceding
+-- strict assignment failed. Its marker must still sample the incoming one.
+private def discardBeforeWhile : Program Op true [.count] .count :=
+  ⟨[.count], .seq (.assign (.op .bad .nil))
+    (.seq (.project (.cons (.tail .head) .nil))
+      (.while rfl (.op .positive (.cons (.var .head) .nil)) (.project (.cons .head .nil)))), .head⟩
+
+private def droppedGraph : Graph (Structured.Token.Opcode Op) [.count] [.count, .bool] 11 11 :=
+  Structured.Token.Recursive.translate discardBeforeWhile .not
+
+private def inputZero : Tuple model.Value [.count] := .cons ⟨0⟩ .nil
+private def droppedBase : Index 11 := fun _ => 0
+private def droppedRef (j : Fin 11) {t : Ty Unit} (typed : droppedGraph.sort j = t) :
+    Ref droppedGraph.sort t := ⟨j, typed⟩
+
+private noncomputable def droppedValues : droppedGraph.Valuation (Structured.Token.model model) :=
+  droppedGraph.denote (Structured.Token.model model) inputZero
+    (Structured.Token.Recursive.translate_demandWellFounded discardBeforeWhile .not)
+
+private theorem droppedData :
+    (Structured.Token.Recursive.observe discardBeforeWhile .not model inputZero droppedBase).get .head = some ⟨0⟩ := by
+  have eq := droppedGraph.denote_solves (Structured.Token.model model) inputZero
+    (Structured.Token.Recursive.translate_demandWellFounded discardBeforeWhile .not)
+  change droppedGraph.Solves (Structured.Token.model model) inputZero droppedValues at eq
+  have seed : Rules.readRef droppedValues (droppedRef 6 (t := .count) rfl) (droppedBase.set 2 0) = some ⟨0⟩ :=
+    (Rules.theta_zero eq (r := droppedRef 6 (t := .count) rfl) (initial := droppedRef 10 rfl)
+      (feedback := droppedRef 6 rfl) (loop := 2) HEq.rfl rfl).trans
+      (Rules.at_label eq (r := droppedRef 10 rfl) (label := .param .head) (args := .nil) HEq.rfl _)
+  have first : Rules.readRef droppedValues (droppedRef 2 (t := .count) rfl) droppedBase = some ⟨0⟩ := by
+    rw [Rules.pass_at eq (r := droppedRef 2 rfl) (cond := droppedRef 3 rfl) (loop := 2) HEq.rfl]
+    let flags := fun k => (Rules.readRef droppedValues (droppedRef 3 (t := .bool) rfl)
+      (droppedBase.set 2 k)).map ULift.down
+    have picked : firstTrue flags = some 0 := (firstTrue_eq_some_iff_samples flags 0).mpr ⟨by
+      unfold flags
+      rw [Rules.unary_at eq (r := droppedRef 3 rfl) (arg := droppedRef 4 rfl)
+        (op := .source Op.not) HEq.rfl,
+        Rules.unary_at eq (r := droppedRef 4 rfl) (arg := droppedRef 6 rfl)
+          (op := .source Op.positive) HEq.rfl, seed]
+      rfl, fun j prior => by omega⟩
+    change (firstTrue flags).map ULift.up = _
+    rw [picked]
+    rfl
+  change Rules.readRef droppedValues (droppedRef 1 (t := .count) rfl) droppedBase = _
+  rw [Rules.eval_at eq (r := droppedRef 1 (t := .count) rfl) (source := droppedRef 6 rfl)
+    (count := droppedRef 2 rfl) (loop := 2) HEq.rfl, first]
+  change monotonize (fun k => Rules.readRef droppedValues (droppedRef 6 (t := .count) rfl)
+    (droppedBase.set 2 k)) 0 = some ⟨0⟩
+  exact (monotonize_eq_some_iff _ 0 _).mpr ⟨seed, fun j prior => by omega⟩
+
+example : (Structured.Token.Recursive.observe discardBeforeWhile .not model inputZero droppedBase).get .head = some ⟨0⟩ ∧
+    (Structured.Token.Recursive.observe discardBeforeWhile .not model inputZero droppedBase).get (.tail .head) = none := by
+  refine ⟨droppedData, ?_⟩
+  have failed : discardBeforeWhile.Fails model inputZero := .firstFailed (.assignFailed rfl)
+  cases marker : (Structured.Token.Recursive.observe discardBeforeWhile .not model inputZero droppedBase).get
+      (.tail .head) with
+  | none => rfl
+  | some bit =>
+    have done : ((Structured.Token.Recursive.observe discardBeforeWhile .not model inputZero droppedBase).get
+        (.tail .head)).isSome := by rw [marker]; rfl
+    obtain ⟨_, ⟨_, ran, _⟩, _⟩ :=
+      Structured.Token.Recursive.returns_of_completion discardBeforeWhile .not model inputZero (fun _ => rfl) droppedBase done
+    cases failed.deterministic ran
 
 example (acc n : Nat) : structured nestedLoops (triple acc n 0) =
     .cons (some ⟨outerResult acc n⟩) .nil :=
