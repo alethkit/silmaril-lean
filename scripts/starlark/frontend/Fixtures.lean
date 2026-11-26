@@ -11,11 +11,14 @@ import Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks
+import Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
 open Lean Silmaril.Languages.Starlark.Frontend
-open Silmaril.Languages.Starlark.Frontend.Module (Observation controls spreadControls computedCallControls returnCallControls)
+open Silmaril.Languages.Starlark.Frontend.Module
+  (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -29,6 +32,7 @@ private def moduleObservation (expected : Observation) : Json :=
     | .invalidStar => ("runtime", "argument after * must be iterable")
     | .invalidStarStar => ("runtime", "argument after ** must be a mapping")
     | .uninitializedGlobal name => ("runtime", s!"global variable {name} referenced before assignment")
+    | .uninitializedLocal name => ("runtime", s!"local variable {name} referenced before assignment")
   Json.mkObj [("phase", toJson phase), ("want", toJson want)]
 
 private def loaderFixture (control : Silmaril.Languages.Starlark.Frontend.Module.Loader.Control) : Json :=
@@ -55,7 +59,8 @@ public def main (args : List String) : IO Unit := do
   let entries := fixtures.toArray.map fun fixture => Json.mkObj
     [("name", toJson fixture.name), ("source", toJson fixture.source),
      ("accepts", toJson fixture.goAccepts)]
-  let modules := (controls ++ spreadControls ++ computedCallControls ++ returnCallControls).toArray.map fun control =>
+  let moduleControls := controls ++ spreadControls ++ computedCallControls ++ returnCallControls ++ assignmentCallControls
+  let modules := moduleControls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture

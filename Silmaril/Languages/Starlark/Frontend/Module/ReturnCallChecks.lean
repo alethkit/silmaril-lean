@@ -38,9 +38,6 @@ example : returnSpans = some [
     (⟨⟨31, 3, 10⟩, ⟨37, 3, 16⟩⟩, ⟨⟨31, 3, 10⟩, ⟨34, 3, 13⟩⟩, [⟨⟨35, 3, 14⟩, ⟨36, 3, 15⟩⟩]),
     (⟨⟨31, 3, 10⟩, ⟨34, 3, 13⟩⟩, ⟨⟨31, 3, 10⟩, ⟨32, 3, 11⟩⟩, [])] := by decide +kernel
 
-example : frontendDiagnostic "def relay(f):\n  tmp=f()\n  return tmp" =
-    some ⟨.unsupported .call, ⟨⟨21, 2, 8⟩, ⟨22, 2, 9⟩⟩⟩ := by decide +kernel
-
 private def standaloneDiagnostic : Option Diagnostic :=
   match parseFunctionUtf8 returnText.toUTF8 with
   | .error diagnostic => some diagnostic

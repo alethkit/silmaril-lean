@@ -164,6 +164,9 @@ private def lowerBodyStmt (span : Span) (source : FunctionStmt) : Except Diagnos
   | .returnCall value =>
     let call ← lowerOperand value
     return ⟨.ret (some call.expression), call.applications⟩
+  | .assignCall target value =>
+    let call ← lowerOperand value
+    return ⟨.assign target call.expression, call.applications⟩
   | .branch test yes no =>
     let test ← lowerExpr span test
     let yes ← yes.attach.mapM fun ⟨stmt, member⟩ => do

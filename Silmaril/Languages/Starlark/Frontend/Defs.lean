@@ -98,10 +98,11 @@ structure LocatedImport where
   exported : LocatedString
   localName : LocatedString
 
-/-- Module function suites retain the call expression at a return site. -/
+/-- Module function suites retain calls that form an assignment RHS or return value. -/
 inductive FunctionStmt where
   | scalar (stmt : SourceStmt)
   | returnCall (value : CallOperand)
+  | assignCall (target : String) (value : CallOperand)
   | branch (test : SourceExpr) (yes no : List (LocatedStmt FunctionStmt))
 
 /-- The source forms consumed by the normalized module adapter. -/
@@ -598,9 +599,15 @@ private def parseRootCall (exprFuel : Nat) (s : Stream) :
 
 private def parseFunctionSmall (exprFuel : Nat) (inFunction : Bool) (s : Stream) :
     Except Diagnostic (FunctionStmt × Stream) := do
-  if inFunction && s.peek.kind == .keyword "return" then
-    if let some (value, rest) ← parseRootCall exprFuel s.pop then
-      return (.returnCall value, rest)
+  if inFunction then
+    match s.remaining with
+    | ⟨.keyword "return", _⟩ :: _ =>
+      if let some (value, rest) ← parseRootCall exprFuel s.pop then
+        return (.returnCall value, rest)
+    | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: _ =>
+      if let some (value, rest) ← parseRootCall exprFuel s.pop.pop then
+        return (.assignCall target value, rest)
+    | _ => pure ()
   let (stmt, rest) ← parseSmallStmt exprFuel inFunction s
   return (.scalar stmt, rest)
 

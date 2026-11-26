@@ -58,8 +58,8 @@ with positional parameters and optional scalar defaults, call assignments
 whose right-hand side is a postfix application chain, and leading load
 statements. Top-level name assignments also accept the collection displays
 of the call profile. An application chain starts with a bare identifier or a
-parenthesized scalar expression. Module function returns can use the same
-application chain. The adapter reuses the logical-line, parameter, and
+parenthesized scalar expression. Module function returns and name assignments
+can use the same application chain. The adapter reuses the logical-line, parameter, and
 suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
@@ -85,9 +85,9 @@ The module body uses the same admitted scalar statement forms as the standalone
 function parser. Its expressions, defaults, and call operands use integer
 literals, names, `and`, `or`, and conditional expressions. Unary and binary
 operators produce an unsupported diagnostic spanning the containing statement,
-default, or argument. Call-valued returns extend module functions at the root
-of the return expression. Other body expression positions, keyword-only
-parameters, and variadic parameters remain outside this profile.
+default, or argument. Module functions admit calls at the root of a return
+expression or a name assignment RHS. Other body expression positions,
+keyword-only parameters, and variadic parameters remain outside this profile.
 
 ### Defaults and call operands
 
@@ -162,9 +162,9 @@ source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/La
 
 ### Postfix applications
 
-A postfix chain is available at the root of a module assignment, a return
-expression in a module function, or a call operand. The head can be a bare name or a parenthesized scalar expression,
-such as `(f if flag else g)`. The parser consumes each parenthesized argument
+A postfix chain is available at the root of a module or function name
+assignment, a module function return, or a call operand. The head can be
+a bare name or a parenthesized scalar expression, such as `(f if flag else g)`. The parser consumes each parenthesized argument
 group before advancing to the next suffix. Each suffix uses the expression
 parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
 The parser's budget depends on token count, with no fixed application cap.
@@ -223,11 +223,32 @@ Shared UTF-8 controls exercise a global callable and a callable parameter
 that shadows a global function. A failed inner callee masks a later operand
 failure, and an undefined callee is rejected during resolution. The kernel
 checks the normalized return tree and the application, callee, and operand
-spans retained on the declaration. Function-local call assignments, call
-expression statements, and calls inside scalar expressions remain outside
-this slice. The standalone `parseFunctionUtf8` entry point keeps the scalar
-body profile.
+spans retained on the declaration. The standalone `parseFunctionUtf8` entry
+point keeps the scalar body profile.
 [Return call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ReturnCallChecks.lean)
+
+### Call-valued name assignments
+
+A module function can use `name = f(...)` or a postfix chain as the entire
+assignment RHS. This includes assignments in indented branches. The
+frontend emits the existing normalized `Statement.assign`. The declaration
+compiler collects the target in the function layout and emits
+`Body.assignExpr`, which writes the local slot after the RHS succeeds.
+
+The shared branch fixture assigns through a callable parameter that shadows
+a global function. The next statement reads the assigned local, and module
+publication still sees the original global binding of the same name. Taking
+the other branch leaves the local uninitialized. Lean checks the resolved
+local read, write, and callee slots, and the kernel checks the assignment
+and exact UTF-8 application spans.
+
+In the failing fixture, the first call error preserves an earlier local
+value and suppresses the later assignments. Lean checks the residual heap.
+A Go-only mutation control observes the effect of the first assignment's
+operand and confirms that the next RHS is skipped. Call expression
+statements, calls inside scalar operators, and non-name assignment targets
+remain outside this slice.
+[Assignment call checks](../../Silmaril/Languages/Starlark/Frontend/Module/AssignmentCallChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 ### Leading loads and UTF-8 graphs
 
@@ -352,7 +373,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
