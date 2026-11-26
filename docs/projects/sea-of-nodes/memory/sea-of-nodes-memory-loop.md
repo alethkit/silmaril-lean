@@ -287,6 +287,42 @@ completion and a CF header step are separate witnesses.
 [Activation theorem](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
 [Interleaved regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/ActivationRegression.lean)
 
+### Address Phi at the feedback boundary
+
+`CarriedAddress.Graph` specializes the [typed Loop Phi operand columns](../../../../Silmaril/SSA/SeaOfNodes/Loop/Defs.lean)
+to one address in the ordered memory body. The entry and backedge columns
+each name an input port of address sort. Their values are `Fin cells` in the
+same initialized heap. The other operands stay invariant, and feedback
+supplies the previous activation's entire post-store heap.
+[Source definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Defs.lean)
+
+`CarriedAddress.MemRef.lower` emits an ordered typed CFG. The entry branch
+passes zero to an `i1` header argument, and the conditional self edge passes
+one. The header resolves that occurrence to one of the captured in-bounds
+addresses and runs the existing ordered MemRef Load/Store activation with
+it. The exit edge passes the return word, and both successor edges retain
+the entire buffer in the shared state.
+[CFG definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/MemRef/Defs.lean)
+
+`header_transition` gives the exact successor label, arguments, and buffer
+at either arrival. `run_eq_evalWithin` compares a native backedge allowance
+`k` with `k + 3` CF block steps. `petri_activation_iff_header` compares one
+existing coloured activation seeded with the selected typed inputs to
+that header transition. Emitting a whole coloured loop with this address
+Phi remains open, as do computed address operands and control inside the
+ordered body.
+[Theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/MemRef/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef.Thms
+```
+
+The executable regression enters with `[7, 0, 99]`, writes cell 0, and
+restarts with `[9, 0, 99]`. The next activation reads cell 1, writes it,
+and exits with word `0` and cells `[9, 9, 99]`. The same checks cover
+immediate exit, an exhausted backedge allowance, and coincident ports.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/MemRef/Regression.lean)
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
