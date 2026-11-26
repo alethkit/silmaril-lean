@@ -4,8 +4,12 @@ The typed PEG core represents finite **Program Expression Graphs** with
 sharing, branching and loop feedback. Peggy is the optimizer that uses PEGs
 and adds equivalences to build E-PEGs. The current library covers graph
 construction, scope and structural guards. The
-[checked Egg bridge](peggy-egg.md) covers ranked loop-free PEGs with
-partial primitive applications and lazy φ.
+[guarded Figure 11 denotation](peg-semantics.md) interprets graphs with
+well-founded demands. The [checked Egg bridge](peggy-egg.md) proves
+equality of native observations for ranked loop-free PEGs. The
+[cyclic E-PEG certificate kernel](peggy-epeg.md) checks finite class and
+candidate admission conditions and uses semantic evidence for merges
+and extraction.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -25,11 +29,11 @@ Locators below use PDF page numbers. [Paper](https://arxiv.org/pdf/1012.1802v3) 
 
 The graph indices bound all references and loop identities. Types and
 numbering are distinct from structure. Graph admission uses `WellFormed`
-in addition to acceptance by the wiring checker. The graph has no prescribed
-meaning for instructions or for failure. Follow-up semantics will specify
-the well-founded relation on node/iteration-index pairs used to solve the
-node equations. In particular, an arbitrary sampled index and the
-monotonization prefix create extra evaluation demands.
+in addition to acceptance by the wiring checker. The graph core leaves
+instruction meaning to an interpretation. The guarded denotation uses
+well-founded demands on node/iteration-index pairs. An arbitrary sampled
+index and the monotonization prefix both contribute evaluation demands.
+[Semantics](peg-semantics.md)
 
 ## The printed loop guard
 
@@ -64,23 +68,17 @@ inner index 0, which is defined. Thus E equals A. The fixture proves the
 specialized equations for every pair of indices and exhibits two different
 solutions at `(0, 0)`. This is a counterexample to Theorem 1 under the
 literal printed hypotheses, already for a two-element total order. The
-sufficiency of the stronger structural guard for the future semantics
-remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1012.1802v3#page=23) ·
+[guarded denotation](peg-semantics.md) proves that the stronger structural
+guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1012.1802v3#page=23) ·
 [Lean fixture](../../tests/ssa/PEG.lean)
 
 ## Follow-up roadmap
 
-1. **PEG semantics and rules**. Add `Silmaril.SSA.PEG.Semantics`, `.Invariant`
-   and `.Rules` topics. Give graphs carriers and strict pointwise partial
-   instruction interpretations, using slot-indexed parameter environments
-   and `Fin loops → Nat` indices. Prove existence and uniqueness for the
-   simultaneous Fig. 11 equations under a proved demand invariant, and
-   prove that the accepted structural profile implies it or publish the
-   additional condition explicitly. Include earliest defined pass,
-   monotonized eval, lazy φ, θ feedback and alpha/parameter transport.
-   Prove syntactic invariance sound. Guard rewrites for bottom, overflow and
-   partial operations. For example, deleting `φ(c,a,a)` needs a defined
-   guard when `a` is defined.
+1. **PEG invariants and rule schemas**. Extend the
+   [guarded semantics](peg-semantics.md) with alpha and parameter transport,
+   sound syntactic invariance, and reusable rule schemas with proofs of
+   their conditions for bottom, overflow and partial operations. For
+   example, deleting `φ(c,a,a)` needs a defined guard when `a` is defined.
 2. **Dialect institution**. Add `Silmaril.SSA.Peggy.Dialect` and
    `.Institution`. Dialect arrows map symbols forward at fixed profiles.
    Sentences compare typed open graphs at a shared boundary and loop frame.
@@ -104,13 +102,14 @@ remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1
    structured SIMPLER syntax. Its published evaluator samples eval's
    chosen index directly, so correspondence with Fig. 11 needs a proof.
    [Coq sources](https://cseweb.ucsd.edu/groups/progsys/peg-coq-proof/)
-4. **E-PEGs and optimization**. Add `Silmaril.SSA.Peggy.EPEG`,
-   `.Saturation`, `.Extraction` and `.Validation`. Reuse sorted
-   [Egg explanation contracts](../../Silmaril/Logic/Egg/Core/Thms.lean) for
-   the [checked acyclic equational fragment](peggy-egg.md). Check node
-   extension, guarded rule receipts and congruence, and prove every merge
-   preserves equality of node streams. Prove §4's monotonicity and uniqueness of normal forms
-   separately from finite-fuel progress. Use an independent graph and
+4. **E-PEGs and optimization**. The [E-PEG certificate kernel](peggy-epeg.md)
+   proves stream equality for same-label congruence and merges with
+   independently justified laws. It checks the demand rank and root
+   classes of a proposed extraction. Add node extension, rule-schema
+   validation, proof production for candidate equations, saturation and
+   reversion. The [acyclic bridge](peggy-egg.md) reuses sorted Egg replay.
+   Prove §4's monotonicity and uniqueness of normal forms separately from
+   finite-fuel progress. Use an independent graph and
    CFG-like check on extracted representatives. The displayed Boolean
    constraints in §8.3 also admit invalid selections, such as a θ
    initializer selecting its own class. Prove reversion correctness
@@ -118,8 +117,8 @@ remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1
    composition with adequate frontends at the chosen observation.
 5. **IR bridges**. Put `Bridge.Egg`, `Bridge.MLIR` and `Bridge.RVSDG`
    under `Silmaril.SSA.Peggy`. The [Egg bridge](peggy-egg.md) checks acyclic
-   unfolding and equality of ordered partial results. Start the MLIR and
-   RVSDG bridges with pure total acyclic PEGs and regionless MLIR/ordered
+   unfolding and equality of ordered Figure 11 observations. Start the
+   MLIR and RVSDG bridges with pure total acyclic PEGs and regionless MLIR/ordered
    RVSDG values. For structured RVSDG loops, align θ body iterations, exit
    polarity, and PEG pass/eval.
    Compose typed λSSA and the pure Sea of Nodes diamond through RVSDG.
@@ -156,7 +155,7 @@ an independently reviewed promotion of its format-independent core.
 | --- | --- |
 | §§1–3, Figs. 1–9 | Planned equality replay and admissible extraction for strength reduction, nested loops, loop motion, CFG restructuring, peeling and branch hoisting. General cross-level fusion, interchange and unrolling are research extensions. |
 | §4, Fig. 10 | Planned optimization pipeline, extension and monotonicity (4.1–4.3), uniqueness of reachable normal forms (4.4), and budgeted runs. |
-| §5, Figs. 11–12 | Typed structure, role-sensitive graph predicates, and the literal-guard counterexample are checked. Denotation, parameter substitution, Def. 5.2 invariance and guarded equations are follow-ups. |
+| §5, Figs. 11–12 | Typed structure, role-sensitive graph predicates, the literal-guard counterexample and the guarded denotation are checked. Parameter substitution, Def. 5.2 invariance and verified rule schemas are follow-ups. |
 | §6, Figs. 13–18 | Planned typed SIMPLE frontend, factorial translation, context lemmas, Theorem 2 and the completion-token extension with discarded-divergence controls. |
 | §7, Figs. 19–34 | Planned CFG-like witness, loop/branch extraction, scheduling and parallel copies, loop and branch fusion, MustEval and guarded LICM. |
 | §8, Figs. 35–37 | Planned parameterized Peggy, checked Java heap/exception/call profile, local linearization failure, Rete/worklist refinement and independently checked PB extraction. |
