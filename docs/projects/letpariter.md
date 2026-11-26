@@ -146,9 +146,10 @@ aligned proof-relevant equations are different judgments.
 
 [Word separation test](../../Silmaril/Proofs/SSA/Isotope/LetParIter/Regression/PairingModel.lean)
 
-The existing `Silmaril` build includes both regression modules. To run just
-these and the lower-tier regressions, use:
+The `Silmaril` library includes both LetParIter regression modules. The
+lower-tier regressions and their axiom reports run with the maintained
+`LetIterWeakTreeSoundnessTests` suite. To run both:
 
 ```bash
-make check CHECK_TARGETS='LetParTests +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.Terms +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.PairingModel'
+make check CHECK_TARGETS='LetIterWeakTreeSoundnessTests +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.Terms +Silmaril.Proofs.SSA.Isotope.LetParIter.Regression.PairingModel'
 ```
