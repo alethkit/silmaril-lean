@@ -235,22 +235,45 @@ private def bindWitness (site : Site) (index : Nat) (locals : Context signature 
   let slot ← freshWitness
   return (slot, (declarationId site (.binder index), .expression (.witness slot)) :: locals)
 
+private def bindGroup (registry : CheckedRegistry) (site : Site) (names : List Surface.Ident)
+    (locals : Context signature fragment) : LowerM (List Nat × Context signature fragment) := do
+  let (slots, inner) ← names.zipIdx.foldlM (init := ([], locals)) fun (slots, inner) (_, index) => do
+    let binderSite := site.child (.binder index)
+    let id := BindingId.declared binderSite
+    let some binding := registry.findBinding id | fail binderSite (.missingBinding id)
+    unless binding.kind = .rigid && binding.slots.isEmpty do fail binderSite (.invalidBinder id)
+    let (slot, inner) ← bindWitness site index inner
+    return (slot :: slots, inner)
+  return (slots.reverse, inner)
+
+private def lowerBounds (registry : CheckedRegistry) (visit : Visit signature fragment)
+    (locals : Context signature fragment) (site : Site) (enabled : fragment = .collections)
+    (kind : Bounded) (bounds : List Surface.Bound) (body : Surface.Expr) :
+    LowerM (Term signature fragment) := do
+  let (groups, inner) ← bounds.zipIdx.foldlM (init := ([], locals)) fun (groups, inner) (group, i) => do
+    let groupSite := site.child (.bound i)
+    let bound ← visit locals (groupSite.child .domain) group.domain
+    let (patterns, inner) ← match group.names with
+      | .names names => do
+        let (slots, inner) ← bindGroup registry groupSite names inner
+        pure (slots.map BinderPattern.name, inner)
+      | .tuple names => do
+        let (slots, inner) ← bindGroup registry groupSite names inner
+        pure ([BinderPattern.tuple slots], inner)
+    return ((patterns, bound) :: groups, inner)
+  return .bounded enabled kind groups.reverse (← visit inner (site.child .body) body)
+
 private def lowerFunction (registry : CheckedRegistry) (visit : Visit signature fragment)
     (locals : Context signature fragment) (site : Site) (enabled : fragment = .collections)
     (bounds : List Surface.Bound) (body : Surface.Expr) : LowerM (Term signature fragment) := do
-  let groupSite := site.child (.bound 0)
-  let [group] := bounds | fail site (.unsupported .functionBounds)
-  let .names [_] := group.names
-    | match group.names with
-      | .tuple _ => fail groupSite (.unsupported .tupleBinder)
-      | .names _ => fail groupSite (.unsupported .functionBounds)
-  let binderSite := groupSite.child (.binder 0)
-  let binder := BindingId.declared binderSite
-  let some binding := registry.findBinding binder | fail binderSite (.missingBinding binder)
-  unless binding.kind = .rigid && binding.slots.isEmpty do fail binderSite (.invalidBinder binder)
-  let bound ← visit locals (groupSite.child .domain) group.domain
-  let (slot, inner) ← bindWitness groupSite 0 locals
-  return .function enabled site binder slot bound (← visit inner (site.child .body) body)
+  match bounds with
+  | [⟨.names [name], domain⟩] =>
+    let groupSite := site.child (.bound 0)
+    let bound ← visit locals (groupSite.child .domain) domain
+    let ([slot], inner) ← bindGroup registry groupSite [name] locals | fail groupSite .invalidExpansion
+    return .function enabled site (declarationId groupSite (.binder 0)) slot bound
+      (← visit inner (site.child .body) body)
+  | _ => lowerBounds registry visit locals site enabled (.map .function) bounds body
 
 private def lowerFields (visit : Visit signature fragment) (locals : Context signature fragment)
     (site : Site) (fields : List Surface.Field) : LowerM (List (String × Term signature fragment)) := do
@@ -362,7 +385,12 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
           return (.declared home, .closure home body context) :: context
         | _ => fail home (.unsupported .letDeclaration)
       visit inner (site.child .body) body
-    | .rigidQuant kind binders body => lowerQuant visit locals site kind binders body
+    | .rigidQuant kind binders body =>
+      if enabled : fragment = .collections then
+        if let .bounded bounds := binders then
+          lowerBounds registry visit locals site enabled (.quant kind) bounds body
+        else lowerQuant visit locals site kind binders body
+      else lowerQuant visit locals site kind binders body
     | .choose (.ident _) domain body =>
       let bound ← domain.mapM (visit locals (site.child .domain))
       let (slot, inner) ← bindWitness site 0 locals
@@ -371,14 +399,30 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
       let bound ← visit locals (site.child .domain) domain
       let (slot, inner) ← bindWitness site 0 locals
       return .filter slot bound (← visit inner (site.child .body) body)
-    | .choose .. | .setFilter .. => unsupported .tupleBinder
+    | .choose (.tuple names) domain body =>
+      if enabled : fragment = .collections then
+        let bound ← domain.mapM (visit locals (site.child .domain))
+        let (slots, inner) ← bindGroup registry site names locals
+        return .chooseTuple enabled slots bound (← visit inner (site.child .body) body)
+      else unsupported .tupleBinder
+    | .setFilter (.tuple names) domain body =>
+      if enabled : fragment = .collections then
+        let bound ← visit locals (site.child .domain) domain
+        let (slots, inner) ← bindGroup registry site names locals
+        return .bounded enabled .filter [([.tuple slots], bound)] (← visit inner (site.child .body) body)
+      else unsupported .tupleBinder
     | .setMap body [⟨.names [_], domain⟩] =>
       let groupSite := site.child (.bound 0)
       let bound ← visit locals (groupSite.child .domain) domain
       let (slot, inner) ← bindWitness groupSite 0 locals
       return .image slot bound (← visit inner (site.child .body) body)
-    | .setMap _ [⟨.tuple _, _⟩] => unsupported .tupleBinder
-    | .setMap .. => unsupported .setMapBounds
+    | .setMap body bounds =>
+      if enabled : fragment = .collections then
+        lowerBounds registry visit locals site enabled (.map .image) bounds body
+      else
+        match bounds with
+        | [⟨.tuple _, _⟩] => unsupported .tupleBinder
+        | _ => unsupported .setMapBounds
     | .setEnum items => return .enum (← operands items)
     | .literal (.natural value) => pure (.numeral value)
     | .literal (.string value) =>

@@ -12,8 +12,8 @@ open Resolution
 universe u
 
 /-- Select a closed constant- or state-level definition in the checked registry.
-In addition to the core data forms, admit single-identifier bounded functions,
-records, function and record sets, graph access, tuples and EXCEPT. -/
+In addition to the core data forms, admit grouped and tuple binders, bounded
+functions, records, function and record sets, graph access, tuples and EXCEPT. -/
 public def lowerState (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
     Except Endpoints.Diagnostic (CheckedExpr signature .collections) :=

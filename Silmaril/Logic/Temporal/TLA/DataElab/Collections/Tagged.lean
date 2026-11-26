@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Logic.Temporal.TLA.DataElab.Collections.Defs
 public import Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Defs
+public import Silmaril.Logic.Temporal.TLA.Data.Tagged.Collections.Binders.Defs
 public import Silmaril.Logic.Temporal.TLA.Data.Tagged.Collections.RecordSet.Defs
 public import Silmaril.Logic.Temporal.TLA.Data.Tagged.Except.Defs
 
@@ -18,6 +19,7 @@ universe u
 /-- Inputs to the fixed policy for malformed collection operands. -/
 inductive InvalidCollection where
   | function (bound : Value.{u})
+  | binderBounds (kind : BinderMap) (bounds : List Value.{u})
   | functionSet (domain range : Value.{u})
   | record (fields : List (String × Value.{u}))
   | recordSet (error : RecordSetError) (fields : List (String × Value.{u}))
@@ -49,6 +51,9 @@ noncomputable def Policy.collectionOperations (policy : Policy.{u})
   domain := Value.domain unspecified
   apply := Value.apply unspecified
   tuple := Value.tuple
+  untuple := Value.untuple
+  product := Value.cartesian
+  invalidBounds := fun kind bounds => invalid (.binderBounds kind bounds)
   string := Value.string
   except := fun root clauses =>
     Value.updateClauses unspecified root (clauses.map fun (keys, replacement) => ⟨keys, replacement⟩)
