@@ -84,6 +84,27 @@ theorem reindexRetainLeft_of_tensorIso {R A B : τ} (f : J.obj (M.obj A) ⟶ J.o
       Obj R ◁ reindexHom J M objIso f :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.reindexRetainLeft_of_tensorIso J M objIso f source target swap
 
+/-- Retaining a source value map needs only the two packed tensor comparisons.
+The value image supplies the required interchange. -/
+theorem reindexRetainLeft_of_valueMap {R A B : τ} (f : M.obj A ⟶ M.obj B)
+    (out : J.obj (M.obj B) ≅ Obj B)
+    (source : RetainedTensorAgrees J M objIso R A)
+    (target : (packedTensorIso J M objIso R B).hom =
+      ((objIso R).hom ▷ J.obj (M.obj B)) ≫ (Obj R ◁ out.hom)) :
+    reindexHom J M objIso (J.map (M.productIso R A).hom ≫ retainLeft J (R := M.obj R) (J.map f) ≫
+      J.map (M.productIso R B).inv) =
+      Obj R ◁ ((objIso A).inv ≫ J.map f ≫ out.hom) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.reindexRetainLeft_of_valueMap
+    J M objIso f out source target
+
+/-- The induced packed exit isomorphism transports the nested result tag. -/
+theorem packedExitIso_resultTag (S D : τ) :
+    J.map (inlMap M D Silmaril.empty ≫ inrMap M S (coprod D Silmaril.empty)) ≫
+        (packedExitIso J M objIso S D).hom =
+      (objIso D).hom ≫ (sumCofan (Seed) D Silmaril.empty).inl ≫
+        (sumCofan (Seed) S (coprod D Silmaril.empty)).inr :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.packedExitIso_resultTag J M objIso S D
+
 /-- Compare the carried route using the retained decoder and two pairs of injection equations.
 The output equations compare the interpreted sum injections. The input equations
 test the interpreted distributor on the two native left-whiskered injections. -/

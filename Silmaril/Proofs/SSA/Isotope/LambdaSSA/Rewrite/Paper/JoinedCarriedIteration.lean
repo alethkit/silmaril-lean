@@ -102,22 +102,22 @@ theorem reindexPackedWhiskerRight_of_tensorIso {R A B : τ} (f : M.obj A ⟶ M.o
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem reindexRetainLeft_from_payload {R A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B))
-    (payload : J.obj (M.obj A) ≅ Obj A)
+    (payload : J.obj (M.obj A) ≅ Obj A) (out : J.obj (M.obj B) ≅ Obj B)
     (source : (packedTensorIso J M objIso R A).hom =
       ((objIso R).hom ▷ J.obj (M.obj A)) ≫ (Obj R ◁ payload.hom))
     (target : (packedTensorIso J M objIso R B).hom =
-      ((objIso R).hom ▷ J.obj (M.obj B)) ≫ (Obj R ◁ (objIso B).hom))
+      ((objIso R).hom ▷ J.obj (M.obj B)) ≫ (Obj R ◁ out.hom))
     (swap : (J.obj (M.obj R) ◁ f) ≫ ((objIso R).hom ▷ J.obj (M.obj B)) =
       ((objIso R).hom ▷ J.obj (M.obj A)) ≫ (Obj R ◁ f)) :
     reindexHom J M objIso (J.map (M.productIso R A).hom ≫ retainLeft J (R := M.obj R) f ≫
       J.map (M.productIso R B).inv) =
-      Obj R ◁ (payload.inv ≫ f ≫ (objIso B).hom) := by
+      Obj R ◁ (payload.inv ≫ f ≫ out.hom) := by
   rw [reindexRetainLeft_tensorIso]
   apply (cancel_epi (packedTensorIso J M objIso R A).hom).mp
   rw [Iso.hom_inv_id_assoc, source, target]
   have cancel : (Obj R ◁ payload.hom) ≫
-      Obj R ◁ (payload.inv ≫ f ≫ (objIso B).hom) =
-      Obj R ◁ (f ≫ (objIso B).hom) := by
+      Obj R ◁ (payload.inv ≫ f ≫ out.hom) =
+      Obj R ◁ (f ≫ out.hom) := by
     rw [← PremonoidalCategory.whiskerLeft_comp, Iso.hom_inv_id_assoc]
   rw [← Category.assoc (J.obj (M.obj R) ◁ f), swap]
   simp only [Category.assoc]
@@ -134,8 +134,19 @@ theorem reindexRetainLeft_of_tensorIso {R A B : τ} (f : J.obj (M.obj A) ⟶ J.o
     reindexHom J M objIso (J.map (M.productIso R A).hom ≫ retainLeft J (R := M.obj R) f ≫
       J.map (M.productIso R B).inv) =
       Obj R ◁ reindexHom J M objIso f :=
-  reindexRetainLeft_from_payload J M objIso f (objIso A) source target swap
+  reindexRetainLeft_from_payload J M objIso f (objIso A) (objIso B) source target swap
 
+
+theorem reindexRetainLeft_of_valueMap {R A B : τ} (f : M.obj A ⟶ M.obj B)
+    (out : J.obj (M.obj B) ≅ Obj B)
+    (source : RetainedTensorAgrees J M objIso R A)
+    (target : (packedTensorIso J M objIso R B).hom =
+      ((objIso R).hom ▷ J.obj (M.obj B)) ≫ (Obj R ◁ out.hom)) :
+    reindexHom J M objIso (J.map (M.productIso R A).hom ≫ retainLeft J (R := M.obj R) (J.map f) ≫
+      J.map (M.productIso R B).inv) =
+      Obj R ◁ ((objIso A).inv ≫ J.map f ≫ out.hom) :=
+  reindexRetainLeft_from_payload J M objIso (J.map f) (objIso A) out source target
+    ((FreydCategory.image_central J f).2 (objIso R).hom).symm
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem carriedRoute_eq_iff_of_distributor_injections (X S D : τ)
@@ -227,7 +238,7 @@ private theorem reindexPackedWhiskerLeft_from_payload {X A B : τ} (f : M.obj A 
     (target : RetainedTensorAgrees J M objIso X B) :
     reindexHom J M objIso (J.map (packedWhiskerLeft M X A B f)) =
       whiskerLeft (Seed) (Obj X) (payload.inv ≫ J.map f ≫ (objIso B).hom) := by
-  have h := reindexRetainLeft_from_payload J M objIso (J.map f) payload source target
+  have h := reindexRetainLeft_from_payload J M objIso (J.map f) payload (objIso B) source target
     ((FreydCategory.image_central J f).2 (objIso X).hom).symm
   have retain : retainLeft J (R := M.obj X) (J.map f) = J.map (M.obj X ◁ f) := by
     simp [retainLeft, PremonoidalCategory.leftTensor, Functor.StrongPremonoidal.tensor_naturality_right]
@@ -289,6 +300,17 @@ set_option backward.isDefEq.respectTransparency false in
     Functor.mapIso_inv, Category.assoc, inrMap, J.map_comp]
   rw [← Category.assoc, sumCofan_inr_sumIso_hom (Seed) A B, coprod.inr_map_assoc,
     inr_coprodComparison_assoc]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem packedExitIso_resultTag (S D : τ) :
+    J.map (inlMap M D Silmaril.empty ≫ inrMap M S (coprod D Silmaril.empty)) ≫
+        (packedExitIso J M objIso S D).hom =
+      (objIso D).hom ≫ (sumCofan (Seed) D Silmaril.empty).inl ≫
+        (sumCofan (Seed) S (coprod D Silmaril.empty)).inr := by
+  apply (cancel_mono (packedExitIso J M objIso S D).inv).mp
+  rw [Category.assoc, Iso.hom_inv_id, Category.comp_id, Category.assoc, Category.assoc]
+  unfold packedExitIso
+  rw [interpretedSumIso_inr, interpretedSumIso_inl_assoc, Iso.hom_inv_id_assoc, J.map_comp]
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem retainedPackedExitsAgree_of_injections (X S D : τ)
