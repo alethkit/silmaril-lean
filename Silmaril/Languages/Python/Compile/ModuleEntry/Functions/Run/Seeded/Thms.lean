@@ -75,6 +75,17 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_innerPreparationError
     outerFound failed
 
+theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
+    (lowerCallOperand (.intDivMod op numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intDivMod op numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intDivMod_operand_agrees
+    space globals heap frame op numerator divisor
+
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
     (numerator divisor : Int) :
