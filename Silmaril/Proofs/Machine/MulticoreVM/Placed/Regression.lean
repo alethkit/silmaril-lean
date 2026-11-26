@@ -8,7 +8,7 @@ public import Silmaril.Semantics.ConcurrentTrace.Thms
 namespace Silmaril.Machine.MulticoreVM.Placed
 
 open CategoryTheory
-open Institution (Sig placedToConcurrent)
+open Institution (Sig placedToNamed namedToConcurrent)
 open Silmaril.Semantics.ConcurrentTrace (Word ofWord ofWord_eq_iff swap swap_eq_iff)
 
 private abbrev Rig (n : Nat) := Config (Fin n) Toy.ThreadId Unit Toy.Core
@@ -110,7 +110,7 @@ private noncomputable def renameOne : oneSig ⟶ renamedSig where
   event := fun value => value == 9
 
 -- Typed renaming takes the original participant list through the institution and quotient.
-example : placedToConcurrent.app renamedSig (Sig.Hom.mapPlaced renameOne oneWord) =
+example : (placedToNamed ≫ namedToConcurrent).app renamedSig (Sig.Hom.mapPlaced renameOne oneWord) =
     ofWord ([.sync [some 0, some 1], .event (some 1) true] : renamedSig.NamedWord) := rfl
 
 private def pairThreads : Toy.Config := Toy.put (Toy.init 0 ⟨4, [.emit]⟩) 1 ⟨9, [.emit]⟩

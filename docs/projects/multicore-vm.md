@@ -82,12 +82,9 @@ quotient. Two threads time-sharing a core give commuting thread events whose cor
 images can be dependent. Moving one thread between cores can give the opposite
 discrepancy. [Placement regressions][placed-tests]
 
-The institution adapter composes `placedToNamed` with `namedToConcurrent`
-as `placedToConcurrent`, which agrees with `Placed.threadTrace` and commutes
-with typed signature renamings. `placed_concurrent_subset` compares the
-state-erased concurrent behavior of all successful placed schedules with
-the abstract institution model. The natural transformation `placedToCore`
-projects separately to chronological core-local words with opaque sync
+In the institution adapter, `placedToNamed ≫ namedToConcurrent` agrees with
+`Placed.threadTrace` and commutes with typed signature renamings. The separate
+`placedToCore` projects to chronological core-local words with opaque sync
 markers. [Institution adapter][placed-inst] · [Institution profiles][inst]
 
 ## Physical scheduler policies
