@@ -48,7 +48,7 @@ theorem packed_letCase_tree (M : Model (κ := κ) Events P.Instr) (admission : A
       term M.raw env (erase (admission.letCase ranked).1) =
       (region M.raw env admission.versioned.table.code.erase >>= fun p =>
         pure (Region.packedExitValue p.1 p.2)) :=
-    FlatLetCase.toLetCase_tree M.raw typed ranked env
+    FlatLetCase.toLetCaseReachable_tree M.raw typed ranked env
   have letcase :
       (admission.letCaseTree M ranked x >>= fun b => pure (encodeValue C B b)) =
         term M.raw env (erase (admission.letCase ranked).1) :=

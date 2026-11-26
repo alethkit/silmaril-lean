@@ -29,16 +29,22 @@ local notation "ports" => numberedInterface context exits external
 local notation "exitTypes" => Interface.external (LiveOut.exitInterface ports fields)
 local notation "B" => Region.packedExitType (List.ofFn exitTypes)
 
-/-- Check the actual generated flat table for acyclicity of all its written
-local edges. The entry need not itself be a jump. -/
+/-- Check the rows reachable from the actual generated entry. All written
+entry branches contribute roots. The table and its interface stay intact. -/
 def Admission.acyclicCheck (admission : Admission a) : Bool :=
-  Rank.check (FlatLetCase.localTargets admission.versioned.table.code)
+  FlatLetCase.entryCheck admission.versioned.table.code
+
+/-- An existing whole-table rank certificate still admits the expansion. -/
+theorem Admission.acyclicCheck_of_all (admission : Admission a)
+    (ranked : Rank.check (FlatLetCase.localTargets admission.versioned.table.code) = true) :
+    admission.acyclicCheck = true :=
+  Rank.checkFrom_of_check _ _ ranked
 
 /-- Expand the admitted result through the existing structured acyclic
 grammar and LetCase translation. -/
 noncomputable def Admission.letCase (admission : Admission a) (ranked : admission.acyclicCheck = true) :
     Operand P.Instr context B :=
-  FlatLetCase.toLetCase admission.versioned.table.typed ranked
+  FlatLetCase.toLetCaseReachable admission.versioned.table.typed ranked
 
 variable [AtomValues κ] {Events : Type u → Type u}
 

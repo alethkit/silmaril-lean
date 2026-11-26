@@ -8,6 +8,7 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Case
 
 open Silmaril.SSA.LambdaRTL
 open LambdaSSA (FiniteCFG Region)
+open LambdaSSA.Acyclic
 open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (region Transfer)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
@@ -130,20 +131,33 @@ private def done (right : Bool) (n : Nat) : CFG.Cyclic.Transfer Reg Label (Value
   (if right then rightExit else leftExit, atom n, upd σ ⟨2⟩ (atom n))
 
 set_option maxRecDepth 2048 in
-private theorem named_result (right : Bool) (n : Nat) :
-    LiveOut.observe (P := signature) model ports fields lowered.source (input right n) =
+private theorem named_result_with_tail (source : CFG Reg Label signature.Instr)
+    (tail : List (Label × CFG.Block Reg Label signature.Instr))
+    (entry : source.entry = lowered.source.entry) (rows : source.blocks = table ++ tail)
+    (leftExitFree : @List.lookup Label _ instBEqOfDecidableEq leftExit tail = none)
+    (rightExitFree : @List.lookup Label _ instBEqOfDecidableEq rightExit tail = none)
+    (right : Bool) (n : Nat) :
+    LiveOut.observe (P := signature) model ports fields source (input right n) =
       pure (output right n) := by
-  let step := CFG.Cyclic.step (treeModel model.raw) lowered.source.blocks
+  let step := CFG.Cyclic.step (treeModel model.raw) source.blocks
   have selectArm : step (start right n) = pure (.inr (done right n)) := by
     cases right <;>
-      simp [step, loweredTable, table, CFG.Cyclic.step, start, done, CFG.Body.exec, CFG.Term.exec,
+      simp [step, rows, table, CFG.Cyclic.step, start, done, CFG.Body.exec, CFG.Term.exec,
         Op.eval, Val.eval, treeModel, value, upd]
   have exit : step (done right n) = pure (.inl (done right n)) := by
-    cases right <;> rfl
-  have enter : CFG.Cyclic.run (treeModel model.raw) lowered.source
+    have outside : @List.lookup Label _ instBEqOfDecidableEq (done right n).1 source.blocks = none := by
+      rw [rows]
+      cases right
+      · exact leftExitFree
+      · exact rightExitFree
+    unfold step CFG.Cyclic.step
+    rw [outside]
+  have enter : CFG.Cyclic.run (treeModel model.raw) source
       (store ports.names ports.context (input right n)) = iter step (start right n) := by
+    unfold CFG.Cyclic.run
+    rw [entry]
     cases right <;> rfl
-  change (CFG.Cyclic.run (treeModel model.raw) lowered.source
+  change (CFG.Cyclic.run (treeModel model.raw) source
     (store ports.names ports.context (input right n)) >>= _) = _
   rw [enter, congrFun (iterate_fixpoint step) (start right n), selectArm, pure_bind]
   change (iter step (done right n) >>= _) = _
@@ -151,6 +165,11 @@ private theorem named_result (right : Bool) (n : Nat) :
   change (pure (done right n) >>= _) = _
   rw [pure_bind]
   cases right <;> rfl
+
+private theorem named_result (right : Bool) (n : Nat) :
+    LiveOut.observe (P := signature) model ports fields lowered.source (input right n) =
+      pure (output right n) :=
+  named_result_with_tail lowered.source [] rfl (by simpa using loweredTable) rfl rfl right n
 
 private def packedInput (right : Bool) (n : Nat) : Value Runtime :=
   encodeValue (AtomValues.carrier (κ := SortName))
@@ -327,6 +346,66 @@ example : packetLocalCase.program.denote model = entryPacketLocal.program.denote
 example : packetLocalCase.program.denote model ≠ swappedPacketLocal.program.denote model :=
   fun same => equation_refutes ((packetLocalCase.satisfies_iff_packed model swappedPacketLocal
     packetLocalCaseRank swappedRank).2 same)
+
+-- The second row loops to itself. Only the right arm of the reached first
+-- row differs, making the same cycle reachable in one of the two tables.
+private def loopFlat (reachable : Bool) : FiniteCFG signature.Instr 2 ports.exits.length ports.slots where
+  entry := .br 0 (.bv 0)
+  block := Fin.cases
+    (.case (.bv 0)
+      (.br 2 (.pair (.bv 0) (.pair (.bv 0) .unit)))
+      (if reachable then .br 1 (.bv 0) else .br 3 (.pair (.bv 0) (.pair (.bv 0) .unit))))
+    (fun _ => .br 1 (.bv 0))
+
+private def loopLowered (reachable : Bool) : Lowered ports fields (loopFlat reachable) :=
+  (lowerFresh (fun i => ⟨7 + i.val⟩) ports.context ports.exits ports.external fields (loopFlat reachable)).get
+    (by cases reachable <;> decide)
+
+private def loopAdmission (reachable : Bool) : PacketLocal.Admission (loopLowered reachable) :=
+  PacketLocal.admit (loopLowered reachable) (Fin.cases choice (fun _ => num)) (by cases reachable <;> decide)
+
+example :
+    List.ofFn (fun i => (FlatLetCase.localTargets (loopAdmission false).versioned.table.code i).map Fin.val) =
+      [[], [1]] := by decide
+
+example :
+    Positional.Rank.check (FlatLetCase.localTargets (loopAdmission false).versioned.table.code) = false :=
+  by decide
+
+private theorem deadLoopRank : (loopAdmission false).acyclicCheck = true := by decide
+
+example :
+    List.ofFn (fun i => (FlatLetCase.localTargets (loopAdmission true).versioned.table.code i).map Fin.val) =
+      [[1], [1]] := by decide
+
+example : (loopAdmission true).acyclicCheck = false := by decide
+
+private def deadRow : List (Label × CFG.Block Reg Label signature.Instr) :=
+  [(⟨8⟩, ⟨⟨1⟩, .term (.br ⟨8⟩ (.var ⟨1⟩))⟩)]
+
+private theorem deadLoop_result (right : Bool) (n : Nat) :
+    LiveOut.observe (P := signature) model ports fields (loopLowered false).source (input right n) =
+      pure (output right n) :=
+  named_result_with_tail (loopLowered false).source deadRow rfl rfl rfl rfl right n
+
+-- The actual packed dispatcher still contains both rows. Expanding only
+-- the first preserves both caller-dependent exit tags and the selected live-out.
+example (right : Bool) (n : Nat) (ambient : Env Runtime) :
+    region model.raw (extend ambient (packedInput right n)) (loopAdmission false).program.code =
+      pure (output right n) :=
+  ((loopAdmission false).packed_tree model (input right n) ambient).trans (deadLoop_result right n)
+
+private theorem deadLoop_satisfies : (caseRoom).Sat (algebra (P := signature) model)
+    ((loopAdmission false).equation packetLocalCase deadLoopRank packetLocalCaseRank) := by
+  apply ((loopAdmission false).satisfies_iff_named model packetLocalCase deadLoopRank packetLocalCaseRank).2
+  intro x
+  rcases x with ⟨⟨⟩, left | right⟩
+  · exact (deadLoop_result false left.down).trans (named_result false left.down).symm
+  · exact (deadLoop_result true right.down).trans (named_result true right.down).symm
+
+example : (loopAdmission false).program.denote model = packetLocalCase.program.denote model :=
+  ((loopAdmission false).satisfies_iff_packed model packetLocalCase deadLoopRank packetLocalCaseRank).1
+    deadLoop_satisfies
 
 end Equation
 

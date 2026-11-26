@@ -966,8 +966,10 @@ the default layout requested the overwritten atom again.
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by
-the opt-in compiler and retained by its typed admission. The existing
-finite rank checker must accept all written internal edges. Expansion
+the opt-in compiler and retained by its typed admission. The
+finite rank checker requires a removal round for each written local target
+of the entry. Ranked rows have strictly earlier ranked successors, so
+expansion follows precisely the reachable portion of the written CFG. Expansion
 reuses the structured acyclic `Code` let, case and join grammar,
 `Code.toLetCase`, and `FiniteExit.tag`. A local jump evaluates its argument
 before entering the target, with a typed weakening that skips the source's
@@ -988,8 +990,10 @@ suffix-lookup runner when its `IsForward` hypothesis holds.
 
 The sum fixture expands the actual opt-in result and checks both caller
 choices at distinct ordered exits with the same payload type and an
-observed assigned live-out. The accepted cyclic packet-local fixture
-fails the acyclic rank check.
+observed assigned live-out. An admitted addition of a dead self-loop
+passes the entry check and preserves both results. Redirecting a case arm
+to that self-loop is rejected. The original reachable back-edge fixture
+also fails the rank check.
 
 [Ranked expansion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FlatLetCase/Thms.lean)
 · [Typed interpreter square](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Thms.lean)
@@ -1011,7 +1015,7 @@ equality of the native typed trees.
 give preservation and reflection for the actual named runners and
 their existing packed LambdaSSA denotations in the same compatible
 typed and erased primitive model. Both admissions require the
-packet-local checker and the finite rank check. The exact LetCase
+packet-local checker and the entry rank check. The exact LetCase
 signature here uses the same universe for instructions and type
 codes, with the Boolean effect sort and empty free-name type lifted
 to that universe.
@@ -1027,8 +1031,19 @@ source are separate operations.
 The typed sum fixture proves the equation between an internal-block
 and an entry-only program for every caller input. Reversing the ordered
 exits refutes the equation on the caller's left injection, even though
-the payload and selected live-out at that input agree.
+the payload and selected live-out at that input agree. Adding an
+unreachable self-loop preserves the equation at the same interface.
+
+`Rank.checkFrom_iff` characterizes acceptance by a bounded decreasing rank
+on a successor-closed set containing all entry targets. The check counts
+both arms of every written case. The LetCase expansion reuses the original
+block indices, packet typing, caller captures and ordered exits.
+`compileReachable_tree` compares against the interpreter of the whole
+admitted table, including the unexpanded rows. The earlier whole-table
+check remains sufficient, and the entire original table must still
+pass typed packet-local admission.
 
 [Weak-tree model and reduct](../../Silmaril/SSA/Isotope/Institution/LetCase/WeakITree/Thms.lean)
+· [Entry rank criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean)
 · [Exact satisfaction comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Institution/Thms.lean)
 · [Ordered-exit regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
