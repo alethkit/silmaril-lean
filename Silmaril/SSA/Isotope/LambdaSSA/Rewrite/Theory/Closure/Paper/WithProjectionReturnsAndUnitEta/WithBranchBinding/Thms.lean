@@ -42,6 +42,11 @@ theorem eqv_normalize_of_guardedSeed
     Extension.Eqv Seed Γ r.bindBranchArguments s.bindBranchArguments L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.eqv_normalize_of_guardedSeed guarded h
 
+/-- The typed branch rule normalizes arbitrary regions in any extended seed. -/
+theorem bindBranchArguments_eqv_addBinding (hr : HasType Γ r L) :
+    Extension.Eqv (AddBinding Seed) Γ r r.bindBranchArguments L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.bindBranchArguments_eqv hr
+
 /-- Adjoining the typed branch rule to a guarded seed preserves and reflects its guarded equality. -/
 theorem guarded_eqv_iff_of_guardedSeed
     (guarded : ∀ {Γ r s L}, Seed Γ r s L → ValueBranches Γ r L ∧ ValueBranches Γ s L)
@@ -72,7 +77,7 @@ theorem eqv_normalize (h : Eqv Γ r s L) : JoinedEqv Γ r.bindBranchArguments s.
 
 /-- Branch binding is a typed rewrite for every region in the opt-in relation. -/
 theorem bindBranchArguments_eqv (hr : HasType Γ r L) : Eqv Γ r r.bindBranchArguments L :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedBranchBinding.bindBranchArguments_eqv hr
+  bindBranchArguments_eqv_addBinding hr
 
 /-- Opt-in equality compares exactly the normalized representatives in the old relation. -/
 theorem eqv_iff_normalized (hr : HasType Γ r L) (hs : HasType Γ s L) :
