@@ -10,6 +10,7 @@ namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.Nativ
 
 open Category.FiniteIteration
 open CFG.Dependent (Packet)
+open TwoRequest (Tag)
 
 universe u
 
@@ -17,14 +18,19 @@ variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : Lis
 
 /-- The acyclic comparison's local query and exit clauses, with a relation
 on the routed successors in place of recursive tree comparison. -/
-def Head.Matches (rel : Packet R → Packet T → Prop) : Head S R → Head S T → Prop
+def Head.MatchesWith (returns : Tag → Tag → Prop) (rel : Packet R → Packet T → Prop) :
+    Head S R → Head S T → Prop
   | _, .exit _ true => True
-  | .exit i false, .exit j false => i = j
+  | .exit i false, .exit j false => returns i j
   | .request f arg next, .request g arg' next' => ∃ keys : f = g,
       arg.val = arg'.val ∧ ∀ reply : Packet (S.replies f),
         let target : Packet (S.replies g) := keys ▸ reply
         rel (next reply.1 reply.2) (next' target.1 target.2)
   | _, _ => False
+
+/-- The ordinary unit-result comparison specializes terminal agreement to ordered tags. -/
+def Head.Matches (rel : Packet R → Packet T → Prop) : Head S R → Head S T → Prop :=
+  Head.MatchesWith Eq rel
 
 def Head.checkPair [DecidableEq Φ] (replies : ReplyEnumeration S)
     (related : Packet R → Packet T → Bool) : Head S R → Head S T → Bool

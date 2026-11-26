@@ -28,15 +28,6 @@ universe v
 
 variable {Φ : Type} {R : List Syntax.Ty} {A : Syntax.Ty} {σ : Type v}
 
-private def next (g : Endpoint (Recognize.signature Φ) R A)
-    (caller : Syntax.Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
-    (p : Packet R × σ) : (Packet R × σ) ⊕ Outcome (Exits A).length Unit σ :=
-  match (g.control.head caller p.1).execute prim p.2 with
-  | .exit i _ t => .inr (.ret i (g.returnPacket caller p.1 i).2.val t)
-  | .repeat q t => .inl (q, t)
-  | .fault t => .inr (.fault t)
-  | .diverge => .inr .diverge
-
 private def liftOut : Outcome (Exits A).length Unit σ → Outcome 2 (RunTree Φ) σ
   | .ret i a s => .ret i (Recognize.encodeValue (fun _ => diverge) a) s
   | .fault s => .fault s
@@ -49,7 +40,7 @@ theorem observe_roots_on (g : Endpoint (Recognize.signature Φ) R A)
     (p : Packet R) (s : σ) :
     decorateOn prim g.control.selected (observeOn prim (tree p) s decode) A =
       g.observeAt caller prim p s := by
-  let run := next g caller prim
+  let run := g.transition caller prim
   let start := (p, s)
   let native (x : Packet R × σ) : Fin R.length × Value Unit × σ := (x.1.1, x.1.2.val, x.2)
   let named (x : Packet R × σ) : Fin Loop.length × Value (RunTree Φ) × σ := (0, .atom (tree x.1), x.2)
@@ -60,7 +51,7 @@ theorem observe_roots_on (g : Endpoint (Recognize.signature Φ) R A)
         | .inr o => WithTop.some {Feedback.external R (Exits A) o} := by
     change g.feedback caller prim (blockPoint x.1 x.2) = _
     rw [g.feedback_step]
-    unfold run next
+    unfold run Endpoint.transition
     cases (g.control.head caller x.1).execute prim x.2 <;> rfl
   have namedRows (x : Packet R × σ) :
       feedbackOn prim decode (.block (named x).1 (named x).2.1 (named x).2.2) =
@@ -69,7 +60,7 @@ theorem observe_roots_on (g : Endpoint (Recognize.signature Φ) R A)
         | .inr o => WithTop.some {Feedback.external Loop LambdaSSA.UB.Overlay.Shape.TwoRequest.Exits (liftOut (A := A) o)} := by
     change treeStepOn prim (tree x.1) x.2 decode = _
     rw [roots x.1]
-    unfold run next
+    unfold run Endpoint.transition
     cases g.control.head caller x.1 with
     | exit i selected =>
       simp only [Head.execute, treeStepOn, out_ret, Part.some_dom, ↓reduceDIte, Part.get_some,

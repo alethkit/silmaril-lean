@@ -94,6 +94,17 @@ def Endpoint.route {σ : Type v} (g : Endpoint S R A) (caller : Syntax.Payload (
   | .fault t => WithTop.some {Outcome.fault t}
   | .diverge => WithTop.some {Outcome.diverge}
 
+/-- The deterministic local transfer keeps the typed incoming packet on a
+branch and the complete ordered result on a return. -/
+def Endpoint.transition {σ : Type v} (g : Endpoint S R A)
+    (caller : Syntax.Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+    (p : Packet R × σ) : (Packet R × σ) ⊕ Outcome (Exits A).length Unit σ :=
+  match (g.control.head caller p.1).execute prim p.2 with
+  | .exit i _ t => .inr (.ret i (g.returnPacket caller p.1 i).2.val t)
+  | .repeat next t => .inl (next, t)
+  | .fault t => .inr (.fault t)
+  | .diverge => .inr .diverge
+
 noncomputable def Endpoint.feedback {σ : Type v} (g : Endpoint S R A)
     (caller : Syntax.Payload (R.get g.control.entry))
     (prim : Syntax.StatePrimitives Φ σ) : Feedback.Run R (Exits A) Unit σ :=
