@@ -110,18 +110,28 @@ variable {fits : Fits preds} {entry : Memory.Graph args}
 variable {arm : Occurrence preds → Memory.Graph args} {candidate : Candidate args preds}
 variable {suffix : Memory.Graph (.word :: args)} {programs : Programs cells args preds}
 
+theorem lowerWithEntry_replay {emission : Emission cells args preds}
+    (emitted : lowerWithEntry preds fits entry version arm candidate suffix input facts = some emission) :
+    cut facts version entry = some emission.edit ∧ facts.Valid input ∧
+      (∀ i, checkArm emission.edit.address (arm i) (candidate i) input = true) ∧
+      emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
+        lowerBank preds fits cells (some emission.edit.retained) arm suffix⟩ := by
+  obtain ⟨edit, accepted, packed⟩ := Option.bind_eq_some_iff.mp emitted
+  split at packed
+  next checked =>
+    cases Option.some.inj packed
+    obtain ⟨valid, arms⟩ := Bool.and_eq_true_iff.mp checked
+    exact ⟨accepted, (facts.check_iff_valid input).mp valid,
+      fun i => List.all_eq_true.mp arms i (List.mem_finRange i), rfl⟩
+  next => contradiction
+
 theorem lower_replay (emitted : lower preds fits entry version arm candidate suffix input facts = some programs) :
     ∃ edit, cut facts version entry = some edit ∧ facts.Valid input ∧
       (∀ i, checkArm edit.address (arm i) (candidate i) input = true) ∧
       programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
         lowerBank preds fits cells (some edit.retained) arm suffix⟩ := by
-  obtain ⟨edit, accepted, packed⟩ := Option.bind_eq_some_iff.mp emitted
-  split at packed
-  next checked =>
-    obtain ⟨valid, arms⟩ := Bool.and_eq_true_iff.mp checked
-    exact ⟨edit, accepted, (facts.check_iff_valid input).mp valid,
-      fun i => List.all_eq_true.mp arms i (List.mem_finRange i), (Option.some.inj packed).symm⟩
-  next => contradiction
+  obtain ⟨emission, accepted, rfl⟩ := Option.map_eq_some_iff.mp emitted
+  exact ⟨emission.edit, lowerWithEntry_replay accepted⟩
 
 theorem lower_readbacks (emitted : lower preds fits entry version arm candidate suffix input facts = some programs)
     {edit : Cut args [] 0} (accepted : cut facts version entry = some edit)

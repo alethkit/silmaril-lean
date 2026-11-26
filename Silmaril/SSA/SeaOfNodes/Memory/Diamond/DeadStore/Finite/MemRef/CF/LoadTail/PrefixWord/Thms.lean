@@ -55,6 +55,21 @@ variable {fits : Fits preds} {entry : Memory.Graph args}
 variable {arm : Occurrence preds → Memory.Graph args} {candidate : Candidate args preds}
 variable {suffix : Memory.Graph (.word :: args)} {programs : Programs cells args preds}
 
+/-- The checked native edit and both actual artifacts come from the same
+cut and invocation. Each original occurrence passes its own route check. -/
+theorem lowerWithEntry_replay {emission : Emission cells args preds}
+    (emitted : lowerWithEntry preds fits entry version arm candidate suffix input facts = some emission) :
+    cut facts version entry = some emission.edit ∧ facts.Valid input ∧
+      (∀ i, checkArm emission.edit.address (arm i) (candidate i) input = true) ∧
+      emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
+        lowerBank preds fits cells (some emission.edit.retained) arm suffix⟩ :=
+  Proofs.lowerWithEntry_replay emitted
+
+theorem lowerWithEntry_programs {emission : Emission cells args preds}
+    (emitted : lowerWithEntry preds fits entry version arm candidate suffix input facts = some emission) :
+    lower preds fits entry version arm candidate suffix input facts = some emission.programs := by
+  simp [lower, emitted]
+
 /-- Successful emission uses the checked edit and the original occurrence
 bank and continuation. -/
 theorem lower_replay (emitted : lower preds fits entry version arm candidate suffix input facts = some programs) :
