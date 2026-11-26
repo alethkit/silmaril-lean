@@ -714,3 +714,34 @@ direct arm, and exit 0 with payload and live-out 7 on the arm that crosses
 the new forwarding block. Both internal label collisions and collisions
 with declared exits are rejected.
 [Branching regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### Whole-run agreement for exact body-local reverse readback
+
+`Admission.bodyLocal_commutes` takes a checked ordered φ admission and a
+successful `lowerCheckedWith`. At one supplied typed input record and under
+one compatible primitive model, it identifies the actual `lowerWith` output
+and equates its attached mutable RTL run with the independent φ runner and
+the encoded result of typed packed LambdaSSA denotation. The common weak
+tree retains visible requests and replies, the declared exit index, and its
+payload followed by the ordered live-out fields. The φ evaluator reads each
+row from the predecessor snapshot. Exact readback recovers the flat table
+and its packet interfaces. `Admission.observe_recompiled_denote` also covers
+the packed program obtained by successful typed re-admission of that RTL.
+[Whole-run theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Execution/Thms.lean)
+
+The cyclic proof lifts packet-closed step agreement through Elgot iteration
+without a rank bound. At a resumed transfer, `Lowered.resumeAttached_eq`
+erases carried-store differences at a fixed label and packet.
+`Lowered.resumeSaved_eq` compares that continuation with the actual
+versioned dispatcher. It uses the checked destination slot layout and
+agreement of the carried store with the supplied record on those slots.
+The branching fixture derives this agreement at reached transfers from
+the saved-capture invariant.
+[Continuation theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Execution/Thms.lean)
+
+The polling regression uses different entry and block allocations and keeps
+an actual self-edge. Its trace requests `tick 2 5`, `tick 5 2` after the
+continuing reply, then `tick 11 11`. The later reply returns 23 with live-outs
+5 and 2 in that order. The generated-split corollary retains the separate
+check on the combined internal and exit labels.
+[Polling regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)

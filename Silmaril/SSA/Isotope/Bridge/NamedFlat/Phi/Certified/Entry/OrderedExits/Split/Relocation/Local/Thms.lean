@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Relocation.Local.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.Relocation.Thms
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Execution.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.RelocationLocal
 
 public section
@@ -49,5 +50,34 @@ theorem GeneratedSplit.reverseRelocatedByBody_spec (split : GeneratedSplit plan 
           some split.target.code :=
   Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.RelocationLocal.reverse_spec
     split seed labels accepted
+
+section Execution
+
+open LambdaSSA.Semantics (Env extend)
+open LambdaSSA.Semantics.Interaction (region)
+open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
+open Silmaril.Isotope.Semantics (encodeValue)
+open NamedFlat.Entry.Record (Input)
+open NamedFlat.Entry.Reverse (observeAttached)
+
+variable [AtomValues κ] {Events : Type u → Type u}
+
+/-- The original independent φ graph agrees with the attached RTL emitted
+for its checked split and with that split's packed LambdaSSA execution. -/
+theorem GeneratedSplit.bodyLocal_commutes (split : GeneratedSplit plan a) (seed : ReverseSeed a)
+    (labels : Fin _ → Option K) {output : Lowered Ports fields split.target.code}
+    (accepted : split.reverseRelocatedByBody seed labels = some output)
+    (M : Model (κ := κ) Events P.Instr) (record : Input context)
+    (ambient : Env (Sigma (AtomValues.carrier (κ := κ)))) :
+    Function.Injective (SSA.FiniteSum.append labels (fun i : Fin exits.length => exits[i])) ∧
+      a.observe M record = observeAttached M Ports fields output.source record ∧
+      a.observe M record =
+        region M.raw (extend ambient (encodeValue _ _ record)) (Program.ofCFGEntry split.target.typed).code :=
+  let same := split.observe_eq M record
+  ⟨(split.reverseRelocatedByBody_spec seed labels accepted).1,
+    same.trans (split.target.observe_attached output M record),
+    same.trans (split.target.observe_packed M record ambient)⟩
+
+end Execution
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits

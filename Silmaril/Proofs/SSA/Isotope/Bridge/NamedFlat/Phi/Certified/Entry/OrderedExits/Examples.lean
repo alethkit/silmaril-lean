@@ -25,7 +25,7 @@ open Silmaril.Isotope.Semantics (encodeValue)
 open NamedFlat.Entry.Record (Input field)
 open NamedFlat.Entry.Reverse.Straight (admitWithCaptures keepsEntryCapture keepsEntryCaptures checks encode_captures)
 open NamedFlat.Entry.Reverse (Lowered Registers lower withLiveOut lower_attached_count
-  elaborateAt_packetClosed)
+  elaborateAt_packetClosed observeAttached)
 open NamedFlat.Entry (store store_at inputEnv)
 
 private abbrev SortName := ULift.{1} Unit
@@ -715,12 +715,6 @@ theorem branchingLocal_step_store_independent (label : Option Key) (arg : Value 
 private def branchingOriginalSlots : List (Fin ports.slots) := [0, 1]
 private def branchingLocalSlots : List (Fin ports.slots) := [0, 1, 3]
 
-example (input : Input context) {p : Jump}
-    (reached : Reached (withLiveOut (P := signature) branchingFields branchingLocal.source) input p) :
-    ∀ i ∈ branchingLocalSlots, p.2.2 ⟨i.val⟩ = inputEnv context input i.val :=
-  agrees_at_reached branchingLocal branchingLocalSlots (by decide) (by unfold paramsDisjoint; decide)
-    input reached
-
 private def branchingRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports branchingFields
     branchingLowered.source :=
   admitWithCaptures branchingLowered branching.internal branchingOriginalSlots (by decide) (by decide) (by decide)
@@ -810,6 +804,29 @@ theorem branchingLocal_packed_result (chooseLeft : Bool) (ambient : Env Runtime)
       ((branching.observe_roundTrip branchingLowered branchingRecompiled model
         (record olderX olderY chooseLeft) ambient).symm.trans
           (branching_source_result olderX olderY chooseLeft))
+
+/-- Run the emitted RTL with its attached reads, through the new commuting
+interface, on both branches of the same supplied typed input record. -/
+theorem branchingLocal_attached_result (chooseLeft : Bool) :
+    observeAttached model ports branchingFields branchingLocal.source (record olderX olderY chooseLeft) =
+      pure (branchingResult chooseLeft) :=
+  ((branchingSplit.bodyLocal_commutes branchingSeed splitLabels branchingLocalAccepted model
+    (record olderX olderY chooseLeft) (fun _ => .unit)).2.1).symm.trans
+      (branching_source_result olderX olderY chooseLeft)
+
+example (input : Input context) (p : Jump)
+    (reached : Reached (withLiveOut (P := signature) branchingFields branchingLocal.source) input p)
+    (route : CFG.Cyclic.Versioning.destinations (withLiveOut branchingFields branchingLocal.source) p.1 =
+      some (branchingLocalSlots.map fun i => (⟨i.val⟩ : Reg))) :
+    let attached := withLiveOut branchingFields branchingLocal.source
+    obs <$> iter (CFG.Cyclic.step runtimeModel attached.blocks) p =
+      iter (CFG.Cyclic.stepSSA runtimeModel (CFG.Cyclic.Versioning.compile attached).blocks
+        (store (fun i : Fin ports.slots => ((⟨i.val⟩ : Reg), 0)) context input))
+        (p.1, .pair p.2.1 (branchingLocalSlots.foldr
+          (fun i tail => .pair (inputEnv context input i.val) tail) .unit)) :=
+  branchingLocal.resumeSaved_eq model branchingLocalSlots input p route
+    (agrees_at_reached branchingLocal branchingLocalSlots (by decide) (by unfold paramsDisjoint; decide)
+      input reached)
 
 end BranchingConflict
 
