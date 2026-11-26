@@ -14,7 +14,10 @@ closes a supplied table of ground obligations and checks a cyclic
 selection with structural row evidence. The
 [bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
 generates and checks single-result PEG candidates, and selects by an
-explicit static metric.
+explicit static metric. The
+[contextual optimizer](peggy-contextual-optimizer.md) rewrites shared
+internal rows across ordered outputs and counts distinct reachable
+application vertices.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
