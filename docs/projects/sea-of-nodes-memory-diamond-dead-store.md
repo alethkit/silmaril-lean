@@ -442,6 +442,37 @@ nominated cell refuses reuse while the entry and the other two
 occurrence contracts still validate.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Regression.lean)
 
+### Reuse a mixed replay chain at another typed input
+
+`MixedTail.Reuse.Chain.contracts` extracts one contract from each
+admitted stage in replay order. Each stage keeps its suffix access
+facts and one reader contract per original predecessor occurrence.
+`check` validates the whole list at the new input. `lower` returns the
+longest accepted prefix and the pending original stage suffix. It
+reuses the recorded CFGs and tests each contract on the new input.
+The trace checks the recorded Store version on its actual preceding
+retained table and equates its emitted source with the preceding
+optimized artifact.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Chain/Defs.lean)
+
+Complete acceptance reuses the exact original and final CFGs. On
+refusal, the endpoint is the last accepted optimized CFG and its typed
+entry, or the original pair when no stage is admitted. At the new
+input, the original CFG and the accepted endpoint agree at every common
+CF budget on the selected occurrence, complete join packet, returned
+word and full final buffer. They preserve every retained entry Load
+word, and replaying the removed writes reconstructs the original entry
+buffer. The theorems allow arbitrary stored words and initialized
+buffers of the fixed shape at the new satisfying input. These are laws
+for the recorded versions and fixed occurrence bank.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Chain/Thms.lean)
+
+The two-cut mixed replay fixture now changes addresses, words and the
+initial buffer and reuses both cuts. A separate input violates only the
+second contract, retains the first optimized artifact, and exhibits the
+Load value the second cut would change.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
