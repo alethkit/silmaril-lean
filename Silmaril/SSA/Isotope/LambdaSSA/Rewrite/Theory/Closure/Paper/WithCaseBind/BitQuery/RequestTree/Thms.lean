@@ -18,6 +18,14 @@ theorem packed_outcomes (t : Tree 1) (input : Bool) :
     t.observations input = t.outcomes (fun _ => input) :=
   BitQueryTreeExecution.packed_outcomes t input
 
+/-- Strip one ordered event at its exact tag and payload to advance the environment. -/
+theorem outcome_with_head {n : Nat} (env : Assignment n) (label : Bool) (query : Expr n)
+    (l r : Tree (n + 1)) (e : Event) (tail : Word) (result : Except Bool Result) :
+    (result, FreeMonoid.of e * tail) ∈ (Tree.ask label query l r).outcomes env ↔
+      e.label = label ∧ e.query = query.eval env ∧
+        (result, tail) ∈ (if e.right then r.outcomes (env.push e.payload) else l.outcomes (env.push e.payload)) :=
+  BitQueryTreeExecution.outcome_with_head env label query l r e tail result
+
 /-- The example's changed last query differs at one guard and reply history. -/
 theorem last_query_difference (input firstTag firstPayload secondTag secondPayload : Bool) :
     let env := Assignment.push (Assignment.push (fun _ : Fin 1 => input) firstPayload) secondPayload
