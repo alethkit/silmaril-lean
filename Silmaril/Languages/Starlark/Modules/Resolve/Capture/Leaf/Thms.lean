@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Leaf.Defs
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Wrapper.Thms
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.Module
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.Publication
 
 public section
 
@@ -66,6 +67,13 @@ theorem checked_first_definition (after : List Command) (chain : Forwarding.Chai
         (.define chain.name (.required chain.parameters) chain.body) (.ok () next) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.checked_first_definition
     after chain globals linked resolved declared checked accepted suffix caller
+
+/-- The independent publication judgment gives the exact resolved observation. -/
+theorem finish_agrees {source : Modules.Source} {names : List String} {caller : State}
+    {out : Modules.Result Unit} {published : Modules.Result Modules.Published}
+    (declared : source.globals = names) (finishes : Finishes names caller out published) :
+    Modules.finish source caller out = published :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Leaf.finish_eq declared finishes
 
 /-- Starting at actual module entry, a reached trace of the bounded source
 rules and its publication or failure observation determine the exact
