@@ -113,30 +113,30 @@ def exportWire {family : Family m} {entry : Tuple m.Val imports} {locals : Local
 
 variable {primitives : Primitives m σ} {ids : GlobalRel}
 
-structure Checked (primitives : Primitives m σ) (ids : GlobalRel)
+structure Checked (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
   familyL : Family m
   familyR : Family m
-  keys : LambdaKeys V S
-  certified : LinkedFamily primitives ids familyL familyR keys
+  keys : LambdaKeys V S code.Key
+  certified : LinkedFamily primitives ids code familyL familyR keys
   left : Table familyL localsL
   right : Table familyR localsR
 
-inductive State (primitives : Primitives m σ) (ids : GlobalRel)
+inductive State (primitives : Primitives m σ) (ids : GlobalRel) (code : OpcodeCode (Instruction Op))
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) : Bool → Type (max u v w) where
-  | unseeded : State primitives ids localsL localsR false
-  | seeded (checked : Checked primitives ids localsL localsR) : State primitives ids localsL localsR true
+  | unseeded : State primitives ids code localsL localsR false
+  | seeded (checked : Checked primitives ids code localsL localsR) : State primitives ids code localsL localsR true
 
-def State.skipL {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
+def State.skipL {code : OpcodeCode (Instruction Op)} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
     (values : Tuple m.Val ports) :
-    {seeded : Bool} → State primitives ids localsL localsR seeded → State primitives ids (localsL.snoc values) localsR seeded
+    {seeded : Bool} → State primitives ids code localsL localsR seeded → State primitives ids code (localsL.snoc values) localsR seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
     .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left.snoc (fun _ => none), checked.right⟩
 
-def State.skipR {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
+def State.skipR {code : OpcodeCode (Instruction Op)} {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR} {ports : Ports (Ty V S)}
     (values : Tuple m.Val ports) :
-    {seeded : Bool} → State primitives ids localsL localsR seeded → State primitives ids localsL (localsR.snoc values) seeded
+    {seeded : Bool} → State primitives ids code localsL localsR seeded → State primitives ids code localsL (localsR.snoc values) seeded
   | _, .unseeded => .unseeded
   | _, .seeded checked =>
     .seeded ⟨checked.familyL, checked.familyR, checked.keys, checked.certified, checked.left, checked.right.snoc (fun _ => none)⟩
@@ -182,7 +182,7 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
     {left : ModuleTerm Op importsL pastL sigsL exports} → {right : ModuleTerm Op importsR pastR sigsR exports} →
     (localsL : Locals m.Val pastL) → (localsR : Locals m.Val pastR) → (storeL storeR : σ) →
     Plan Op importsL importsR exports seeded left right →
-    State actions.toPrimitives ids localsL localsR seeded →
+    State actions.toPrimitives ids keys localsL localsR seeded →
     Option (PLift (AdmittedExport actions.toPrimitives ids port
       (linkTerm actions unitL inputsL localsL left storeL) (linkTerm actions unitR inputsR localsR right storeR)))
   | _, _, _, _, _, _, _, _, _, _, _, .done (left := outputsL) (right := outputsR), .seeded checked => do
@@ -239,7 +239,7 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
 /-- Check an ordered pair of complete link prefixes, then read the
 selected export from the generated membership tables. The plan contains
 only binding selections. Each λ step checks separation using signatures,
-ordered capture types and outer body vertex counts. Related successful link outcomes
+ordered capture types and outer label multisets. Related successful link outcomes
 and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)

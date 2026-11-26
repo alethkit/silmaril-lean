@@ -27,6 +27,7 @@ private abbrev exports : Ports T := [global, global]
 
 private inductive Op : Dialect (ValueSort Unit Unit) Unit where
   | seed : Op [num] [num]
+  | gain : Op [num] [num]
   | finish : Op [global, num] [num]
 
 private def machine : Machine Op where
@@ -34,6 +35,7 @@ private def machine : Machine Op where
   State _ := Unit
   primitive
     | .seed, .cons (.data n) .nil => .cons (.data (n + 7)) .nil
+    | .gain, .cons (.data n) .nil => .cons (.data (n + 14)) .nil
     | .finish, .cons (.global _ _ (.data n)) (.cons (.data _) .nil) => .cons (.data (n + 1)) .nil
 
 private def number (n : Nat) : Tuple machine.Val [num] := .cons (.data n) .nil
@@ -41,6 +43,7 @@ private def number (n : Nat) : Tuple machine.Val [num] := .cons (.data n) .nil
 private def actions : Actions machine Nat where
   step
     | .seed, .cons (.data n) .nil => fun store => some (number ((show Nat from n) + 7), store + 3)
+    | .gain, .cons (.data n) .nil => fun store => some (number ((show Nat from n) + 14), store + 6)
     | .finish, .cons (.global _ _ (.data n)) (.cons (.data flag) .nil) => fun store =>
       let test : Nat := flag
       if test = 0 then none else some (number ((show Nat from n) + 1), store + 5)
@@ -63,6 +66,13 @@ private theorem respectsGlobals (ids : GlobalRel) : ActionsRespect primitives id
       | data n =>
         cases tail
         exact .returned (.cons (.data _) .nil) (store + 3)
+  | gain =>
+    cases paired with
+    | cons head tail =>
+      cases head with
+      | data n =>
+        cases tail
+        exact .returned (.cons (.data _) .nil) (store + 6)
   | finish =>
     cases paired with
     | cons captured rest =>
@@ -471,7 +481,7 @@ example : Advance primitives ids checkpointL checkpointR :=
 private def finishOperands {ins outs : Ports T} (opcode : Op ins outs)
     (input : Tuple machine.Val ins) : Option (Nat × Nat) :=
   match opcode with
-  | .seed => none
+  | .seed | .gain => none
   | .finish =>
     let .global _ source _ := input.get .head
     let .data flag := input.get (.tail .head)
@@ -661,7 +671,10 @@ private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
   encode
     | .seed => 0
     | .finish => 1
-  injective := by intro _ _ x y _; cases x <;> cases y <;> rfl
+    | .gain => 2
+  injective := by
+    intro _ _ x y equal
+    cases x <;> cases y <;> first | rfl | cases equal
 
 private abbrev instructionKeys := RecursiveCall.Numbered.instructionCode opcodeCode
 
@@ -1138,36 +1151,51 @@ example :
   refine ⟨combinedBadLinks, ?_⟩
   cbv
 
--- The paired earlier λs have the same signature and the same captured
--- φ member. The second λ executes one more state-changing primitive.
-private def longerWrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num], [num]] [num] :=
-  wrapWith (.bind
-    (RecursiveCall.simple (.primitive Op.seed) (.cons (.output (0 : Fin 1) .head) .nil) (fun i => i.elim0))
-    (fun i => i.elim0) (.bind
-      (RecursiveCall.simple (.primitive Op.seed) (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0))
-      (fun i => i.elim0) (.ret (.cons (.output (2 : Fin 3) .head) .nil))))
+-- The two earlier λs have the same signature, captured φ member, and
+-- outer vertex count. Their state-changing primitives differ.
+private def gainRow {past : List (Ports T)} (wire : Origin wrappedInput past num) :
+    NestedTheta.Node (Instruction Op) wrappedInput past [num] :=
+  RecursiveCall.simple (.primitive Op.gain) (.cons wire .nil) (fun i => i.elim0)
+
+private def gainWrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+  wrapWith (.bind (gainRow (.output (0 : Fin 1) .head)) (fun i => i.elim0)
+    (.ret (.cons (.output (1 : Fin 2) .head) .nil)))
+
+-- The extra empty γ is skipped when checking the two bodies in order.
+-- It moves the gain primitive from vertex 1 to vertex 2.
+private def paddedGainCode : RecursiveCall.Code Op wrappedInput [] [[num], [], [num]] [num] :=
+  wrapWith (.bind (RecursiveCall.emptyGamma (extra := 0) (entry := [])
+      (.cons (.arg (.tail (.tail .head))) .nil)) (fun _ => .ret .nil)
+    (.bind (gainRow (.output (0 : Fin 2) .head)) (fun i => i.elim0)
+      (.ret (.cons (.output (2 : Fin 3) .head) .nil))))
 
 private def secondWrapper {past : List (Ports T)} (capture : Origin args past branchFn.port)
-    (duplicate : Bool) : LambdaTerm Op args past branchFn :=
-  if duplicate then wrapper capture else ⟨[branchFn.port], .cons capture .nil, _, longerWrapperCode⟩
+    (duplicate padded : Bool) : LambdaTerm Op args past branchFn :=
+  if duplicate then wrapper capture
+  else if padded then ⟨[branchFn.port], .cons capture .nil, _, paddedGainCode⟩
+  else ⟨[branchFn.port], .cons capture .nil, _, gainWrapperCode⟩
 
 private def bothL (duplicate : Bool) : OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
-  combinedModuleLWith (secondWrapper (.output (1 : Fin 4) .head) duplicate)
+  combinedModuleLWith (secondWrapper (.output (1 : Fin 4) .head) duplicate false)
     (combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))
 
-private def bothR (duplicate : Bool) : OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
-  combinedModuleRWith (secondWrapper (.output (2 : Fin 4) .head) duplicate) combinedBad
+private def bothR (duplicate : Bool) (padded : Bool := false) :
+    OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
+  combinedModuleRWith (secondWrapper (.output (2 : Fin 4) .head) duplicate padded) combinedBad
 
-private def bothPlan (duplicate : Bool) : Plan Op args args [branchFn.port] false (bothL duplicate).region
-    (bothR duplicate).region :=
+private def bothPlan (duplicate padded : Bool) : Plan Op args args [branchFn.port] false (bothL duplicate).region
+    (bothR duplicate padded).region :=
   .skipL (.skipR (.skipR (.seed (.skipL (.lambda (.lambda (.lambda .done)))))))
 
-private def bothScan (duplicate : Bool) :=
+private def bothScan (duplicate : Bool) (padded : Bool := false) :=
   admit instructionKeys actions wrappedIds ordinaryOutputs 73 73 (number 1) (number 1)
-    (bothL duplicate) (bothR duplicate) (bothPlan duplicate) (fn := branchFn) .head 20 20
+    (bothL duplicate) (bothR duplicate padded) (bothPlan duplicate padded) (fn := branchFn) .head 20 20
 
 set_option maxHeartbeats 800000 in
 example : (bothScan false).isSome = true := by cbv
+
+set_option maxHeartbeats 800000 in
+example : (bothScan false true).isSome = true := by cbv
 
 -- Both calls return to the final λ. It passes the first result to the
 -- second call and uses the second result in its own stateful suffix.
@@ -1175,8 +1203,10 @@ example :
     Executable.run actions 100 73 (bothL false).toGraph (number 1) .head (branchArgs 1) 20 =
       .ok (.returned (number 51) 63) ∧
     Executable.run actions 100 73 (bothR false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) ∧
+    Executable.run actions 100 73 (bothR false true).toGraph (number 1) .head (branchArgs 1) 20 =
       .ok (.returned (number 51) 63) := by
-  constructor <;> cbv
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
 
 private def duplicateExport (ref : machine.Val branchFn.port) : machine.Val branchFn.port :=
   .closure (.cons (wrapperRef ref) (.cons (wrapperRef ref) .nil)) combinedBody.toGraph
@@ -1208,11 +1238,16 @@ private def finishThenSeed : RecursiveCall.Code Op [global, num] [] [[num], [num
 
 -- The graph swap preserves both labels and their independent operands.
 -- It moves the state change across a potentially undefined action.
-example : NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph finishThenSeed.toGraph := by
+private theorem effectSwapIso :
+    NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph finishThenSeed.toGraph := by
   refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases (fun i => i.elim0) (Fin.cases (fun i => i.elim0) (fun i => i.elim0))
+
+example : RecursiveCall.Numbered.outerProfile instructionKeys seedThenFinish.toGraph =
+    RecursiveCall.Numbered.outerProfile instructionKeys finishThenSeed.toGraph :=
+  RecursiveCall.Numbered.outerProfile_eq instructionKeys effectSwapIso
 
 example : (RecursiveCall.Numbered.infer instructionKeys
     seedThenFinish.toGraph finishThenSeed.toGraph).isSome = false := by cbv
