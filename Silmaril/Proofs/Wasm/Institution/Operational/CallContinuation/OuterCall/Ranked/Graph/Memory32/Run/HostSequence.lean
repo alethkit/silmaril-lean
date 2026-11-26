@@ -412,11 +412,6 @@ private theorem finish_ready (checked : seq.Checked mode program memory calls ba
         (show seq.Ready mode program memory calls initial (.completed bytes stack label rest) source from
           ⟨extent, types, scopes⟩)
 
-private theorem forward_checked {stack : List NumType} {branch : ForwardBranch} {labels : List (OpenLabel H)}
-    (typed : checkForward (rootFn) stack (OpenLabel.targets (rootFn) labels) branch = true) :
-    Graph.checkBranch (OpenLabel.signatures labels) stack branch.depth branch.results = true := by
-  simpa [checkForward, OpenLabel.targets] using typed
-
 private theorem computing_ready {bytes : ByteArray} {stack : List Value} {first : HostSegment H}
     {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)}
     (extent : mode.extent initial.data.size bytes)
@@ -445,7 +440,7 @@ private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : Lis
     obtain ⟨scopes, allowed, listed, typed⟩ := ready
     exact computing_ready extent (fun site used => listed site (List.mem_append_left _ used)) typed scopes
       ⟨allowed, fun site used => listed site (List.mem_append_right _ used)⟩
-  | br branch => exact ⟨extent, forward_checked ready.2.2.2, ready.1⟩
+  | br branch => exact ⟨extent, ready.2.2.2, ready.1⟩
   | plain code => exact finish_ready checked extent ready.2.2.2 ready.1 ready.2.1
   | blockThen | ifThen | brIf | brTable => exact ⟨extent, ready⟩
 
@@ -519,25 +514,25 @@ private theorem stack_types_i32 (saved : List Value) (bits : BitVec 32) :
 private theorem branch_test_checked {saved : List Value} {condition : BitVec 32} {branch : ForwardBranch}
     {tail : Source H} {labels : List (OpenLabel H)}
     (ready : seq.SourceReady mode program memory calls labels (saved ++ [Value.int .i32 condition]) (.brIf branch tail) source) :
-    Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes saved) branch.depth branch.results = true ∧
+    Graph.checkBranch (OpenLabel.targets (rootFn) labels) (Prefix.stackTypes saved) branch.depth branch.results = true ∧
       seq.SourceReady mode program memory calls labels saved tail source := by
   obtain ⟨scopes, allowed, listed, typed⟩ := ready
-  have checks : checkForward (rootFn) (Prefix.stackTypes saved) (OpenLabel.targets (rootFn) labels) branch = true ∧
+  have checks : checkForward (Prefix.stackTypes saved) (OpenLabel.targets (rootFn) labels) branch = true ∧
       seq.checkSourceAt (Prefix.stackTypes saved) (OpenLabel.results (rootFn) labels)
         (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) tail = true := by
     rw [checkSourceAt, stack_types_i32] at typed
     exact Bool.and_eq_true_iff.mp typed
-  exact ⟨forward_checked checks.1, scopes, allowed, listed, checks.2⟩
+  exact ⟨checks.1, scopes, allowed, listed, checks.2⟩
 
 private theorem table_target_checked {saved : List Value} {selector : BitVec 32} {table : ForwardTable}
     {labels : List (OpenLabel H)}
     (ready : seq.SourceReady mode program memory calls labels (saved ++ [Value.int .i32 selector]) (.brTable table) source) :
-    Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes saved)
+    Graph.checkBranch (OpenLabel.targets (rootFn) labels) (Prefix.stackTypes saved)
       (table.select selector).depth table.results = true := by
   have typed := ready.2.2.2
   rw [checkSourceAt, checkTable, stack_types_i32] at typed
   have checked := Bool.and_eq_true_iff.mp typed
-  apply forward_checked (branch := table.select selector)
+  change checkForward (Prefix.stackTypes saved) (OpenLabel.targets (rootFn) labels) (table.select selector) = true
   cases found : table.depths[selector.toNat]? with
   | none => simpa [ForwardTable.select, found] using checked.1
   | some depth =>
@@ -547,14 +542,14 @@ private theorem table_target_checked {saved : List Value} {selector : BitVec 32}
 private theorem branch_outer_ready {stack : List Value} {branch : ForwardBranch}
     {label : OpenLabel H} {rest : List (OpenLabel H)}
     (positive : 0 < branch.depth.toNat)
-    (typed : Graph.checkBranch (OpenLabel.signatures (label :: rest)) (Prefix.stackTypes stack)
+    (typed : Graph.checkBranch (OpenLabel.targets (rootFn) (label :: rest)) (Prefix.stackTypes stack)
       branch.depth branch.results = true) :
-    Graph.checkBranch (OpenLabel.signatures rest) (Prefix.stackTypes (label.saved ++ stack))
+    Graph.checkBranch (OpenLabel.targets (rootFn) rest) (Prefix.stackTypes (label.saved ++ stack))
       (lowerLabel branch.depth) branch.results = true := by
   obtain ⟨found, payload⟩ := decide_eq_true_eq.mp typed
   refine decide_eq_true_eq.mpr ⟨?_, ?_⟩
-  · change (label.result.toList :: OpenLabel.signatures rest)[branch.depth.toNat]? = some branch.results at found
-    change (OpenLabel.signatures rest)[branch.depth.toNat - 1]? = some branch.results
+  · change (label.result.toList :: OpenLabel.targets (rootFn) rest)[branch.depth.toNat]? = some branch.results at found
+    change (OpenLabel.targets (rootFn) rest)[branch.depth.toNat - 1]? = some branch.results
     cases depth : branch.depth.toNat with
     | zero => simp [depth] at positive
     | succ n => simpa [depth] using found
@@ -567,19 +562,41 @@ private theorem branch_outer_ready {stack : List Value} {branch : ForwardBranch}
     rw [ordered, List.take_append_of_le_length enough]
     exact payload
 
-private theorem branch_payload_typed {extra payload : List Value} {label : OpenLabel H}
-    {rest : List (OpenLabel H)} {results : List NumType}
-    (count : payload.length = label.result.toList.length)
-    (typed : Graph.checkBranch (OpenLabel.signatures (label :: rest)) (Prefix.stackTypes (extra ++ payload))
-      ⟨0⟩ results = true) :
-    payload.map Value.type = label.result.toList := by
+private theorem branch_payload_typed {extra payload : List Value} {target results : List NumType}
+    {remaining : List (List NumType)}
+    (count : payload.length = target.length)
+    (typed : Graph.checkBranch (target :: remaining) (Prefix.stackTypes (extra ++ payload)) ⟨0⟩ results = true) :
+    payload.map Value.type = target := by
   obtain ⟨found, suffix⟩ := decide_eq_true_eq.mp typed
-  change some label.result.toList = some results at found
+  change some target = some results at found
   have types := (Option.some.inj found).symm
   subst results
-  have countTypes : (Prefix.stackTypes payload).length = label.result.toList.length := by simpa [Prefix.stackTypes] using count
+  have countTypes : (Prefix.stackTypes payload).length = target.length := by simpa [Prefix.stackTypes] using count
   rw [← countTypes] at suffix
   simpa [Prefix.stackTypes] using suffix
+
+private theorem function_branch_step {bytes : ByteArray} {stack : List Value} {branch : ForwardBranch}
+    {skipped : List Admin} {dst : Config H} :
+    Step host (renderPhase (.branching bytes stack branch skipped [])) dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = arity ∧ branch.depth.toNat = 0 ∧
+        dst = ⟨live bytes, outer, seq.afterLabel args [] (values payload)⟩) ∨
+      (0 < branch.depth.toNat ∧ dst = ⟨live bytes, outer,
+        seq.afterLabel args [] (values stack ++ [.source (.br (lowerLabel branch.depth))])⟩) :=
+  framed_branch_iff
+
+theorem function_branch_typed {bytes : ByteArray} {stack : List Value} {results : List NumType}
+    {skipped : List Admin} {dst : Config H}
+    (ready : seq.Ready mode program memory calls initial (.branching bytes stack ⟨⟨0⟩, results⟩ skipped []) source) :
+    Step host (renderPhase (.branching bytes stack ⟨⟨0⟩, results⟩ skipped [])) dst ↔
+      ∃ extra payload, stack = extra ++ payload ∧ payload.map Value.type = seq.root.function.declaration.results ∧
+        dst = ⟨live bytes, outer, seq.afterLabel args [] (values payload)⟩ := by
+  rw [function_branch_step]
+  constructor
+  · rintro (⟨extra, payload, rfl, count, _, eq⟩ | ⟨positive, _⟩)
+    · exact ⟨extra, payload, rfl, branch_payload_typed count ready.2.1, eq⟩
+    · exact (Nat.not_lt_zero _ positive).elim
+  · rintro ⟨extra, payload, split, types, eq⟩
+    exact .inl ⟨extra, payload, split, by simpa using congrArg List.length types, rfl, eq⟩
 
 theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
     (checked : seq.Checked mode program memory calls base outer args source)
@@ -623,10 +640,12 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
   | branchNonzero _ => exact ⟨ready.1, (branch_test_checked ready.2).1, ready.2.1⟩
   | selectTable => exact ⟨ready.1, table_target_checked ready.2, ready.2.1⟩
   | branchOuter positive => exact ⟨ready.1, branch_outer_ready positive ready.2.1, ready.2.2.2.2.2⟩
-  | branchExit count =>
+  | @branchExit bytes extra payload results skipped label rest count =>
     obtain ⟨liveExtent, typed, tailTyped, allowed, listed, scopes⟩ := ready
-    have types := branch_payload_typed count typed
+    have types := branch_payload_typed (target := label.result.toList)
+      (remaining := OpenLabel.targets (rootFn) rest) count typed
     exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using tailTyped⟩
+  | branchFunction _ => exact ⟨ready.1, frame_allowed checked (RunProofs.values_allowed _)⟩
   | numeric moved =>
     obtain ⟨current, listed, later, check, scopes⟩ := ready
     have locals := locals_typed checked
@@ -678,6 +697,8 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | selectTable => exact table_select_step.mpr rfl
   | branchOuter positive => exact branch_step.mpr (.inr ⟨positive, rfl⟩)
   | branchExit count => exact branch_step.mpr (.inl ⟨_, _, rfl, count, rfl, rfl⟩)
+  | branchFunction types =>
+    exact (function_branch_typed ready).mpr ⟨_, _, rfl, types, rfl⟩
   | numeric moved => exact numeric_step.mpr (.inl ⟨_, moved, rfl⟩)
   | prefixTrap moved => exact numeric_step.mpr (.inr ⟨_, moved, rfl⟩)
   | discard moved => exact trap_step.mpr (.inl ⟨_, _, moved, rfl⟩)
@@ -733,8 +754,15 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
   | branching bytes stack branch skipped labels =>
     cases labels with
     | nil =>
-      have impossible := ready.2.1
-      simp [Graph.checkBranch, OpenLabel.signatures] at impossible
+      have found : (rootFn).entryLabels[branch.depth.toNat]? = some branch.results :=
+        (decide_eq_true_eq.mp ready.2.1).1
+      have bound := List.getElem?_eq_some_iff.mp found
+      have zero : branch.depth.toNat = 0 := by simpa [Function.entryLabels] using bound.1
+      rcases branch with ⟨depth, results⟩
+      have same : depth = ⟨0⟩ := Idx.toNat_injective zero
+      subst depth
+      obtain ⟨extra, payload, rfl, types, eq⟩ := (function_branch_typed ready).mp step
+      exact ⟨_, .branchFunction types, eq⟩
     | cons label rest =>
       rcases branch_step.mp step with ⟨extra, payload, rfl, count, zero, eq⟩ | ⟨positive, eq⟩
       · rcases branch with ⟨depth, results⟩

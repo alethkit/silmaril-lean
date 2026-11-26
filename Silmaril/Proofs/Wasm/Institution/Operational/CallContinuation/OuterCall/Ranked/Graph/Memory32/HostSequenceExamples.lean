@@ -488,9 +488,9 @@ example (choice : Bool) : Steps (behaviorFor region) launchBranch
   exact nativeBranch ((deliver.tail (.graph (.frame (.pure (.labelDone 1 [] [i32 (word choice)])) 1 caller)))
     |>.tail (.graph (.pure (.frameDone 1 inside [i32 (word choice)] rfl))))
 
--- Depth two names the implicit function label. Depth three is out of scope.
+-- Depth two names the implicit function label. Its result type matches the payload.
 example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
-    (regionWith writer { target with depth := ⟨2⟩ }) = false := rfl
+    (regionWith writer { target with depth := ⟨2⟩ }) = true := rfl
 
 example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
     (regionWith writer { target with depth := ⟨3⟩ }) = false := rfl
@@ -832,7 +832,7 @@ private abbrev check := entry.checkSource (Prefix.stackTypes savedPrefix) branch
 
 -- These malformed cases still have the valid entry selected by zero.
 example : check (regionWith { table with depths := [⟨1⟩, ⟨4⟩] }) = false := rfl
-example : check (regionWith { table with fallback := ⟨3⟩ }) = false := rfl
+example : check (regionWith { table with fallback := ⟨4⟩ }) = false := rfl
 
 -- The void inner label is admissible until it is listed alongside i32 targets.
 example : check (regionWith table none) = true := rfl
@@ -841,6 +841,173 @@ example : check (regionWith { table with depths := [⟨1⟩, ⟨0⟩] } none) = 
 example : check (regionWith { table with depths := [] }) = true := rfl
 
 end TableBranch
+
+
+namespace FunctionTarget
+
+private inductive BranchKind where
+  | direct
+  | conditional
+  | table
+
+private def target : ForwardBranch := ⟨⟨2⟩, [.int .i32]⟩
+private def table : ForwardTable := ⟨[⟨1⟩], target.depth, target.results⟩
+
+private def control : BranchKind → Source Nat
+  | .direct => .br target
+  | .conditional => .brIf target onZero
+  | .table => .brTable table
+
+private def region (kind : BranchKind) : Source Nat :=
+  .blockThen scalar (.blockThen scalar (.hostsThen writer [] (control kind)) (.plain [])) tailRegion
+
+private theorem siteOf {kind : BranchKind} {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites (region kind)) :
+    site = first ∨ site = middleSite ∨ site = nextSite := by
+  cases kind with
+  | direct | table =>
+    have member : site ∈ [first, nextSite] := used
+    simp at member
+    exact member.imp id Or.inr
+  | conditional => exact ConditionalBranch.siteOf used
+
+private theorem admitted (kind : BranchKind) :
+    entry.Checked .fixed graph slot .ranked (allocationFor (region kind)) caller rootArgs (region kind) :=
+  admittedFor (region kind) (fun _ => siteOf) (by cases kind <;> rfl) (by
+    cases kind <;> (refine ⟨trivial, ?_, trivial⟩; intro _ used; cases used))
+
+private theorem contract (kind : BranchKind) :
+    entry.Contract (hostFor (region kind)) .fixed slot initial (allocationFor (region kind)) (region kind) :=
+  contractFor (region kind) (fun _ => siteOf)
+
+private abbrev live (kind : BranchKind) := liveFor (region kind)
+private abbrev host (kind : BranchKind) := hostFor (region kind)
+private abbrev Runs (kind : BranchKind) :=
+  entry.Runs (host kind) .fixed graph slot (allocationFor (region kind)) initial initial.data caller rootArgs
+private abbrev cfg (kind : BranchKind) := entry.render (allocationFor (region kind)) slot initial initial.data caller rootArgs
+private def launch (kind : BranchKind) : Config Nat := ⟨live kind initial.data, caller, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+
+private theorem ready {kind : BranchKind} {phase : Phase} (run : Runs kind (.call (region kind)) phase) :
+    entry.Ready .fixed graph slot .ranked initial phase (region kind) := by
+  induction run with
+  | refl => rfl
+  | tail _ step ih => exact step.ready rfl (admitted kind) (layoutFor (region kind)) rfl (contract kind) ih
+
+private theorem native {kind : BranchKind} {phase : Phase} (run : Runs kind (.call (region kind)) phase) :
+    Steps (host kind) (launch kind) (cfg kind phase) :=
+  (Sequence.v1_call_run_iff rfl (admitted kind) (layoutFor (region kind)) trivial rfl (contract kind)).mpr
+    ⟨phase, run, ready run, rfl⟩
+
+private theorem reachesControl (kind : BranchKind) (selected : Bool) :
+    Runs kind (.call (region kind))
+      (entry.beginBody caller rootArgs (firstBytes selected) (rootArgs ++ [i32 (condition selected)]) labels (control kind)) := by
+  have entered : Runs kind (.call (region kind))
+      (.block initial.data [] scalar (.hostsThen writer [] (control kind)) (.plain []) [outerLabel]) :=
+    ((Relation.ReflTransGen.single .resolve).tail .enter).tail .openBlock
+  have pending : Runs kind (.call (region kind))
+      (.pending initial.data rootArgs rootArgs first [] labels (some (control kind))) :=
+    (((entered.tail .openBlock).tail (.numeric (.get rfl))).tail (.numeric (.get rfl))).tail (.hostResolve rfl)
+  have returned : host kind first.target (live kind initial.data) rootArgs
+      (.returned (live kind (firstBytes selected)) (.values [i32 (condition selected)])) :=
+    .inl ⟨rfl, rfl, rfl, selected, rfl⟩
+  exact pending.tail (.returned returned rfl)
+
+private def branchStack : BranchKind → List Value
+  | .direct => rootArgs ++ [i32 (condition true)]
+  | _ => rootArgs
+
+private def payload : BranchKind → List Value
+  | .direct => [i32 (condition true)]
+  | _ => rootArgs
+
+private def scratch : BranchKind → List Value
+  | .direct => savedPrefix ++ rootArgs
+  | _ => savedPrefix
+
+private def skipped : BranchKind → List Admin
+  | .conditional => expression (entry.sourceCode onZero)
+  | _ => []
+
+private theorem selected (kind : BranchKind) :
+    Runs kind (.call (region kind)) (.branching (firstBytes true) (branchStack kind) target (skipped kind) labels) := by
+  cases kind with
+  | direct => exact reachesControl .direct true
+  | conditional =>
+    have nonzero : condition true ≠ (0 : BitVec 32) := by decide
+    exact (reachesControl .conditional true).tail (.branchNonzero nonzero)
+  | table => exact (reachesControl .table true).tail .selectTable
+
+private def atFunction (kind : BranchKind) : Phase :=
+  .branching (firstBytes true) (scratch kind ++ payload kind) { target with depth := ⟨0⟩ } (entry.tailCode outerLabel) []
+
+private theorem reachesFunction (kind : BranchKind) : Runs kind (.call (region kind)) (atFunction kind) := by
+  have crossed : Runs kind (.call (region kind))
+      (.branching (firstBytes true) (branchStack kind) { target with depth := ⟨1⟩ } [] [outerLabel]) :=
+    (selected kind).tail (.branchOuter (by decide))
+  cases kind <;> exact crossed.tail (.branchOuter (by decide))
+
+-- After the two explicit labels close, the branch still has to exit
+-- the function label. Its skipped host and scratch values are visible.
+example (kind : BranchKind) : Steps (host kind) (launch kind)
+    ⟨live kind (firstBytes true), caller, [.frame 1 active
+      [.label 1 [] (values (scratch kind ++ payload kind) ++ [.source (.br ⟨0⟩), .source (.call nextSite.index)])]]⟩ :=
+  native (reachesFunction kind)
+
+private theorem payloadTyped (kind : BranchKind) : (payload kind).map Value.type = branchFn.declaration.results := by
+  cases kind <;> rfl
+
+private theorem payloadCount (kind : BranchKind) : (payload kind).length = 1 := by
+  cases kind <;> rfl
+
+private def resultFrame (kind : BranchKind) : State := ⟨firstBytes true, caller, [.frame 1 active (values (payload kind))]⟩
+
+private theorem exitsLabel (kind : BranchKind) : Runs kind (.call (region kind)) (.graph (resultFrame kind)) :=
+  (reachesFunction kind).tail (.branchFunction (payloadTyped kind))
+
+-- Pure native function-label exit, read back as delivery inside the frame.
+private theorem nativeExit (kind : BranchKind) : Step (host kind) (cfg kind (atFunction kind)) (cfg kind (.graph (resultFrame kind))) := by
+  have move := Step.frame (Step.pure (host := host kind) (live kind (firstBytes true)) active
+    (.labelBranch 1 [] (scratch kind) (payload kind) [.source (.call nextSite.index)] (payloadCount kind))) 1 caller
+  simpa only [cfg, atFunction, resultFrame, Sequence.render, Sequence.afterLabel, Sequence.context, Sequence.insert,
+    OpenLabel.results, List.head?_nil, Option.map_none, Option.getD_none, Execution.Runtime.EvalCtx.comp,
+    Execution.Runtime.EvalCtx.plug, Memory32.render, values_append, List.append_assoc, List.singleton_append,
+    expression, List.map_nil, List.append_nil] using! move
+
+example (kind : BranchKind) :=
+  (Sequence.v1_function_branch_step_iff (ready (reachesFunction kind))).mp (nativeExit kind)
+
+example (kind : BranchKind) : Steps (host kind) (launch kind)
+    ⟨live kind (firstBytes true), caller, [.frame 1 active (values (payload kind))]⟩ :=
+  native (exitsLabel kind)
+
+example (kind : BranchKind) :=
+  (Sequence.v1_step_iff rfl (admitted kind) (layoutFor (region kind)) trivial rfl (contract kind)
+    (ready (exitsLabel kind))).mp
+    (show Step (host kind) (cfg kind (.graph (resultFrame kind)))
+      ⟨live kind (firstBytes true), caller, values (payload kind)⟩ from
+        .pure _ _ (.frameDone 1 active (payload kind) (payloadCount kind)))
+
+-- Frame completion is a separate successor and restores the caller while
+-- leaving the writer's Memory32 and the declared result in place.
+example (kind : BranchKind) : Steps (host kind) (launch kind) ⟨live kind (firstBytes true), caller, values (payload kind)⟩ :=
+  native ((exitsLabel kind).tail (.graph (.pure (.frameDone 1 active (payload kind) (payloadCount kind)))))
+
+-- The zero case of the same conditional reaches its host instead of
+-- unwinding any label or the enclosing frame.
+example : Steps (host .conditional) (launch .conditional)
+    ⟨live .conditional (firstBytes false), caller, [.frame 1 active [.label 1 []
+      (values savedPrefix ++ [.label 1 [] [.label 1 [] (values rootArgs ++ [.invoke middleSite.address])],
+        .source (.call nextSite.index)])]]⟩ := by
+  have continued : Runs .conditional (.call (region .conditional))
+      (.computing (firstBytes false) rootArgs [] middleSite [] labels) :=
+    (reachesControl .conditional false).tail .branchZero
+  exact native (continued.tail (.hostResolve (saved := []) rfl))
+
+-- The actual i64 suffix fits the annotation but disagrees with the
+-- enclosing function's declared i32 result.
+example : entry.checkSource (Prefix.stackTypes savedPrefix) branchFn.declaration.results branchFn.entryLabels
+    (.br ⟨⟨0⟩, [.int .i64]⟩) = false := rfl
+
+end FunctionTarget
 
 end ConditionalBranch
 
