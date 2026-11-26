@@ -2,6 +2,9 @@ module
 
 import Batteries.Data.Except
 import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Thms
+import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Thms
+meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs
+meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.Defs
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Defs
 meta import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 meta import Silmaril.Languages.Python.Core.Module.Functions.Defs
@@ -137,5 +140,27 @@ private def normalTryEvidence : Bool := Id.run do
     (residual.globals "unreachedHandler").isNone && (residual.globals "unreachedTail").isNone
 
 #guard normalTryEvidence
+
+private def exceptionalCleanupEvidence : Bool := Id.run do
+  let statement := Source.Stmt.try_
+    [.assign "body" (.integer 7), .assign "afterFailure" (.name "bodyMissing")]
+    [] [] [.assign "copied" (.name "body")]
+  let .ok tree := Source.analyze ⟨[statement]⟩ | return false
+  let some plan := Functions.ExceptionalTry.check tree.scope statement | return false
+  let table : Core.Closure.Executor.CodeTable := fun _ => none
+  let heap : Core.Closure.Heap := ⟨1, fun slot => if slot = 0 then some (.int 23) else none⟩
+  let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
+  let ordinary := Run.ExceptionalTry.ordinary table { Run.seed .empty heap with lists } plan.val
+  let seeded := Run.ExceptionalTry.seeded { table, heap, fuel := 1000 } ⟨.empty, .ok (), [], heap, lists⟩ plan.val
+  return ordinary.completion == .error (.raised (.nameError "bodyMissing")) &&
+    (ordinary.reached.globals "copied").map seededValue == some (.int 7) &&
+    (ordinary.reached.globals "afterFailure").isNone && ordinary.reached.lists == lists &&
+    ordinary.reached.heap.next == heap.next && (ordinary.reached.heap.contents 0).map seededValue == some (.int 23) &&
+    seeded.completion == .error (.raised (.runtime (.nameError "bodyMissing"))) &&
+    seeded.residual.moduleGlobals == [("copied", .int 7), ("body", .int 7)] &&
+    seeded.residual.builtins.isEmpty && seeded.calls.isEmpty && seeded.lists == lists &&
+    seeded.heap.next == heap.next && (seeded.heap.contents 0).map seededValue == some (.int 23)
+
+#guard exceptionalCleanupEvidence
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
