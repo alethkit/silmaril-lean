@@ -32,6 +32,15 @@ theorem CheckedTable.ofLetCase_emit (pe : ε) (h : L ≠ [])
     Equiv pe Γ₀ β (CheckedTable.ofLetCase h d).toLetCase.1 t (packedExitType L) :=
   ofLetCase_emit_proof h d
 
+/-- A checked decoder re-encodes its input's original tag in native LetCase.
+The context may already carry older packets. -/
+theorem decoder_repack (pe : ε) {m i : Nat} {γ : BoundCtx τ m} {D : τ}
+    (fallback : At L i D) (s : Scope β γ) :
+    Equiv pe Γ₀ (γ.snoc (packedExitType L))
+      ((decoder (Φ := Φ) fallback L ExitSuffix.here).render s).encode.toLetCase.1
+      (.bv 0) (packedExitType L) :=
+  decoder_repack_proof fallback s
+
 /-- A finite ranked table cannot have an empty outward interface. -/
 theorem CheckedTable.exits_ne_nil (q : CheckedTable Φ β L) : L ≠ [] :=
   (q.table.toFiniteExit q.checked 0 q.entry).exits_ne_nil
@@ -81,13 +90,13 @@ theorem reconstruct_packed_replay (p : Table Φ β L n) (ok : p.check = true) (i
     (CheckedTable.ofLetCase_packed_replay (p.toFiniteExit ok i a).exits_ne_nil (p.toLetCase ok i a).2).symm
 
 /-- Native equation classes of exact LetCase operands at one ordered interface. -/
-def operandSetoid (Φ : Type) [LetCase.Structural.Finite.Signature Φ] (β : Context d) (L : List Types) :
+@[expose] def operandSetoid (Φ : Type) [LetCase.Structural.Finite.Signature Φ] (β : Context d) (L : List Types) :
     Setoid (Operand Φ β (packedExitType L)) where
   r a b := Equiv false Γ₀ β a.1 b.1 (packedExitType L)
   iseqv := ⟨fun a => .refl a.2.toHasType, fun h => h.symm, fun h k => h.trans k⟩
 
 /-- Checked tables modulo native replay at the literal packed endpoints. -/
-def checkedSetoid (Φ : Type) [LetCase.Structural.Finite.Signature Φ] (β : Context d) (L : List Types) :
+@[expose] def checkedSetoid (Φ : Type) [LetCase.Structural.Finite.Signature Φ] (β : Context d) (L : List Types) :
     Setoid (CheckedTable Φ β L) where
   r p q := ReplayEqv false β.toList (p.table.packedSSA 0 p.entry) (q.table.packedSSA 0 q.entry) [packedExitType L]
   iseqv := ⟨fun p => .refl (p.table.packedSSA_hasType 0 p.entry), fun h => h.symm, fun h k => h.trans k⟩
@@ -115,5 +124,10 @@ def nativeClassEquiv (input : StructuralContext β) :
     Quotient.sound (reconstruct_packed_replay p.table p.checked 0 p.entry).symm
   right_inv := fun q => Quotient.inductionOn q fun a =>
     Quotient.sound (CheckedTable.ofLetCase_emit false (exits_ne_nil_of_operand input a) a.2)
+
+theorem nativeClassEquiv_mk (input : StructuralContext β) (p : CheckedTable Φ β L) :
+    nativeClassEquiv input (Quotient.mk _ p) = Quotient.mk _ p.toLetCase := by
+  unfold nativeClassEquiv
+  rfl
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Reverse
