@@ -16,13 +16,14 @@ the statements and checks.
 | How is undefined behavior (UB) represented? | A finite tree observation ending in `returned none` retains its exchanges. `UB.atBoundary_ub_iff` witnesses such a run after projection to a single marker that drops its prefix. `collapse_eq_top_iff` and `val_collapse_of_safe` describe whole-row saturation and exactness on UB-free rows. [UB header][ub-thms] · [Boundary and relabeling][relabel-thms] |
 | What are the C1 nonempty, bottom and trace transformer laws? | `addBottom_le_iff` and `addBottom_surjective` recover the catastrophic order by adjoining bottom. `Nonempty.no_common_lower_bound` rules out a common lower bound for distinct singleton outcomes in the nonempty fragment. With `[Subsingleton T]` and `t : T`, `Nonempty.pure_le_all` makes `pure t` least. `Arrow.then_assoc` and `Arrow.then_mono` give associative and monotone composition. `bind_eq_top_iff` locates UB in the first row or a reachable continuation row. [UB header][ub-thms] |
 | What is sequentially consistent (SC)? | `replay_iff` relates each finite primitive execution to its schedule. `classifyHistory_eq_some_iff` ties validation to generated executions, and a regression rejects a forged read that the raw classifier calls clean. `guarded_iff_filtered` equates ordinary guarded runs with clean raw runs. `racy_run_has_ub_prefix` and `raceUB_has_raw_run` connect raw executions to the first racing extension. The examples check a lock cycle with a separate completing schedule and a race-free run of SC atomic loads and stores that loses an update. [SC and race guide][sc] · [Header][sc-thms] · [Examples][sc-check] |
-| When can a concurrent trace be projected? | `Interface.observedRun_inter` factors filtered observations while retaining a source execution witness. `Projection.happensBefore_eq` requires retained cross-thread edge endpoints and, for the mixed profile, coverage of intervening overwrites. `Projection.classify_eq` additionally requires conflict coverage. The examples hide a handoff, overwrite or conflict, and check that repeated labels map to distinct source occurrences. [Projection guide][sc-projection] · [Header][projection-thms] · [Examples][projection-check] |
+| When can a concurrent trace be projected? | `Interface.observedRun_inter` factors filtered observations while retaining a source execution witness. `Projection.happensBefore_eq` requires retained cross-thread edge endpoints and, for the mixed profile, coverage of intervening overwrites. `Projection.classify_eq` additionally requires conflict coverage. `atomicSync_eq` compares the raw Boolean. A reads-from interpretation requires a generated SC history and increasing positions. The examples hide a handoff, overwrite or conflict, and check that repeated labels map to distinct source occurrences. [Projection guide][sc-projection] · [Header][projection-thms] · [Examples][projection-check] |
 | How are sequential interfaces combined? | `factors_iff` and `copair_eta` cover request restriction and tagged sum. `relabel_extend` checks extension and dispatch. With a typed renaming both requests and reply fibers have equivalences. `observes_hide_reply`, `observes_hide_refuse`, `observes_hide_loop` and `hide_staged` cover a state-indexed partial reply policy, including refusal and silent divergence. [Operator guide][operators] · [Header][operators-thms] · [Regression][operators-check] |
 | Which SQLite source is being read? | The inventory pins SQLite 3.54.1, including the amalgamation digest and split source at `57520227c95396ce39ba6ecaac8d475b78dd3964`. The operation notes follow rowid lookup and rollback-journal insert/commit through VDBE, B-Tree, Pager and VFS, with instrumented source fixtures. [Version and interfaces][inventory] · [Operation paths][operations] |
 | What does the admitted read prove? | `staged_eq_composed` compares full staged and composed outcomes. `composed_trace` validates the recorded exchanges with the supplied handler. `readOnly_cold_warm_lookup` proves the same lookup and poststates after one complete cold page read and a warm acquisition with zero exchanges. The check module covers found and absent keys, cold/warm traces and a truncated file. [Read case][read-case] · [Header][read-thms] · [Checks][read-check] |
 | What does the open typed read expose? | `vfsTree_corresponds` witnesses the open VFS tree's complete trace along the supplied handler's replies. `vfsTree_readOnly_cold_warm` gives the typed cold/warm observations. `handledPager_returns_staged` hides the Pager request and returns the complete staged outcome, including file/cache poststates and exchanges. [Typed read guide][typed-read] · [Header][typed-read-thms] · [Checks][typed-read-check] |
-| What does interpreting both read paths prove? | `Read.Adapter.interpretations_agree` gives the same staged outcome from the handled Pager and handled lower VFS paths, with the exact file, cache and exchange history. It validates that history and exhibits it in the open VFS tree. `lowered_observations_eq` equates the full open observation sets for staged lookup and the VM leaf continuation. Fixtures check cold and warm histories for present and absent keys. [Adapter guide][read-adapter] · [Header][read-adapter-thms] · [Checks][read-adapter-check] |
-| What does the selected rollback-mode write prove? | After VM operand admission and a fresh-key leaf preflight, `run_follows_schedule` validates the completed calls, first error and handler poststate. `database_write_requires_journal` orders any database write attempt after a successful preimage write and journal sync. Under the packed-page and backing assumptions, `commit_success` reopens to the inserted row and all old rows, and `journal_sync_failure` retains the preimage and leaves the database unchanged on the selected fault. `run_observes` embeds the handler-selected trace and `no_ub` excludes the tree's explicit UB marker. [Write case][write-case] · [Header][write-thms] |
+| How do the handled read paths agree? | `Read.Adapter.interpretations_agree` compares one handled Pager call and the handled VFS tree from #3572 with `Read.runStaged`. Both give the exact result, file and cache poststates and completed exchange history. The exchanges validate the backing transition and label a complete observation of the open VFS tree using the selected replies. [Adapter guide][read-adapter] · [Header][read-adapter-thms] |
+| What does a repeated read check? | The Pager handler threads the file, cache and history across acquisitions and reuses #3572’s `pagerHandler`. `pagerTwice_agrees` uses the actual first poststate for a second call to the same page and key and validates the appended exchange suffix. Under matching image bytes, a live handle, an admitted range and leaf, and a vacant owned slot, `pagerTwice_readOnly_cold_warm` gives equal lookups with one full-page exchange from empty history. The fixture also checks an existing history entry and counts the backing calls for present and absent keys. [Adapter guide][read-adapter] · [Header][read-adapter-thms] · [Checks][read-adapter-check] |
+| What does the selected rollback-mode write prove? | For `insertAndCommit` after operand admission and fresh-key leaf preflight, `run_follows_schedule` validates the completed calls, first error and handler poststate. `database_write_requires_journal` orders any database write attempt after a successful preimage write and journal sync. Under the packed-page and backing assumptions, `commit_success` reopens to the inserted row and all old rows, and `journal_sync_failure` retains the preimage and leaves the database unchanged on the selected fault. `run_observes` embeds the handler-selected trace and `no_ub` excludes the tree's explicit UB marker. [Write case][write-case] · [Header][write-thms] |
 
 ## Where the terms apply
 
@@ -45,7 +46,8 @@ the statements and checks.
   completed run returning `none` at a chosen boundary, and saturation
   admits every trace in that row when the marker is present. The correspondences here supply no translation
   from SC race prefixes to catastrophic rows. A modeled VFS error or
-  rejected short read is an ordinary return. Handling the Pager and exposing
+  rejected short read is an ordinary return. At `UB.atBoundary`, a hiding
+  refusal such as `some (.error e)` stays ordinary. Handling the Pager and exposing
   the lower VFS use different observation points. [SC header][sc-thms] · [UB header][ub-thms] · [Typed read guide][typed-read] · [Write case][write-case]
 - **SC, races and calls.** SC orders primitive actions. The race
   definitions operate on event positions, with mutex synchronization and,
@@ -62,17 +64,19 @@ the statements and checks.
   two-page model. In pinned C, journal opening precedes the dirty mark,
   and preimage recording precedes marking the page writable. The model
   starts with the journal open and represents the later cached leaf edit.
-  Its selected sync acknowledgements express ordering.
+  Its selected sync acknowledgements express ordering. Callers composing
+  individual public Pager stages supply the prerequisites themselves.
   Whole SQL execution, C or native refinement, WAL, contention, durability
   and crash recovery are outside these claims. [Operation paths][operations] · [Read case][read-case] · [Write case][write-case]
 
 ## Review status
 
-The local integration checked all ten pinned components. After the
-interaction foundation (#3543) and the concrete read (#3555), the checked
-order takes `Read.Interaction` from #3572 and then the distinct
-`Read.Adapter` from #3583. It applies the concrete read patch once.
-[Open typed read][pr-typed-read] · [Handled read adapter][pr-read-adapter]
+The ten-slice candidate is assembled locally. After #3543 and the single
+concrete read patch from #3555, it takes `Read.Interaction` from #3572 and
+the net `Read.Adapter` delta from #3623. Independent technical review of
+#3623 and component approvals are pending. The earlier integration with
+#3583 is recorded in the historical snapshot.
+[Open typed read][pr-typed-read] · [Candidate read adapter][pr-read-adapter] · [Historical snapshot][historical-integration]
 
 The linked source revisions are immutable because the component changes
 are under review, with some based on other component branches. The map
@@ -82,16 +86,18 @@ record publication and check status. [Inventory][pr-inventory] · [SC][pr-sc] ·
 ## Reproduce the checked integration
 
 Use Bash from a clone with the repository's pinned Lean toolchain. The
-checked local commit was `5bf30f551b8398d0e037e4cdf2cca51ab5c0a931` with
-tree `899d8a3be98febd75a7405bf46a7d2f681a9bce2`. The ordered picks include
-one copy of the concrete #3555 patch and the distinct deltas from #3572
-and #3583. The Git path list below reproduces the 52 module targets in the
-order passed to Lake. The replay driver checks each selected module over its loaded imports.
+local integration commit was `ffd634f262a50e8b8e83ba9c7bd38bc29151ec45` with
+tree `999ee9c79e3ed5fbed31d07cb3d79a8e99304012`. The ordered picks apply #3555 once,
+then use the exact #3623 file delta above #3572. Git's path list gives the
+52 targets in the order passed to Lake. Kernel replay checks each module
+over its loaded imports.
 
 ```bash
 set -euo pipefail
-base=496154c5319f0d3bda4d41eb4c37027ff35aba62
-picks=(
+base=1d04e3f7eb9552860b15ff35f7d23b76eed172cc
+adapter_base=b71f7df50b00679ab5e3784ba694621d54731920
+adapter_head=4d69c29875c1d3ab722ac9ca0a43f8203a845d1b
+before_adapter=(
   627432c060169951a08c2454b1c524831ce48793
   c43ef4a85c5948119be11834f4feebce75dc4991
   0558a414b2117057e9b4ea638a8ceb1a3015827e
@@ -100,19 +106,29 @@ picks=(
   9c76bcfd3e7f9266327e065191b1d39ddb423f68
   ccff3448ed27e150d1d3fc510e050efd208df6f6
   99cd8a9f92531530e3bd865036946844c90fa69c
+  41ca3399fba70945bb895e999d2a01f6fe92d24f
   d9cb51eb8351f6c9c50b0a947e3b533da072644a
+  97c5db795d8422bcf4bd5dca780f9c818ec8f48a
   852fe2dcb8628565856abe1074273abd96ce27ff
   b71f7df50b00679ab5e3784ba694621d54731920
-  43bb1542eea70e6199b1fd8e3af184cef5673d9c
+)
+after_adapter=(
   5e08c16a7b9d14127a9686f600039089fee36027
+  8cfa681d25aff2c6e7f198ee752984d2bf8e752f
+  fadfe8d9f01588812bc404b1bf86320805bbcc15
   7a71c189fa30a0c00c60927ef002d6988a2af05f
   814bed538f10118fb9b0810d3e78902c99395040
+  3a003ec4f8e5e1305e3980fbef6a7eb373931fcd
 )
-git fetch --no-tags origin "$base" "${picks[@]}"
+git fetch --no-tags origin "$base" "${before_adapter[@]}" "$adapter_head" "${after_adapter[@]}"
 git worktree add --detach ../track-a-check "$base"
 cd ../track-a-check
-git cherry-pick -x "${picks[@]}"
-test "$(git rev-parse HEAD^{tree})" = 899d8a3be98febd75a7405bf46a7d2f681a9bce2
+git cherry-pick -x "${before_adapter[@]}"
+git diff --binary "$adapter_base" "$adapter_head" | git apply --index
+git commit -m 'Integrate exact SQLite Track A read adapter delta from #3623' \
+  -m "Source delta: $adapter_base..$adapter_head"
+git cherry-pick -x "${after_adapter[@]}"
+test "$(git rev-parse HEAD^{tree})" = 999ee9c79e3ed5fbed31d07cb3d79a8e99304012
 
 mapfile -t modules < <(git diff --name-only --diff-filter=AM "$base"..HEAD -- '*.lean' |
   sed -e 's/\.lean$//' -e 's@/@.@g')
@@ -132,20 +148,20 @@ printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
 [guarded-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/Guarded/Thms.lean
 [weak-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/WeakITree/Thms.lean
 [ub-thms]: https://github.com/hiloopai/silmaril-lean/blob/9c76bcfd3e7f9266327e065191b1d39ddb423f68/Silmaril/Semantics/TrackA/Interaction/UB/Thms.lean
-[institution]: https://github.com/hiloopai/silmaril-lean/blob/5e08c16a7b9d14127a9686f600039089fee36027/docs/projects/track-a-interaction-institution.md
-[institution-thms]: https://github.com/hiloopai/silmaril-lean/blob/5e08c16a7b9d14127a9686f600039089fee36027/Silmaril/Logic/TrackA/Interaction/Thms.lean
-[institution-check]: https://github.com/hiloopai/silmaril-lean/blob/5e08c16a7b9d14127a9686f600039089fee36027/Silmaril/Proofs/Logic/TrackA/Interaction/Regression.lean
-[relabel-thms]: https://github.com/hiloopai/silmaril-lean/blob/5e08c16a7b9d14127a9686f600039089fee36027/Silmaril/Semantics/TrackA/Interaction/Relabel/Thms.lean
-[elgot-thms]: https://github.com/hiloopai/silmaril-lean/blob/5e08c16a7b9d14127a9686f600039089fee36027/Silmaril/Semantics/TrackA/Interaction/Elgot/Thms.lean
+[institution]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/docs/projects/track-a-interaction-institution.md
+[institution-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Logic/TrackA/Interaction/Thms.lean
+[institution-check]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Proofs/Logic/TrackA/Interaction/Regression.lean
+[relabel-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Semantics/TrackA/Interaction/Relabel/Thms.lean
+[elgot-thms]: https://github.com/hiloopai/silmaril-lean/blob/fadfe8d9f01588812bc404b1bf86320805bbcc15/Silmaril/Semantics/TrackA/Interaction/Elgot/Thms.lean
 [sc]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/docs/projects/track-a-concurrency.md
 [sc-thms]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/Silmaril/Semantics/TrackA/Concurrency/Thms.lean
 [sc-check]: https://github.com/hiloopai/silmaril-lean/blob/b93f7a72e2ad4a244ffd17bb5e94858a2c73fc3b/Silmaril/Proofs/Semantics/TrackA/Concurrency/Examples.lean
-[sc-projection]: https://github.com/hiloopai/silmaril-lean/blob/99cd8a9f92531530e3bd865036946844c90fa69c/docs/projects/track-a-concurrency.md#interface-observations
-[projection-thms]: https://github.com/hiloopai/silmaril-lean/blob/99cd8a9f92531530e3bd865036946844c90fa69c/Silmaril/Semantics/TrackA/Concurrency/Projection/Thms.lean
-[projection-check]: https://github.com/hiloopai/silmaril-lean/blob/99cd8a9f92531530e3bd865036946844c90fa69c/Silmaril/Proofs/Semantics/TrackA/Concurrency/Projection/Examples.lean
-[operators]: https://github.com/hiloopai/silmaril-lean/blob/d9cb51eb8351f6c9c50b0a947e3b533da072644a/docs/projects/track-a-interface.md
-[operators-thms]: https://github.com/hiloopai/silmaril-lean/blob/d9cb51eb8351f6c9c50b0a947e3b533da072644a/Silmaril/Semantics/TrackA/Interface/Thms.lean
-[operators-check]: https://github.com/hiloopai/silmaril-lean/blob/d9cb51eb8351f6c9c50b0a947e3b533da072644a/Silmaril/Proofs/Semantics/TrackA/Interface/Regression.lean
+[sc-projection]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/docs/projects/track-a-concurrency.md#interface-observations
+[projection-thms]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/Silmaril/Semantics/TrackA/Concurrency/Projection/Thms.lean
+[projection-check]: https://github.com/hiloopai/silmaril-lean/blob/41ca3399fba70945bb895e999d2a01f6fe92d24f/Silmaril/Proofs/Semantics/TrackA/Concurrency/Projection/Examples.lean
+[operators]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/docs/projects/track-a-interface.md
+[operators-thms]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/Silmaril/Semantics/TrackA/Interface/Thms.lean
+[operators-check]: https://github.com/hiloopai/silmaril-lean/blob/97c5db795d8422bcf4bd5dca780f9c818ec8f48a/Silmaril/Proofs/Semantics/TrackA/Interface/Regression.lean
 [inventory]: https://github.com/hiloopai/silmaril-lean/blob/c43ef4a85c5948119be11834f4feebce75dc4991/docs/projects/sqlite-track-a/header-inventory/README.md
 [operations]: https://github.com/hiloopai/silmaril-lean/blob/c43ef4a85c5948119be11834f4feebce75dc4991/docs/projects/sqlite-track-a/header-inventory/operations.md
 [read-case]: https://github.com/hiloopai/silmaril-lean/blob/852fe2dcb8628565856abe1074273abd96ce27ff/docs/projects/sqlite-track-a/read-case.md
@@ -154,11 +170,11 @@ printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
 [typed-read]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/docs/projects/sqlite-track-a/read-interaction.md
 [typed-read-thms]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/Silmaril/Machine/SQLite/TrackA/Read/Interaction/Thms.lean
 [typed-read-check]: https://github.com/hiloopai/silmaril-lean/blob/b71f7df50b00679ab5e3784ba694621d54731920/Silmaril/Machine/SQLite/TrackA/Read/Interaction/Checks.lean
-[read-adapter]: https://github.com/hiloopai/silmaril-lean/blob/43bb1542eea70e6199b1fd8e3af184cef5673d9c/docs/projects/sqlite-track-a/typed-read-adapter.md
-[read-adapter-thms]: https://github.com/hiloopai/silmaril-lean/blob/43bb1542eea70e6199b1fd8e3af184cef5673d9c/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Thms.lean
-[read-adapter-check]: https://github.com/hiloopai/silmaril-lean/blob/43bb1542eea70e6199b1fd8e3af184cef5673d9c/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Checks.lean
-[write-case]: https://github.com/hiloopai/silmaril-lean/blob/814bed538f10118fb9b0810d3e78902c99395040/docs/projects/sqlite-track-a-write.md
-[write-thms]: https://github.com/hiloopai/silmaril-lean/blob/814bed538f10118fb9b0810d3e78902c99395040/Silmaril/Machine/SqliteVfs/TrackA/Write/Thms.lean
+[read-adapter]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/docs/projects/sqlite-track-a/typed-read-adapter.md
+[read-adapter-thms]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Thms.lean
+[read-adapter-check]: https://github.com/hiloopai/silmaril-lean/blob/4d69c29875c1d3ab722ac9ca0a43f8203a845d1b/Silmaril/Machine/SQLite/TrackA/Read/Adapter/Checks.lean
+[write-case]: https://github.com/hiloopai/silmaril-lean/blob/3a003ec4f8e5e1305e3980fbef6a7eb373931fcd/docs/projects/sqlite-track-a-write.md
+[write-thms]: https://github.com/hiloopai/silmaril-lean/blob/3a003ec4f8e5e1305e3980fbef6a7eb373931fcd/Silmaril/Machine/SqliteVfs/TrackA/Write/Thms.lean
 [pr-inventory]: https://github.com/hiloopai/silmaril-lean/pull/3531
 [pr-sc]: https://github.com/hiloopai/silmaril-lean/pull/3539
 [pr-interaction]: https://github.com/hiloopai/silmaril-lean/pull/3543
@@ -167,5 +183,6 @@ printf '%s\n' "${modules[@]}" | xargs -r -P 6 -n 1 bash -c '
 [pr-read]: https://github.com/hiloopai/silmaril-lean/pull/3555
 [pr-typed-read]: https://github.com/hiloopai/silmaril-lean/pull/3572
 [pr-institution]: https://github.com/hiloopai/silmaril-lean/pull/3576
-[pr-read-adapter]: https://github.com/hiloopai/silmaril-lean/pull/3583
+[pr-read-adapter]: https://github.com/hiloopai/silmaril-lean/pull/3623
 [pr-write]: https://github.com/hiloopai/silmaril-lean/pull/3580
+[historical-integration]: https://github.com/hiloopai/silmaril-lean/blob/f3b9c32dbb606bca3afd0fc97eb80bc584768411/docs/projects/track-a-reading-map.md#reproduce-the-checked-integration
