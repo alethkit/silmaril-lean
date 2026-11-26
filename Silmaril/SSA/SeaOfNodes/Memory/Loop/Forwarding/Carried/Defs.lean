@@ -9,7 +9,8 @@ public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried
 
-open RVSDG (Port Tuple)
+open RVSDG (Locals Port Tuple)
+open Memory.Forwarding (originKey)
 
 variable {args : List ValueSort} {cells : Nat}
 
@@ -42,15 +43,37 @@ def Graph.activate (graph : Graph args) (input : Tuple (Val cells) args) (header
     Word × Heap cells :=
   graph.body.denote input (.cons header.word .nil, PUnit.unit) header.heap
 
+structure Activation (cells : Nat) where
+  result : Word × Heap cells
+  lastStored : Option Word
+
+/-- Evaluate the native table once, retaining the actual scalar operand of
+each Store when it writes. Loads and Return leave that scalar in place. -/
+def runWithLastStore (input : Tuple (Val cells) args) :
+    {past : List (List ValueSort)} → {version : Nat} → Memory.Body args past version →
+    Locals (Val cells) past → Heap cells → Option Word → Activation cells
+  | _, _, .ret _ value, locals, heap, last => ⟨(readValue value input locals, heap), last⟩
+  | _, _, .load _ address rest, locals, heap, last =>
+    runWithLastStore input rest (.cons (heap.read (readValue address input locals)) .nil, locals) heap last
+  | _, _, .store _ address value rest, locals, heap, _ =>
+    let stored := readValue value input locals
+    runWithLastStore input rest locals (heap.write (readValue address input locals) stored) (some stored)
+
+def Graph.activateWithStore (graph : Graph args) (input : Tuple (Val cells) args) (header : Header cells) :
+    Activation cells :=
+  runWithLastStore input graph.body (.cons header.word .nil, PUnit.unit) header.heap none
+
 def Graph.stopWord (graph : Graph args) (input : Tuple (Val cells) args) : Word :=
   input.get graph.stop
 
-/-- Test the exported word after all effects. A backedge latches it
-alongside the final heap of the same activation. -/
+/-- Test and return the original exported word. Feedback carries the last
+Store operand and the final heap. A checked rewrite always has a Store. -/
 def Graph.step (graph : Graph args) (input : Tuple (Val cells) args) (header : Header cells) :
     (Word × Heap cells) ⊕ Header cells :=
-  let result := graph.activate input header
-  if result.1 = graph.stopWord input then .inl result else .inr ⟨result.1, result.2⟩
+  let activation := graph.activateWithStore input header
+  let result := activation.result
+  if result.1 = graph.stopWord input then .inl result
+  else .inr ⟨activation.lastStored.getD result.1, result.2⟩
 
 def Graph.evalFrom (graph : Graph args) (input : Tuple (Val cells) args) :
     Nat → Header cells → Option (Word × Heap cells)
@@ -70,20 +93,21 @@ def Graph.Returns (graph : Graph args) (input : Tuple (Val cells) args)
     (initial : Heap cells) (word : Word) (final : Heap cells) : Prop :=
   ∃ count, graph.evalAfter input initial count = some (word, final)
 
-/-- The Return's memory edge names the most recent Store when the table has one. -/
-def finalVersion : {past : List (List ValueSort)} → {version : Nat} →
-    Memory.Body args past version → Nat
-  | _, _, .ret memory _ => memory.producer.val
-  | _, _, .load _ _ rest => finalVersion rest
-  | _, _, .store _ _ _ rest => finalVersion rest
+/-- Check whether the last Store writes to this original argument port.
+Each Store replaces the previous fact. Return observes the live version. -/
+def lastStoreMatchesAt (observed : Port args .address) :
+    {past : List (List ValueSort)} → {version : Nat} → Memory.Body args past version → Bool → Bool
+  | _, _, .ret _ _, matched => matched
+  | _, _, .load _ _ rest, matched => lastStoreMatchesAt observed rest matched
+  | _, _, .store _ address _ rest, _ =>
+    lastStoreMatchesAt observed rest (originKey address == .inl observed.index)
 
 /-- Remove the first Load if the final Store writes to its original address
-port and its stored word is the exact wire exported to the loop test.
-The untouched suffix gets the original Load's local from the scalar Φ. -/
+port. The untouched suffix gets the original Load's local from the scalar Φ. -/
 def rewrite (source : Loop.Graph args) : Option (Graph args) :=
   match source.body with
   | .load _ (.arg address) rest =>
-    if Memory.Forwarding.checkExit source.body address (finalVersion source.body) then
+    if lastStoreMatchesAt address rest false then
       some ⟨address, rest, source.stop⟩
     else none
   | _ => none
