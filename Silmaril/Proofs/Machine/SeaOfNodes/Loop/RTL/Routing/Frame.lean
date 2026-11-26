@@ -36,8 +36,8 @@ private theorem prefix_get {pre tail : List PortTy} {t : PortTy} (p : Port pre t
     cases left with
     | cons _ rest => exact ih rest
 
-theorem suffix_get {pre tail : List PortTy} {t : PortTy}
-    (left : Tuple (Val model.value) pre) (right : Tuple (Val model.value) tail) (p : Port tail t) :
+theorem suffix_get {F : PortTy → Type*} {pre tail : List PortTy} {t : PortTy}
+    (left : Tuple F pre) (right : Tuple F tail) (p : Port tail t) :
     (appendTuple right left).get (suffixPort pre p) = right.get p := by
   induction left with
   | nil => rfl
