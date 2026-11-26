@@ -21,7 +21,7 @@ theorem emission (spec : Spec) (globals : List String) (names : Names spec)
     (plan : Plan globals spec) (program : Program) :
     elaborateCommand ⟨⟨[], globals⟩, .global⟩ spec.command program =
       .ok (.exec (.define spec.wrapper.name (program.size + 1)),
-        (program.push (plan.body.declaration spec.wrapper.codes)).push (spec.frame program.size).declaration) := by
+        (program.push (plan.body.declaration spec.wrapper.codes)).push (plan.frame program.size).declaration) := by
   let wrapper := spec.wrapper
   let defaults := Defaults.Escape.planned wrapper
   have paired : defaults.map (fun item => (item.name, item.source)) = spec.child.parameters.optional := by
@@ -38,16 +38,19 @@ theorem emission (spec : Spec) (globals : List String) (names : Names spec)
   have codes : defaults.map PlainPositionalDefault.value = wrapper.codes := by
     simp [defaults, Defaults.Escape.planned, Defaults.Escape.Spec.codes, List.map_map, Function.comp_def]
   have reads (binding : Silmaril.Languages.Starlark.Binding)
-      (member : binding ∈ defaults.flatMap PlainPositionalDefault.reads ++ plan.body.free.map FreeName.source) :
+      (member : binding ∈ plan.leadingReads ++ (defaults.flatMap PlainPositionalDefault.reads ++ plan.body.free.map FreeName.source)) :
       ∃ name ∈ spec.enclosing, binding = fileSlot name := by
-    rcases List.mem_append.mp member with fromDefault | fromBody
-    · exact Defaults.Escape.default_bindings wrapper spec.enclosing
-        (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.defaultReads fromDefault
-    · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp fromBody
-      obtain ⟨name, eligible, rfl⟩ := plan.captured entry present
-      exact ⟨name, spec.capture_owned name eligible, rfl⟩
+    rcases List.mem_append.mp member with fromPrefix | fromDefinition
+    · exact plan.leadingOwned binding fromPrefix
+    · rcases List.mem_append.mp fromDefinition with fromDefault | fromBody
+      · exact Defaults.Escape.default_bindings wrapper spec.enclosing
+          (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.defaultReads fromDefault
+      · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp fromBody
+        obtain ⟨name, eligible, _, rfl⟩ := plan.captured entry present
+        exact ⟨name, eligible, rfl⟩
   apply Defaults.Escape.wrap_emission wrapper names.wrapper globals spec.additional names.childFresh spec.updates
-    names.localUpdates spec.child.body.source _ _ reads
+    (fun name member => (names.localUpdates name member).1) spec.leading plan.leadingCode plan.leadingReads
+    spec.child.body.source _ _ plan.leading reads
   intro seed
   have step := Defaults.Body.compile_nested plan.body defaults paired translated seed
   rw [codes] at step
@@ -60,9 +63,9 @@ theorem checked_site {before after : List Command} {globals : List String} {spec
     (suffix : RootCall.Segment globals after) :
     ∃ id, resolved.source.commands[before.length]? = some (.exec (.define spec.wrapper.name (id + 1))) ∧
       resolved.program[id]? = some (plan.body.declaration spec.wrapper.codes) ∧
-      resolved.program[id + 1]? = some (spec.frame id).declaration :=
+      resolved.program[id + 1]? = some (plan.frame id).declaration :=
   RootCall.checked_pair_emission before after spec.command spec.wrapper.name globals linked resolved
-    (plan.body.declaration spec.wrapper.codes) (fun id => (spec.frame id).declaration)
+    (plan.body.declaration spec.wrapper.codes) (fun id => (plan.frame id).declaration)
     declared checked suffix (emission spec globals names plan)
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Scoped

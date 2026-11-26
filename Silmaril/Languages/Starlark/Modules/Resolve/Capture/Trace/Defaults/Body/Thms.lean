@@ -19,6 +19,29 @@ theorem compile_suite {block : LexicalBlock} {source : Suite} {code : Functions.
     compileBody ⟨block.context, .local⟩ source.source program = .ok (⟨code, reads⟩, program) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_suite related program
 
+/-- An open assignment sequence compiles around an already checked continuation. -/
+theorem compile_prefix {block : LexicalBlock} {source : List (String × Lowering.Resolve.SourceExpr)}
+    {code : List (String × Lowering.Expr)} {reads : List Binding}
+    (related : ElaboratesPrefix block source code reads)
+    {tail : Statement} {tailCode : ResolvedBody} {program final : Program}
+    (compiled : compileBody ⟨block.context, .local⟩ tail program = .ok (tailCode, final)) :
+    compileBody ⟨block.context, .local⟩ (prependSource source tail) program =
+      .ok (⟨prependCode code tailCode.code, reads ++ tailCode.reads⟩, final) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_prefix related compiled
+
+/-- The open sequence enters the continuation only on success. Both
+semantics retain the reached failure state when an assignment fails. -/
+theorem prefix_agrees (program : Program) (available : List DeclarationId)
+    {block : LexicalBlock} {state : State} {source : List (String × Lowering.Resolve.SourceExpr)}
+    {code : List (String × Lowering.Expr)} {result : Outcome Unit}
+    (ran : RunsPrefix block state source code result) (tail : Functions.Body) (out : Outcome Flow)
+    (continuation : ∀ middle, result = .ok () middle → denoteBody program available tail middle = out) :
+    Exec program available state (prependCode code tail) (result.resume fun _ _ => out) ∧
+      denoteBody program available (prependCode code tail) state = (result.resume fun _ _ => out) := by
+  have exec := Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.prefix_sound
+    program available ran tail out (fun middle reached => (exec_iff_denoteBody _ _ _ _ _).mpr (continuation middle reached))
+  exact ⟨exec, (exec_iff_denoteBody _ _ _ _ _).mp exec⟩
+
 /-- The compositional read rule supplies the complete capture selection
 after independent collection of the local binders. -/
 theorem plan_of_suite (globals : List String) (definition : Definition) (locals : List String)

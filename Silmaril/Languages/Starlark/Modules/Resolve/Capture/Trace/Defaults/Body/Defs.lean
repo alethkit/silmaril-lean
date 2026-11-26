@@ -84,6 +84,35 @@ inductive Runs (block : LexicalBlock) : State → Suite → Functions.Body → O
       Evaluates block state expression code (.error error final) →
       Runs block state (.assign name expression rest) (.seq (.assignExpr (fileSlot name) code) tail) (.error error final)
 
+/-- Open assignment sequences are shared with wrappers whose continuation
+defines a child instead of returning immediately. -/
+@[expose] def prependSource (assignments : List (String × Expr)) (tail : Statement) : Statement :=
+  assignments.foldr (fun (name, rhs) rest => .seq (.assign name rhs) rest) tail
+
+@[expose] def prependCode (assignments : List (String × Lowering.Expr)) (tail : Functions.Body) : Functions.Body :=
+  assignments.foldr (fun (name, rhs) rest => .seq (.assignExpr (fileSlot name) rhs) rest) tail
+
+inductive ElaboratesPrefix (block : LexicalBlock) : List (String × Expr) →
+    List (String × Lowering.Expr) → List Binding → Prop where
+  | nil : ElaboratesPrefix block [] [] []
+  | cons {name : String} {rhs : Expr} {code : Lowering.Expr} {reads later : List Binding}
+      {rest : List (String × Expr)} {compiled : List (String × Lowering.Expr)} :
+      name ∈ block.owned → Operand block rhs code reads → ElaboratesPrefix block rest compiled later →
+      ElaboratesPrefix block ((name, rhs) :: rest) ((name, code) :: compiled) (reads ++ later)
+
+inductive RunsPrefix (block : LexicalBlock) : State → List (String × Expr) →
+    List (String × Lowering.Expr) → Outcome Unit → Prop where
+  | nil {state : State} : RunsPrefix block state [] [] (.ok () state)
+  | cons {state middle : State} {name : String} {rhs : Expr} {code : Lowering.Expr} {value : Value}
+      {rest : List (String × Expr)} {compiled : List (String × Lowering.Expr)} {out : Outcome Unit} :
+      Evaluates block state rhs code (.ok value middle) →
+      RunsPrefix block (middle.write (fileSlot name) value) rest compiled out →
+      RunsPrefix block state ((name, rhs) :: rest) ((name, code) :: compiled) out
+  | failed {state final : State} {name : String} {rhs : Expr} {code : Lowering.Expr} {error : Lists.Error}
+      {rest : List (String × Expr)} {compiled : List (String × Lowering.Expr)} :
+      Evaluates block state rhs code (.error error final) →
+      RunsPrefix block state ((name, rhs) :: rest) ((name, code) :: compiled) (.error error final)
+
 /-- Owned locals are fresh even when still unbound. Captured names keep
 their original address in the caller heap. Both point to live binding cells. -/
 structure Frame (block : LexicalBlock) (free : List FreeName) (floor : Nat) (state : State) : Prop where
