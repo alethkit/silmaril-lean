@@ -3,6 +3,8 @@ module
 public import Silmaril.Raw.SSA.Isotope.Morphism.CaseSSASemantics
 public import Silmaril.Raw.SSA.Isotope.LetCase.Semantics.OperationalDenotation
 public import Silmaril.Raw.SSA.Isotope.Morphism.SeqCase.Monadic
+public import Silmaril.Raw.SSA.Isotope.Morphism.Instructions.LetCase
+public import Silmaril.Raw.SSA.Isotope.LambdaSSA.InstructionMap
 
 /-! # LetCase expression erasure and the checked let-family model interfaces -/
 
