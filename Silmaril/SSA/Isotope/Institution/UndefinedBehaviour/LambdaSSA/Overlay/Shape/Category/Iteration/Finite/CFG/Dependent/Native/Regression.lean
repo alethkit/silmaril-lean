@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Normalize.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Institution.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Adequacy
 import Mathlib.Tactic.FinCases
@@ -300,6 +300,38 @@ private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed twicePadd
   rw [rejects_distinct_native_entry] at checked
   cases checked
 
+private def sharedExit : Primitives Instr 6 := fun _ _ s =>
+  match s.val with
+  | 4 => .fault 5
+  | 5 => .diverge
+  | _ => replyExit ⟨0, uval⟩ s
+
+private theorem accepted_institution_refinement :
+    let M := model sharedExit env
+    ((Institution.Observational.lambdaSSA Instr External.length).room [U].length).Sat
+      (CategoryTheory.Discrete.mk M.raw)
+      (.le ⟨twicePaddedCFG.val, twicePaddedCFG.property.scoped⟩ ⟨target.val, target.property.scoped⟩) :=
+  (Native.check_satisfies_iff recognizes_nested_unused_binders recognizes_other_entry codes sharedExit).mp
+    (by decide) 0
+
+private theorem finds_changed_exit : Native.counterexample readSource readTarget codes primitive = some (0, 0) :=
+  rfl
+
+private theorem actual_entry_counterexample : ¬ observed twicePaddedCFG 0 ≤ observed target 0 :=
+  Native.counterexample_point recognizes_nested_unused_binders recognizes_other_entry codes primitive finds_changed_exit
+
+private theorem refutes_all_models : ¬ LambdaSSA.UB.Refines.{0,0,0,0} twicePaddedCFG target :=
+  Native.counterexample_refutes recognizes_nested_unused_binders recognizes_other_entry codes primitive finds_changed_exit
+
+private theorem missing_ordered_return :
+    let M := (model primitive env).raw
+    let outcome := Institution.Observational.Observation.ret (0 : State) ((0 : Nat), Value.unit) (2 : State)
+    outcome ∈ LambdaSSA.UB.observe M twicePaddedCFG ∧ outcome ∉ LambdaSSA.UB.observe M target := by
+  change Outcome.ret (0 : Fin 2) .unit (2 : State) ∈ (observed twicePaddedCFG 0).possible ∧
+    Outcome.ret (0 : Fin 2) .unit (2 : State) ∉ (observed target 0).possible
+  rw [normalized_exit_after_backedge, distinct_entry_exit]
+  simp [Behaviour.possible]
+
 #print axioms Native.recognized_eq
 #print axioms Native.readback_agrees
 #print axioms Native.generated_native_row
@@ -334,5 +366,15 @@ private theorem normalized_rejects_distinct_entry : ¬ ∀ s, observed twicePadd
 #print axioms normalized_return_reaches_overlay_ub
 #print axioms normalized_replay_skips_overlay_ub
 #print axioms normalized_rejects_distinct_entry
+
+#print axioms Native.check_satisfies_iff
+#print axioms Native.counterexample_eq_none_iff
+#print axioms Native.counterexample_point
+#print axioms Native.counterexample_refutes
+#print axioms accepted_institution_refinement
+#print axioms finds_changed_exit
+#print axioms actual_entry_counterexample
+#print axioms refutes_all_models
+#print axioms missing_ordered_return
 
 end LambdaSSAUBNativePackedRegression
