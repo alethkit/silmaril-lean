@@ -258,4 +258,181 @@ example : ∃ middle stopped,
     simpa [render, storeWithBytes, Wasm.V1.Execution.setMemory, List.getElem?_set, inBounds] using sameCell
   exact ⟨middle, stopped, path, move, endpoint, eq, congrArg MemInst.data cell⟩
 
+-- The surrounding address stays below the condition and outside the arm.
+-- The false arm skips the entire call, even when that callee would write and trap.
+private def conditional (traps : Bool) : Function :=
+  ⟨{ declaration [childAddr] [.int .i32] with params := [.int .i32] }, 1, [i32 2],
+    [.ranked (.numeric (.get ⟨0⟩)), .if_ none [.ranked (.call (target traps))] [], .load 1]⟩
+
+private def ifProgram (traps : Bool) : Program := ⟨[some (writer traps), some (conditional traps)]⟩
+private def ifBase (traps : Bool) : Store Unit :=
+  { memories := [untouched, memory], funcs := [writer traps, conditional traps].map
+      (fun fn => .wasm fn.declaration.type fn.declaration.module fn.v1Func) }
+private theorem ifChecked (traps : Bool) : (ifProgram traps).checkV1 slot = true := by
+  cases traps <;> rfl
+private theorem ifLayout (traps : Bool) : Layout (ifProgram traps) (ifBase traps) slot memory where
+  memory := rfl
+  functions := by
+    intro a fn found
+    rcases a with ⟨_ | _ | n⟩ <;> simp [Program.lookup, ifProgram] at found
+    all_goals subst fn; rfl
+
+example : Function.checkV1 { conditional false with
+    code := [.ranked (.numeric (.get ⟨0⟩)), .if_ none [] [.store 0], .load 1] } slot = false := rfl
+
+example : Function.checkV1 { conditional false with
+    declaration := { (conditional false).declaration with params := [.int .i64] } } slot = false := rfl
+
+example : Function.checkV1 { conditional false with
+    initial := []
+    code := [.ranked (.numeric (.get ⟨0⟩)), .if_ (some (.int .i32))
+      [.ranked (.numeric (.get ⟨0⟩))]
+      [.if_ (some (.int .i32)) [] []]] } slot = false := rfl
+
+-- The inner arm may return the function's i32 even though its label is void.
+example : Function.checkV1 { conditional false with
+    initial := []
+    code := [.ranked (.numeric (.get ⟨0⟩)), .if_ (some (.int .i32))
+      [.ranked (.numeric (.get ⟨0⟩)), .if_ none
+        [.ranked (.numeric (.get ⟨0⟩)), .ranked .return_] [],
+        .ranked (.numeric (.get ⟨0⟩))]
+      [.ranked (.numeric (.get ⟨0⟩))]] } slot = true := rfl
+
+example : (Program.mk [some (writer false), some { conditional false with rank := 0 }]).checkV1 slot =
+    false := rfl
+
+private def ifInput (condition : BitVec 32) : State :=
+  ⟨before, outside, values [i32 condition] ++ [.source (.call ⟨0⟩)]⟩
+private def ifFrame (traps : Bool) (condition : BitVec 32) : Frame :=
+  (conditional traps).declaration.frame [i32 condition]
+private def underIfReader (c : Config Unit) : Config Unit :=
+  ⟨c.store, outside, [.frame 1 c.frame [.label 1 [] c.code]]⟩
+private def selected (condition : BitVec 32) : Wasm.V1.Expr :=
+  if condition = 0 then [] else [.call ⟨0⟩]
+private def ifWritten (traps : Bool) := storeWithBytes (ifBase traps) slot memory after
+
+-- Stop at the selected block, then account for the separate native label step.
+private theorem ifSelect (traps : Bool) (condition : BitVec 32) :
+    Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput condition).code⟩
+      (underIfReader ⟨ifBase traps, ifFrame traps condition,
+        values saved ++ [.source (.block none (selected condition))] ++ continuation⟩) := by
+  apply Relation.ReflTransGen.head
+    (b := ⟨ifBase traps, outside, values [i32 condition] ++ [.invoke parentAddr]⟩)
+    (Step.context (.call _ _ ⟨0⟩ parentAddr rfl) [i32 condition] [])
+  have invoke := (ifLayout traps).enter (ifChecked traps) (address := parentAddr)
+    (fn := conditional traps) rfl
+    (ifLayout traps).initial_shared (caller := outside) (saved := []) (args := [i32 condition]) (tail := []) rfl
+  refine Relation.ReflTransGen.head invoke ?_
+  refine Relation.ReflTransGen.head
+    (Step.frame (Step.label
+      (Step.context (.localGet _ _ ⟨0⟩ (i32 condition) rfl) saved
+        ([.source (.if_ none [.call ⟨0⟩] [])] ++ continuation)) 1 []) 1 outside) ?_
+  exact .single (.frame (.label ((v1_if_select_iff (saved := saved)).mpr rfl) 1 []) 1 outside)
+
+private theorem ifOpen (traps : Bool) (condition : BitVec 32) :
+    Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput condition).code⟩
+      (underIfReader ⟨ifBase traps, ifFrame traps condition,
+        values saved ++ [.label 0 [] (Wasm.V1.Execution.expression (selected condition))] ++ continuation⟩) :=
+  (ifSelect traps condition).tail
+    (.frame (.label (.context (.pure _ _ (.block none (selected condition))) saved continuation) 1 []) 1 outside)
+
+private theorem ifReadback {traps : Bool} {condition : BitVec 32} {dst : Config Unit}
+    (path : Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput condition).code⟩ dst) :
+    ∃ out, Runs (ifProgram traps) slot (ifInput condition) out ∧
+      Ready (ifProgram traps) slot 2 before.size out ∧ dst = render (ifBase traps) slot memory out :=
+  (v1_call_run_iff (root := parentAddr) (fn := conditional traps) (index := ⟨0⟩)
+    (args := [i32 condition]) (caller := outside) (ifChecked traps) (ifLayout traps) rfl rfl).mp path
+
+example : ∃ out, Runs (ifProgram false) slot (ifInput 1) out ∧
+    underIfReader ⟨ifBase false, ifFrame false 1,
+      values saved ++ [.source (.block none [.call ⟨0⟩])] ++ continuation⟩ =
+        render (ifBase false) slot memory out := by
+  obtain ⟨out, path, _, eq⟩ := ifReadback (ifSelect false 1)
+  exact ⟨out, path, eq⟩
+
+private theorem ifFinish {traps : Bool} {condition word : BitVec 32} {s : Store Unit}
+    (load : Step CallFrame.v1NoHost
+      ⟨s, ifFrame traps condition, values saved ++ continuation⟩
+      ⟨s, ifFrame traps condition, values [i32 word]⟩) :
+    Steps CallFrame.v1NoHost
+      (underIfReader ⟨s, ifFrame traps condition, values saved ++ [.label 0 [] []] ++ continuation⟩)
+      ⟨s, outside, values [i32 word]⟩ := by
+  apply Relation.ReflTransGen.head
+    (Step.frame (Step.label (Step.context (.pure _ _ (.labelDone 0 [] [])) saved continuation) 1 []) 1 outside)
+  apply Relation.ReflTransGen.head (Step.frame (Step.label load 1 []) 1 outside)
+  apply Relation.ReflTransGen.head (Step.frame (.pure _ _ (.labelDone 1 [] [i32 word])) 1 outside)
+  exact .single (.pure _ _ (.frameDone 1 (ifFrame traps condition) [i32 word] rfl))
+
+example : ∃ out, Runs (ifProgram true) slot (ifInput 0) out ∧
+    (⟨ifBase true, outside, values [i32 0]⟩ : Config Unit) = render (ifBase true) slot memory out := by
+  have load := (MemoryWrite.v1_context_load_step_iff_at (host := CallFrame.v1NoHost) (immediate := immediate 1) (address := 2)
+    (saved := []) (tail := [])
+    (show Wasm.V1.Execution.frameMemory (ifBase true) (ifFrame true 0) = some (slot, memory) from rfl)).mpr
+    ⟨.value 0, MemoryQuery.fact_at (.load _ _ (by decide)), rfl⟩
+  obtain ⟨out, path, _, eq⟩ := ifReadback ((ifOpen true 0).trans (ifFinish load))
+  exact ⟨out, path, eq⟩
+
+private def inIfArm (traps : Bool) (c : Config Unit) : Config Unit :=
+  underIfReader ⟨c.store, ifFrame traps 1, values saved ++ [.label 0 [] c.code] ++ continuation⟩
+
+private theorem inIfArm_steps {traps : Bool} {a b : Config Unit}
+    (path : Steps CallFrame.v1NoHost a b) (frame : a.frame = ifFrame traps 1)
+    (frame' : b.frame = ifFrame traps 1) :
+    Steps CallFrame.v1NoHost (inIfArm traps a) (inIfArm traps b) := by
+  simpa only [inIfArm, underIfReader, frame, frame'] using
+    ((((path.label 0 []).context saved continuation).label 1 []).frame 1 outside)
+
+private theorem ifInvoke (traps : Bool) :
+    Steps CallFrame.v1NoHost ⟨ifBase traps, outside, (ifInput 1).code⟩
+      (inIfArm traps ⟨ifBase traps, ifFrame traps 1,
+        MemoryWrite.v1ActivationCode none (callee traps) [] []
+          (Wasm.V1.Execution.expression (writer traps).v1Func.body)⟩) := by
+  apply (ifOpen traps 1).trans
+  refine inIfArm_steps (traps := traps)
+    (a := ⟨ifBase traps, ifFrame traps 1, [.source (.call ⟨0⟩)]⟩) ?_ rfl rfl
+  apply Relation.ReflTransGen.head (Step.call _ _ ⟨0⟩ childAddr rfl)
+  exact .single ((ifLayout traps).enter (ifChecked traps) (address := childAddr) (fn := writer traps) rfl
+    (ifLayout traps).initial_shared (saved := []) (args := []) (tail := []) rfl)
+
+example : ∃ out, Runs (ifProgram false) slot (ifInput 1) out ∧
+    (⟨ifWritten false, outside, values [i32 0x11223344]⟩ : Config Unit) =
+      render (ifBase false) slot memory out := by
+  have write := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost) (immediate := immediate 2) (callerSaved := []) (callerTail := []) (result := none)
+    (caller := ifFrame false 1) (saved := []) (tail := [])
+    (show Wasm.V1.Execution.frameMemory (ifBase false) (callee false) = some (slot, memory) from rfl)).mpr
+    ⟨.written after, writing, rfl⟩
+  have arm := ((Relation.ReflTransGen.single write).tail
+    (Step.frame (.pure _ _ (.labelDone 0 [] [])) 0 (ifFrame false 1))).tail
+    (Step.pure _ (ifFrame false 1) (.frameDone 0 (callee false) [] rfl))
+  have resumed := (ifInvoke false).trans (inIfArm_steps arm rfl rfl)
+  have load := (MemoryWrite.v1_context_load_step_iff_at (host := CallFrame.v1NoHost) (immediate := immediate 1) (address := 2)
+    (saved := []) (tail := [])
+    ((ifLayout false).frame_memory (ifChecked false) (address := parentAddr) (fn := conditional false)
+      rfl [i32 1] after)).mpr ⟨.value 0x11223344, MemoryQuery.fact_at (.load _ _ (by decide)), rfl⟩
+  obtain ⟨out, path, _, eq⟩ := ifReadback (resumed.trans (ifFinish load))
+  exact ⟨out, path, eq⟩
+
+example : ∃ out, Runs (ifProgram true) slot (ifInput 1) out ∧
+    (⟨ifWritten true, outside, [.trap]⟩ : Config Unit) = render (ifBase true) slot memory out := by
+  have write := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost) (immediate := immediate 2)
+    (caller := ifFrame true 1) (callerSaved := []) (callerTail := []) (result := none)
+    (saved := [i32 3, i32 0]) (tail := [.source ((Op.store 2).v1)])
+    (show Wasm.V1.Execution.frameMemory (ifBase true) (callee true) = some (slot, memory) from rfl)).mpr
+    ⟨.written after, writing, rfl⟩
+  have fail := (MemoryWrite.v1_activation_store_step_iff_at (host := CallFrame.v1NoHost) (immediate := immediate 2) (callerSaved := []) (callerTail := []) (result := none)
+    (caller := ifFrame true 1) (saved := []) (tail := []) (address := 3) (word := 0)
+    (show Wasm.V1.Execution.frameMemory (ifWritten true) (callee true) = some (slot, updated) from rfl)).mpr
+    ⟨.trap, MemoryWrite.store_trap_iff_at.mpr (by decide), rfl⟩
+  have arm := (((Relation.ReflTransGen.single write).tail fail).tail
+    (Step.frame (.pure _ _ (.labelTrap 0 [])) 0 (ifFrame true 1))).tail
+    (Step.pure _ (ifFrame true 1) (.frameTrap 0 (callee true)))
+  have branchTrap := ((ifInvoke true).trans (inIfArm_steps arm rfl rfl)).tail
+    (Step.frame (Step.label (Step.context (.pure _ _ (.labelTrap 0 [])) saved continuation) 1 []) 1 outside)
+  have discard := branchTrap.tail
+    (Step.frame (Step.label (.pure _ _ (.trapValues (i32 2) [] continuation)) 1 []) 1 outside)
+  have unwind := (discard.tail (Step.frame (.pure _ _ (.labelTrap 1 [])) 1 outside)).tail
+    (Step.pure _ _ (.frameTrap 1 (ifFrame true 1)))
+  obtain ⟨out, path, _, eq⟩ := ifReadback unwind
+  exact ⟨out, path, eq⟩
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32

@@ -48,6 +48,22 @@ theorem store_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)}
   obtain ⟨saved, address, rfl, tail⟩ := split_i32 remaining
   exact ⟨saved, address, word, by simp [List.append_assoc], tail⟩
 
+theorem if_typed {fn : Function} {stack : List Value} {result : Option NumType}
+    {left right rest : List Op} {fallthrough : List NumType}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) = true) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] ∧
+      fn.checkRegion [] result.toList left = true ∧ fn.checkRegion [] result.toList right = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true := by
+  change Graph.checkCondition (Prefix.stackTypes stack) (fun saved =>
+    fn.checkRegion [] result.toList left && fn.checkRegion [] result.toList right &&
+    fn.checkRegion (result.toList.reverse ++ saved) fallthrough rest) = true at checked
+  obtain ⟨saved, condition, rfl, checks⟩ := split_i32 checked
+  obtain ⟨arms, checkTail⟩ := Bool.and_eq_true_iff.mp checks
+  obtain ⟨checkLeft, checkRight⟩ := Bool.and_eq_true_iff.mp arms
+  refine ⟨saved, condition, rfl, checkLeft, checkRight, fun delivered typed => ?_⟩
+  simpa [Prefix.stackTypes, List.reverse_append, typed] using checkTail
+
 theorem lookup_table (program : Program) (address : FuncAddr) :
     program.table.lookup address = (program.lookup address).map Function.entry := by
   unfold Table.lookup Program.table Program.lookup

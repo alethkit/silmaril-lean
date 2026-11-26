@@ -41,6 +41,14 @@ inductive SourceAllowed (program : Program) (memory : MemAddr) (rank : Nat) (mod
       SourceAllowed program memory rank module (.intLoad .i32 none (immediate offset))
   | store (offset : Fin (2 ^ 32)) (slot : module.memories[0]? = some memory) :
       SourceAllowed program memory rank module (.intStore .i32 none (immediate offset))
+  | if_ {result : Option NumType} {left right : Wasm.V1.Expr}
+      (thenBody : ∀ i ∈ left, SourceAllowed program memory rank module i)
+      (elseBody : ∀ i ∈ right, SourceAllowed program memory rank module i) :
+      SourceAllowed program memory rank module (.if_ result left right)
+  -- V1 lowers a selected arm to a block before opening its label.
+  | block {result : Option NumType} {body : Wasm.V1.Expr}
+      (guard : ∀ i ∈ body, SourceAllowed program memory rank module i) :
+      SourceAllowed program memory rank module (.block result body)
   | unreachable : SourceAllowed program memory rank module .unreachable
   | return_ : SourceAllowed program memory rank module .return_
 
