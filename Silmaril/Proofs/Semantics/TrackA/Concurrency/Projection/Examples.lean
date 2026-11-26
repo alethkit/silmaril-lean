@@ -108,4 +108,12 @@ theorem hiding_conflict :
       have values : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 := by omega
       rcases values with rfl | rfl | rfl | rfl | rfl <;> simp [publishTrace] at atomic
 
+/-- Identical visible labels still map to distinct source occurrences. -/
+theorem repeated_labels :
+    let e : Event Bool Unit Bool := ⟨false, .write .plain true 1⟩
+    let trace := [e, ⟨true, .write .plain false 2⟩, e]
+    (List.finRange (flagOnly.observe trace).length).map (fun i =>
+      ((flagOnly.projection trace).index i).val) = [0, 2] := by
+  decide
+
 end Silmaril.Semantics.TrackA.Concurrency.Projection.Examples

@@ -122,7 +122,8 @@ handoff makes two retained plain writes appear to race. Hiding an
 intervening atomic write of the same value fabricates a reads-from edge
 and suppresses a race between retained payload accesses. A third example
 exposes the whole atomic resource while hiding the plain payload resource.
-Its observed trace is clean even though the source is racy.
+Its observed trace is clean even though the source is racy. An occurrence
+example checks that identical visible labels map to distinct source positions.
 
 ```sh
 targets='+Silmaril.Semantics.TrackA.Concurrency.Thms +Silmaril.Proofs.Semantics.TrackA.Concurrency.Examples +Silmaril.Semantics.TrackA.Concurrency.Projection.Thms +Silmaril.Proofs.Semantics.TrackA.Concurrency.Projection.Examples'
@@ -130,6 +131,8 @@ lake build --wfail $targets
 make check CHECK_TARGETS="$targets"
 lake env leanchecker Silmaril.Semantics.TrackA.Concurrency.Projection.Thms
 lake env leanchecker Silmaril.Proofs.Semantics.TrackA.Concurrency.Projection.Examples
+SILMARIL_REPLAY_MODULE=Silmaril.Proofs.Semantics.TrackA.Concurrency.Projection \
+  lake env lean tools/compiler-explorer/Replay.lean
 ```
 
 - Leslie Lamport, *How to Make a Multiprocessor Computer That Correctly

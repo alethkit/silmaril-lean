@@ -15,11 +15,6 @@ theorem observe_inter (outer inner : Interface L R) (xs : List (Event T L R)) :
     (outer.inter inner).observe xs = inner.observe (outer.observe xs) :=
   Proofs.Semantics.TrackA.Concurrency.Projection.observe_inter outer inner xs
 
-/-- Recover the source position of each event in a filtered observation. -/
-def projection (view : Interface L R) (xs : List (Event T L R)) :
-    Projection xs (view.observe xs) :=
-  Proofs.Semantics.TrackA.Concurrency.Projection.interfaceProjection view xs
-
 theorem retains_iff (view : Interface L R) (k : Fin xs.length) :
     (view.projection xs).Retains k ↔ view.exposes xs[k.val].action = true :=
   Proofs.Semantics.TrackA.Concurrency.Projection.interface_retains_iff view k
@@ -113,7 +108,7 @@ theorem hasRace_to_observed (covers : profile = .mixed → p.CoversOverwrites)
     hasRace profile ys = true :=
   Proofs.Semantics.TrackA.Concurrency.Projection.hasRace_to_observed p covers conflictsCovered race
 
-/-- Whole-trace classification additionally requires coverage of conflict
+/-- Whole-trace classification agrees with additional coverage of conflict
 endpoints, which can disappear even if all retained pairs agree. -/
 theorem classify_eq (keeps : p.KeepsCrossThreadEdges profile)
     (covers : profile = .mixed → p.CoversOverwrites) (conflictsCovered : p.CoversConflicts) :

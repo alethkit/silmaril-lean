@@ -29,38 +29,16 @@ theorem observedRun_inter [DecidableEq T] [DecidableEq L] [DecidableEq R]
   · rintro ⟨_, ⟨xs, run, rfl⟩, visible⟩
     exact ⟨xs, run, (observe_inter outer inner xs).trans visible⟩
 
-private def positions (view : Interface L R) (xs : List (Event T L R)) : List (Fin xs.length) :=
-  (List.finRange xs.length).filter fun k => view.exposes xs[k.val].action
-
-private theorem observe_eq_map (view : Interface L R) (xs : List (Event T L R)) :
-    view.observe xs = (positions view xs).map fun k => xs[k.val] := by
-  have all : (List.finRange xs.length).map (fun k => xs[k.val]) = xs := by
-    apply List.ext_getElem (by simp)
-    intros
-    simp
-  conv => lhs; rw [Interface.observe, ← all]
-  rw [List.filter_map]
-  rfl
-
-def interfaceProjection (view : Interface L R) (xs : List (Event T L R)) :
-    Projection xs (view.observe xs) where
-  index i := (positions view xs)[i.val]'(by simpa [observe_eq_map view xs] using i.isLt)
-  mono := by
-    intro i j lt
-    exact (List.pairwise_lt_finRange xs.length).filter _ |>.rel_getElem_of_lt _ _ lt
-  event_eq i := by
-    simp [observe_eq_map view xs]
-
 theorem interface_retains_iff (view : Interface L R) (k : Fin xs.length) :
-    (interfaceProjection view xs).Retains k ↔ view.exposes xs[k.val].action = true := by
-  have member : k ∈ positions view xs ↔ view.exposes xs[k.val].action = true := by
-    simp [positions]
+    (view.projection xs).Retains k ↔ view.exposes xs[k.val].action = true := by
+  have member : k ∈ view.positions xs ↔ view.exposes xs[k.val].action = true := by
+    simp [Interface.positions]
   rw [← member, List.mem_iff_getElem]
   constructor
   · rintro ⟨i, eq⟩
     exact ⟨i.val, _, eq⟩
   · rintro ⟨i, bound, eq⟩
-    exact ⟨⟨i, by simpa [observe_eq_map view xs] using bound⟩, eq⟩
+    exact ⟨⟨i, by simpa [view.observe_eq_map xs] using bound⟩, eq⟩
 
 variable (p : Projection xs ys) {profile : RaceProfile}
 
@@ -247,7 +225,7 @@ private theorem mutexSync_iff {a b : Action L R} :
 
 theorem interface_keepsCrossThreadEdges (view : Interface L R)
     (sync : view.CoversSynchronization profile xs) :
-    (interfaceProjection view xs).KeepsCrossThreadEdges profile := by
+    (view.projection xs).KeepsCrossThreadEdges profile := by
   intro a b different edge
   rw [interface_retains_iff, interface_retains_iff]
   obtain ⟨_, order | mutex | ⟨mixed, atomic⟩⟩ := edge_iff.mp edge
@@ -268,8 +246,8 @@ private theorem exposes_write (view : Interface L R) {action : Action L R} {loc 
 omit [DecidableEq T] [DecidableEq L] in
 theorem interface_coversOverwrites (view : Interface L R)
     (sync : view.CoversSynchronization .mixed xs) :
-    (interfaceProjection view xs).CoversOverwrites := by
-  let p := interfaceProjection view xs
+    (view.projection xs).CoversOverwrites := by
+  let p := view.projection xs
   intro i j loc v _ write _ overwrite
   change (view.observe xs)[i.val].action = _ at write
   have sourceWrite : xs[(p.index i).val].action = .write .scAtomic loc v := by

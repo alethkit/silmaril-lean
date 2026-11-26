@@ -33,6 +33,26 @@ structure Projection (xs ys : List (Event T L R)) where
   mono : StrictMono index
   event_eq : ∀ i : Fin ys.length, ys[i.val] = xs[(index i).val]
 
+/-- Source occurrences visible through the interface, in source order. -/
+def Interface.positions (view : Interface L R) (xs : List (Event T L R)) : List (Fin xs.length) :=
+  (List.finRange xs.length).filter fun k => view.exposes xs[k.val].action
+
+theorem Interface.observe_eq_map (view : Interface L R) (xs : List (Event T L R)) :
+    view.observe xs = (view.positions xs).map fun k => xs[k.val] := by
+  have all : (List.finRange xs.length).map (fun k => xs[k.val]) = xs := by
+    simp only [List.finRange, List.map_ofFn, Function.comp_def, List.ofFn_getElem]
+  conv => lhs; rw [Interface.observe, ← all]
+  exact List.filter_map
+
+/-- Recover the source position of each event in a filtered observation. -/
+def Interface.projection (view : Interface L R) (xs : List (Event T L R)) :
+    Projection xs (view.observe xs) where
+  index i := (view.positions xs)[i.val]'(by simpa [view.observe_eq_map xs] using i.isLt)
+  mono := by
+    intro i j lt
+    exact (List.pairwise_lt_finRange xs.length).filter _ |>.rel_getElem_of_lt _ _ lt
+  event_eq i := by simp [view.observe_eq_map xs]
+
 namespace Projection
 
 variable {xs ys zs : List (Event T L R)}
