@@ -1,5 +1,5 @@
 module
 
-public import Silmaril.Relational.Table.Generated.Defs
+public import Silmaril.Semantics.Relational.Table.Generated.Defs
 
 /-! Public definitions for schemas, table organization and constraints. -/

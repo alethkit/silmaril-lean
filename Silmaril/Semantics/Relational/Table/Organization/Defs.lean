@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Table.Schema.Defs
+public import Silmaril.Semantics.Relational.Table.Schema.Defs
 
 /-! Rows use dependent functions for cells, with column kinds interpreted by a client.
 Both a row index type and a finite row count are available as alignment data. -/

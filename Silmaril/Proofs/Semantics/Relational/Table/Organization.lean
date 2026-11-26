@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Table.Organization.Defs
+public import Silmaril.Semantics.Relational.Table.Organization.Defs
 
 public section
 

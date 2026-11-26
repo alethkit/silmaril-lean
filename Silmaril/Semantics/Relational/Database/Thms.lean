@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Relational.Database.Defs
-import Silmaril.Proofs.Relational.Database.Recovery
+public import Silmaril.Semantics.Relational.Database.Defs
+import Silmaril.Proofs.Semantics.Relational.Database.Recovery
 
 /-! Public relationships between dependent, packed, constrained and dynamic databases. -/
 

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Table.Thms
+public import Silmaril.Semantics.Relational.Table.Thms
 public import Mathlib.Data.Fintype.EquivFin
 
 /-! A catalog assigns schemas to present names. A packed entry stores its schema

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Table.Organization.Defs
+public import Silmaril.Semantics.Relational.Table.Organization.Defs
 
 /-! Whole-table predicates express constraints such as keys. Generated cells are
 computed from a typed selection of supplied cells within each row. -/

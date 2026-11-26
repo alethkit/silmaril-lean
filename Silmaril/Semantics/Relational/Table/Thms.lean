@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Relational.Table.Defs
-import Silmaril.Proofs.Relational.Table.Organization
+public import Silmaril.Semantics.Relational.Table.Defs
+import Silmaril.Proofs.Semantics.Relational.Table.Organization
 
 /-! Public theorems for schemas, list and indexed tables, and generated columns. -/
 

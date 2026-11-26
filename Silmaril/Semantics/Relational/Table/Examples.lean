@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Relational.Table.Thms
+import Silmaril.Semantics.Relational.Table.Thms
 
 namespace Silmaril.Relational.Examples
 

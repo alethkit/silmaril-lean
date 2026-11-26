@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Database.Defs
+public import Silmaril.Semantics.Relational.Database.Defs
 
 public section
 

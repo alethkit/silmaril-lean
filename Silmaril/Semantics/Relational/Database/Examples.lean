@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Relational.Database.Thms
+public import Silmaril.Semantics.Relational.Database.Thms
 
 @[expose] public section
 
