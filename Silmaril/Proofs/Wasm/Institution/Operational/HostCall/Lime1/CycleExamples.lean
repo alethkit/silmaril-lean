@@ -53,12 +53,37 @@ example : ¬ guardFn.WellTyped guardFn.initial
 
 private def guarded : MemoryTarget := ⟨⟨6⟩, guardFn⟩
 
-private def table : Execution.Runtime.TableInst := ⟨[some a.address, some leaf.address, some guarded.address], none⟩
+private def branchDecl : Declaration := ⟨moduleAt, ⟨0⟩, signature.params, [.int .i32], signature.results⟩
+private def getZero : Graph.Memory32.Op := .ranked (.numeric (.get ⟨1⟩))
+private def branchPrefix : List Graph.Memory32.Op := [getZero, getZero, .load 5, getSelector]
+private def branchSuffix : List Graph.Memory32.Op := [.store 1, getZero, .load 1]
+private def branchArm : List Graph.Memory32.Op :=
+  branchPrefix ++ .ranked (.brIf ⟨0⟩ [.int .i32]) :: branchSuffix
+private def branchTail : List Graph.Memory32.Op := [.store 1, getZero, .load 5]
+private def branchFn : Graph.Memory32.Function :=
+  ⟨branchDecl, 0, [i32 4, i32 1, i32 0, i32 word],
+    [.store 5, .if_ armType branchArm [getZero]] ++ branchTail⟩
+private def branching : MemoryTarget := ⟨⟨7⟩, branchFn⟩
+
+-- The function label is outside this profile, even at depth zero.
+example : MemoryTarget.supportedOp false (.ranked (.brIf ⟨0⟩ [.int .i32])) = false := rfl
+
+example : MemoryTarget.supportedOp false (.if_ armType
+    (branchPrefix ++ .ranked (.brIf ⟨1⟩ [.int .i32]) :: branchSuffix) [getZero]) = false := by decide
+
+-- Even an untaken branch must declare the active label's result signature.
+example : ¬ branchFn.WellTyped branchFn.initial
+    ([.store 5, .if_ armType
+      (branchPrefix ++ .ranked (.brIf ⟨0⟩ [.int .i64]) :: branchSuffix) [getZero]] ++ branchTail) := by
+  unfold Graph.Memory32.Function.WellTyped
+  decide
+
+private def table : Execution.Runtime.TableInst := ⟨[some a.address, some leaf.address, some guarded.address, some branching.address], none⟩
 
 private def site : IndirectSite where
   toSite := ⟨table, ⟨1⟩, signature⟩
   graph := ⟨[]⟩
-  memoryFunctions := [some aFn, some bFn, some leafFn, none, none, none, some guardFn]
+  memoryFunctions := [some aFn, some bFn, some leafFn, none, none, none, some guardFn, some branchFn]
   memoryCalls := .recursive
 
 private def prepare : Site Nat :=
@@ -86,7 +111,8 @@ private def caller : Frame := ⟨[], { funcs := [⟨3⟩] }⟩
 private def base : Store Nat :=
   { memories := [⟨empty, some 1⟩], tables := [table], funcs :=
     [.wasm signature moduleAt a.code, .wasm signature moduleAt b.code, .wasm signature moduleAt leaf.code,
-      .wasm program.functionType program.module program.function, .host producerType 0, .host prepare.type 1, .wasm signature moduleAt guarded.code] }
+      .wasm program.functionType program.module program.function, .host producerType 0, .host prepare.type 1, .wasm signature moduleAt guarded.code,
+      .wasm signature moduleAt branching.code] }
 private def mem : Memory32 base := ⟨⟨0⟩, ⟨empty, some 1⟩, rfl, .fixed⟩
 private def host : HostSemantics Nat := fun code store operands outcome =>
   match code with
@@ -97,24 +123,25 @@ private def host : HostSemantics Nat := fun code store operands outcome =>
   | _ => False
 
 private theorem tableEntries {address : FuncAddr} (member : some address ∈ site.table.refs) :
-    address = a.address ∨ address = leaf.address ∨ address = guarded.address := by
+    address = a.address ∨ address = leaf.address ∨ address = guarded.address ∨ address = branching.address := by
   simpa [site, table] using member
 
 private theorem registered {callee : MemoryTarget} (found : site.memoryLookup callee.address = some callee.fn) :
-    callee = a ∨ callee = b ∨ callee = leaf ∨ callee = guarded := by
+    callee = a ∨ callee = b ∨ callee = leaf ∨ callee = guarded ∨ callee = branching := by
   rcases callee with ⟨⟨address⟩, fn⟩
-  rcases address with _ | _ | _ | _ | _ | _ | _ | address <;>
-    simp_all [IndirectSite.memoryLookup, site, a, b, leaf, guarded]
+  rcases address with _ | _ | _ | _ | _ | _ | _ | _ | address <;>
+    simp_all [IndirectSite.memoryLookup, site, a, b, leaf, guarded, branching]
 
 private theorem outerLinked : site.Linked base program.module := by
   refine ⟨rfl, rfl, rfl, ?_, ?_⟩
   · intro address fn found
     simp [site, Graph.Program.lookup] at found
   · intro address member
-    rcases tableEntries member with rfl | rfl | rfl
+    rcases tableEntries member with rfl | rfl | rfl | rfl
     · exact ⟨.wasm signature moduleAt a.code, rfl, fun _ => .inr ⟨aFn, rfl, rfl⟩⟩
     · exact ⟨.wasm signature moduleAt leaf.code, rfl, fun _ => .inr ⟨leafFn, rfl, rfl⟩⟩
     · exact ⟨.wasm signature moduleAt guarded.code, rfl, fun _ => .inr ⟨guardFn, rfl, rfl⟩⟩
+    · exact ⟨.wasm signature moduleAt branching.code, rfl, fun _ => .inr ⟨branchFn, rfl, rfl⟩⟩
 
 private theorem directLink : site.MemoryDirect (base := base) a callB b := ⟨rfl, rfl, rfl, rfl, rfl⟩
 
@@ -122,17 +149,18 @@ private theorem guardLink : site.MemoryDirect (base := base) guarded callB b := 
 
 private theorem innerLinked : site.MemoryIndirect mem host b ⟨0⟩ ⟨signature.params, signature.results⟩ := by
   refine ⟨rfl, rfl, fun address member => ?_⟩
-  rcases tableEntries member with rfl | rfl | rfl
+  rcases tableEntries member with rfl | rfl | rfl | rfl
   · exact ⟨.wasm signature moduleAt a.code, rfl, fun _ => ⟨aFn, rfl, rfl, trivial⟩⟩
   · exact ⟨.wasm signature moduleAt leaf.code, rfl, fun _ => ⟨leafFn, rfl, rfl, trivial⟩⟩
   · exact ⟨.wasm signature moduleAt guarded.code, rfl, fun _ => ⟨guardFn, rfl, rfl, trivial⟩⟩
+  · exact ⟨.wasm signature moduleAt branching.code, rfl, fun _ => ⟨branchFn, rfl, rfl, trivial⟩⟩
 
 private theorem graphLinked : site.MemoryLinked mem host := by
   constructor
   · intro callee found
-    rcases registered found with rfl | rfl | rfl | rfl <;> exact ⟨rfl, rfl, rfl, rfl⟩
+    rcases registered found with rfl | rfl | rfl | rfl | rfl <;> exact ⟨rfl, rfl, rfl, rfl⟩
   · intro parent found target used
-    rcases registered found with rfl | rfl | rfl | rfl
+    rcases registered found with rfl | rfl | rfl | rfl | rfl
     · have same : target = callB := by
         simpa [a, aFn, getSelector, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets,
           Graph.Op.targets] using used
@@ -146,8 +174,10 @@ private theorem graphLinked : site.MemoryLinked mem host := by
           Graph.Memory32.Op.targets, Graph.Memory32.codeTargets, Graph.Op.targets] using used
       subst target
       exact .inl ⟨b, guardLink, trivial⟩
+    · simp [branching, branchFn, branchArm, branchPrefix, branchSuffix, branchTail, getZero, getSelector,
+        Graph.Memory32.Function.targets, Graph.Memory32.Op.targets, Graph.Memory32.codeTargets, Graph.Op.targets] at used
   · intro parent found index ty used
-    rcases registered found with rfl | rfl | rfl | rfl
+    rcases registered found with rfl | rfl | rfl | rfl | rfl
     · simp [a, aFn, getSelector, MemoryTarget.sourceOps, MemoryTarget.descendants] at used
     · have same : Graph.Memory32.Op.callIndirect index ty = choose := by
         simpa [b, bFn, getSelector, choose, MemoryTarget.sourceOps, MemoryTarget.descendants] using used
@@ -157,6 +187,8 @@ private theorem graphLinked : site.MemoryLinked mem host := by
       exact innerLinked
     · simp [leaf, leafFn, MemoryTarget.sourceOps] at used
     · simp [guarded, guardFn, callArm, baseArm, guardTail, getSelector,
+        MemoryTarget.sourceOps, MemoryTarget.descendants] at used
+    · simp [branching, branchFn, branchArm, branchPrefix, branchSuffix, branchTail, getZero, getSelector,
         MemoryTarget.sourceOps, MemoryTarget.descendants] at used
 
 -- The same graph cannot supply the strict admission policy. A's direct site
@@ -187,12 +219,14 @@ private theorem programContract : program.Contract mem host := by
   have dispatchContract : site.Contract mem host := by
     refine ⟨?_, graphLinked⟩
     intro address code member allocated
-    rcases tableEntries member with rfl | rfl | rfl
+    rcases tableEntries member with rfl | rfl | rfl | rfl
     · cases (show some (.wasm signature moduleAt a.code : FuncInst Wasm.Lime1.Func Nat) =
         some (.host signature code) from allocated)
     · cases (show some (.wasm signature moduleAt leaf.code : FuncInst Wasm.Lime1.Func Nat) =
         some (.host signature code) from allocated)
     · cases (show some (.wasm signature moduleAt guarded.code : FuncInst Wasm.Lime1.Func Nat) =
+        some (.host signature code) from allocated)
+    · cases (show some (.wasm signature moduleAt branching.code : FuncInst Wasm.Lime1.Func Nat) =
         some (.host signature code) from allocated)
   constructor
   · intro _ _ _ _ _ _ answer
@@ -475,5 +509,93 @@ example : Steps host launch ⟨mem.store beforeGuard, caller, [.trap]⟩ := by
     outer.tail (.continuation (.erase (removed := saved) (cut := []) rfl rfl (.inl (by simp [saved]))))
   exact (call_run_iff (arg := 7) programChecked programContract).mpr
     ⟨_, (discarded.tail (.continuation .labelTrap)).tail (.continuation .frameDone), rfl, rfl⟩
+
+private abbrev BranchPath (bytes : ByteArray) (phase : MemoryCallee.Phase Nat) :=
+  BodyPath bytes (.memory saved site branching phase [])
+
+private theorem BranchPath.step {bytes nextBytes : ByteArray} {p q : MemoryCallee.Phase Nat}
+    (path : BranchPath bytes p) (move : MemoryCallee.Edge mem host site branching bytes p nextBytes q) :
+    BodyPath nextBytes (.afterMemory saved site branching [] q) :=
+  path.tail (.continuation (.memory move))
+
+private def inBranchArm (guard : BitVec 32) (phase : MemoryCallee.Phase Nat) : MemoryCallee.Phase Nat :=
+  .arm [i32 guard] [i32 4] armType phase branchTail
+
+private theorem atBranch (guard : BitVec 32) :
+    BranchPath beforeGuard (inBranchArm guard (.body [i32 guard] [i32 0, i32 word, i32 guard]
+      (.ranked (.brIf ⟨0⟩ [.int .i32]) :: branchSuffix))) := by
+  have invocation : BranchPath empty (.invoke [i32 guard]) :=
+    (atDispatch guard 3).tail (.continuation (.callIndirect (saved := saved) (args := [i32 guard]) rfl
+      (.memory (callee := branching) rfl rfl (show branching.Allocated base from rfl) rfl)))
+  have entered : BranchPath empty (.body [i32 guard] branchFn.initial branchFn.code) := invocation.step .enter
+  have stored : BranchPath beforeGuard (.body [i32 guard] [i32 4, i32 1]
+      (.if_ armType branchArm [getZero] :: branchTail)) :=
+    entered.step (.store (saved := [i32 4, i32 1]) (MemoryWrite.fact_at (.write 0 word beforeGuard (by decide))))
+  have selected : BranchPath beforeGuard (.ifBlock [i32 guard] [i32 4] armType
+      (MemoryCallee.selectArm 1 branchArm [getZero]) branchTail) :=
+    stored.step (.ifSelect (saved := [i32 4]) (type := armType) (left := branchArm)
+      (right := [getZero]) (rest := branchTail) (guard := 1))
+  have chosen : MemoryCallee.selectArm 1 branchArm [getZero] = branchArm := rfl
+  have opened : BranchPath beforeGuard (inBranchArm guard (.body [i32 guard] [] branchArm)) :=
+    (show BranchPath beforeGuard (.ifBlock [i32 guard] [i32 4] armType branchArm branchTail) from
+      chosen ▸ selected).step .ifEnter
+  have scratch : BranchPath beforeGuard (inBranchArm guard (.body [i32 guard] [i32 0]
+      ([getZero, .load 5, getSelector, .ranked (.brIf ⟨0⟩ [.int .i32])] ++ branchSuffix))) :=
+    opened.step (.armStep rfl (.get (v := i32 0) rfl))
+  have address : BranchPath beforeGuard (inBranchArm guard (.body [i32 guard] [i32 0, i32 0]
+      ([.load 5, getSelector, .ranked (.brIf ⟨0⟩ [.int .i32])] ++ branchSuffix))) :=
+    scratch.step (.armStep rfl (.get (v := i32 0) rfl))
+  have loaded : BranchPath beforeGuard (inBranchArm guard (.body [i32 guard] [i32 0, i32 word]
+      ([getSelector, .ranked (.brIf ⟨0⟩ [.int .i32])] ++ branchSuffix))) :=
+    address.step (.armStep rfl (.load (saved := [i32 0]) (MemoryQuery.fact_at (.load 0 word (by decide)))))
+  exact loaded.step (.armStep rfl (.get (v := i32 guard) rfl))
+
+private theorem finishBranch {guard : BitVec 32} {bytes : ByteArray}
+    (start : BranchPath bytes (.body [i32 guard] [i32 4, i32 word] branchTail))
+    (write : MemoryWrite.EdgeAt bytes 1 (.store 4 word) (.written bytes))
+    (read : MemoryQuery.EdgeAt bytes 5 (.load 0) (.value word)) (live : mem.Live bytes) :
+    Steps host launch ⟨mem.store bytes, caller, values [i64 77, i32 word]⟩ := by
+  have stored : BranchPath bytes (.body [i32 guard] [] [getZero, .load 5]) := start.step (.store (saved := []) write)
+  have address : BranchPath bytes (.body [i32 guard] [i32 0] [.load 5]) := stored.step (.get (v := i32 0) rfl)
+  have loaded : BranchPath bytes (.body [i32 guard] [i32 word] []) := address.step (.load (saved := []) read)
+  have label : BranchPath bytes (.exit [i32 guard] (.values [i32 word])) := loaded.step .labelDone
+  have restored : BodyPath bytes (.source [i64 77, i32 word] []) := label.step .frameDone
+  exact (call_run_iff (arg := 7) programChecked programContract).mpr
+    ⟨_, (restored.tail (.continuation .labelResult)).tail (.continuation .frameDone), live, rfl⟩
+
+private theorem pendingBranch :
+    BranchPath beforeGuard (inBranchArm 1 (.branch [i32 1] [i32 0, i32 word] [.int .i32] branchSuffix)) :=
+  (atBranch 1).step (.armStep rfl (.brIf (stack := [i32 0, i32 word]) (rest := branchSuffix) (result := [.int .i32]) (guard := 1)))
+
+-- This prefix still contains the native br and the active scratch operand.
+example : Steps host launch ⟨mem.store beforeGuard, caller, program.functionCode 7
+    (values saved ++ MemoryWrite.limeActivationCode 1 (branchDecl.frame [i32 1]) [] []
+      (values [i32 4] ++ [.label 1 [] (values [i32 0, i32 word] ++
+        .source (.br ⟨0⟩) :: MemoryCallee.code branchSuffix)] ++ MemoryCallee.code branchTail))⟩ :=
+  (call_run_iff (arg := 7) programChecked programContract).mpr ⟨_, pendingBranch, rfl, rfl⟩
+
+-- Taken: only the payload reaches the saved address. The arm store is skipped.
+example : Steps host launch ⟨mem.store beforeGuard, caller, values [i64 77, i32 word]⟩ :=
+  finishBranch (guard := 1) (pendingBranch.step
+    (.armStep rfl (.branchDone (scratch := [i32 0]) (payload := [i32 word]) rfl)))
+    (MemoryWrite.fact_at (.write 4 word beforeGuard (by decide)))
+    (MemoryQuery.fact_at (.load 0 word (by decide))) rfl
+
+private def afterFallthrough : ByteArray := ⟨#[0, 1, 2, 3, 4, 1, 2, 3, 4, 0]⟩
+
+-- Untaken: the arm store uses the scratch address and the payload, then
+-- the normal label delivers the reloaded result through the same join.
+example : Steps host launch ⟨mem.store afterFallthrough, caller, values [i64 77, i32 word]⟩ := by
+  have fell : BranchPath beforeGuard (inBranchArm 0 (.body [i32 0] [i32 0, i32 word] branchSuffix)) :=
+    (atBranch 0).step (.armStep rfl (.brIf (stack := [i32 0, i32 word]) (rest := branchSuffix) (result := [.int .i32]) (guard := 0)))
+  have stored : BranchPath afterFallthrough (inBranchArm 0 (.body [i32 0] [] [getZero, .load 1])) :=
+    fell.step (.armStep rfl (.store (saved := []) (MemoryWrite.fact_at (.write 0 word afterFallthrough (by decide)))))
+  have address : BranchPath afterFallthrough (inBranchArm 0 (.body [i32 0] [i32 0] [.load 1])) :=
+    stored.step (.armStep rfl (.get (v := i32 0) rfl))
+  have loaded : BranchPath afterFallthrough (inBranchArm 0 (.body [i32 0] [i32 word] [])) :=
+    address.step (.armStep rfl (.load (saved := []) (MemoryQuery.fact_at (.load 0 word (by decide)))))
+  exact finishBranch (guard := 0) (loaded.step (.armStep rfl .labelDone))
+    (MemoryWrite.fact_at (.write 4 word afterFallthrough (by decide)))
+    (MemoryQuery.fact_at (.load 0 word (by decide))) rfl
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.CycleExamples

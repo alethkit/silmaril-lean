@@ -101,18 +101,22 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
 
 mutual
 
-def MemoryTarget.supportedOp (growthEnabled : Bool) : Graph.Memory32.Op → Bool
+def MemoryTarget.supportedOpAt (growthEnabled insideArm : Bool) : Graph.Memory32.Op → Bool
   | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
   | .callIndirect .. => true
-  | .if_ _ left right => supportedCode growthEnabled left && supportedCode growthEnabled right
+  | .if_ _ left right => supportedCodeAt growthEnabled true left && supportedCodeAt growthEnabled true right
+  | .ranked (.brIf depth _) => insideArm && decide (depth = ⟨0⟩)
   | .grow => growthEnabled
   | _ => false
 
-def MemoryTarget.supportedCode (growthEnabled : Bool) : List Graph.Memory32.Op → Bool
+def MemoryTarget.supportedCodeAt (growthEnabled insideArm : Bool) : List Graph.Memory32.Op → Bool
   | [] => true
-  | op :: rest => supportedOp growthEnabled op && supportedCode growthEnabled rest
+  | op :: rest => supportedOpAt growthEnabled insideArm op && supportedCodeAt growthEnabled insideArm rest
 
 end
+
+abbrev MemoryTarget.supportedOp (growthEnabled : Bool) := MemoryTarget.supportedOpAt growthEnabled false
+abbrev MemoryTarget.supportedCode (growthEnabled : Bool) := MemoryTarget.supportedCodeAt growthEnabled false
 
 mutual
 

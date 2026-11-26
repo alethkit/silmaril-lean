@@ -232,7 +232,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
         congrArg V1.FuncType.results declared
       cases ready.2.2 with
       | callIndirect contract tailContract =>
-        exact ⟨ready.1, allocated, found, contract.memory.forFiniteRun, by simp, ⟨arguments, rfl, rfl⟩,
+        exact ⟨ready.1, allocated, found, contract.memory.forFiniteRun, by simp, ⟨arguments, rfl, rfl, rfl⟩,
           by simpa only [resultTypes, same] using tail, tailContract⟩
   | @wasm bytes saved site callee phase next ops labels move =>
     obtain ⟨labelsReady, linked, found, declared, _, _, admitted, tail, contract⟩ := ready

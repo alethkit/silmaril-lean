@@ -9,8 +9,10 @@ import Silmaril.Wasm.Institution.Operational.MemoryQuery.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryGrow.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
+import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
@@ -29,7 +31,7 @@ set_option backward.isDefEq.respectTransparency false
 
 variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H} {callee : MemoryTarget} {site : IndirectSite}
   {caller : Frame} {saved : List Value} {tail : List Admin} {bytes : ByteArray} {dst : Config H}
-  {arity : Nat} {types : List NumType} {labels : List (List NumType)}
+  {arity : Nat} {types : List NumType} {labels : List (List NumType)} {insideArm : Bool}
 
 local notation "resultCount" => arity
 local notation "cfg" => configAt mem caller saved tail callee arity
@@ -292,7 +294,7 @@ theorem stays {phase : Phase H} (notDone : ∀ out, phase ≠ .done out)
       (lime_label_stays (types := types) (n := n) (cont := cont) (out := out)
         (stack := saved ++ args) (head := .invoke callee.address) (rest := tail) rfl
         (by simp) (by simp) (by simp))
-  | body | ifBlock | arm | child | hostInvoke | trapped | exit => simpa only [renderUnder, frameCode, List.append_assoc, List.singleton_append] using frameStays
+  | body | ifBlock | arm | child | hostInvoke | branch | trapped | exit => simpa only [renderUnder, frameCode, List.append_assoc, List.singleton_append] using frameStays
   | done out => exact (notDone out rfl).elim
 
 private theorem call_iff {args stack : List Value} {target : CallTarget}
@@ -404,6 +406,51 @@ private theorem host_iff {args stack operands : List Value} {target : Site H} {r
 private theorem v1Code_map (ops : List Graph.Memory32.Op) :
     Graph.Memory32.v1Code ops = ops.map Graph.Memory32.Op.v1 := by
   induction ops <;> simp [Graph.Memory32.v1Code, *]
+
+private theorem br_if_iff {args stack : List Value} {payload : List NumType} {guard : BitVec 32}
+    {rest : List Graph.Memory32.Op} :
+    Step CallFrame.limeNoHost (cfg bytes (.body args (stack ++ [Value.int .i32 guard])
+      (.ranked (.brIf ⟨0⟩ payload) :: rest))) dst ↔
+      dst = cfg bytes (afterBrIf args stack payload rest guard) := by
+  rw [show cfg bytes (.body args (stack ++ [Value.int .i32 guard]) (.ranked (.brIf ⟨0⟩ payload) :: rest)) =
+    ⟨mem.store bytes, caller, MemoryWrite.limeActivationCode resultCount (callee.fn.declaration.frame args)
+      saved tail (values (stack ++ [Value.int .i32 guard]) ++ .source (.brIf ⟨0⟩) :: code rest)⟩ from by
+    simp only [configAt, renderUnder, frameCode, code_cons, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append]
+    rfl]
+  rw [body_iff (fun _ => lime_label_stays rfl (by simp) (by simp) (by simp))]
+  have localStep {mid : Config H} := lime_br_if_iff (s := mem.store bytes)
+    (f := callee.fn.declaration.frame args) (saved := stack) (condition := guard)
+    (depth := ⟨0⟩) (rest := code rest) (dst := mid)
+  constructor
+  · rintro ⟨mid, move, rfl⟩
+    obtain rfl := localStep.mp move
+    by_cases zero : guard = 0#32 <;>
+      simp [zero, configAt, afterBrIf, renderUnder, frameCode, MemoryWrite.limeActivationCode, List.append_assoc]
+  · rintro rfl
+    refine ⟨_, localStep.mpr rfl, ?_⟩
+    by_cases zero : guard = 0#32 <;>
+      simp [zero, configAt, afterBrIf, renderUnder, frameCode, MemoryWrite.limeActivationCode, List.append_assoc]
+
+private theorem branch_iff {args scratch payload : List Value} {signature : List NumType}
+    {rest : List Graph.Memory32.Op} (count : payload.length = resultCount) :
+    Step CallFrame.limeNoHost (cfg bytes (.branch args (scratch ++ payload) signature rest)) dst ↔
+      dst = cfg bytes (.exit args (.values payload)) := by
+  constructor
+  · intro step
+    obtain ⟨mid, inside, rfl⟩ := CallContinuation.lime_frame_context_inv
+      (by simpa only [configAt, renderUnder, frameCode, List.append_assoc, List.singleton_append] using step)
+    rcases lime_body_step_cases inside with ⟨_, stuck, _⟩ | ⟨out, pop, rfl⟩
+    · exact (BranchExit.lime_br_vals_stuck stuck).elim
+    · obtain ⟨kept, delivered, split, arity, rfl⟩ := BranchExit.lime_label_br_zero pop
+      have same := (List.append_inj' split (count.trans arity.symm)).2
+      subst delivered
+      rfl
+  · rintro rfl
+    have pop := PureStep.labelBranch (types := callee.fn.declaration.module.types)
+      resultCount [] scratch payload (code rest) count
+    simpa [configAt, renderUnder, frameCode, result, expression, values_append, List.append_assoc] using
+      Step.context (Step.frame (Step.pure (host := CallFrame.limeNoHost) (mem.store bytes)
+        (callee.fn.declaration.frame args) pop) resultCount caller) saved tail
 
 private theorem if_select_iff {args stack : List Value} {type : Option NumType} {guard : BitVec 32}
     {left right rest : List Graph.Memory32.Op} :
@@ -609,12 +656,12 @@ private theorem child_context {args stack : List Value} {child : MemoryTarget} {
 
 private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
-    (ready : ReadyAt mem host site callee types labels phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
+    (ready : ReadyAt mem host site callee types labels insideArm phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
     (move : Step host (regionCfg bytes phase) dst) :
     ∃ nextBytes next, Edge mem host site callee bytes phase nextBytes next ∧ dst = regionCfg nextBytes next := by
-  induction phase generalizing callee caller saved tail bytes dst types labels with
+  induction phase generalizing callee caller saved tail bytes dst types labels insideArm with
   | invoke args =>
-    obtain ⟨typed, rfl, rfl⟩ := ready
+    obtain ⟨typed, rfl, rfl, rfl⟩ := ready
     have liveAllocation : callee.Allocated (mem.store bytes) := allocated
     unfold MemoryTarget.Allocated at liveAllocation
     have inside := internal_of_absent (by
@@ -667,6 +714,11 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host .rec
           · obtain rfl := (call_iff link.resolves).mp move
             exact ⟨_, _, .callHost link typed, by
               simp [configAt, renderUnder, frameCode, MemoryWrite.limeActivationCode, Site.directTarget, List.append_assoc]⟩
+        | brIf depth payload =>
+          have zero : depth = ⟨0⟩ := of_decide_eq_true (Bool.and_eq_true_iff.mp supported).2
+          subst depth
+          obtain ⟨stack, guard, rfl, _, _, _⟩ := Graph.Memory32.Function.br_if_typed ready.2.2.1
+          exact ⟨_, _, .brIf, br_if_iff.mp move⟩
         | _ => contradiction
       | callIndirect index signature =>
         obtain ⟨stack, operands, selector, rfl, typed, _⟩ := indirect_typed ready.2.2.1
@@ -722,6 +774,13 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host .rec
     · exact ⟨_, _, .hostReturned nextLive valid behavior, eq⟩
     · exact ⟨_, _, .hostTrapped nextLive behavior, eq⟩
     · exact ⟨_, _, .hostDiverged behavior, eq⟩
+  | branch args stack signature rest =>
+    have inside := internal_of_absent (by
+      simp [decompose?, configAt, renderUnder, frameCode, asValue?]) move
+    obtain ⟨scratch, payload, rfl, typed⟩ := Graph.SuffixTyped.split ready.2.2.2
+    have count : payload.length = types.length := by
+      simpa using congrArg List.length (typed.trans ready.2.2.1)
+    exact ⟨_, _, .branchDone typed, (branch_iff count).mp inside⟩
   | trapped args stack rest =>
     have move := internal_of_absent (by simp [decompose?, configAt, renderUnder, frameCode]) move
     by_cases active : stack ≠ [] ∨ rest ≠ []
@@ -743,11 +802,11 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host .rec
 
 private theorem sound {phase next : Phase H} {written : ByteArray} (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn)
-    (allocated : callee.Allocated base) (ready : ReadyAt mem host site callee types labels phase) (live : mem.Live bytes)
+    (allocated : callee.Allocated base) (ready : ReadyAt mem host site callee types labels insideArm phase) (live : mem.Live bytes)
     (move : Edge mem host site callee bytes phase written next) : Step host (regionCfg bytes phase) (regionCfg written next) := by
-  induction move generalizing caller saved tail types labels with
+  induction move generalizing caller saved tail types labels insideArm with
   | enter =>
-    obtain ⟨typed, rfl, rfl⟩ := ready
+    obtain ⟨typed, rfl, rfl, rfl⟩ := ready
     exact Step.of_internal ((enter_iff allocated typed).mpr rfl)
   | get found => exact Step.of_internal ((get_iff found).mpr rfl)
   | load edge => exact Step.of_internal ((load_iff (linked.checked _ registered)).mpr (.inl ⟨_, edge, rfl⟩))
@@ -788,6 +847,10 @@ private theorem sound {phase next : Phase H} {written : ByteArray} (linked : sit
     exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inr (.inl ⟨_, nextLive, answer, rfl⟩))
   | hostDiverged answer =>
     exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inr (.inr ⟨answer, rfl⟩))
+  | brIf => exact Step.of_internal (br_if_iff.mpr rfl)
+  | branchDone typed =>
+    have count := congrArg List.length (typed.trans ready.2.2.1)
+    exact Step.of_internal ((branch_iff (by simpa using count)).mpr rfl)
   | ifSelect => exact Step.of_internal (if_select_iff.mpr rfl)
   | ifEnter => exact Step.of_internal (if_enter_iff.mpr rfl)
   | @armStep callee bytes written args stack type phase next rest entered move ih =>
