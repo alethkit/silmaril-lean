@@ -25,29 +25,45 @@ def readPrimitive {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} :
   | .base (.simple op) => some (opcodeKey op)
   | _ => none
 
-abbrev Reader (Φ : Type u) [HasTy Φ τ] (X : Type u) :=
+abbrev RegionReader (P : Dialect.{u,u} τ PUnit.{u+1}) (X : Type u) :=
   {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} →
     {sigs : List (Ports (OrderedRuntime.Structured.Ty τ))} →
-    NestedTheta.Term (Op Φ) ins [] sigs outs → Option X
+    NestedTheta.Term P ins [] sigs outs → Option X
+
+abbrev PrimitiveReader (P : Dialect.{u,u} τ PUnit.{u+1}) (X : Type u) :=
+  {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} → NestedTheta.Kind P ins outs → Option X
+
+abbrev Reader (Φ : Type u) [HasTy Φ τ] (X : Type u) := RegionReader (Op (τ := τ) Φ) X
+
+variable {P : Dialect.{u,u} τ PUnit.{u+1}}
 
 def readTheta {X : Type u} {ins outs : Ports (OrderedRuntime.Structured.Ty τ)}
-    (kind : NestedTheta.Kind (Op Φ) ins outs)
+    (kind : NestedTheta.Kind P ins outs)
     {sigs : Fin kind.arity → List (Ports (OrderedRuntime.Structured.Ty τ))}
-    (children : (j : Fin kind.arity) → NestedTheta.Term (Op Φ) kind.entry [] (sigs j) kind.exit)
-    (readChild : Reader (τ := τ) Φ X) : Option X :=
+    (children : (j : Fin kind.arity) → NestedTheta.Term P kind.entry [] (sigs j) kind.exit)
+    (readChild : RegionReader P X) : Option X :=
   match kind with
   | .theta _ => readChild (children (0 : Fin 1))
   | .base _ => none
 
-def readInner : Reader (τ := τ) Φ (Key τ Φ)
-  | _, _, _, .bind inner _ (.ret _) => readPrimitive inner.kind
+def readInnerWith {X : Type u} (primitive : PrimitiveReader P X) : RegionReader P X
+  | _, _, [_], term =>
+    match term with
+    | .bind inner _ (.ret _) => primitive inner.kind
   | _, _, _, _ => none
 
-def readOuter : Reader (τ := τ) Φ (Key τ Φ × Key τ Φ × Key τ Φ)
-  | _, _, _, .bind enter _ (.bind inner children (.bind finish _ (.ret _))) => do
-    return (← readPrimitive enter.kind, ← readTheta inner.kind children readInner,
-      ← readPrimitive finish.kind)
+/-- Read the nested feedback layout in any port-preserving opcode embedding. -/
+def readOuterWith {X : Type u} (primitive : PrimitiveReader P X) : RegionReader P (X × X × X)
+  | _, _, [_,_,_], term =>
+    match term with
+    | .bind enter _ (.bind inner children (.bind finish _ (.ret _))) => do
+      return (← primitive enter.kind, ← readTheta inner.kind children (readInnerWith primitive),
+        ← primitive finish.kind)
   | _, _, _, _ => none
+
+def readInner : Reader (τ := τ) Φ (Key τ Φ) := readInnerWith readPrimitive
+
+def readOuter : Reader (τ := τ) Φ (Key τ Φ × Key τ Φ × Key τ Φ) := readOuterWith readPrimitive
 
 /-- Inspect the outer θ and its inner θ, collecting the three opcode roles.
 The shape parser leaves wire comparison to certification. -/

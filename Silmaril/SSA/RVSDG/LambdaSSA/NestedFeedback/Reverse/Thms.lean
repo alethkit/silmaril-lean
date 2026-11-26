@@ -23,6 +23,12 @@ section Recognition
 variable [DecidableEq τ] [DecidableEq Φ]
 
 omit [DecidableEq Φ] in
+theorem decode_generated (s : Loop Φ A B K D) :
+    decode (.enter A B K D s.enter.op, .inner B K s.inner.op, .finish A B K D s.finish.op) =
+      some ⟨B, K, s⟩ :=
+  Proofs.decode_generated s
+
+omit [DecidableEq Φ] in
 theorem candidate_generated (s : Loop Φ A B K D) :
     candidate (graph s) = some ⟨B, K, s⟩ :=
   Proofs.candidate_generated s

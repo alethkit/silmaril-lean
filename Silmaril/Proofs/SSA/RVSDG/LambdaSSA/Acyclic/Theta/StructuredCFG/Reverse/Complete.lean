@@ -94,7 +94,7 @@ private theorem parse_emitted (n : Normal Φ A X Z L E D sigs) (h : Supported n)
 
 theorem candidate_generated (n : Normal Φ A X Z L E D sigs) (h : Supported n) :
     candidate n.toSyntax.graph = some n := by
-  simp only [candidate, Syntax.graph, NestedTheta.Term.toTerm_toGraph, scan_emitted]
+  simp only [candidate, decodeLayout, Syntax.graph, NestedTheta.Term.toTerm_toGraph, scan_emitted]
   have parsed := parse_emitted n h (weight (emitted n)) (Nat.le_refl _)
   change (do
     let ⟨out, shape⟩ ← parse (weight (emitted n)) A X Z (emitted n)

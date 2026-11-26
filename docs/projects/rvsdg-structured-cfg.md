@@ -192,15 +192,29 @@ models.
 `recoverLink` reads a supplied standalone nested graph and an existing
 structured consumer graph with their local recognizers. It compares
 their re-emission against the actual joint graph before returning a
-typed flat CFG and relation witness. The supplied component views
-identify the cut. Automatic cut discovery for mixed graphs and
-grammar-wide mixed reverse recovery remain separate.
+typed flat CFG and relation witness.
+
+`WithNestedFeedback.Reverse.recover` instead takes the joint graph
+alone. It recognizes the entry conversion, nested θ, exit conversion
+and connector prefix, taking the join and continuation carrier types
+from the typed opcodes and the suffix signature from the numbered
+term. It reads the structured continuation in its relocated scope.
+The local decoders reconstruct both views, and one full joint
+comparison checks every operand and token origin. Every nested leaf
+followed by a canonical structured tail is accepted. Local sequencing
+may recover in the existing right-associated form. For a tail already
+in that form, recovery returns the original flat CFG. Mixed forks
+and other placements of nested leaves are outside graph-only recovery.
+[Mixed serial reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Thms.lean)
 
 The regression links the nested loop to an acyclic-body loop. The
 consumer reads both the returned payload 1223122 and token 12231223,
 then returns payload 13454345 and token 122312234. Input 99 has no
 finite return and never reaches the consumer. The same observations
-are checked for the recovered flat CFG.
+are checked for the CFG recovered from the joint graph alone. A
+type-correct mutation keeps the exit conversion's payload but reads
+the original input token at the connector. It yields the same parsed
+candidate, and exact joint certification rejects it.
 [Mixed structured API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Thms.lean)
 
 ## Reproduce
@@ -208,8 +222,8 @@ are checked for the recovered flat CFG.
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 ```
 
 ## Sources
