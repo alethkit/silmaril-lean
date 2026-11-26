@@ -65,11 +65,15 @@ def original (g : WordGraph inputs sigs) (x : InputWord inputs) (k : WordWire in
       outputs := .cons (g.phi.operand slot) (.cons k .nil) } }
   suffix := spine
 
+/-- Link the folded Φ to the residual add and capture the original input. -/
+def emit (x : InputWord inputs) (folded : Result inputs sigs) : Program inputs sigs [word] :=
+  ⟨x, folded, residualAdd⟩
+
 /-- The fixed orientation and the runtime argument come from the
 nomination. The direct literal checker supplies the occurrence folds
 and refuses a constant Φ column or an earlier right-zero case. -/
 def rewrite? (g : WordGraph inputs sigs) (x : InputWord inputs) (k : WordWire inputs sigs) :
     Option (Program inputs sigs [word]) :=
-  (AddPhi.rewrite? g k).map fun folded => ⟨x, folded, residualAdd⟩
+  (AddPhi.rewrite? g k).map (emit x)
 
 end Silmaril.SSA.SeaOfNodes.Diamond.AddPhi.Rotate

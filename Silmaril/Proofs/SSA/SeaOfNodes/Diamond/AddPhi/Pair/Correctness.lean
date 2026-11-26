@@ -18,14 +18,14 @@ open SeaOfNodes.Pure.SubZero (model word wordPort)
 open RVSDG (Locals Tuple extend)
 
 variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
-variable {g : Source inputs sigs} {target : Result inputs sigs}
+variable {g : Source inputs sigs} {target : Result inputs sigs} {admit : Operands → Operands → Bool}
 
-theorem accepted_eq (accepted : rewrite? g = some target) :
+theorem accepted_eq (accepted : rewriteWith? admit g = some target) :
     let known : Literals (dataPorts inputs) (extend [] sigs) := scanLiterals (fun _ => none) g.shared
     ∃ first second, armLiterals? known (g.arms .first) = some first ∧
       armLiterals? known (g.arms .second) = some second ∧
-      eligible first second = true ∧ target = emit g first second := by
-  unfold rewrite? at accepted
+      admit first second = true ∧ target = emit g first second := by
+  unfold rewriteWith? at accepted
   obtain ⟨first, firstEq, accepted⟩ := Option.bind_eq_some_iff.mp accepted
   obtain ⟨second, secondEq, accepted⟩ := Option.bind_eq_some_iff.mp accepted
   split at accepted
@@ -40,12 +40,12 @@ private theorem armLiterals_eval {args : List (Ty Unit)} {past : List (List (Ty 
     (found : armLiterals? known arm = some operands) : arm.eval model entry locals = operands :=
   Scan.literalInputs_sound (scanLiterals_agrees arm.dataflow known entry locals agree) arm.outputs found
 
-theorem keeps_control (accepted : rewrite? g = some target) :
+theorem keeps_control (accepted : rewriteWith? admit g = some target) :
     target.shared = g.shared ∧ target.predicate = g.predicate ∧ target.merge = g.merge := by
   obtain ⟨first, second, _, _, _, rfl⟩ := accepted_eq accepted
   exact ⟨rfl, rfl, rfl⟩
 
-theorem slot_eval_eq (accepted : rewrite? g = some target)
+theorem slot_eval_eq (accepted : rewriteWith? admit g = some target)
     (entry : Tuple (Val model.value) (dataPorts inputs)) (slot : Slot) :
     (target.arms slot).eval model entry (target.shared.eval model entry PUnit.unit) =
       .cons (sourceAt g entry slot) .nil := by
@@ -62,9 +62,9 @@ theorem slot_eval_eq (accepted : rewrite? g = some target)
 theorem denote_eq (accepted : rewrite? g = some target)
     (entry : Tuple (Val model.value) (dataPorts inputs)) :
     target.denote model entry = .cons (sourceDenote g entry) .nil := by
-  obtain ⟨sharedEq, predicateEq, mergeEq⟩ := keeps_control accepted
+  obtain ⟨sharedEq, predicateEq, mergeEq⟩ := keeps_control (admit := eligible) accepted
   unfold Arms.Graph.denote sourceDenote
-  rw [slot_eval_eq accepted, sharedEq, predicateEq, mergeEq]
+  rw [slot_eval_eq (admit := eligible) accepted, sharedEq, predicateEq, mergeEq]
   rfl
 
 theorem returns_iff (accepted : rewrite? g = some target)
