@@ -807,3 +807,34 @@ and the only inhabitant of its structural packet type. The two accepted
 tables also witness that exact acceptance alone cannot align the looping
 readback with the returning public dispatcher.
 [Readback regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Examples.lean)
+
+#### Deriving the local equations from matching erased rows
+
+`Readback.Provenance` ties the local endpoints to checked code. Exact
+reverse readback identifies the φ-side flat table. The public
+`PackedEntry` identifies its table by accepted elaboration of
+`Program.compile`. At each position the two erased bodies must equal
+one flat row scoped to its incoming packet. The witness retains block
+and exit order, and the state codec keeps the positional block index.
+Shared packet scope lets the two ambient capture records differ at
+unused slots.
+
+For the entry, the φ readback is a jump whose structural argument comes
+from its capture slots. The public entry's accepted elaboration determines
+the jump and the positional slot for the public packet. Record agreement
+identifies the value in that slot with the public packet's typed encoding.
+The entry equation uses equality of that encoding with the encoded source
+packet. For a row, the codec commutes with the erased evaluator under the
+explicit primitive agreement, including every reply and malformed erased
+arguments. The output map preserves the positional exit tag and the product
+and sum structure of the return.
+[Local provenance and equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Provenance/Thms.lean)
+
+The cyclic fixture now compiles the actual public row at packet scope and
+checks its erasure against both accepted tables. The generic constructor
+discharges the local equations for both variants and feeds the existing
+coverage proof. This fragment requires a structural entry jump and exact
+row correspondence. Constructing a public dispatcher from other φ readbacks
+requires additional compilation, such as splitting a row that has several
+primitive continuations into the public checker's one-application rows.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Examples.lean)
