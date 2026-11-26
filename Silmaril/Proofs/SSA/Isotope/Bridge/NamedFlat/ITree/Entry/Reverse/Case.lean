@@ -354,4 +354,140 @@ example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
 
 end TwoCaptures
 
+section ProjectedCaptures
+
+private abbrev projectedPorts : Interface SortName Reg Label :=
+  numberedInterface twoPorts.context [leftExit] (fun _ => .unit)
+
+private def noFields (_ : Label) : List (Reg × Ty SortName) := []
+
+-- The first block's argument register is unused and outside the support.
+-- The second uses the atom's entry register for its unit argument, so its
+-- saved record contains only the still-carried sum.
+private def projectedSource (back : Bool) : CFG Reg Label signature.Instr :=
+  ⟨.let1 ⟨3⟩ (.val (.pair (.var ⟨1⟩) (.var ⟨0⟩))) (.term (.br (twoLabels 0) .unit)),
+    [(twoLabels 0, ⟨⟨2⟩, .term (.br (twoLabels 1) .unit)⟩),
+     (twoLabels 1, ⟨⟨0⟩, .term (.br (if back then twoLabels 0 else leftExit) (.var ⟨0⟩))⟩)]⟩
+
+private abbrev projectedGraph (back : Bool) :=
+  withLiveOut (P := signature) noFields (projectedSource back)
+
+private def projectedRead (back : Bool) :
+    Option (FiniteCFG signature.Instr 2 projectedPorts.exits.length projectedPorts.slots) :=
+  NamedFlat.elaborateAt (projectedGraph back) projectedPorts.exits projectedPorts.names 2 rfl
+
+private def projectedCode (back : Bool) : FiniteCFG signature.Instr 2 projectedPorts.exits.length projectedPorts.slots :=
+  (projectedRead back).get (by cases back <;> decide)
+
+private def projectedLowered (back : Bool) : Lowered projectedPorts noFields (projectedCode back) where
+  source := projectedSource back
+  closed := by
+    have each : ∀ i : Fin (projectedGraph back).blocks.length,
+        (projectedGraph back).blocks[i].2.body.toRegion.fv ⊆ {(projectedGraph back).blocks[i].2.param} := by
+      cases back <;> decide
+    intro item member
+    obtain ⟨i, valid, eq⟩ := List.getElem_of_mem member
+    rw [← eq]
+    exact each ⟨i, valid⟩
+  count := rfl
+  readback := (Option.some_get _).symm
+
+private def projectedLayouts (i : Fin 2) : List (Fin 2) :=
+  if i = 0 then [1, 0] else [1]
+
+private def projectedAdmission : LiveOut.Admission signature projectedPorts noFields (projectedSource false) :=
+  Straight.admitWithProjections (projectedLowered false) (fun _ => .unit)
+    twoSlots projectedLayouts (by decide)
+    (fun i => Fin.cases (List.Sublist.refl twoSlots) (fun _ => .cons_cons 1 (.cons 0 .slnil)) i)
+    (by decide) (by decide) (by decide)
+
+example : CFG.Cyclic.Versioning.registers (projectedGraph false) = [⟨1⟩, ⟨0⟩] := by decide
+example : ∀ i, (projectedLowered false).packetProfile (fun _ => .unit) (by decide) i =
+    if i.val = 0 then .product .unit (.product choice (.product num .unit))
+    else .product .unit (.product choice .unit) := by decide
+
+private def projectedTransfer (i : Fin 2) (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
+  let σ := store projectedPorts.names projectedPorts.context (twoInput right n saved)
+  let assigned := upd σ ⟨3⟩ (twoArg right n saved)
+  (twoLabels i, .unit, if i = 0 then assigned else upd assigned ⟨2⟩ .unit)
+
+private def projectedPacket (right : Bool) (n : Nat) : Label × Value Runtime :=
+  (twoLabels 1, .pair .unit (.pair (value right n) .unit))
+
+private theorem encodeProjected (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.Versioning.encode (treeModel model.raw) (projectedGraph false) (projectedTransfer 1 right n saved) =
+      projectedPacket right n := by
+  have route : CFG.Cyclic.Versioning.destinations (projectedGraph false) (twoLabels 1) = some [⟨1⟩] := by decide
+  have same : (projectedTransfer 1 right n saved).2.2 ⟨1⟩ =
+      inputEnv projectedPorts.context (twoInput right n saved) 1 := by cases right <;> rfl
+  have packet := Straight.encode_capture (projectedLowered false) model 1 (twoInput right n saved)
+    (projectedTransfer 1 right n saved) route same
+  cases right <;> exact packet
+
+-- The compiled step decodes the full packet and emits the smaller one.
+example (right : Bool) (n saved : Nat) :
+    let m := treeModel model.raw
+    let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+    CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compile (projectedGraph false)).blocks input
+      (CFG.Cyclic.Versioning.encode m (projectedGraph false) (projectedTransfer 0 right n saved)) =
+      pure (.inr (projectedPacket right n)) := by
+  let m := treeModel model.raw
+  let graph := projectedGraph false
+  let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+  have actual : CFG.Cyclic.step m graph.blocks (projectedTransfer 0 right n saved) =
+      pure (.inr (projectedTransfer 1 right n saved)) := by cases right <;> rfl
+  have encoded : CFG.Cyclic.Versioning.encode m graph (projectedTransfer 1 right n saved) =
+      projectedPacket right n := encodeProjected right n saved
+  change CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compile graph).blocks input
+      (CFG.Cyclic.Versioning.encode m graph (projectedTransfer 0 right n saved)) = _
+  rw [← CFG.Cyclic.Versioning.step_commutes m ⟨fun _ _ => rfl⟩ graph input, actual, map_pure, Sum.map_inr, encoded]
+
+-- The second block accepts the smaller packet and reaches the declared exit.
+example (right : Bool) (n saved : Nat) :
+    let m := treeModel model.raw
+    let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+    CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compile (projectedGraph false)).blocks input
+      (projectedPacket right n) = pure (.inr (leftExit, .pair .unit .unit)) := by
+  let m := treeModel model.raw
+  let graph := projectedGraph false
+  let input := store projectedPorts.version.names projectedPorts.context (twoInput right n saved)
+  let pending := projectedTransfer 1 right n saved
+  have encoded : CFG.Cyclic.Versioning.encode m graph pending = projectedPacket right n :=
+    encodeProjected right n saved
+  have actual : CFG.Cyclic.step m graph.blocks pending =
+      pure (.inr (leftExit, .pair .unit .unit, upd pending.2.2 ⟨0⟩ .unit)) := by cases right <;> rfl
+  change CFG.Cyclic.stepSSA m (CFG.Cyclic.Versioning.compile graph).blocks input (projectedPacket right n) = _
+  rw [← encoded, ← CFG.Cyclic.Versioning.step_commutes m ⟨fun _ _ => rfl⟩ graph input, actual, map_pure, Sum.map_inr]
+  rfl
+
+private theorem projectedTyped : (projectedCode false).HasType projectedPorts.context (fun _ => .unit)
+    (LiveOut.exitInterface projectedPorts noFields).external :=
+  NamedFlat.check_sound (projectedCode false) projectedPorts.context (fun _ => .unit) _ (by decide)
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType projectedPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) (Program.ofCFGEntry projectedTyped).code =
+      region model.raw (extend ambient packed) projectedAdmission.program.code :=
+  (projectedLowered false).packed_roundTrip model projectedTyped projectedAdmission (twoInput right n saved) ambient
+
+-- A new back edge would require the atom again. The second block now has
+-- its unit argument in that register, at the wrong type for the saved slot.
+example : Straight.checks (projectedLowered true) (fun _ => .unit) = true ∧
+    Straight.checksCaptureEdges (projectedLowered true) projectedLayouts = false ∧
+    (NamedFlat.compile (projectedGraph true) projectedPorts.exits projectedPorts.names).isSome = true ∧
+    ((projectedLowered true).reAdmit (fun _ => .unit)).isNone = true := by decide
+
+example :
+    let table := (NamedFlat.compile (projectedGraph true) projectedPorts.exits projectedPorts.names).get (by decide)
+    let packets := (projectedLowered true).packetProfile (fun _ => .unit) (by decide)
+    let types := SSA.FiniteSum.append packets (LiveOut.exitInterface projectedPorts noFields).external
+    checkBody types projectedPorts.context table.entry = true ∧
+      checkBody types (.snoc projectedPorts.context (packets (0 : Fin 2))) (table.block (0 : Fin 2)) = true ∧
+      checkBody types (.snoc projectedPorts.context (packets (1 : Fin 2))) (table.block (1 : Fin 2)) = false := by
+  decide
+
+end ProjectedCaptures
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Case

@@ -847,8 +847,42 @@ input record at each selected slot.
 The two-capture regression uses a sum and an atom in saved-register order
 `[1, 0]`. It checks the actual jump packets, a transfer between the two
 internal blocks, the live-out at both ordered exits, and the packed round
-trip on the same input. Destination-varying layouts use the general
-checker.
+trip on the same input. The projected admission below handles
+destination-varying layouts when each outgoing edge has the required slots.
 
 [Uniform admission and packet equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
 · [Two-capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Checked re-admission with destination-specific capture projections
+
+`Straight.admitWithProjections` takes an ordered entry slot list and a
+sublist for each destination. Each sublist must equal the actual saved
+layout, and the original source typing and nonassignment checks still
+apply. `checksCaptureEdges` checks every syntactic edge using the first
+matching internal destination. Entry can supply every slot. A block can
+supply only the slots in its own decoded record, so an internal edge can
+drop a slot while a later edge cannot request it again. Exits have no
+saved capture record. The compiler packs and decodes each destination's
+own record in the written slot order.
+
+The versioner computes one global ordered support from syntactic free
+reads and filters out the destination's argument register.
+`Versioning.slots_subset_iff` gives the exact availability criterion:
+the source's parameter is outside that support, or the destination has the
+same parameter. The standard reverse lowerer uses the same parameter in
+every row and therefore only emits uniform layouts. The projected
+constructor works on an already certified packet-local named table. Its
+body check keeps the saved fields unchanged. A destination may use an
+omitted field's register as its new argument, and the argument supplies no
+agreement with the former entry field.
+
+The two-destination regression reads back the named source and re-admits
+its actual versioned result. It checks the lexical step shrinking `[1, 0]`
+to `[1]`, the smaller packet reaching the declared exit, and the packed
+round trip. Adding the reverse edge still passes the original source
+typing and scoped versioned readback, but the target checker rejects
+the unit argument used where the recovered atom would be required.
+
+[Projected admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
+· [Actual slot rule](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
+· [Projection and rejected back edge](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
