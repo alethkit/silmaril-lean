@@ -1,0 +1,81 @@
+module
+
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms
+
+/-! Pass a checked linked export as the callable import of a one-λ client. -/
+
+@[expose] public section
+
+namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Prefix
+
+open Continuation.Partial.Executable (Actions)
+open NestedTheta.Equality (OpcodeCode)
+
+universe u v w
+
+variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
+variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
+variable {importsL importsR exports extra : Ports (Ty V S)}
+variable {sigsL sigsR : List (Ports (Ty V S))}
+variable {providerFn clientFn : Function V S}
+
+/-- Check the actual numbered provider links and retain their dispatch
+certificate, their typed exports and their post-link stores. -/
+def checkGraphExport [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    (actions : Actions m σ) (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)
+    (inputsL : Tuple m.Val importsL) (inputsR : Tuple m.Val importsR)
+    (left : Omega Op importsL exports sigsL) (right : Omega Op importsR exports sigsR)
+    (plan : GraphPlan left right) (port : Port exports providerFn.port) (storeL storeR : σ)
+    (captureCode : CaptureCode m := .controlOnly m)
+    (exactValue : ExactValueCheck m := fun _ _ => none)
+    (exactGroup : ExactGroupCheck m := ExactGroupCheck.ofCaptures keys exactValue) :
+    Option (CheckedExport actions.toPrimitives ids keys captureCode port
+      (Executable.link actions unitL left inputsL storeL)
+      (Executable.link actions unitR right inputsR storeR)) :=
+  (walkExport keys captureCode exactValue exactGroup actions ids ordinary unitL unitR inputsL inputsR port
+    (left := left.toTerm.region) (right := right.toTerm.region)
+    PUnit.unit PUnit.unit storeL storeR plan .unseeded).map fun checked =>
+      checked.reindex
+        (by
+          change Executable.link actions unitL left inputsL storeL = Executable.link actions unitL left.toTerm.toGraph inputsL storeL
+          rw [Omega.toGraph_toTerm])
+        (by
+          change Executable.link actions unitR right inputsR storeR = Executable.link actions unitR right.toTerm.toGraph inputsR storeR
+          rw [Omega.toGraph_toTerm])
+
+/-- Number one client λ and export its linked value at the sole result port. -/
+def clientGraph {imports : Ports (Ty V S)} (definition : Lambda Op imports [] clientFn) :
+    Omega Op imports [clientFn.port] [[clientFn.port]] :=
+  ⟨⟨Fin.cases (.lambda definition) (fun i => i.elim0), .cons (.output (0 : Fin 1) .head) .nil⟩⟩
+
+def Row.headOnly {family : Family m} {port : Ty V S} {values : Tuple m.Val (port :: extra)}
+    (known : family (values.get .head)) : Row family values
+  | _, .head => some ⟨known⟩
+  | _, .tail _ => none
+
+/-- Extend the provider's dispatch family with a fresh client λ. Its first
+import must equal the selected provider export on each side. Other
+imports may be used through the ordinary-value rule. The client links
+at the provider's final store and has no δ allocations of its own. -/
+def admitClient [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)} [DecidableEq keys.Key]
+    {captureCode : CaptureCode m} (actions : Actions m σ) {ids : GlobalRel}
+    (ordinary : OrdinaryOutputs Op) (exactValue : ExactValueCheck m)
+    {port : Port exports providerFn.port} {outcomeL outcomeR : Outcome m σ exports}
+    (provider : CheckedExport actions.toPrimitives ids keys captureCode port outcomeL outcomeR)
+    (unitL unitR : Nat) (inputsL inputsR : Tuple m.Val (providerFn.port :: extra))
+    (left right : Lambda Op (providerFn.port :: extra) [] clientFn) :
+    Option (PLift (AdmittedExport actions.toPrimitives ids (fn := clientFn) .head
+      (Executable.link actions unitL (clientGraph left) inputsL provider.storeL)
+      (Executable.link actions unitR (clientGraph right) inputsR provider.storeR))) := do
+  let sameL ← exactValue (inputsL.get .head) (provider.valuesL.get port)
+  let sameR ← exactValue (inputsR.get .head) (provider.valuesR.get port)
+  let knownL : provider.familyL (inputsL.get .head) := sameL.down.symm ▸ provider.knownL
+  let knownR : provider.familyR (inputsR.get .head) := sameR.down.symm ▸ provider.knownR
+  let checked ← provider.certified.addLambda keys ordinary
+    ((Table.empty provider.familyL (past := []) PUnit.unit).available provider.certified.ordinaryL (Row.headOnly knownL))
+    ((Table.empty provider.familyR (past := []) PUnit.unit).available provider.certified.ordinaryR (Row.headOnly knownR))
+    left right
+  pure ⟨checked.down.forExports .exported .exported⟩
+
+end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Prefix

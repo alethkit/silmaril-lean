@@ -4,6 +4,7 @@ import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorph
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -14,6 +15,7 @@ import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Infer.Defs
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Import.Defs
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -1979,6 +1981,101 @@ example : ∃ source target,
     cases head
     cases tail
     exact ⟨_, target, lambdaOnlyStart, path, got⟩
+
+open RecursiveCall.Numbered.Prefix (admitClient checkGraphExport clientGraph)
+
+private def providerModuleL : OmegaTerm Op args crossExports [[global], [branchFn.port], []] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.lambda (sameBodyLambda (.output (0 : Fin 1) .head))) <|
+    .bind (.phi (emptyPhi Op args _)) <| .ret (.cons (.output (1 : Fin 3) .head) .nil)⟩
+
+private def providerModuleR : OmegaTerm Op args crossExports [[], [global], [branchFn.port]] :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <|
+    .bind (.lambda (sameBodyLambda (.output (1 : Fin 2) .head))) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def providerPlan : GraphPlan providerModuleL.toGraph providerModuleR.toGraph :=
+  .skipR (.skipL (.skipR (.start (.lambda (.skipL .done)))))
+
+private def providerCheck :=
+  checkGraphExport instructionKeys actions ids ordinaryOutputs 73 73 (number 1) (number 1)
+    providerModuleL.toGraph providerModuleR.toGraph providerPlan (providerFn := branchFn) crossPort 20 20
+
+private theorem providerFound : providerCheck.isSome = true := by decide +kernel
+
+private def provider := providerCheck.get providerFound
+
+private abbrev clientInputs : Ports T := [branchFn.port, global]
+
+private def providerRef (vertex : Nat) : machine.Val branchFn.port :=
+  .closure (.cons (globalValue vertex 8) .nil) sameBody.toGraph
+
+private theorem providerActualL : provider.valuesL = .cons (providerRef 0) .nil ∧ provider.storeL = 23 :=
+  Outcome.linked.inj (provider.linkedL.symm.trans (by cbv))
+
+private theorem providerActualR : provider.valuesR = .cons (providerRef 1) .nil ∧ provider.storeR = 23 :=
+  Outcome.linked.inj (provider.linkedR.symm.trans (by cbv))
+
+private def clientEntryL : Tuple machine.Val clientInputs :=
+  .cons (providerRef 0) (.cons (globalValue 0 8) .nil)
+
+private def clientEntryR : Tuple machine.Val clientInputs :=
+  .cons (providerRef 1) (.cons (globalValue 1 8) .nil)
+
+private def clientLambda : LambdaTerm Op clientInputs [] branchFn :=
+  ⟨[branchFn.port], .cons (.arg .head) .nil, _, wrapperCode⟩
+
+private def duplicateProvider : LambdaTerm Op clientInputs [] branchFn :=
+  ⟨[global], .cons (.arg (.tail .head)) .nil, _, sameBody⟩
+
+-- Same signature, code and payload, but a distinct captured global.
+private def foreignProvider : machine.Val branchFn.port :=
+  .closure (.cons (.global 99 1 (.data (8 : Nat))) .nil) sameBody.toGraph
+
+private def staleClientEntry : Tuple machine.Val clientInputs :=
+  .cons foreignProvider (.cons (globalValue 1 8) .nil)
+
+private def clientCheck (inputsR : Tuple machine.Val clientInputs)
+    (body : LambdaTerm Op clientInputs [] branchFn := clientLambda) :=
+  admitClient actions ordinaryOutputs exactLambdas provider 74 74 clientEntryL inputsR body.toGraph body.toGraph
+
+#guard (clientCheck clientEntryR).isSome
+#guard (clientCheck staleClientEntry).isNone
+#guard (clientCheck clientEntryR duplicateProvider).isNone
+
+-- Freshness checks compare against the retained provider entries.
+example : Executable.link actions 74 (clientGraph duplicateProvider.toGraph) clientEntryL provider.storeL =
+    .linked provider.valuesL 23 := by
+  rw [providerActualL.1, providerActualL.2]
+  cbv
+
+example : Executable.link actions 74 (clientGraph clientLambda.toGraph) staleClientEntry provider.storeR =
+    .linked (.cons (wrapperRef foreignProvider) .nil) 23 := by
+  rw [providerActualR.2]
+  cbv
+
+private def linkedClientRun (right : Bool) (fuel flag : Nat) :
+    Option (Continuation.Partial.Executable.Observation machine Nat [num]) :=
+  let inputs := if right then clientEntryR else clientEntryL
+  let store := if right then provider.storeR else provider.storeL
+  (Executable.run actions fuel 74 (clientGraph clientLambda.toGraph) inputs crossPort (branchArgs flag) store).toOption
+
+-- The provider's global keeps its original unit and relocated vertex
+-- inside the client. The provider attempt and client suffix are both live.
+example (right : Bool) : (linkedClientRun right 30 0).bind crossAttempt =
+    some ([0, 0], finishInputs (if right then 1 else 0) 8 0, 23) := by
+  unfold linkedClientRun
+  rw [providerActualL.2, providerActualR.2]
+  cases right <;> cbv
+
+example (right : Bool) : (match linkedClientRun right 3 1 with
+  | some (.suspended config) =>
+    match config.control with
+    | .eval (.call _ _) stack => some (savedVertices stack, config.store, (runFor actions 30 config).result)
+    | _ => none
+  | _ => none) = some ([0], 23, some (number 16, 31)) := by
+  unfold linkedClientRun
+  rw [providerActualL.2, providerActualR.2]
+  cases right <;> cbv
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
