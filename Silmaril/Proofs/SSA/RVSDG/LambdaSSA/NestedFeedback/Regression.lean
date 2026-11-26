@@ -1160,6 +1160,81 @@ example (coherent : Coherent) :
       throw (IO.userError "the consumer returned the wrong payload or store")
   | _ => throw (IO.userError "the numbered program did not return at the consumer exit")
 
+open OrderedTheta (point)
+open TwoBlock.TwoExit (enter ExitCode Route)
+open OrderedRuntime.Structured (Threaded)
+open NestedTheta.ExplicitRuntime (ThreadedOp)
+
+private abbrev blockModel := Wires.model (τ := Ty) (Φ := Op) (ε := Bool) (σ := Nat)
+
+-- The path enters the consumer γ arm, its θ body, and the header's body arm.
+private def attemptedConsumer :
+    NestedTheta.OrderedState.Partial.Block (ThreadedOp (Wires.Effect Op)) (TyDen (τ := Ty)) Nat where
+  path := [(2, 1), (0, 0), (1, 1)]
+  vertex := 0
+  ins := Threaded (carried (Route number .unit number))
+  outs := Threaded (carried number)
+  opcode := .op (.loop (.acyclic (.call (.right (X := ExitCode .unit number)) (op .consumeBody))))
+  input := .cons (.inr (99 : Nat)) (.cons PUnit.unit .nil)
+  store := 5
+
+private def blockedEntry := point (enter (A := number) (C := .unit) (D := number) (99 : Nat)) (0 : Nat)
+
+private def producerDone := ExplicitRuntime.exitTuple (A := number)
+  ((.inr (.inl (99 : Nat)) : RoutedExit), (4 : Nat))
+
+private theorem producerExec :
+    NestedTheta.Partial.exec (Wires.wireModel (ε := Bool))
+      (Flat.Serial.Spine.loop routingProducer).code.1 blockedEntry PUnit.unit producerDone := by
+  rw [← NestedTheta.Term.toTerm_toGraph (Flat.Serial.Spine.loop routingProducer).code.1]
+  apply (NestedTheta.Partial.observe_eq_some _ _ _ _).mp
+  change Flat.Serial.observe (ε := Bool) (Flat.Serial.Spine.loop routingProducer).graph (99 : Nat) 0 = _
+  rw [Flat.Serial.loop_observe, ExplicitRuntime.graph_observe, routingProducerReturns 99 (by decide)]
+  rfl
+
+-- The producer returns after feedback with token 4. The consumer header
+-- advances it to 5 and selects the body with payload 99.
+private theorem compiledBlock : NestedTheta.ExplicitRuntime.Partial.abnormal blockModel operationalGraph
+    blockedEntry (.blocked attemptedConsumer) := by
+  change NestedTheta.ExplicitRuntime.Partial.abnormal blockModel routed.code.1.toGraph
+    blockedEntry (.blocked attemptedConsumer)
+  rw [NestedTheta.ExplicitRuntime.Partial.abnormal, NestedTheta.Term.toTerm_toGraph]
+  refine Or.inr ⟨producerDone, ?_, ?_⟩
+  · obtain ⟨result, executed, returned⟩ := producerExec
+    have repack : point (result.get .head) (result.get (.tail .head)) = result := by
+      cases result with
+      | cons value tail => cases tail with
+        | cons token rest => cases rest; rfl
+    change point (result.get .head) (result.get (.tail .head)) = producerDone at returned
+    cases repack.symm.trans returned
+    exact executed
+  · let consumerEntry := point (enter (A := number) (C := .unit) (D := number) (99 : Nat)) (4 : Nat)
+    let selected := Tuple.cons (F := OrderedRuntime.Structured.RuntimeValues (TyDen (τ := Ty)) Nat)
+      (t := .control 2) ⟨(1 : Fin 2)⟩ consumerEntry
+    refine Or.inr ⟨selected, ?_, ?_⟩
+    · exact ⟨True.intro, rfl⟩
+    apply Or.inl
+    apply Or.inl
+    apply Or.inl
+    refine ⟨consumerEntry, Relation.ReflTransGen.refl, ?_⟩
+    let route := point (A := Route number .unit number) (.inr (99 : Nat)) (5 : Nat)
+    let header := Tuple.cons (F := OrderedRuntime.Structured.RuntimeValues (TyDen (τ := Ty)) Nat)
+      (t := .control 2) ⟨(1 : Fin 2)⟩ route
+    refine Or.inr ⟨header, ?_, ?_⟩
+    · exact ⟨by repeat' first | exact True.intro | constructor, rfl⟩
+    apply Or.inl
+    apply Or.inl
+    refine ⟨?_, rfl⟩
+    change ¬ ((TwoBlock.call (ε := Bool) (m := Runtime) (op .consumeBody) (99 : Nat) >>=
+      fun payload => pure (OrderedTheta.pack payload)).run 5).Dom
+    simp only [TwoBlock.call, StateT.run_bind, Part.bind_eq_bind]
+    intro defined
+    exact defined.of_bind.of_bind
+
+example (fuel : Nat) :
+    Translation.run runnerActions operationalGraph fuel (99 : Nat) 0 = none :=
+  Translation.run_eq_none_of_blocked runnerActions operationalSource.compileChecked compiledBlock fuel
+
 end Composition
 
 end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
