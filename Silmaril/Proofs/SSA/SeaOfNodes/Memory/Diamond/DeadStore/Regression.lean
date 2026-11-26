@@ -207,14 +207,18 @@ example : Entry.rewrite entryWithRead input = some entryAfterEdit := rfl
 
 private def entryEditDiamond (first : Projection) : Graph args := (source first true headPort).diamond
 
-private def runEntryEdit (first : Projection) (guard : Bool) (fuel : Nat) :
+private def runEntryPrograms (programs : Discovery.MemRef.CF.Programs 4 args) (guard : Bool) (fuel : Nat) :
     Option (Word × Word × List Word × List Word) := do
-  let programs ← Entry.lower (entryEditDiamond first) entryWithRead input
   let enteredBefore := Discovery.MemRef.CF.entryTransition programs.original programs.input guard ⟨initial⟩
   let enteredAfter := Discovery.MemRef.CF.entryTransition programs.optimized programs.input guard ⟨initial⟩
   let before ← Discovery.MemRef.CF.run programs.original programs.input guard fuel ⟨initial⟩
   let after ← Discovery.MemRef.CF.run programs.optimized programs.input guard fuel ⟨initial⟩
   some (enteredBefore.2.cell headCell, enteredAfter.2.cell headCell, readback before, readback after)
+
+private def runEntryEdit (first : Projection) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let programs ← Entry.lower (entryEditDiamond first) entryWithRead input
+  runEntryPrograms programs guard fuel
 
 -- Both emitted entries write 3 through the second Store.
 /-- info: some (3#64, 3#64, [3#64, 11#64, 11#64, 3#64, 55#64], [3#64, 11#64, 11#64, 3#64, 55#64]) -/
@@ -231,5 +235,36 @@ example : Entry.lower (entryEditDiamond .onFalse) entryWithRead (input headCell)
 #guard ((Discovery.MemRef.CF.run
     (Discovery.MemRef.CF.lowerDiamond 4 (entryEditDiamond .onFalse) (some entryWithRead))
     (input headCell) false 3 ⟨initial⟩).map readback) == some [99, 33, 2, 3, 55]
+
+private def sideStore : PrefixStore args := ⟨leftPort, leftWord⟩
+private def entryWithSideStore : Memory.Graph args := sideStore.prepend entryWithRead
+private def entryWithoutSelected : Memory.Graph args := sideStore.prepend entryAfterEdit
+
+example : Entry.rewriteSelected entryWithSideStore 2 input =
+    some ⟨⟨2, 3⟩, ⟨headPort, [rightPort]⟩, entryWithoutSelected⟩ := rfl
+
+-- The side Store can also sit between the selected Store and its overwrite.
+example : Entry.rewriteSelected ((source .onFalse).store.prepend entryWithoutSelected) 1 input =
+    some ⟨⟨1, 3⟩, ⟨headPort, [rightPort]⟩, entryWithoutSelected⟩ := rfl
+
+example : Entry.lowerSelected (entryEditDiamond .onFalse) entryWithRead 1 input =
+    Entry.lower (entryEditDiamond .onFalse) entryWithRead input := rfl
+
+private def runSelectedEntry (guard : Bool) : Option (Word × Word × List Word × List Word) := do
+  let programs ← Entry.lowerSelected (entryEditDiamond .onFalse) entryWithSideStore 2 input
+  runEntryPrograms programs guard 3
+
+-- The false arm leaves cell one at the retained entry Store's value, 11.
+/-- info: some (3#64, 3#64, [3#64, 33#64, 11#64, 33#64, 55#64], [3#64, 33#64, 11#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runSelectedEntry false
+
+#guard runSelectedEntry true == some (3, 3, [3, 11, 11, 3, 55], [3, 11, 11, 3, 55])
+
+example : Entry.lowerSelected (entryEditDiamond .onFalse) entryWithSideStore 2 (input headCell) = none := rfl
+
+#guard ((Discovery.MemRef.CF.run
+    (Discovery.MemRef.CF.lowerDiamond 4 (entryEditDiamond .onFalse) (some entryWithSideStore))
+    (input headCell) false 3 ⟨initial⟩).map readback) == some [99, 33, 11, 3, 55]
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

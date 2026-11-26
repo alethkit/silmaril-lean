@@ -82,11 +82,15 @@ private theorem rewriteAt_deletes {past : List (List ValueSort)} {version : Nat}
       obtain ⟨tail, accepted, rfl⟩ := Option.map_eq_some_iff.mp success
       exact .keep (.store address value) (ih tail accepted)
 
+theorem checked_operations {graph rewritten : Graph args} {candidate : Candidate} {facts : Certificate args}
+    (input : Tuple (Val cells) args) (accepted : Memory.DeadStore.rewrite graph candidate facts input = some rewritten) :
+    DeletesStores 1 (operations graph) (operations rewritten) :=
+  rewriteAt_deletes graph rewritten ((Memory.DeadStore.rewrite_eq_some_iff input).mp accepted).1
+
 private theorem step_deletes {graph : Graph args} {step : Selection.Result args}
     {input : Tuple (Val cells) args} (success : Readers.rewrite graph input = some step) :
     DeletesStores 1 (operations graph) (operations step.graph) :=
-  rewriteAt_deletes graph step.graph
-    ((Memory.DeadStore.rewrite_eq_some_iff input).mp (Readers.rewrite_checked input success).2.2.2).1
+  checked_operations input (Readers.rewrite_checked input success).2.2.2
 
 theorem run_preserves (input : Tuple (Val cells) args) (fuel : Nat) (graph : Graph args) :
     let result := run input fuel graph

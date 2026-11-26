@@ -9,8 +9,16 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat
 
 open RVSDG (Tuple)
+open Memory.Forwarding.Disjoint (Certificate)
 
 variable {args : List ValueSort} {cells : Nat}
+
+/-- A single checked deletion erases one Store and keeps the order and
+operands of every retained operation. -/
+theorem checked_operations {graph rewritten : Graph args} {candidate : Candidate} {facts : Certificate args}
+    (input : Tuple (Val cells) args) (accepted : Memory.DeadStore.rewrite graph candidate facts input = some rewritten) :
+    DeletesStores 1 (operations graph) (operations rewritten) :=
+  Proofs.checked_operations input accepted
 
 /-- The pass deletes exactly the reported number of Stores. Every retained
 operation keeps its original operands and position relative to the others. -/
