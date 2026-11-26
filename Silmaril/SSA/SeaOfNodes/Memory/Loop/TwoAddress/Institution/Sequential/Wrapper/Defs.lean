@@ -46,15 +46,26 @@ def wrapTerm (graph : Graph args) (ports : PortMap args entry)
     (fun _ => .ofBase (Petri.lowerBody graph))
     (.ret (withRuntime (nextRuntime [] (dataPorts (activationArgs args))) returnWires))
 
+def forwardingWires (graph : Graph args) :
+    Wires (carrier entry) [carrier (activationArgs args)] (dataPorts (.word :: entry)) :=
+  .cons (exitWord graph) ((Boundary.captureWires entry entry (fun p => p)).map
+    (fun _ => RVSDG.NestedTheta.ExplicitRuntime.Splice.weaken (carrier (activationArgs args))))
+
+/-- Lower a θ whose captures are selected from a larger entry bank. Keep
+the entire entry bank alongside the returned word and live heap. -/
+def forwarding (graph : Graph args) (ports : PortMap args entry) :
+    RVSDG.NestedTheta.Graph ThetaOpcode (carrier entry) [] [carrier (activationArgs args)]
+      (carrier (.word :: entry)) :=
+  (wrapTerm graph ports (forwardingWires graph)).toGraph
+
 def producerWires (graph : Graph args) :
     Wires (carrier args) [carrier (activationArgs args)] (dataPorts (.word :: args)) :=
-  .cons (exitWord graph) ((Boundary.captureWires args args (fun p => p)).map
-    (fun _ => RVSDG.NestedTheta.ExplicitRuntime.Splice.weaken (carrier (activationArgs args))))
+  forwardingWires graph
 
 /-- Forward the original ambient captures and return the actual θ result and live heap. -/
 def producer (graph : Graph args) :
     RVSDG.NestedTheta.Graph ThetaOpcode (carrier args) [] [carrier (activationArgs args)] (carrier (.word :: args)) :=
-  (wrapTerm graph (fun p => p) (producerWires graph)).toGraph
+  forwarding graph (fun p => p)
 
 def consumerWires (graph : Graph args) :
     Wires (carrier (.word :: args)) [carrier (activationArgs args)] (dataPorts [.word, .word]) :=
@@ -65,5 +76,20 @@ def consumer (graph : Graph args) :
     RVSDG.NestedTheta.Graph ThetaOpcode (carrier (.word :: args)) [] [carrier (activationArgs args)]
       (carrier [.word, .word]) :=
   (wrapTerm graph (fun p => .tail p) (consumerWires graph)).toGraph
+
+def thirdWires (graph : Graph args) :
+    Wires (carrier (.word :: .word :: args)) [carrier (activationArgs args)] (dataPorts [.word, .word, .word]) :=
+  .cons (.arg (.tail .head)) (.cons (.arg .head) (.cons (exitWord graph) .nil))
+
+def thirdOutput (first second : Word) :
+    Tuple (WireVal cells) (carrier [.word]) → Tuple (WireVal cells) (carrier [.word, .word, .word])
+  | .cons third rest => .cons first (.cons second (.cons third rest))
+
+/-- The entry bank places the most recent result first for Boundary routing.
+The final return lists all three words in execution order. -/
+def third (graph : Graph args) :
+    RVSDG.NestedTheta.Graph ThetaOpcode (carrier (.word :: .word :: args)) [] [carrier (activationArgs args)]
+      (carrier [.word, .word, .word]) :=
+  (wrapTerm graph (fun p => .tail (.tail p)) (thirdWires graph)).toGraph
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Wrapper

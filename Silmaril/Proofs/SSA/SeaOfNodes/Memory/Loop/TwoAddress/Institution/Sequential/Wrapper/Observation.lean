@@ -101,24 +101,31 @@ private theorem wrap_observe (graph : Graph args) (ports : PortMap args entry)
   rw [Part.map_some]
   exact congrArg Part.some (retEq exit)
 
-theorem producer_observe (graph : Graph args) (input : Tuple (Val cells) args) (initial : Heap cells) :
-    RuntimeObservation.observe (P := target) (thetaRuntime cells) (producer graph) (encodeInput initial input) =
+theorem forwarding_observe (graph : Graph args) (ports : PortMap args entry)
+    (input : Tuple (Val cells) entry) (initial : Heap cells) :
+    RuntimeObservation.observe (P := target) (thetaRuntime cells) (forwarding graph ports) (encodeInput initial input) =
       (RuntimeObservation.observe (P := target) (thetaRuntime cells) (Petri.lower graph)
-        (encodeInput initial input)).map (producerOutput input) := by
-  unfold producer
+        (encodeInput initial (pullInput ports input))).map (producerOutput input) := by
+  unfold forwarding
   rw [wrap_observe]
-  · rw [pull_identity]
   · intro exit
-    let live : Origin (carrier args) [carrier (activationArgs args)] runtime :=
+    let live : Origin (carrier entry) [carrier (activationArgs args)] runtime :=
       RVSDG.OrderedRuntime.Structured.nextRuntime [] (dataPorts (activationArgs args))
     have dataRead := read_captures
       (RVSDG.NestedTheta.ExplicitRuntime.Splice.weaken (carrier (activationArgs args))) (fun p => p)
       input initial (exit.get (runtimePort (dataPorts (activationArgs args)))) live (exit, PUnit.unit)
       (fun p => rfl) rfl
     rw [pull_identity] at dataRead
-    simp only [producerWires, withRuntime, read_cons]
+    simp only [forwardingWires, withRuntime, read_cons]
     rw [dataRead]
     rfl
+
+theorem producer_observe (graph : Graph args) (input : Tuple (Val cells) args) (initial : Heap cells) :
+    RuntimeObservation.observe (P := target) (thetaRuntime cells) (producer graph) (encodeInput initial input) =
+      (RuntimeObservation.observe (P := target) (thetaRuntime cells) (Petri.lower graph)
+        (encodeInput initial input)).map (producerOutput input) := by
+  unfold producer
+  rw [forwarding_observe, pull_identity]
 
 theorem consumer_observe (graph : Graph args) (first : Word) (input : Tuple (Val cells) args) (initial : Heap cells) :
     RuntimeObservation.observe (P := target) (thetaRuntime cells) (consumer graph) (Boundary.packet first input initial) =
@@ -127,6 +134,18 @@ theorem consumer_observe (graph : Graph args) (first : Word) (input : Tuple (Val
   unfold consumer Boundary.packet
   rw [wrap_observe]
   · rw [pull_under, pull_identity]
+  · intro exit
+    rfl
+
+theorem third_observe (graph : Graph args) (first second : Word)
+    (input : Tuple (Val cells) args) (initial : Heap cells) :
+    RuntimeObservation.observe (P := target) (thetaRuntime cells) (third graph)
+        (Boundary.packet second (.cons (t := .word) first input) initial) =
+      (RuntimeObservation.observe (P := target) (thetaRuntime cells) (Petri.lower graph)
+        (encodeInput initial input)).map (thirdOutput first second) := by
+  unfold third Boundary.packet
+  rw [wrap_observe]
+  · rw [pull_under, pull_under, pull_identity]
   · intro exit
     rfl
 
