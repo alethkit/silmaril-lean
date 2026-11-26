@@ -645,6 +645,19 @@ The continuation cannot jump back to its own label.
   [Captured tables](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Defs.lean) ·
   [Denotation square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Categorical/Thms.lean) ·
   [Diamond trace](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Regression.lean)
+- Every successful captured lowering produces a LetCase term in a typed
+  grammar of an entry binder, jumps, cases and indexed outward returns.
+  A witness for this grammar allows reverse compilation of the actual term
+  to a typed positional table that passes the same global rank checker.
+  Lowering the rebuilt table returns the exact LetCase term. The native
+  round trip preserves the arrow at the original ordered exits for any
+  ambient context and primitive interpretation under the captured model
+  assumptions. Numbering the grammar tree can duplicate shared blocks.
+  The reverse compiler requires a grammar witness, which the successful
+  forward lowering supplies.
+  [Grammar and certification](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Thms.lean) ·
+  [Ordered-exit round trip](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Categorical/Thms.lean) ·
+  [Three-exit state traces](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
