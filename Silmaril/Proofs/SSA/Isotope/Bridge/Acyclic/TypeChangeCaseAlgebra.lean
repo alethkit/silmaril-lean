@@ -120,7 +120,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hΓ := envObj_eq g K.types β
     have hA := congrArg K.types.obj (BoundCtx.get_mapTypes g.ty β i).symm
     have hk := boundLookup_heq g K.types β i
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp, boundVar]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp, boundVar]
     congr! (config := .unfoldSameFun)
   | @op n β f =>
     have h0 := args (0 : Fin 1)
@@ -129,7 +129,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hB := congrArg K.types.obj (g.target f).symm
     have hp : HEq ((pullbackInstructions g K.instructions).denote f)
         (K.instructions.denote (g.instr f)) := cast_heq _ _
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @let₁ n β A B =>
     have h0 := args (0 : Fin 2)
@@ -137,13 +137,13 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hΓ := envObj_eq g K.types β
     have hΓA := envObj_eq g K.types (β.snoc A)
     have hi := envSnocIso_heq g K.types β A
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @unit n β =>
     have hΓ := envObj_eq g K.types β
     have hu := congrArg K.types.obj (SignatureMap.PreservesProducts.unit (g := g))
     have hi : HEq (pullbackTypes g K.types).unitIso K.types.unitIso := iso_transport hu _
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @pair n β A B =>
     have h0 := args (0 : Fin 2)
@@ -152,7 +152,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hp := congrArg K.types.obj (SignatureMap.PreservesProducts.product (g := g) A B)
     have hi : HEq ((pullbackTypes g K.types).productIso A B)
         (K.types.productIso (g.ty A) (g.ty B)) := iso_transport hp _
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @let₂ n β A B D =>
     have h0 := args (0 : Fin 2)
@@ -163,7 +163,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hi : HEq ((pullbackTypes g K.types).productIso A B)
         (K.types.productIso (g.ty A) (g.ty B)) := iso_transport hp _
     have he := envPairHom_heq g K.types β A B
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @inl n β A B | @inr n β A B =>
     have h0 := args (0 : Fin 1)
@@ -171,7 +171,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hc := congrArg K.types.obj (SignatureMap.PreservesSums.coprod (g := g) A B)
     have hi : HEq ((pullbackTypes g K.types).coprodIso A B)
         (K.types.coprodIso (g.ty A) (g.ty B)) := iso_transport hc _
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @case n β A B D =>
     have h0 := args (0 : Fin 3)
@@ -185,7 +185,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
         (K.types.coprodIso (g.ty A) (g.ty B)) := iso_transport hc _
     have hs := envSnocIso_heq g K.types β A
     have ht := envSnocIso_heq g K.types β B
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
   | @abort n β A =>
     have h0 := args (0 : Fin 1)
@@ -194,7 +194,7 @@ private theorem caseOperation_transport (K : CoherentRegionModel J Q)
     have hi : HEq ((pullbackTypes g K.types).emptyIsInitial.to (K.types.obj (g.ty A)))
         (K.types.emptyIsInitial.to (K.types.obj (g.ty A))) :=
       initial_transport he K.types.emptyIsInitial
-    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, mappedCaseOp]
+    dsimp only [CoherentRegionModel.caseAlgebra, caseOperation, freydCaseOperation, mappedCaseOp]
     congr! (config := .unfoldSameFun)
 
 theorem caseAlgebra_pullback_proof (K : CoherentRegionModel J Q) :

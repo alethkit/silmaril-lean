@@ -32,6 +32,28 @@ theorem reify_mapSentence {P Q : InstrSig τ ε} (g : P ⟶ Q) (e : CaseEquation
        ((reify e).2.2.toSSA 0).mapInstr (InstrSig.Hom.instr g)) :=
   reify_mapSentence_proof g e
 
+section FreydModels
+
+open LetIter.Semantics.Categorical (TypeModel InstructionModel)
+open Isotope.LetCase.LocallyNameless
+
+variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  {J : V ⥤ C} [DistributiveFreydCategory J] {P : InstrSig τ ε}
+
+/-- The algebra fold computes the exact distributive Freyd denotation. -/
+theorem freydCaseAlgebra_denote (M : TypeModel τ V) (I : InstructionModel J M P.Instr)
+    {n : Nat} {β : BoundCtx τ n} {A : τ}
+    {t : Tm Empty P.Instr n} (d : Derivation P.Instr Γ₀ β t A) :
+    letI := I
+    Models.denote (freydCaseAlgebra J M I) d = Isotope.LetCase.Semantics.Categorical.denote J M d :=
+  freydCaseAlgebra_denote_proof M I d
+
+end FreydModels
+
 section Models
 
 variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
