@@ -41,7 +41,7 @@ private theorem last_get {F : Ty Data → Type w} {t : Ty Data} (port : Port hea
   | nil => rfl
   | cons _ _ ih => exact ih locals.2
 
-private theorem lastBank_read (m : Model.{u, v, w} Op)
+theorem lastBank_read (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (bank : Tuple (Val m.value) head) :
     (lastBank past head).read entry (locals.snoc bank) = bank := by

@@ -26,7 +26,7 @@ theorem check_iff_valid (certificate : Certificate args) (input : Tuple (Val cel
     certificate.check input = true ↔ certificate.Valid input := by
   simp [Certificate.check, Certificate.Valid]
 
-private theorem matches_read (address : Origin args past .address)
+theorem matches_read (address : Origin args past .address)
     (matched : certificate.matches address = true)
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) :
     readValue address input locals = cell input certificate.observed := by
@@ -36,7 +36,7 @@ private theorem matches_read (address : Origin args past .address)
     exact congrArg (cell input) (port_eq port certificate.observed same)
   | output => simp [Certificate.matches] at matched
 
-private theorem covers_read (address : Origin args past .address)
+theorem covers_read (address : Origin args past .address)
     (covered : certificate.covers address = true) (input : Tuple (Val cells) args)
     (locals : Locals (Val cells) past) (valid : certificate.Valid input) :
     cell input certificate.observed ≠ readValue address input locals := by

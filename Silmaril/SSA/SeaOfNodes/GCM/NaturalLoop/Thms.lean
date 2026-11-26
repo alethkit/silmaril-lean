@@ -73,4 +73,16 @@ theorem choosePlacement_complete (valid : checkBackedge tree blocks edge = true)
       ∀ point ∈ candidateCuts cfg blocks, ¬ Legal cfg operands uses point :=
   Silmaril.Proofs.SSA.SeaOfNodes.GCM.NaturalLoop.choosePlacement_complete valid complete operands uses
 
+/-- The closure retains its seeds, preserves a backward-closed predicate,
+and contains every candidate with an edge into the result. -/
+theorem reverseClose_spec {B : Type} [DecidableEq B] (hasEdge : B → B → Bool)
+    (Q : B → Prop) (remaining reached : List B)
+    (seeds : ∀ b ∈ reached, Q b)
+    (step : ∀ src ∈ remaining, ∀ dst, hasEdge src dst = true → Q dst → Q src) :
+    let closed := reverseClose hasEdge remaining reached
+    (∀ b ∈ reached, b ∈ closed) ∧ (∀ b ∈ closed, Q b) ∧
+      (∀ src ∈ remaining, ∀ dst ∈ closed, hasEdge src dst = true → src ∈ closed) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.NaturalLoop.reverseClose_spec
+    hasEdge Q remaining reached seeds step
+
 end Silmaril.SSA.SeaOfNodes.GCM.NaturalLoop

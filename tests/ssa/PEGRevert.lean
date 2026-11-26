@@ -1,7 +1,10 @@
 module
 
 import Silmaril.SSA.PEG.Builder
-import Silmaril.SSA.PEG.Simple.Revert.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Automatic.Thms
+meta import Silmaril.SSA.PEG.Simple.Revert.Automatic.Defs
+meta import Silmaril.SSA.PEG.Builder
+meta import Silmaril.SSA.PEG.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.Tests
 
@@ -24,7 +27,8 @@ private def input (flag : Bool) (x : Nat) : Tuple model.Value [.bool, .count] :=
 
 /-- The root is add(φ(flag, doubled, divide(x)), doubled).
 The doubled node uses the same input twice. Vertex 3 is dead and partial. -/
-private def raw (resultArgs : List Nat) (deadArgs : Option (List Nat) := none) :
+private def raw (resultArgs : List Nat) (deadArgs : Option (List Nat) := none)
+    (yesNode : Nat := 4) :
     RawGraph Op [.bool, .count] [.count] 7 0 where
   forest := ⟨Fin.elim0⟩
   sort i := if i = 5 then .bool else .count
@@ -37,7 +41,7 @@ private def raw (resultArgs : List Nat) (deadArgs : Option (List Nat) := none) :
       | some args => ⟨_, .op .add, args⟩
     | 4 => ⟨_, .op .add, [2, 2]⟩
     | 5 => ⟨_, .param .head, []⟩
-    | 6 => ⟨_, .phi, [5, 4, 1]⟩
+    | 6 => ⟨_, .phi, [5, yesNode, 1]⟩
   roots := [0]
 
 private def graph : Graph Op [.bool, .count] [.count] 7 0 := (raw [6, 4]).check.get (by decide)
@@ -122,5 +126,58 @@ example : lazyCert.revert.runLoopFree model (input true 19) = some ⟨19⟩ := b
   unfold lazyGraph
   rw [Code.observe_toGraph]
   rfl
+
+set_option interpreter.prefer_native false
+
+-- Inference supplies both the rank and the scoped schedule for the diamond.
+/-- info: some [5, 2, 4, 6, 1, 0] -/
+#guard_msgs in
+#eval (Automatic.check graph).map (fun cert => cert.schedule.bindings.map Fin.val)
+
+private def autoRun (flag : Bool) (x : Nat) : Option Nat := do
+  let cert ← Automatic.check graph
+  (cert.revert.runLoopFree model (input flag x)).map ULift.down
+
+/-- info: some 0 -/
+#guard_msgs in
+#eval autoRun true 0
+
+/-- info: some 10 -/
+#guard_msgs in
+#eval autoRun false 3
+
+/-- info: none -/
+#guard_msgs in
+#eval autoRun false 0
+
+private def sharedArms : Graph Op [.bool, .count] [.count] 7 0 :=
+  (raw [6, 4] none 1).check.get (by decide)
+
+-- The planner leaves each demand in its arm. The checker rejects the duplicated division.
+/-- info: (true, true) -/
+#guard_msgs in
+#eval ((Automatic.plan sharedArms rank).isSome, (Automatic.checkRanked sharedArms rank).isNone)
+
+/-- info: true -/
+#guard_msgs in
+#eval (Automatic.check (deadCycle.check.get (by decide))).isNone
+
+private def straightCode : Code Op [.bool, .count] [] [.count, .count, .count] :=
+  .emit (.emit (.emit .empty (.param (.tail .head)) .nil) (.op .bad) .nil) (.op .add)
+    (.cons (.tail .head) (.cons (.tail .head) .nil))
+
+private def straightGraph : Graph Op [.bool, .count] [.count] 3 0 :=
+  straightCode.toGraph (.cons .head .nil)
+
+private def straightRank (i : Fin 3) : Nat := 2 - i.val
+
+private def straightCert : Certificate straightGraph :=
+  (Automatic.check straightGraph).get
+    (Automatic.check_accepts_straightLine straightGraph straightRank
+      (by unfold Automatic.StraightLine; decide) (by decide))
+
+/-- info: some 10 -/
+#guard_msgs in
+#eval (straightCert.revert.runLoopFree model (input false 5)).map ULift.down
 
 end Silmaril.SSA.PEG.Simple.Revert.Tests

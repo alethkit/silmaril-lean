@@ -276,15 +276,88 @@ block determines the internal index. External returns use their first
 position in the exit list. Total numbering uses a sentinel for unlisted
 names, which successful elaboration excludes from all written branches.
 
+`Interaction.flat_rename_tree` preserves the tree of an erased flat body
+when the environments agree at each renamed in-scope position. It lifts
+agreement through local binders. The capture decoder uses this lemma with
+the actual product-field renaming. In feedback, the closed block's sole
+original slot is its incoming tagged packet. The closure's block erasure
+equation and agreement on that slot identify the block trees.
+[Scoped erased-tree transport](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Scoped/Thms.lean)
+
+`Capture.graph_tree` accepts an arbitrary producer tree. The typed capture
+expression must have the tree of that producer followed by `packEnv n` of
+the environment chosen by its reply. The theorem preserves the producer's
+requests and continues with the original graph after each returned reply.
+`packed_run_tree` also requires the accepted elaboration carried by
+`compileTyped`, pointwise agreement with the named version-zero store for
+every reply, and `HasType .nil R E` and `Closes` for the closed graph.
+`Capture.close` checks the producer expression at the exact type
+`packedInputType β.toList`. The packed result uses the original external
+index and tagged payload to form the dispatcher's single exit value.
+[Effectful capture and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+
 The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
-and the exact capture packet. It compiles and closes a loop with a visible
-capture read, seed operation, and tick on the back edge. The checked packed
-tree feeds the capture reply into the seed request and each tick reply into
-the next tick's operand. The packed endpoint additionally uses the existing
-`packedExecution_tree` theorem and the closure equation checked for this
-fixture. General effectful capture closure would need an environment
-transport theorem for the erased trees.
-[Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+and the exact capture packet. The general corollary applies to its actual
+capture-closed table. The resulting packed tree feeds the capture reply
+into the seed request and each tick reply into the next tick's operand.
+[Typed capture and repeated back-edge requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Refinement through a common capture producer
+
+`packed_run_tree_refines_of_mono` transports a pointwise relation on named
+runs to the accepted packed dispatcher. It uses the same effectful producer
+on both sides, the exact capture packet equation, and version-zero agreement
+at every returned capture value. The relation must be preserved by the
+return map that applies `treeExitNumber` and `packedTreeOutput`. The packed
+relation must also be preserved by binding pointwise related continuations
+to the common producer. When the other continuation also has an accepted
+packed dispatcher, its `packed_run_tree` equation rewrites the specification
+side to that dispatcher.
+[Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
+
+`TraceLE` instantiates the transport with inclusion of finite observations.
+Each completed exchange records a request and a reply of its actual reply
+type. A path can stop at a prefix, at a pending request (including a request
+with no possible reply), or at a return with its result. Weak tree equality
+allows substitution on either side and `τ` is invisible. The proofs follow
+the same replies through the common producer and show that a pure return map
+changes only result endpoints. Literal inclusion of whole `Tree.observe`
+nodes fails this bind law because it compares their children by equality.
+[Trace definitions](../../Silmaril/Semantics/ITree/Trace/Defs.lean)
+· [Trace composition laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Whole-node counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+
+`packed_run_tree_traceLE` uses the existing accepted elaboration, typed
+closure, capture packet equation and version-zero agreement at each value
+returned by the common producer. The regression reuses the generated cyclic
+capture fixture and makes seed reply `0` go silent. After capture reply `7`
+and seed reply `0`, the richer specification has a terminating trace with
+the tagged exit `(0, .inl (atom 0))`. The accepted packed run has no such
+trace, and its observations are included in the specification's.
+[Packed refinement theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Directed capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+On deterministic weak trees, `eq_iff_traceLE` equates mutual finite
+inclusion with weak tree equality. A terminal observation fixes the return
+value, a pending request fixes the indexed event even without replies, and
+each exchange gives mutual inclusion after that actual reply. Induction on
+observation depth then determines the tree. `Tree.tracePartialOrder` exposes
+this order on the existing weak-tree type, where equality already identifies
+the weakly equal representatives. `packed_run_tree_eq_iff_traceLE` compares
+a packed specification with the whole named run after capture and exit
+retagging. The visible capture fixture checks the equivalence and uses the
+partial order for its strict comparison.
+[Weak tree partial order](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Packed comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Capture regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+Silent divergence contributes only an empty prefix at the point where it
+occurs. Inclusion can replace it with further events or a return, so it
+does not preserve may-divergence as a positive observation. The relation
+compares attainable finite progress and returns. It does not assert
+must-termination, fairness, or an infinite-path witness. The equality result
+concerns deterministic weak-tree denotations.
+[Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
 
 ### Edge arguments for a normalized φ port
 
@@ -316,6 +389,6 @@ lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
 ```
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```

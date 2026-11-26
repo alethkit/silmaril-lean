@@ -140,7 +140,7 @@ private theorem flow_agrees (m : Model.{u, v, w} Op) (rename : Rename args targe
         rw [← wires_agree m rename before after agree locals wires wires' hw]
         exact ih _ tail hr
 
-private theorem project_read (mask : Mask regs) (m : Model.{u, v, w} Op)
+theorem project_read (mask : Mask regs) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (wires : Wires args past (dataPorts regs)) :
     Wires.read (mask.project wires) entry locals = mask.project (wires.read entry locals) := by
@@ -152,6 +152,29 @@ private theorem project_read (mask : Mask regs) (m : Model.{u, v, w} Op)
   | drop tail ih =>
     cases wires with
     | cons _ rest => exact ih rest
+
+theorem project_get {F : Ty Data → Type w} (mask : Mask regs)
+    (bank : Tuple F (dataPorts regs)) {t : Ty Data} (port : Port (dataPorts regs) t)
+    (kept : Port (dataPorts mask.kept) t) (h : mask.rename port = some kept) :
+    (mask.project bank).get kept = bank.get port :=
+  (projected_agrees mask bank port kept h).symm
+
+theorem projected_flow (mask : Mask regs) (m : Model.{u, v, w} Op)
+    (bank : Tuple (Val m.value) (dataPorts regs)) (locals : Locals (Val m.value) past)
+    (flow : Dataflow Op (dataPorts regs) past sigs)
+    (mapped : Dataflow Op (dataPorts mask.kept) past sigs)
+    (h : renameFlow mask.rename flow = some mapped) :
+    mapped.eval m (mask.project bank) locals = flow.eval m bank locals :=
+  (flow_agrees m mask.rename bank (mask.project bank) (projected_agrees mask bank)
+    locals flow mapped h).symm
+
+theorem projected_wires (mask : Mask regs) (m : Model.{u, v, w} Op)
+    (bank : Tuple (Val m.value) (dataPorts regs)) (locals : Locals (Val m.value) past)
+    {outs : List (Ty Data)} (wires : Wires (dataPorts regs) past outs)
+    (mapped : Wires (dataPorts mask.kept) past outs) (h : renameWires mask.rename wires = some mapped) :
+    mapped.read (mask.project bank) locals = wires.read bank locals :=
+  (wires_agree m mask.rename bank (mask.project bank) (projected_agrees mask bank)
+    locals wires mapped h).symm
 
 variable (p : Program Op regs out) (mask : Mask regs) {g : PrunedGraph p mask}
 variable (accepted : pruneWith p mask = some g)

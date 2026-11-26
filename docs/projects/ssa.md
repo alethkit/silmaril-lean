@@ -127,6 +127,44 @@ inputs from its packet parameter. The general renaming theorem only requires
 agreement on the entry's free inputs after renaming. The source can use a
 handwritten packet layout, as in the [non-image back-edge regression](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/RoundTrip/Regression.lean).
 
+[Named cyclic observational classes](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Comparison/Thms.lean)
+fix the register and label types, instruction alphabet, value carrier and
+lawful Elgot monad. Equivalence compares the entire exit-label and payload
+computation for every pair-lawful model and every common store on the original
+register type. Lexical entry inputs are the corresponding version-zero values,
+and every block has a singleton packet context. `classEquiv` makes versioning
+and deversioning inverse maps on these classes, including admitted handwritten
+tables. The satisfaction theorems transport equations between classes in each
+common model, with signatures held fixed.
+
+[Named cyclic equation institutions](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Thms.lean)
+use primitive alphabets as signatures and functions as renamings. The model
+category at each signature is discrete on the pair-lawful models. Reduct
+precomposes the primitive interpretation and preserves the packet operations.
+Both signature actions preserve identity and composition and satisfy the
+change-of-signature law on equations. `comparisonIso` is a natural isomorphism
+of room functors over this signature category. Its sentence translations
+commute with renamings on observational classes, with identity on models.
+
+[Named cyclic refinement](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Thms.lean)
+uses the same signatures and the inclusion order on `Part`. A sentence
+`lhs ≤ rhs` requires every terminating exit and payload of `lhs` to be
+returned by `rhs` at the same store. Divergence and failure both give the
+empty result, and the final store is projected out. Versioning and
+deversioning give an order isomorphism on the observational classes and a
+natural isomorphism of the two refinement institutions. The comparison
+transports semantic refinement between the named interfaces.
+
+[Plugging exit continuations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Thms.lean)
+is monotone in both the program and a pointwise ordered continuation on the
+exit label and packet. A continuation can use a common external store. For a
+raw handler called with the producer's final store, independence from that
+store is equivalent to factoring through the observed label and packet.
+A packet-closed continuation table has this property: each labelled body
+reads its free inputs from the incoming packet, even across back edges.
+With a store-reading continuation, a single discarded assignment suffices
+to [distinguish equal classes](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Regression.lean).
+
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
 `Region.alphaEq_ofDB_toDB`, `Region.evalSSA_eq_of_alphaEq`, `Region.close_toLN`
@@ -404,7 +442,6 @@ The continuation cannot jump back to its own label.
   On the included primitive maps, both signature actions and the
   reification components agree with the fixed-type comorphism.
   The comparison uses forward transport of source witnesses.
-  Reconstruction of arbitrary target witnesses remains separate.
   [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
 - Given a chosen distributive Freyd interpretation of the types, the
   exact LetCase arrow carriers determine where to read back each primitive
@@ -420,6 +457,67 @@ The continuation cannot jump back to its own label.
   expansion preserves exact satisfaction. Reification reflects equational
   consequence on the class of algebras in the image of the reduct.
   [Expansion criterion and section](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Thms.lean)
+- A validated LetCase algebra carries this presentation and coherence on
+  chosen types. Its reduct uses the existing LetCase operation map, with
+  carriers identified by the dependent type pullback. Primitive readback
+  after reduct gives exactly the restricted instruction model. Expanding
+  the reduced algebra therefore gives the same coherent SSA model as
+  expanding first and applying the witnessed SSA pullback.
+  [Object-level expansion square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/TypeChange/Thms.lean)
+- The validated LetCase institution keeps the original exact equations,
+  with equality arrows between models carrying a chosen presentation.
+  Expansion and validation are inverse model functors onto the entire
+  discrete coherent SSA room. Forgetting the chosen presentation has
+  the same object image as the original SSA reduct. The algebra arrows
+  it carries are exactly the transports along equalities of validated
+  models. Reification and compilation are natural over the type-changing
+  signature category and preserve satisfaction. Compiling a reified
+  equation gives the original LetCase equation. Reifying a compiled SSA
+  equation can change the structured code while preserving truth in every
+  coherent model. Its fixed points are exactly the reified sentences.
+  Equational consequence agrees on the validated class.
+  [Validated institutional retraction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Thms.lean)
+- The retraction becomes an institution isomorphism when each sentence
+  is taken up to agreement on satisfaction in every model of its room.
+  Signature maps respect this relation by evaluating each mapped sentence
+  in the target model's reduct. Compilation and reification are inverse
+  on the quotient classes, and their discrete model functors are the same
+  inverse pair as before. The checked straight-line let and its reified
+  join have distinct exact code and the same semantic class, including
+  after the composite signature change. Completeness of a syntactic
+  rewrite theory still requires deriving equivalence from this model-wise
+  agreement.
+  [Semantic quotient isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Quotient/Thms.lean) ·
+  [Let-to-join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- The two-exit comparison uses native positional regions with exits
+  `[A, B]`. Its structured fragment has left and right branches, case
+  trees, and the acyclic binary dispatcher for existing single-exit code.
+  Encoding uses `A ⊕ B` and the decoder dispatches to the original labels.
+  An isomorphism identifies the two native label summands with the
+  singleton carrying that coproduct. The actual positional denotations
+  commute with these maps, so the exact compiled LetCase equation and
+  the native two-exit equation have the same satisfaction in each
+  coherent model. The typed equation translation and native satisfaction
+  both commute with type-changing reduct, even if it identifies the two
+  payload types. Every existing validated algebra expands on this
+  fragment with the same coherence and central-unit assumptions.
+  The joined guarded finite-interface comparison treats a separate
+  quotient and model interface.
+  [Native encoding](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Categorical/Thms.lean) ·
+  [Two-exit satisfaction and signature squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Institution/Thms.lean) ·
+  [Joined guarded comparison](https://github.com/hiloopai/silmaril-lean/pull/3532)
+- At fixed source syntax, value context, and exits, lifting all target
+  denotation witnesses up to equality of transported arrows is equivalent
+  to reflection of region typing. Once the source judgement is typable,
+  forward transport and target coherence give the arrow equality. A
+  type-former-preserving reverse signature map that is a left inverse on
+  types and primitives suffices for reflection. A collapsing type map
+  makes a branch between distinct source types well-typed at the target.
+  Even for a split map, a target typing can choose an unused local
+  parameter outside the image. Reflection recovers the judgement, and
+  that particular local layout has no preimage.
+  [Witness lifting criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Lift/Thms.lean) ·
+  [Split and collapsing probes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
 - In a distributive Freyd interpretation with central unit, binding a term
   and returning the newest variable satisfies let-η. The exact LetCase room
   also contains a Boolean operation algebra that rejects the closed unit

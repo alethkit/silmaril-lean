@@ -38,13 +38,41 @@ local folding at a matching Store and checking for conflicting writes.
 [IR ’95](https://doi.org/10.1145/202530.202534) ·
 [Pinned Simple chapter 10](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#local-memory-optimizations)
 
+## Discovering a pair
+
+`Static.Search.rewrite graph` visits Loads by increasing original table
+index, counting both Loads and Stores from zero. At each Load it tries the
+preceding Stores by decreasing one-based Store version. It returns the
+first graph and facts accepted by `Static.rewrite`, or `none` if every
+pair fails. `rewrite_eq_some_iff` states the first-success order.
+`facts.Valid input` still requires actual cell inequality at the input.
+[Search definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Static/Search/Defs.lean) ·
+[Search theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Forwarding/Static/Search/Thms.lean)
+
+One fixture picks the newer of two scratch writes across a tail write,
+with scratch and tail required to name distinct cells. A later Load also
+has an accepted pair. A loop whose only Load would be removed has no
+admitted pair. The feedback fixture exercises a full-heap return at zero
+and two backedges through the search API.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Forwarding/Regression.lean)
+
+This is a search for the local Load-after-Store fold in Simple chapter 10,
+using IR ’95 §2.5's explicit memory dependencies. Store numbering starts
+afresh on each activation. The incoming memory Φ supplies the whole heap
+as version zero. Forwarding from a previous activation would require a
+loop-carried store fact and an entry-case proof.
+[Pinned Simple LoadNode](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/LoadNode.java#L55-L62) ·
+[IR ’95](https://doi.org/10.1145/202530.202534)
+
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Search.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Thms
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Search.Defs
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Search.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Regression
 ```

@@ -198,4 +198,19 @@ theorem checked_invocation_expr {commands : List Command} {linked : Program} {re
   Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.checked_invocation_expr
     checked callee arguments binding cell found evaluated binds out bodyRun
 
+theorem evaluates_operand (program : Program) (available : List DeclarationId) (calls : Lowering.ClosureRuns available)
+    {globals : List String} {state : State} {source : NormalizedExpr} {code : ResolvedExpr} {out : Outcome Lists.Value}
+    (related : Operand globals source code) (evaluated : Evaluates state source out) :
+    Lowering.EvaluatesWith program available calls (fun _ => True) state code out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.evaluates_operand
+    program available calls related evaluated
+
+theorem evaluates_operands (program : Program) (available : List DeclarationId) (calls : Lowering.ClosureRuns available)
+    {globals : List String} {state : State} {source : List NormalizedExpr} {codes : List ResolvedExpr}
+    {out : Outcome (List Lists.Value)} (related : InOrder (Operand globals) source codes)
+    (evaluated : EvaluatesOperands state source out) :
+    Lowering.EvaluatesManyWith program available calls (fun _ => True) state codes out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall.evaluates_operands
+    program available calls related evaluated
+
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall

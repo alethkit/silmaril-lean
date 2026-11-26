@@ -13,6 +13,7 @@ open Feedback.Proofs (DemandLE selectWires_mono reads_mono close_isLeast include
 universe u v
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
+variable {member : Option (MemberSummaries V S)}
 
 private theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
     DemandLE (resultDemand pc low) (resultDemand pc high) :=
@@ -36,7 +37,7 @@ private theorem prepend_mono {pc : Nat} {less more : List Address} {low high : D
   simp only [DemandPlan.prepend, transfer, List.mem_append, List.mem_filter] at h ⊢
   exact h.imp (fun h => reads h) (fun ⟨live, kept⟩ => ⟨next live, kept⟩)
 
-private theorem plan_mono (code : Code Op entry past sigs results loops) {low high : Demand}
+private theorem plan_mono (code : Code Op entry past sigs results loops member) {low high : Demand}
     (more : DemandLE low high) : (code.plan low).live ⊆ (code.plan high).live := by
   induction code generalizing low high with
   | ret wires =>
@@ -49,24 +50,28 @@ private theorem plan_mono (code : Code Op entry past sigs results loops) {low hi
   | apply _ captures _ arguments _ ihBody ihRest =>
     exact prepend_mono (ihRest more)
       (applyReads_mono (ihBody (resultDemand_mono (ihRest more))) captures arguments)
-  | @gamma _ _ captures outs _ _ _ extra _ selector wires arms rest ihArm ihRest =>
+  | @gamma _ _ captures outs _ _ _ _ extra _ selector wires arms rest ihArm ihRest =>
     let kind : NestedTheta.Kind (Instruction Op) (.control (extra + 2) :: captures) outs := .base (.gamma extra)
     exact prepend_mono (ihRest more)
       (reads_mono kind (.cons selector wires) _ (ihRest more)
         (fun i requested => ((arms i).plan requested).live) (fun i _ _ more => ihArm i more))
-  | @theta _ _ carried _ _ _ wires body rest ihBody ihRest =>
+  | @theta _ _ carried _ _ _ _ wires body rest ihBody ihRest =>
     exact prepend_mono (ihRest more)
       (reads_mono (.theta (Op := Instruction Op) carried) wires _ (ihRest more)
         (fun _ requested => (body.plan requested).live) (fun _ _ _ more => ihBody more))
 
+  | @familyCall _ _ _ _ table i _ captures arguments _ ih =>
+    exact prepend_mono (ih more)
+      (applyReads_mono (table.monotone i (resultDemand_mono (ih more))) captures arguments)
+
 theorem feedback_isLeast {carried : Ports (Ty V S)}
-    (body : Code Op carried [] sigs (Theta.BodyResults carried) true) (exit : Demand) :
+    (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand) :
     IsLeast {live | Feedback.step exit (fun demand => (body.plan demand).live) live = live}
       (body.feedbackLive exit) :=
   close_isLeast exit _ (plan_mono body)
 
 theorem includes_feedback_iff {carried : Ports (Ty V S)}
-    (body : Code Op carried [] sigs (Theta.BodyResults carried) true) (exit : Demand)
+    (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand)
     {ty : Ty V S} (p : Port carried ty) :
     Feedback.includes (body.feedbackLive exit) p.index = true ↔
       Address.arg p.index ∈ (body.plan (Feedback.bodyDemand exit (body.feedbackLive exit))).live :=

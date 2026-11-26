@@ -64,6 +64,73 @@ third binding takes the second binding's result as an operand, the checker
 reports header cut two as the operand site and rejects the preheader.
 [Regression][regression]
 
+## Adjacent invariant dependency slice
+
+`pickSliceAndHoist?` nominates the consumer of two adjacent header bindings.
+The consumer must read its immediate predecessor. The prerequisite's operand
+origins must be captured inputs. The consumer may read that prerequisite and
+captured inputs. Reads of the latch or other local results fail capture.
+This check reuses the typed origin map from the single-binding pass.
+[Definitions][defs]
+
+The ranker checks each definition at preheader cut zero. For the prerequisite,
+the use list includes the actual consumer read and any remaining local or
+edge uses. For the consumer, the internal dependency becomes a preheader
+operand site, and the remaining uses retain their source cut and occurrence.
+The emitter enforces dependency order within the shared cut by binding the
+prerequisite first, then evaluating the consumer in that extended scope.
+Earlier bindings stay in their original header order. The entry and feedback
+edges carry both saved results ahead of the original latch argument.
+[Checked loop ranking][forest] · [Definitions][defs]
+
+`pickSliceAndHoist?_placement` establishes legality for both site lists.
+`pickSliceAndHoist?_routes` proves exact entry, feedback, and exit transfers
+using the two saved values. Its proof follows the retained prefix, evaluates
+the prerequisite on captured inputs, then checks the consumer with that value
+in scope. `pickSliceAndHoist?_run_eq` preserves all CF fuel observations,
+`pickSliceAndHoist?_budget` preserves the `k + 3` mapping, and
+`pickSliceAndHoist?_returns_iff` preserves and reflects finite returns.
+[Theorem header][thms]
+
+The fixture keeps a latch-dependent binding in the header. The exit uses
+the prerequisite and feedback uses the consumer. It checks that the
+single-binding checker rejects the consumer at the preheader and that the
+slice moves both definitions. Entry and two feedback transfers keep the
+consumer and prerequisite at `3` and `2` as the latch advances from `3`
+to `7` to `11`. The fixture also checks immediate exit and rejects a
+prerequisite that reads the retained latch-dependent result.
+[Regression][regression]
+
+## Invariant pair across retained bindings
+
+`pickSliceAcrossAndHoist?` takes the zero-based prerequisite index and the
+number of retained bindings before the consumer. A gap of zero gives the
+adjacent case. Each gap binding extends the source scope with a local
+definition and shifts the typed reference to the prerequisite. The consumer
+must read that exact reference. A missing binding, a missing dependency,
+or an operand that reads the latch or a retained local result fails capture.
+
+The scan checks all uses of the prerequisite, including reads by the
+retained gap and exact successor operands. The ranker checks both moved
+definitions at preheader cut zero. The emitter evaluates the prerequisite
+before the consumer there and reuses both saved results in the header.
+The gap bindings retain their order and can read the saved prerequisite
+as well as the current latch. [Definitions][defs] · [Checked loop ranking][forest]
+
+`pickSliceAcrossAndHoist?_placement` certifies both placements.
+`pickSliceAcrossAndHoist?_routes` proves exact entry, feedback, and exit
+transfers by following the retained bindings with corresponding typed
+environments. The run, budget, and return theorems give equality at every
+CF fuel, preserve the `k + 3` mapping, and preserve and reflect native
+finite returns. [Theorem header][thms]
+
+The fixture moves two definitions across two retained bindings. The second
+retained binding reads the first, and the first reads the latch and saved
+prerequisite. Their results advance the latch `3 → 9 → 15` over two
+backedges while the saved results remain `3` and `2`. The fixture also
+checks immediate exit and rejects an unused prerequisite, an absent
+consumer, and a latch-dependent prerequisite. [Regression][regression]
+
 ## Proofs and scope
 
 - `pickAndHoist?_placement` establishes that the pass used the legal
@@ -80,11 +147,11 @@ reports header cut two as the operand site and rejects the preheader.
 The profile uses the existing one-word latch and one-word return lowering.
 The moved operation has the total, pure interpretation of the existing
 scalar arithmetic and comparison dialect. The pass uses the source CFG's
-supplied sound dominator certificate. It moves a single producer with direct
-captured operands. Earlier local results are rejected, including a local
-result that could be invariant under a separate dependency analysis. Moving
-closed dependency slices and operations with effects or faults is outside
-the profile. [Existing lowering][lower]
+supplied sound dominator certificate. The single-producer pass accepts
+direct captures. The slice pass additionally accepts one selected earlier
+invariant binding as a local dependency. It supports any gap between the
+two selected bindings. Discovering larger dependency slices and moving
+operations with effects or faults are outside these profiles. [Existing lowering][lower]
 
 The regression uses a nonempty preheader and tests zero and two backedges.
 Two feedback transfers keep the saved value at `2` as the latch advances
