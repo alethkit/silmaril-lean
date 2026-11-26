@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
@@ -470,6 +471,51 @@ example (coherent : Coherent) :
       Part.some (guardedExit, guardedFinal) :=
   (accepted.region_returns_iff coherent (PUnit.unit, (2 : Nat)) guardedExit [] guardedFinal).mp numberedReturns
 
+private abbrev one := Body.instruction firstBody
+
+private def nestedChoice : Body Op number number :=
+  .choice firstHeader one (.choice firstHeader (.sequence one one) one)
+
+private def compoundProducer : Conditional.Guarded Op number number number number number number :=
+  { guarded with loop := { guarded.loop with body := .sequence nestedChoice (.sequence one one) } }
+
+private def compoundConsumer : Loop Op number number pair number pair :=
+  { spec.second with body := .sequence one (.instruction secondBody) }
+
+private def compound := Flat.Numbered.compile compoundProducer compoundConsumer
+
+private theorem producerForm : RightAssociated compoundProducer.loop.body :=
+  .thenChoice firstHeader (.instruction firstBody)
+    (.choice firstHeader (.thenInstruction firstBody (.instruction firstBody)) (.instruction firstBody))
+    (.thenInstruction firstBody (.instruction firstBody))
+
+private theorem consumerForm : RightAssociated compoundConsumer.body :=
+  .thenInstruction firstBody (.instruction secondBody)
+
+private def compoundMatch : Match compound :=
+  ⟨⟨number, number, number, pair, compoundProducer, compoundConsumer⟩, rfl⟩
+
+example : recognize compound = some compoundMatch :=
+  recognize_rightAssociated _ _ producerForm consumerForm
+
+example : compoundMatch.recover = Flat.Numbered.Source compoundProducer compoundConsumer := rfl
+
+private def leftAssociatedProducer : Conditional.Guarded Op number number number number number number :=
+  { guarded with loop := { guarded.loop with body := .sequence (.sequence nestedChoice one) one } }
+
+private def regrouped := Flat.Numbered.compile leftAssociatedProducer compoundConsumer
+
+example : (recognize regrouped).isSome = true :=
+  complete_generated leftAssociatedProducer compoundConsumer
+
+-- The original association is immaterial to the numbered graph.
+example : regrouped = compound := rfl
+
+-- An analysis client can start from the accepted graph and its wire certificate.
+example : Nonempty (NestedTheta.ExplicitRuntime.EntryChecked (a := OrderedTheta.carriedData number)
+    (b := OrderedTheta.carriedData (Wires.Second number number pair)) compound.toTerm) :=
+  ⟨compoundMatch.checked⟩
+
 private abbrev InputPorts := Threaded (carried number)
 private abbrev ProducerPorts := Conditional.Signatures number number number
 private abbrev JointTerm := NestedTheta.Term (Wires.Op Op) InputPorts []
@@ -524,6 +570,8 @@ example : components.graph ≠ staleGamma := by
 #eval show IO Unit from do
   unless (recognize numbered).isSome do
     throw (IO.userError "recognizer rejected the two-loop numbered graph")
+  unless (recognize regrouped).isSome do
+    throw (IO.userError "recognizer rejected the nested γ and sequence bodies")
   unless (recognize staleHandoff).isNone do
     throw (IO.userError "recognizer accepted the stale producer data edge")
   unless (candidate staleGamma).isSome do

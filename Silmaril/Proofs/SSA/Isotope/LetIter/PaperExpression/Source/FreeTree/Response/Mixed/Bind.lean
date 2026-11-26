@@ -27,7 +27,7 @@ private theorem tuple_subst {k : Nat} (xs : Fin k → Expr (Φ ⊕ Ψ)) (ξ : Na
   | zero => rfl
   | succ k ih => simp only [sourceTuple, Expr.subst, ih]
 
-private theorem tree_subst_source (p : Tree S slots c) (σ : Sequence.TreeSubst S slots target)
+public theorem tree_subst_source (p : Tree S slots c) (σ : Sequence.TreeSubst S slots target)
     (ξ : Nat → Expr (Φ ⊕ Ψ)) (h : ∀ i : Fin n, ξ i.val = treeSource S (σ i)) :
     treeSource S (p.interpret S (Tree S target) Tree.op σ) = (treeSource S p).subst ξ := by
   induction p with

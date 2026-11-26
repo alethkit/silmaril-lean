@@ -17,6 +17,7 @@ theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.S
   | assertBoolean _ tail | assertEqInt _ _ tail | assertFreeVars _ _ _ tail
   | assertCellVars _ _ _ tail | assertCodeNames _ _ _ tail | discardCall _ _ _ tail => exact tail
   | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
+  | returnLambda _ clear _ _ _ _ _ _ _ _ _ => exact clear
 
 theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
     {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code)
@@ -40,6 +41,16 @@ theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Sou
       · simpa [Source.ScopeTree.atPath, found] using located
       · simpa only [path, List.append_assoc, List.singleton_append] using emitted
     · exact nextOrdinary later
+  | @returnLambda tree start source declaration body child params code arguments _ _ _ found path _ _ _ _
+      childTranslation childOrdinary =>
+    simp only [Code.childPaths, List.mem_cons] at member
+    rcases member with direct | inner
+    · exact ⟨[start], child.scope, by simp [Source.ScopeTree.atPath, found], direct,
+        ordinary childTranslation⟩
+    · obtain ⟨relative, block, located, emitted, clear⟩ := childOrdinary inner
+      refine ⟨start :: relative, block, ?_, ?_, clear⟩
+      · simpa [Source.ScopeTree.atPath, found] using located
+      · simpa only [path, List.append_assoc, List.singleton_append] using emitted
 
 theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
     {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code) :
@@ -82,6 +93,23 @@ theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source
       exact ⟨start, suffix, Nat.le_refl _, located⟩
     · obtain ⟨index, suffix, later, located⟩ := laterPath tailMember
       exact ⟨index, suffix, Nat.le_of_lt later, located⟩
+  | @returnLambda tree start source declaration body child params code arguments _ _ _ _ path _ _ _ _ _ inner =>
+    let parent := tree.scope.context.path
+    have nestedPath {nested : Source.BlockPath} (member : nested ∈ code.childPaths) :
+        ∃ index suffix, nested = parent ++ start :: index :: suffix := by
+      obtain ⟨index, suffix, _, located⟩ := inner.2 nested member
+      exact ⟨index, suffix, by simpa only [path, List.append_assoc, List.singleton_append] using located⟩
+    have distinct : parent ++ [start] ∉ code.childPaths := by
+      intro member
+      obtain ⟨index, suffix, located⟩ := nestedPath member
+      have clash := List.append_cancel_left located
+      simp at clash
+    refine ⟨List.nodup_cons.mpr ⟨distinct, inner.1⟩, ?_⟩
+    intro candidate member
+    rcases List.mem_cons.mp member with own | nested
+    · exact ⟨start, [], Nat.le_refl _, own⟩
+    · obtain ⟨index, suffix, located⟩ := nestedPath nested
+      exact ⟨start, index :: suffix, Nat.le_refl _, located⟩
 
 theorem paths_distinct {source : Source.Module} (compiled : Compiled source) : compiled.paths.Nodup := by
   have paths := childPaths compiled.translated

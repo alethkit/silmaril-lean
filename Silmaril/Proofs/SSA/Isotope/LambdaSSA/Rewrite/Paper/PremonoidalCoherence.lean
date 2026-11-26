@@ -79,8 +79,8 @@ private theorem pairArrows_ofRegion {X A B : τ} {r s : Region Φ}
   rfl
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem braid_eq_pair (A B : τ) :
-    braid (Φ := Φ) A B = pairArrows (snd A B) (fst A B) := by
+theorem braid_eq_pair (A B : τ) :
+    braid (Φ := Φ) A B = pairArrows (ofRegion (productSndBranches A B)) (ofRegion (productFstBranches A B)) := by
   rw [pairArrows_ofRegion]
   unfold braid
   apply (ofRegion_eq_iff _ _).2
@@ -107,10 +107,11 @@ theorem centralCopies_braid (A B : τ) : CentralCopies (braid (Φ := Φ) A B) :=
 
 set_option smartUnfolding false in
 set_option backward.isDefEq.respectTransparency false in
-private theorem associate_eq_pair (A B C : τ) :
+theorem associate_eq_pair (A B C : τ) :
     associate (Φ := Φ) A B C =
-    pairArrows (fst (A ×ₜ B) C ≫ fst A B)
-      (pairArrows (fst (A ×ₜ B) C ≫ snd A B) (snd (A ×ₜ B) C)) := by
+      pairArrows (ofRegion (productFstBranches (A ×ₜ B) C) ≫ ofRegion (productFstBranches A B))
+        (pairArrows (ofRegion (productFstBranches (A ×ₜ B) C) ≫ ofRegion (productSndBranches A B))
+          (ofRegion (productSndBranches (A ×ₜ B) C))) := by
   let outer := productFstBranches (Φ := Φ) (A ×ₜ B) C
   erw [ofRegion_comp _ _ (seqValueBranches outer (productFstBranches A B)),
     ofRegion_comp _ _ (seqValueBranches outer (productSndBranches A B))]

@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.ClosedFamily.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
@@ -42,6 +43,7 @@ private def bodyOut (selector mode : Fin 2) (n : Nat) : Tuple machine.Val bodyRe
 
 private def action (mode : Fin 2) (n store : Nat) : _root_.Part (Tuple machine.Val bodyResults × Nat) :=
   if mode.val = 1 then .some (bodyOut 1 mode (n + 1), store + 3)
+  else if n = 4 then .some (bodyOut 1 mode 2, store + 3)
   else if n = 1 then .none
   else if n = 3 then .some (bodyOut 0 mode (n + store), store + 5)
   else .some (bodyOut 1 mode (n + 1), store + 3)
@@ -71,10 +73,12 @@ private theorem respects : ActionsRespect primitives Eq := by
             split
             · exact .returned (.cons (.control 1) (carry_related _ _)) _
             · split
-              · exact .undefined
+              · exact .returned (.cons (.control 1) (carry_related _ _)) _
               · split
-                · exact .returned (.cons (.control 0) (carry_related _ _)) _
-                · exact .returned (.cons (.control 1) (carry_related _ _)) _
+                · exact .undefined
+                · split
+                  · exact .returned (.cons (.control 0) (carry_related _ _)) _
+                  · exact .returned (.cons (.control 1) (carry_related _ _)) _
 
 private def initial {past : List (Ports T)} : Wires carried past carried :=
   .cons (.arg .head) (.cons (.arg (.tail .head)) .nil)
@@ -269,8 +273,7 @@ private theorem openFixture {sigs : List (Ports T)} (body : Body Op carried sigs
 
 /-- Productive feedback is independently known on the left. It transports
 to the actual right dispatched closure with different body numbering. -/
-private theorem divergentCall : InfiniteTrace (Step primitives) (source right 1 0) := by
-  apply (dispatch 1 0).infinite_iff.mp
+private theorem productiveCall : InfiniteTrace (Step primitives) (source left 1 0) := by
   let target : Feedback.Restart machine Nat := ⟨carried, [[], bodyResults], embed left.toTerm, (carry 1 0, 20)⟩
   let frames : Pending machine carried results := .bind (past := []) (.ret outputs) (carry 1 0) PUnit.unit .empty
   have route : Feedback.Reaches primitives (.region (code initial left outputs) (carry 1 0) PUnit.unit)
@@ -281,6 +284,9 @@ private theorem divergentCall : InfiniteTrace (Step primitives) (source right 1 
   have productive : Feedback.Productive primitives (.call (callable left) (carry 1 0)) 20 :=
     ⟨target, frames, .call route, leftProductive⟩
   exact productive.infinite .halt
+
+private theorem divergentCall : InfiniteTrace (Step primitives) (source right 1 0) :=
+  (dispatch 1 0).infinite_iff.mp productiveCall
 
 private def pendingL : Pending machine bodyResults bodyResults :=
   .bind (past := [[]]) (.ret tailL) (carry 0 1) (Locals.snoc (past := []) PUnit.unit .nil) .empty
@@ -344,10 +350,10 @@ private theorem finishesExited :
     .exited (tag := .control 0) rfl (carry_related 0 26)
       (bodyReturnsL 0 3 23 (_root_.Part.mem_some _)) (bodyReturnsR 0 3 23 (_root_.Part.mem_some _))⟩
 
-private theorem replayExit {sigs : List (Ports T)} (body : Body Op carried sigs)
-    (ran : Eval primitives (.iteration (embed body.toTerm) (carry 0 2)) 20 (.returned (carry 0 26) 28)) :
-    TerminalPath primitives (source body 0 2) ⟨.returned (output 26 2) .halt, 28⟩ := by
-  have evaluated : Eval primitives (.call (callable body) (carry 0 2)) 20 (.returned (output 26 2) 28) := by
+private theorem replayExit {sigs : List (Ports T)} (body : Body Op carried sigs) {n finished store : Nat}
+    (ran : Eval primitives (.iteration (embed body.toTerm) (carry 0 n)) 20 (.returned (carry 0 finished) store)) :
+    TerminalPath primitives (source body 0 n) ⟨.returned (output finished n) .halt, store⟩ := by
+  have evaluated : Eval primitives (.call (callable body) (carry 0 n)) 20 (.returned (output finished n) store) := by
     apply Eval.call
     rw [openFixture]
     exact .bind (node := Isomorphism.Invocation.loopVertex initial sigs) (.theta ran) (.ret outputs _ _ _)
@@ -359,5 +365,112 @@ private theorem returnedCalls :
     TerminalPath primitives (source left 0 2) ⟨.returned (output 26 2) .halt, 28⟩ ∧
     TerminalPath primitives (source right 0 2) ⟨.returned (output 26 2) .halt, 28⟩ :=
   ⟨replayExit left finishesExited.eval.1, replayExit right finishesExited.eval.2⟩
+
+open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted ResolvedSchedule)
+
+private theorem loopSchedule :
+    RecursiveCall.Schedule Op (Equiv.refl Nat) (code initial left outputs) (code initial right outputs) := by
+  apply RecursiveCall.Schedule.theta initial initial rfl rfl (bodyVertices := Equiv.swap 0 1)
+  · change RecursiveCall.Schedule Op (Equiv.swap 0 1) (embed left.toTerm) (embed right.toTerm)
+    rw [Term.toTerm_toGraph, Term.toTerm_toGraph]
+    exact .emptyLeft idle.inputs (.bind (.primitive Op.advance) initial initial rfl rfl
+      (.emptyRight idle.inputs (.ret tailL tailR rfl)))
+  · exact .ret outputs outputs rfl
+
+private inductive LoopFamily (callee : machine.Val fn.port) : Family machine where
+  | data (n : Nat) : LoopFamily callee (.data (t := ()) n)
+  | control (tag : Fin 2) : LoopFamily callee (.control tag)
+  | linked : LoopFamily callee callee
+
+private theorem loopClosed {sigs : List (Ports T)} (body : Body Op carried sigs) :
+    Closed primitives (LoopFamily (callable body)) where
+  captures := by
+    intro _ _ _ member
+    cases member
+    trivial
+  primitive := by
+    intro _ _ opcode _ _ _ _ value _
+    cases opcode
+    match value with
+    | .cons (.control feedback) (.cons (.control mode) (.cons (.data n) .nil)) =>
+      exact ⟨.control feedback, .control mode, .data n, trivial⟩
+
+private theorem loopFamily :
+    ClosedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) where
+  closedL := loopClosed left
+  closedR := loopClosed right
+  schedule := by
+    intro _ _ _ _ leftMember rightMember _
+    cases leftMember
+    cases rightMember
+    apply ResolvedSchedule.intro (vertices := Equiv.refl Nat)
+    change RecursiveCall.Schedule Op (Equiv.refl Nat)
+      (code initial left outputs).toGraph.toTerm (code initial right outputs).toGraph.toTerm
+    simpa only [NestedTheta.Term.toTerm_toGraph] using loopSchedule
+
+private theorem loopAdmitted (mode : Fin 2) (n : Nat) :
+    Admitted machine Eq (LoopFamily (callable left)) (LoopFamily (callable right))
+      (source left mode n) (source right mode n) :=
+  Admitted.call (familyL := LoopFamily (callable left)) (familyR := LoopFamily (callable right))
+    (.closure .nil codeIso) (carry_related mode n) .linked .linked
+    ⟨.control mode, .data n, trivial⟩ ⟨.control mode, .data n, trivial⟩ 20
+
+-- Reuse the existing independent activation derivations. The extra
+-- starting case takes 4 to 2 before the ordinary restart from 2 to 3.
+private theorem jump : FeedbackPair primitives left right (atCarry 0 4 20) (atCarry 0 2 23) :=
+  ⟨⟨.control 1, bodyReturnsL 0 4 20 (_root_.Part.mem_some _), rfl⟩,
+    ⟨.control 1, bodyReturnsR 0 4 20 (_root_.Part.mem_some _), rfl⟩⟩
+
+private theorem twiceExited :
+    Finishes primitives numbering left right (atCarry 0 4 20)
+      (.returned (carry 0 29) 31) (.returned (carry 0 29) 31) :=
+  ⟨atCarry 0 3 26, (ReflTransGen.single jump).tail (feedback 0 2 23 (_root_.Part.mem_some _)),
+    .exited (tag := .control 0) rfl (carry_related 0 29)
+      (bodyReturnsL 0 3 26 (_root_.Part.mem_some _)) (bodyReturnsR 0 3 26 (_root_.Part.mem_some _))⟩
+
+example :
+    TransGen (Step primitives) (restart left outputs (carry 0 4) (carry 0 4, 20))
+      (restart left outputs (carry 0 4) (carry 0 2, 23)) ∧
+    TransGen (Step primitives) (restart right outputs (carry 0 4) (carry 0 4, 20))
+      (restart right outputs (carry 0 4) (carry 0 2, 23)) ∧
+    TransGen (Step primitives) (restart left outputs (carry 0 4) (carry 0 2, 23))
+      (restart left outputs (carry 0 4) (carry 0 3, 26)) ∧
+    TransGen (Step primitives) (restart right outputs (carry 0 4) (carry 0 2, 23))
+      (restart right outputs (carry 0 4) (carry 0 3, 26)) := by
+  have first := jump.steps outputs (carry 0 4) (carry 0 4)
+  have second := (feedback 0 2 23 (_root_.Part.mem_some _)).steps outputs (carry 0 4) (carry 0 4)
+  exact ⟨first.1, first.2, second.1, second.2⟩
+
+-- Both actual linked entries run through two restarts. The exit suffix
+-- returns the new data 29 alongside the saved original argument 4.
+example :
+    (entry left 0 4).start primitives = .ok (source left 0 4) ∧
+    (entry right 0 4).start primitives = .ok (source right 0 4) ∧
+    ReflTransGen (Step primitives) (source left 0 4) ⟨.returned (output 29 4) .halt, 31⟩ ∧
+    ∃ target, ReflTransGen (Step primitives) (source right 0 4) target ∧
+      target.result = some (output 29 4, 31) := by
+  have path := (replayExit left twiceExited.eval.1).1
+  refine ⟨start_linked (request := entry left 0 4) (linked left),
+    start_linked (request := entry right 0 4) (linked right), path, ?_⟩
+  obtain ⟨target, values, reached, result, related⟩ :=
+    (ClosedFamily.returns respects loopFamily (loopAdmitted 0 4)).1 _ _ _ path rfl
+  cases related with
+  | cons first rest =>
+    cases first
+    cases rest with
+    | cons second rest =>
+      cases second
+      cases rest
+      exact ⟨target, reached, result⟩
+
+example : (entry right 1 0).start primitives = .ok (source right 1 0) ∧
+    InfiniteTrace (Step primitives) (source right 1 0) :=
+  ⟨start_linked (request := entry right 1 0) (linked right),
+    (ClosedFamily.infinite_iff respects loopFamily (loopAdmitted 1 0)).mp productiveCall⟩
+
+example : ∃ target,
+    RecursiveCall.ReachedTerminal primitives Eq (source left 0 0) (source right 0 0)
+      (blockEndpoint left pendingL) target ∧ target.Blocked primitives :=
+  (ClosedFamily.blocks respects loopFamily (loopAdmitted 0 0)).1 _ blockedCalls.1.1 ⟨_, rfl, rfl⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Tests

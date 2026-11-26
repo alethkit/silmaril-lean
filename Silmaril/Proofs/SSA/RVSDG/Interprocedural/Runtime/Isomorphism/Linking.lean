@@ -130,7 +130,7 @@ private theorem linkRow_related (respects : PrimitivesRespect m ids) (includeMem
       obtain ⟨⟨same, _⟩, definitions⟩ := iso
       change contextL = contextR at same
       subst contextR
-      exact .some (memberValues_related members _ _ (fun slot => .member inputs definitions slot))
+      exact .some (phiMembers_related inputs definitions)
 
 private theorem linkRows_related (respects : PrimitivesRespect m ids) (includeMembers : Bool) (unitL unitR : Nat)
     {left : Omega Op args outs sigs} {right : Omega Op args outs sigs'}

@@ -30,6 +30,13 @@ theorem unpackArgs_packArgs (m : Nat) (as : Fin m → α) (xs : (i : Fin m) → 
     unpackArgs S sorts m as (packArgs S sorts m as xs) = xs :=
   Proofs.unpackArgs_packArgs S sorts m as xs
 
+/-- The newest value and the older tuple reconstruct a sorted valuation. -/
+theorem extendValues_head {m k : Nat} {ss : Fin k → α} {ms : Fin m → α} {a : α}
+    (vars : (i : Fin (k + 1)) → Tree S ms (extendSorts a ss i)) :
+    extendValues S ms (vars 0) (fun i => vars i.succ) = vars := by
+  funext i
+  exact Fin.cases rfl (fun _ => rfl) i
+
 /-- Extending the environment places the response at index zero and shifts the
 ambient values to the successor indices. -/
 theorem variableEnv_snoc {ε : Type r} {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}

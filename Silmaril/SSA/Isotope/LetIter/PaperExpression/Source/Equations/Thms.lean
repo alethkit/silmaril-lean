@@ -28,6 +28,11 @@ theorem wk_eq_subst (a : Expr Φ) (ρ : Nat → Nat) :
     a.wk ρ = a.subst (Expr.var ∘ ρ) := by
   rw [← Source.Proofs.subst_wk, Source.Proofs.subst_var]
 
+/-- Compose capture-avoiding substitutions on the variables. -/
+theorem subst_comp (a : Expr Φ) (σ θ : Nat → Expr Φ) :
+    (a.subst σ).subst θ = a.subst (fun i => (σ i).subst θ) :=
+  Source.Proofs.subst_subst a θ σ
+
 theorem subst_var (a : Expr Φ) : a.subst Expr.var = a := Source.Proofs.subst_var a
 
 end Silmaril.Isotope.LetIter.PaperExpression.Expr
@@ -36,7 +41,10 @@ namespace Silmaril.Isotope.LetIter.PaperExpression
 
 variable {τ : Type u} {Φ : Type v} {ε : Type w}
   [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Preorder ε] [OrderBot ε]
-  {Γ Δ : EffectCtx τ ε} {a b : Expr Φ} {A : τ} {e : ε} {σ θ : Nat → Expr Φ}
+  {Γ Δ : EffectCtx τ ε} {a b : Expr Φ} {A : τ} {e hi : ε} {σ θ : Nat → Expr Φ}
+
+theorem Wf.weakenEffect (ha : Wf Γ a A e) (hle : e ≤ hi) : Wf Γ a A hi :=
+  Source.Proofs.wf_wkEff ha hle
 
 /-- A typed substitution preserves the original typing bound. -/
 theorem Wf.subst_typed (ha : Wf Δ a A e)
