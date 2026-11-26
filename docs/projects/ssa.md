@@ -347,16 +347,37 @@ The continuation cannot jump back to its own label.
   and composition, and `ssaSat_map_iff` gives satisfaction invariance.
   `reifyComorphism` bundles reification and the LetCase algebra reduct
   over the identity signature functor. Its model class is the stated
-  coherent region model class; expansion of arbitrary LetCase algebras
+  coherent region model class. Expansion of arbitrary LetCase algebras
   is a separate question.
   [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
+- For type-changing `SignatureMap`s, `pullbackTypes` and
+  `pullbackInstructions` reuse the target's chosen type-former isomorphisms
+  and primitive arrows with equality transport. They preserve identity and
+  composition. The value context tensor and finite coproduct of exits agree
+  with the target interpretations of the mapped contexts.
+  `RegionWitnessPullback` asks for a target region denotation witness with
+  the transported arrow, including for the CFG constructors.
+  This law is equivalent to source typing coherence together with
+  preservation of the selected region denotations. It holds for primitive
+  maps and for arbitrary type-changing maps into thin computation categories,
+  and it composes through the intermediate model.
+  Given this law, `ssaTypeCorridor` relates the existing exact SSA rooms.
+  Its composite with `reifyCorridor` agrees on sentences with translating
+  the LetCase equation and then reifying it. `caseSat_pullback` proves
+  satisfaction invariance in the corresponding LetCase algebras.
+  [Dependent model pullback](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Thms.lean)
+- The unrestricted type-changing result still needs a proof of
+  `RegionWitnessPullback` for non-thin computation categories, including
+  transport of the finite label injections, appended exits, and collective
+  block arrow used by the CFG dispatcher. To bundle the comparison over
+  changing type universes also requires a signature category containing
+  those maps and a LetCase operation signature map over the translated
+  sorts, with functoriality and compatibility with its algebra reduct.
+  `InstrSig τ ε` and `LetCase.pres` currently fix both universes.
+  [Primitive signature category](../../Silmaril/Raw/SSA/Isotope/Institution/InstrSig.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
-  Extending the exact comparison to type-changing maps requires indexing
-  the signature category over type universes and showing that transport
-  of context and label objects preserves region denotation witnesses and
-  the LetCase algebra operations. Soundness of the full exact equational
-  presentation remains separate.
+  Soundness of the full exact equational presentation remains separate.
 
 ## Guarded iteration and resumptions
 
@@ -429,7 +450,8 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.
