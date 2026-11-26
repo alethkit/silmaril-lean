@@ -25,7 +25,7 @@ open Reindex.Guarded.Institution renaming Signature → EntrySignature
 variable {old new : List (ValueSort Width)} {t : SeaOfNodes.Diamond.Ty Width}
 variable {S T : EntrySignature}
 
-private theorem preimageCandidate_sound (map : BankMap old new) (target : Port (dataPorts new) t)
+theorem preimageCandidate_sound (map : BankMap old new) (target : Port (dataPorts new) t)
     (candidate : Sigma (Port (dataPorts old))) (source : Port (dataPorts old) t)
     (found : preimageCandidate map target candidate = some source) : map t source = target := by
   by_cases same : slot (map candidate.1 candidate.2) = slot target
