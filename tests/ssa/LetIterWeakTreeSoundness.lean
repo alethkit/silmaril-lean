@@ -14,10 +14,12 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Structured.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Reconstruction.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.ContextReflection.ConstructorCover.Thms
 
 /-! A mixed weak interaction-tree model and original-bound endpoint reflection
 for the open unary source fragment. -/
@@ -2422,3 +2424,177 @@ example :
   written_reflection profile pureCtx sourceSlots (mixedWritten false) (mixedFactoredWritten false) rfl rfl
 
 end LetIterStructuredProductRepliesFixture
+
+namespace LetIterRecursiveReplyFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.ContextReflection (ConstructorCover)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured (ReplyShape)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyShape
+
+set_option backward.isDefEq.respectTransparency false
+
+private abbrev X : Ty Unit := .base ()
+private abbrev Eff := Bool × Bool
+private abbrev bound : Eff := (true, false)
+
+private inductive Instruction
+  | receive (reply : Ty Unit)
+  | publish (reply : Ty Unit)
+
+private instance : HasTy Instruction (Ty Unit) where
+  src
+    | .receive _ => .unit
+    | .publish r => .product r X
+  trg
+    | .receive r => r
+    | .publish _ => X
+
+private instance : HasEff Instruction Eff where
+  eff _ := bound
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private abbrev Γ : EffectCtx (Ty Unit) Eff := [(X, ⊥)]
+private abbrev context (R : Ty Unit) := (R, (⊥ : Eff)) :: Γ
+
+private theorem pureCtx : Γ.Pure :=
+  fun i => Fin.cases rfl (fun j => j.elim0) i
+
+private theorem atomicCtx (i : Fin Γ.length) : ∃ a, (Γ.get i).1 = Ty.base a :=
+  ⟨(), Fin.cases rfl (fun j => j.elim0) i⟩
+
+private abbrev request (R : Ty Unit) : Expr Instruction := .op (.receive R) .unit
+
+private abbrev publish (R : Ty Unit) : Expr Instruction :=
+  .op (.publish R) (.pair (.var 0) (.var 1))
+
+private abbrev rebind (R : Ty Unit) : Expr Instruction :=
+  .let₁ (.var 0) (.op (.publish R) (.pair (.var 0) (.var 2)))
+
+private theorem requestWf (R : Ty Unit) : Wf Γ (request R) R bound :=
+  .op (f := Instruction.receive R) le_rfl (.unit _ _)
+
+private theorem publishWf (R : Ty Unit) : Wf (context R) (publish R) X bound :=
+  .op (f := Instruction.publish R) le_rfl (.pair (.var 0 bot_le) (.var 1 bot_le))
+
+private theorem rebindWf (R : Ty Unit) : Wf (context R) (rebind R) X bound :=
+  .let₁ (.var 0 bot_le) (.op (f := Instruction.publish R) le_rfl (.pair (.var 0 bot_le) (.var 2 bot_le)))
+
+private theorem acrossReply (R : Ty Unit) :
+    Eqv Γ X bound (.let₁ (request R) (rebind R)) (.let₁ (request R) (publish R)) := by
+  apply eqv_let_of_specializations atomicCtx pureCtx (requestWf R) (rebindWf R) (publishWf R)
+  intro n sorts shape
+  have literal := shape.wf (Φ := Instruction) (fieldIndex sorts Γ) (get_fieldIndex (Γ := Γ))
+  have ambient := Wf.var (Φ := Instruction) (Γ := (R, ⊥) :: fieldCtx sorts Γ)
+    (ambientIndex sorts Γ 0).succ (e := bound) (by
+      change ((fieldCtx sorts Γ).get (ambientIndex sorts Γ 0)).2 ≤ bound
+      rw [get_ambientIndex]
+      exact bot_le)
+  change Wf ((R, ⊥) :: fieldCtx sorts Γ) (.var (n + 1) : Expr Instruction)
+    ((fieldCtx sorts Γ).get (ambientIndex sorts Γ 0)).1 bound at ambient
+  rw [get_ambientIndex] at ambient
+  have body : Wf ((R, ⊥) :: fieldCtx sorts Γ)
+      (.op (Instruction.publish R) (.pair (.var 0) (.var (n + 1)))) X bound :=
+    .op (f := Instruction.publish R) le_rfl (.pair (.var 0 bot_le) ambient)
+  exact .step (.let1_beta literal body)
+
+private abbrev sumOfProduct : Ty Unit := .coprod (.product X X) X
+private abbrev productOfSum : Ty Unit := .product (.coprod X .unit) X
+
+private abbrev productShape := (ReplyShape.inl (B := X) (.pair (.atom ()) (.atom ())))
+private abbrev atomShape := (ReplyShape.inr (A := .product X X) (.atom ()))
+private abbrev productLeft := (ReplyShape.pair (.inl (B := Ty.unit) (.atom ())) (.atom ()))
+private abbrev productRight := (ReplyShape.pair (.inr (A := X) .unit) (.atom ()))
+
+-- The two fields have the same sort and occupy distinct positions. The
+-- ambient value comes after both fields. The other injection uses one slot.
+example : productShape.specialize Γ (publish sumOfProduct) =
+    .op (.publish sumOfProduct) (.pair (.inl (.pair (.var 0) (.var 1))) (.var 2)) := rfl
+example : atomShape.specialize Γ (publish sumOfProduct) =
+    .op (.publish sumOfProduct) (.pair (.inr (.var 0)) (.var 1)) := rfl
+
+-- A product containing a sum exercises both the nested constructor order
+-- and the unit branch, which contributes no new atom.
+example : productLeft.specialize Γ (publish productOfSum) =
+    .op (.publish productOfSum) (.pair (.pair (.inl (.var 0)) (.var 1)) (.var 2)) := rfl
+example : productRight.specialize Γ (publish productOfSum) =
+    .op (.publish productOfSum) (.pair (.pair (.inr .unit) (.var 0)) (.var 1)) := rfl
+
+example : bound < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+example : Eqv Γ X bound (.let₁ (request sumOfProduct) (rebind sumOfProduct))
+    (.let₁ (request sumOfProduct) (publish sumOfProduct)) :=
+  acrossReply sumOfProduct
+
+example : Eqv Γ X bound (.let₁ (request productOfSum) (rebind productOfSum))
+    (.let₁ (request productOfSum) (publish productOfSum)) :=
+  acrossReply productOfSum
+
+private theorem flatAtoms {n : Nat} (i : Fin (List.replicate n (X, (⊥ : Eff))).length) :
+    ∃ a, ((List.replicate n (X, (⊥ : Eff))).get i).1 = Ty.base a :=
+  ⟨(), by simp [List.get_eq_getElem]⟩
+
+private def sumCover : ConstructorCover (context sumOfProduct) :=
+  .sum (0 : Fin 2) rfl rfl
+    (.product (0 : Fin 2) rfl rfl (.atomic (flatAtoms (n := 3)))) (.atomic (flatAtoms (n := 2)))
+
+private def productCover : ConstructorCover (context productOfSum) :=
+  .product (0 : Fin 2) rfl rfl
+    (.sum (1 : Fin 3) rfl rfl (.atomic (flatAtoms (n := 3)))
+      (.unit (1 : Fin 3) rfl rfl (.atomic (flatAtoms (n := 2)))))
+
+-- The existing renderer puts a pair let under the left arm of the case.
+example : sumCover.render (fun _ a => a) (publish sumOfProduct) =
+    .case (.var 0)
+      (.let₂ (.var 0) (.op (.publish sumOfProduct) (.pair (.inl (.pair (.var 1) (.var 0))) (.var 4))))
+      (.op (.publish sumOfProduct) (.pair (.inr (.var 0)) (.var 2))) := rfl
+
+example : Eqv Γ X bound (.let₁ (request sumOfProduct) (publish sumOfProduct))
+    (.let₁ (request sumOfProduct) (sumCover.render (fun _ a => a) (publish sumOfProduct))) :=
+  .let1 (.refl (requestWf _)) (sumCover.eqv_rebuild (publishWf _))
+
+example : Eqv Γ X bound (.let₁ (request productOfSum) (publish productOfSum))
+    (.let₁ (request productOfSum) (productCover.render (fun _ a => a) (publish productOfSum))) :=
+  .let1 (.refl (requestWf _)) (productCover.eqv_rebuild (publishWf _))
+
+private abbrev nativePublish (R : Ty Unit) : Tm Empty Instruction 2 :=
+  .op (.publish R) (.pair (.bv 0) (.bv 1))
+
+example :
+    HasTypeEffect (Ctx.nil : Ctx Empty (Ty Unit)) (fieldCtx _ Γ).toBoundCtx
+      ((nativePublish sumOfProduct).bsubst (productShape.nativeSubst Γ)) X bound :=
+  specialize_hasTypeEffect productShape (publishWf sumOfProduct) rfl
+
+private abbrev nativeRebind (R : Ty Unit) : Tm Empty Instruction 2 :=
+  .let₁ (.bv 0) (.op (.publish R) (.pair (.bv 0) (.bv 2)))
+
+example :
+    AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty (Ty Unit)) (fieldCtx _ Γ).toBoundCtx
+      ((nativeRebind productOfSum).bsubst (productRight.nativeSubst Γ))
+      ((nativePublish productOfSum).bsubst (productRight.nativeSubst Γ)) X := by
+  have body : Wf ((productOfSum, ⊥) :: context productOfSum)
+      (.op (Instruction.publish productOfSum) (.pair (.var 0) (.var 2))) X bound :=
+    .op (f := Instruction.publish productOfSum) le_rfl (.pair (.var 0 bot_le) (.var 2 bot_le))
+  have eq : Eqv (context productOfSum) X bound (rebind productOfSum) (publish productOfSum) :=
+    .step (.let1_beta (.var 0 le_rfl) body)
+  exact native_specialize productRight (a := rebind productOfSum) (b := publish productOfSum)
+    pureCtx rfl rfl (eq.toLetIter rfl rfl)
+
+-- The empty reply has no constructor specializations. The request still
+-- occurs once on each side, and only its impossible continuation changes.
+example : Eqv Γ X bound (.let₁ (request .empty) (.abort (.var 0))) (.let₁ (request .empty) (.var 1)) := by
+  apply eqv_let_of_specializations atomicCtx pureCtx (requestWf .empty) (.abort (.var 0 bot_le)) (.var 1 bot_le)
+  intro n sorts shape
+  cases shape
+
+-- The recursive continuation theorem applies to this whole-reply use,
+-- which the earlier finite endpoint grammar does not recognize.
+example : ¬ Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Written
+    X bound Γ (.let₁ (request sumOfProduct) (publish sumOfProduct)) := by
+  intro written
+  cases written with
+  | ret _ leaf => cases leaf
+  | call _ ty _ _ _ _ => cases ty
+
+end LetIterRecursiveReplyFixture
