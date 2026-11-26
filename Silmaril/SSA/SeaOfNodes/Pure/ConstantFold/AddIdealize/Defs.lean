@@ -22,13 +22,11 @@ variable {args : List (Ty Unit)} {past sigs : List (List (Ty Unit))}
 variable {ins inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 
 inductive Rule where
-  | literal | rightZero | doubling | rightSpine | constantChain | leftSpine
+  | literal | rightZero | doubling | nonAddLeftSwap | rightSpine | offSpineSwap | constantChain | leftSpine
   deriving DecidableEq, Repr
 
 inductive Refusal where
   | notAddition
-  | nonAddLeftSwap
-  | offSpineSwap
   | missingSourceIds
   | outsideRuleProfile (rule : Rule)
   deriving DecidableEq, Repr
@@ -47,21 +45,28 @@ def Facts.record (facts : Facts args past) (op : SubZero.Opcode ins out)
   ⟨facts.analyzed.record op operands, facts.explicit.record op operands⟩
 
 inductive Edit (args : List (Ty Unit)) (past : List (List (Ty Unit))) where
-  | replaceLiteral (literal : SubZero.Opcode [] word)
+  | replace (binding : AddRewrite.Binding args past)
   | redirect (wire : WordWire args past)
   | splice (edit : AddRewrite.Splice args past)
+
+def Edit.replaceLiteral (value : SubZero.Opcode [] word) : Edit args past :=
+  .replace ⟨[], value, .nil⟩
+
+/-- Both source swaps keep the addition at the original result slot. -/
+def Edit.swap (lhs rhs : WordWire args past) : Edit args past :=
+  .replace ⟨[word, word], .add, .cons rhs (.cons lhs .nil)⟩
 
 def Edit.eval (edit : Edit args past) (entry : Tuple (Val model.value) args)
     (locals : Locals (Val model.value) past) : BitVec 64 :=
   match edit with
-  | .replaceLiteral value => model.run value .nil
+  | .replace binding => binding.eval entry locals
   | .redirect wire => Diamond.read model wire entry locals
   | .splice edit => edit.eval entry locals
 
 def Edit.apply (edit : Edit args past) (rest : Dataflow SubZero.Opcode args (past ++ [[wordPort]]) sigs) :
     Rewrite SubZero.Opcode args past ([wordPort] :: sigs) :=
   match edit with
-  | .replaceLiteral value => ⟨_, .cons value .nil rest, fun wire => wire⟩
+  | .replace binding => ⟨_, .cons binding.opcode binding.operands rest, fun wire => wire⟩
   | .redirect wire =>
     let suffix := routeSuffix rest (dropNewest wire)
     ⟨_, suffix.1, suffix.2⟩
@@ -103,13 +108,13 @@ def select (ids : SourceIds) (facts : Facts args past) (lhs rhs : WordWire args 
       checkedSplice .doubling (Doubling.rules.matchAdd? facts.analyzed.literals lhs rhs)
     else
       match facts.analyzed.addends lhs, facts.analyzed.addends rhs with
-      | none, some _ => .error .nonAddLeftSwap
+      | none, some _ => .ok (some (.nonAddLeftSwap, .swap lhs rhs))
       | some _, some _ => checkedSplice .rightSpine (RightSpine.matchAdd? facts.analyzed lhs rhs)
       | some left, none => leftBranch ids facts lhs rhs left
       | none, none =>
         match LeftSpine.compare? ids facts.analyzed.literals lhs rhs with
         | none => .error .missingSourceIds
-        | some true => .error .offSpineSwap
+        | some true => .ok (some (.offSpineSwap, .swap lhs rhs))
         | some false => .ok none
 
 structure Applied (args : List (Ty Unit)) (past sigs : List (List (Ty Unit))) where

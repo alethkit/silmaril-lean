@@ -78,9 +78,12 @@ theorem doubling_precedes_right_spine_and_distinct_adds_rotate :
     selectedRule missing (twoAdds (.output (0 : Fin 2) .head) (.output (1 : Fin 2) .head))
       (.later (.later .here)) = .ok (some .rightSpine) := ⟨rfl, rfl⟩
 
-theorem refuses_the_prior_non_add_left_swap :
-    selectedRule missing (twoAdds (.arg .head) (.output (1 : Fin 2) .head))
-      (.later (.later .here)) = .error .nonAddLeftSwap := rfl
+private def nonAddLeft : WordProgram := twoAdds (.arg .head) (.output (1 : Fin 2) .head)
+
+theorem non_add_left_swaps_before_the_right_add_rotation :
+    (step missing nonAddLeft (.later (.later .here))).map (Option.map fun applied =>
+      (applied.rule, rewrittenProgram nonAddLeft applied.rewrite)) =
+      .ok (some (.nonAddLeftSwap, twoAdds (.output (1 : Fin 2) .head) (.arg .head))) := rfl
 
 private def chainTable (computed : Bool) : WordProgram where
   dataflow := .cons (.literal 1) .nil
@@ -109,11 +112,28 @@ theorem left_spine_distinguishes_signed_order_false_and_missing_evidence :
     selectedRule (order 31 (-25)) leftSpine (.later .here) = .ok none ∧
     selectedRule missing leftSpine (.later .here) = .error .missingSourceIds := ⟨rfl, rfl, rfl⟩
 
-private def offSpine : WordProgram where
-  dataflow := .cons .add (.cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) .nil)) .nil
+private def offSpine (lhs rhs : WordWire args []) : WordProgram where
+  dataflow := .cons .add (.cons lhs (.cons rhs .nil)) .nil
   result := .output (0 : Fin 1) .head
 
-theorem refuses_the_non_phi_off_spine_swap :
-    selectedRule (order 25 31) offSpine .here = .error .offSpineSwap := rfl
+private def orderedPair : WordProgram := offSpine (.arg (.tail .head)) (.arg (.tail (.tail .head)))
+
+theorem off_spine_swaps_on_signed_order_and_distinguishes_false_from_missing :
+    (step (order (-25) 31) orderedPair .here).map (Option.map fun applied =>
+      (applied.rule, rewrittenProgram orderedPair applied.rewrite)) =
+      .ok (some (.offSpineSwap, offSpine (.arg (.tail (.tail .head))) (.arg (.tail .head)))) ∧
+    selectedRule (order 31 (-25)) orderedPair .here = .ok none ∧
+    selectedRule missing orderedPair .here = .error .missingSourceIds :=
+  ⟨rfl, rfl, rfl⟩
+
+private def literalLeftZero : WordProgram where
+  dataflow := .cons (.literal 0) .nil
+    (.cons .add (.cons (.output (0 : Fin 1) .head) (.cons (.arg .head) .nil))
+      (.cons .mul (.cons (.output (1 : Fin 2) .head) (.cons (.arg (.tail .head)) .nil)) .nil))
+  result := .output (2 : Fin 3) .head
+
+theorem literal_left_swaps_without_ids_and_retains_the_new_identity_add :
+    (step missing literalLeftZero (.later .here)).map (Option.map fun applied =>
+      (applied.rule, rewrittenProgram literalLeftZero applied.rewrite)) = .ok (some (.offSpineSwap, identity)) := rfl
 
 end Silmaril.Proofs.SSA.SeaOfNodes.Pure.ConstantFold.AddIdealize.Regression

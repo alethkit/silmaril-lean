@@ -63,6 +63,10 @@ private theorem leftBranch_agrees (agree : FactsAgree facts entry locals) {left 
     · cases accepted
     · exact checked_agrees (fun _ found => LeftSpine.match_agrees agree.1 found) accepted
 
+private theorem swap_agrees :
+    AddRewrite.evalAdd lhs rhs entry locals = (Edit.swap lhs rhs).eval entry locals :=
+  BitVec.add_comm _ _
+
 private theorem select_agrees (agree : FactsAgree facts entry locals)
     (accepted : select ids facts lhs rhs = .ok (some (rule, edit))) :
     AddRewrite.evalAdd lhs rhs entry locals = edit.eval entry locals := by
@@ -88,9 +92,14 @@ private theorem select_agrees (agree : FactsAgree facts entry locals)
       · exact checked_agrees (fun _ found => Doubling.match_agrees agree.1.1 found) accepted
       · split at accepted
         · cases accepted
+          exact swap_agrees
         · exact checked_agrees (fun _ found => RightSpine.match_agrees agree.1 found) accepted
         · exact leftBranch_agrees agree accepted
-        · split at accepted <;> cases accepted
+        · split at accepted
+          · cases accepted
+          · cases accepted
+            exact swap_agrees
+          · cases accepted
 
 private theorem apply_agrees (lhs rhs : WordWire args past) (edit : Edit args past)
     (rest : Dataflow SubZero.Opcode args (past ++ [[wordPort]]) sigs)
@@ -100,13 +109,13 @@ private theorem apply_agrees (lhs rhs : WordWire args past) (edit : Edit args pa
     Routing.Agrees rewrite.route model entry (original.eval model entry locals)
       (rewrite.flow.eval model entry locals) := by
   cases edit with
-  | replaceLiteral value =>
-    have same : AddRewrite.evalAdd lhs rhs entry locals = model.run value .nil := equal
+  | replace binding =>
+    have same : AddRewrite.evalAdd lhs rhs entry locals = binding.eval entry locals := equal
     dsimp only [Edit.apply, Routing.Agrees]
     intro t wire
     change Diamond.read model wire entry (rest.eval model entry
       (locals.snoc (.cons (AddRewrite.evalAdd lhs rhs entry locals) .nil))) =
-      Diamond.read model wire entry (rest.eval model entry (locals.snoc (.cons (model.run value .nil) .nil)))
+      Diamond.read model wire entry (rest.eval model entry (locals.snoc (.cons (binding.eval entry locals) .nil)))
     rw [same]
   | redirect wire =>
     let next : Tuple (Val model.value) [wordPort] := .cons (AddRewrite.evalAdd lhs rhs entry locals) .nil
