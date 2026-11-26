@@ -76,28 +76,57 @@ section Iteration
 
 variable [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J]
 
+private theorem step_pre {E A B D S : V} (h : A ⟶ D)
+    (body : J.obj (E ⊗ D) ⟶ J.obj (B ⨿ S)) :
+    retainEnvironment J (fst E A) (J.map (E ◁ h) ≫ body) =
+      J.map (E ◁ h) ≫ retainEnvironment J (fst E D) body := by
+  rw [retainEnvironment_pre, CartesianMonoidalCategory.whiskerLeft_fst]
+
+private theorem step_post {E A B D S : V} (h : A ⟶ D)
+    (body : J.obj (E ⊗ S) ⟶ J.obj (B ⨿ A)) :
+    retainEnvironment J (fst E S) (body ≫ J.map (coprod.map (𝟙 B) h)) ≫
+        routeEnvironment J E B D =
+      (retainEnvironment J (fst E S) body ≫ routeEnvironment J E B A) ≫
+        coprod.map (𝟙 _) (J.map (E ◁ h)) := by
+  rw [retainEnvironment_comp]
+  have ret : retainLeft J (R := E) (J.map (coprod.map (𝟙 B) h)) =
+      J.map (E ◁ coprod.map (𝟙 B) h) := by
+    simp only [retainLeft, PremonoidalCategory.leftTensor, PremonoidalCategory.id_whiskerRight,
+      Category.id_comp, Functor.StrongPremonoidal.tensor_naturality_right]
+    simp
+  rw [Category.assoc, ret, route_state, Category.assoc]
+
+private theorem loop_as_iterate {E A B : V} (f : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A)) :
+    contextualLoop J f = iterate (contextualStep J f) ≫ J.map (snd E B) := by
+  simp only [contextualLoop, contextualStep, retainEnvironment, routeEnvironment, Category.assoc]
+
 theorem loop_factor (roll : IterationRolling C) {E A B D : V} (h : A ⟶ D)
     (middle : J.obj (E ⊗ D) ⟶ J.obj (B ⨿ A)) :
     contextualLoop J (J.map (E ◁ h) ≫ middle) =
       J.map (E ◁ h) ≫ contextualLoop J (middle ≫ J.map (coprod.map (𝟙 B) h)) := by
-  let step := retainEnvironment J (fst E D) middle ≫ routeEnvironment J E B A
-  have before : contextualStep J (J.map (E ◁ h) ≫ middle) = J.map (E ◁ h) ≫ step := by
-    unfold contextualStep step
-    rw [← Category.assoc (J.map _), retainEnvironment_pre, CartesianMonoidalCategory.whiskerLeft_fst]
-  have after : contextualStep J (middle ≫ J.map (coprod.map (𝟙 B) h)) =
-      step ≫ coprod.map (𝟙 _) (J.map (E ◁ h)) := by
-    unfold contextualStep step
-    rw [retainEnvironment_comp]
-    have ret : retainLeft J (R := E) (J.map (coprod.map (𝟙 B) h)) =
-        J.map (E ◁ coprod.map (𝟙 B) h) := by
-      simp only [retainLeft, PremonoidalCategory.leftTensor, PremonoidalCategory.id_whiskerRight,
-        Category.id_comp, Functor.StrongPremonoidal.tensor_naturality_right]
-      simp
-    rw [Category.assoc, ret, route_state, Category.assoc]
-  have expand {S : V} (f : J.obj (E ⊗ S) ⟶ J.obj (B ⨿ S)) :
-      contextualLoop J f = iterate (contextualStep J f) ≫ J.map (snd E B) := by
-    simp only [contextualLoop, contextualStep, retainEnvironment, routeEnvironment, Category.assoc]
-  rw [expand, expand, before, after, roll, Category.assoc]
+  rw [loop_as_iterate J, loop_as_iterate J, contextualStep, contextualStep,
+    step_pre J, Category.assoc, step_post J, roll, Category.assoc]
+
+private theorem loop_square {E A B D : V} (h : A ⟶ D)
+    (small : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A))
+    (large : J.obj (E ⊗ D) ⟶ J.obj (B ⨿ D))
+    (comm : small ≫ J.map (coprod.map (𝟙 B) h) = J.map (E ◁ h) ≫ large) :
+    contextualLoop J small = J.map (E ◁ h) ≫ contextualLoop J large := by
+  have step : contextualStep J small ≫ coprod.map (𝟙 _) (J.map (E ◁ h)) =
+      J.map (E ◁ h) ≫ contextualStep J large := by
+    rw [contextualStep, contextualStep, ← step_post J h small, comm, step_pre J, Category.assoc]
+  rw [loop_as_iterate J, loop_as_iterate J,
+    ElgotFreydCategory.pure_uniformity J _ _ (E ◁ h) step, Category.assoc]
+
+theorem dispatch_square {E A B D : V} (h : A ⟶ D)
+    (entry : J.obj E ⟶ J.obj (B ⨿ A))
+    (small : J.obj (E ⊗ A) ⟶ J.obj (B ⨿ A))
+    (large : J.obj (E ⊗ D) ⟶ J.obj (B ⨿ D))
+    (comm : small ≫ J.map (coprod.map (𝟙 B) h) = J.map (E ◁ h) ≫ large) :
+    caseWithContext J entry (J.map (snd E B)) (contextualLoop J small) =
+      caseWithContext J (entry ≫ J.map (coprod.map (𝟙 B) h)) (J.map (snd E B))
+        (contextualLoop J large) := by
+  rw [case_state J, loop_square J h small large comm]
 
 theorem dispatch_factor (roll : IterationRolling C) {E A B D : V} (h : A ⟶ D)
     (entry : J.obj E ⟶ J.obj (B ⨿ A)) (middle : J.obj (E ⊗ D) ⟶ J.obj (B ⨿ A)) :
