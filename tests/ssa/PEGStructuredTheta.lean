@@ -3,6 +3,8 @@ module
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
 import Silmaril.SSA.Peggy.Bridge.Theta.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
 
@@ -308,3 +310,98 @@ example :
       Discrete.mk (thetaModel markedModel) := rfl
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Tests
+
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | nonzero : Op [.count] .bool
+  | not : Op [.bool] .bool
+  | stepSize : Op [.count] .count
+  | subtract : Op [.count, .count] .count
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .nonzero, .cons n .nil => some ⟨n.down != 0⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+    | .stepSize, .cons size .nil => if size.down = 0 then none else some size
+    | .subtract, .cons n (.cons size .nil) => some ⟨n.down - size.down⟩
+
+private abbrev inputs : List (Ty Unit) := [.count, .count]
+
+private def sort : Fin 9 → Ty Unit
+  | 4 | 5 => .bool
+  | _ => .count
+
+private def raw : RawGraph Op inputs [.count] 9 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node
+    | 0 => ⟨_, .eval 0, [3, 6]⟩
+    | 1 => ⟨_, .param .head, []⟩
+    | 2 => ⟨_, .param (.tail .head), []⟩
+    | 3 => ⟨_, .theta 0, [1, 8]⟩
+    | 4 => ⟨_, .op .nonzero, [3]⟩
+    | 5 => ⟨_, .op .not, [4]⟩
+    | 6 => ⟨_, .pass 0, [5]⟩
+    | 7 => ⟨_, .op .stepSize, [2]⟩
+    | 8 => ⟨_, .op .subtract, [3, 7]⟩
+  roots := [0]
+
+private def graph : Graph Op inputs [.count] 9 1 := raw.check.get (by decide)
+
+private def descriptor : Descriptor graph where
+  theta := .cons ⟨3, rfl⟩ (.cons ⟨2, rfl⟩ .nil)
+  initial := .cons ⟨1, rfl⟩ (.cons ⟨2, rfl⟩ .nil)
+  next := .cons ⟨8, rfl⟩ (.cons ⟨2, rfl⟩ .nil)
+  guard := ⟨4, rfl⟩
+  negated := ⟨5, rfl⟩
+  negate := .not
+  pass := ⟨6, rfl⟩
+  returnSlot := .head
+
+private def accepted := check graph descriptor 7
+
+private def input (n size : Nat) : Tuple model.Value inputs := .cons ⟨n⟩ (.cons ⟨size⟩ .nil)
+
+private def run (fuel n size : Nat) : Option (Nat × Nat) := do
+  let a ← accepted
+  let original ← a.base.runFuel model fuel (input n size)
+  let cached ← a.runFuel model fuel (input n size)
+  return (original.down, cached.down)
+
+private def sizeCalls {loops : Bool} {vars outs : List (Ty Unit)} :
+    Stmt Op loops vars outs → Nat
+  | .assign (.op .stepSize _) => 1
+  | .assign _ | .project _ => 0
+  | .seq a b | .branch _ a b => sizeCalls a + sizeCalls b
+  | .while _ _ body => sizeCalls body
+
+private def shape : Option (Nat × Nat × Nat × Nat) :=
+  accepted.map fun a =>
+    (sizeCalls a.guard.lower, sizeCalls a.initialize, sizeCalls a.body, sizeCalls a.revert.body)
+
+private def zeroTripSkipsUndefined : Bool :=
+  (accepted.map fun a => (a.initialize.runLoopFree model (.cons ⟨false⟩ (input 0 0))).isNone)
+    |>.getD false
+
+set_option interpreter.prefer_native false
+
+-- The guard reads the changing counter. The invariant input is the unmodified size.
+/-- info: (some (0, 1, 0, 1), true) -/
+#guard_msgs in
+#eval (shape, (check graph descriptor 8).isNone)
+
+/-- info: (some (0, 0), none) -/
+#guard_msgs in
+#eval (run 4 8 2, run 3 8 2)
+
+-- Unconditionally executing the initializer on the zero-trip input would fail.
+/-- info: (true, some (0, 0), none) -/
+#guard_msgs in
+#eval (zeroTripSkipsUndefined, run 0 0 0, run 1 1 0)
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Tests
