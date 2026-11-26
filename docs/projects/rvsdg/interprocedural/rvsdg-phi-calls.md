@@ -809,12 +809,30 @@ that takes its callable from a formal input.
 ### Running backward demand on a numbered λ export
 
 `Plan.analyzeNumbered` takes a typed numbered `Omega` and a demand plan
-for its exact recovered source. The admitted layout starts with one
-checked φ family, followed by ordered λ bindings, and exports the final
-checked λ. Both links use the same numbered module and initial store.
-The caller supplies the source correspondence and the φ readiness proofs.
-The existing prefix checks can reject a plan when callable membership or
-local resolution fails.
+for its exact recovered source. The layout starts with a checked φ
+family and ends at the final checked λ. `Plan.phi` admits another
+independently checked family in link order. Both runs use the same numbered
+module and initial store. The caller supplies the source correspondence
+and readiness for each family's actual captures. The prefix checks can
+reject a plan when callable membership or local resolution fails.
+
+Each added family contributes disjoint demand slots and reuses its own
+closed summaries and saved-suffix transport. The step checks the group's
+actual outer wires against the existing typed membership table. Later λ
+bodies can call members from either group with supplied static resolution.
+The extra φ step starts a fresh set of inference routes for subsequent λ
+bindings. A use of a callable defined before that step therefore needs
+supplied resolution. Each family's own static calls stay within its
+member table. Cross-group calls from φ bodies and dynamic dispatch are
+outside this demand admission.
+
+`GraphPlan` and `admitGraph` certify paired numbered runtime behavior.
+That certificate has no demand-indexed summaries, so the analysis uses
+the per-family demand certificates directly. The two-group regression
+uses both public entry points on the same numbered module and checks one
+live data capture per group, a dead formal, and exact return, block and
+resumption through the λ suffix.
+[Two-group fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Groups/Regression.lean)
 
 The successful result exposes the existing `GenKill` problem through
 `problem`. Its executable `liveIn` list agrees with the least `mayOut 0`

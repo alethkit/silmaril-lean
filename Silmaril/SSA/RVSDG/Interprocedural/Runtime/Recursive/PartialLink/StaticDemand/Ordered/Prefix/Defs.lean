@@ -1,8 +1,8 @@
 module
 
-public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Thms
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Groups.Thms
 
-/-! A typed plan for one φ seed followed by ordered λ bindings and a λ export. -/
+/-! A typed plan for independently checked φ groups, ordered λ bindings and a λ export. -/
 
 @[expose] public section
 
@@ -49,6 +49,13 @@ def add (binding : Binding Op scope.table imports scope.past fn)
     scope.localsL.snoc (.cons (binding.value inputsL scope.localsL) .nil),
     scope.localsR.snoc (.cons (binding.value inputsR scope.localsR) .nil),
     binding.extendGuard scope.guardL inputsL scope.localsL, binding.extendGuard scope.guardR inputsR scope.localsR⟩
+
+def addGroup {later : MemberSummaries V S} (binding : GroupBinding Op later imports scope.past)
+    (inputsL inputsR : Tuple m.Val imports) : Scope m :=
+  ⟨scope.past ++ [memberPorts later.members], append scope.table later,
+    binding.locals inputsL scope.localsL, binding.locals inputsR scope.localsR,
+    scope.guardL.combine (binding.family.guard (binding.read inputsL scope.localsL)),
+    scope.guardR.combine (binding.family.guard (binding.read inputsR scope.localsR))⟩
 
 def skip (definition : LambdaTerm Op imports scope.past fn)
     (inputsL inputsR : Tuple m.Val imports) : Scope m :=
@@ -98,6 +105,16 @@ inductive Plan (inputsL inputsR : Tuple m.Val imports) :
       {rest : ModuleTerm Op imports (scope.past ++ [[fn.port]]) sigs [exported.fn.port]}
       (next : Plan inputsL inputsR (scope.add binding inputsL inputsR) exported rest) :
       Plan inputsL inputsR scope exported (.bind (.lambda binding.term) rest)
+  /-- Add an independently checked group with actual outer capture wires.
+  Its readiness certificates establish intragroup static dispatch. -/
+  | phi {scope : Scope m} {exported : MemberSummary V S} {later : MemberSummaries V S}
+      {sigs : List (Ports (Ty V S))}
+      (binding : GroupBinding Op later imports scope.past)
+      (readyL : binding.family.Ready (binding.read inputsL scope.localsL))
+      (readyR : binding.family.Ready (binding.read inputsR scope.localsR))
+      {rest : ModuleTerm Op imports (scope.past ++ [memberPorts later.members]) sigs [exported.fn.port]}
+      (next : Plan inputsL inputsR (scope.addGroup binding inputsL inputsR) exported rest) :
+      Plan inputsL inputsR scope exported (.bind (.phi binding.term) rest)
   | skipLambda {scope : Scope m} {exported : MemberSummary V S} {fn : Function V S}
       {sigs : List (Ports (Ty V S))}
       (definition : LambdaTerm Op imports scope.past fn)
