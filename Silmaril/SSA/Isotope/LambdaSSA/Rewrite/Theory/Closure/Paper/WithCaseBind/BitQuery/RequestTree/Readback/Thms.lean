@@ -115,6 +115,11 @@ theorem Candidate.observations_eq_with_variables {fuel : Nat} {p : Candidate} {t
     (h : p.readWithVariables fuel = some t) (guard : Bool) : p.observations guard = t.observations guard :=
   BitQueryTreeReadback.written_observations_eq h guard
 
+/-- The ordered key recovers the exact literal-or-variable tree. -/
+theorem eq_of_direct_key {n : Nat} {t u : Tree n} (ht : Direct t) (hu : Direct u)
+    (h : t.key = u.key) : t = u :=
+  BitQueryTreeReadback.eq_of_direct_key ht hu h
+
 /-- The original quotation key is complete on the admitted literal-or-variable
 grammar. Key equality identifies the original variable, including its scope. -/
 theorem eq_iff_key_with_variables {fuel : Nat} {p q : Candidate} {t u : Tree 1}
