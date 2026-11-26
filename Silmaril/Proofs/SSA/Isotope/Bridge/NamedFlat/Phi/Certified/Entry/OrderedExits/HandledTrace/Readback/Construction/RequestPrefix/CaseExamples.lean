@@ -978,13 +978,16 @@ example : computedRowMatches 4
       (.case (.var 2) (.br 0 (.var 0)) (.br 7 (.pair (.var 0) (.var 2)))))) = true :=
   by decide +kernel
 
--- This checker accepts applications in either product field. A
--- written let inside the operand remains outside the expression grammar.
-example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
-    (.pair (.var 0) (.op false (.pair (.var 0) (.var 0))))).isSome = true := rfl
+-- The initializer is checked before adding the binder. The body
+-- synthesizes its result in the extended scope.
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig []
+    (.let₁ .unit (.var 0))).map (fun checked => checked.1) = some .unit := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig []
+    (.let₁ (.var 0) (.var 0))).isNone = true := rfl
 
 example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
-    (.let₁ (.op false (.pair (.var 0) (.var 0))) (.var 0))).isNone = true := rfl
+    (.let₂ (.pair (.var 0) (.var 0)) (.var 0))).isNone = true := rfl
 
 private def outerKey (innerReply : Denote bit) : recursiveSig.Request := ⟨true, (innerReply, first)⟩
 
@@ -1101,52 +1104,56 @@ example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
 example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
     (.op 1 (.op 1 (.var 0)))).isNone = true := rfl
 
--- The right field reads the older capture after the left request. The
--- outer argument contains the left reply, the right reply, and that
--- capture. Its outward continuation also reads the original capture.
-private def schedulePolling : FiniteCFG (Fin 3) 1 2 1 where
-  entry := .let₁ (.op 2 (.pair (.op 0 (.bv 0)) (.pair (.op 1 (.bv 0)) (.bv 0))))
+-- With the written let, the body uses the initializer reply for both
+-- the second request's argument and the outer argument's first field.
+-- The outer request and its outward continuation also read the capture.
+private def schedulePolling (usesLet : Bool) : FiniteCFG (Fin 3) 1 2 1 where
+  entry := .let₁ (.op 2 (if usesLet then
+    .let₁ (.op 0 (.bv 0)) (.pair (.bv 0) (.pair (.op 1 (.bv 0)) (.bv 1)))
+    else .pair (.op 0 (.bv 0)) (.pair (.op 1 (.bv 0)) (.bv 0))))
     (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
   block _ := .br 1 .unit
 
-private def scheduleBuild :=
-  EffectfulEntry.Multiple.Computed.compile scheduleSig (.snoc .nil bit) packets exits schedulePolling
+private def scheduleBuild (usesLet : Bool) :=
+  EffectfulEntry.Multiple.Computed.compile scheduleSig (.snoc .nil bit) packets exits (schedulePolling usesLet)
 
-private def scheduleBuilt :
-    EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits schedulePolling :=
-  scheduleBuild.get (by decide +kernel)
+private def scheduleBuilt (usesLet : Bool) :
+    EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits (schedulePolling usesLet) :=
+  (scheduleBuild usesLet).get (by cases usesLet <;> decide +kernel)
 
-private def scheduleRowMatches (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
-  match scheduleBuild with
+private def scheduleRowMatches (usesLet : Bool) (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
+  match scheduleBuild usesLet with
   | none => false
   | some built => packedRowMatches (some built.checked) index expected
 
-example : scheduleRowMatches 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
-  by decide +kernel
+example (usesLet : Bool) :
+    scheduleRowMatches usesLet 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by cases usesLet <;> decide +kernel
 
-example : scheduleRowMatches 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
-  by decide +kernel
+example (usesLet : Bool) : scheduleRowMatches usesLet 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by cases usesLet <;> decide +kernel
 
-example : scheduleRowMatches 3
-    (.let₂ (.var 0) (.let₁ (.op 1 (.var 1)) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
-  by decide +kernel
+example (usesLet : Bool) : scheduleRowMatches usesLet 3
+    (.let₂ (.var 0) (.let₁ (.op 1 (.var (if usesLet then 0 else 1))) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
+  by cases usesLet <;> decide +kernel
 
-example : scheduleRowMatches 4
+example (usesLet : Bool) : scheduleRowMatches usesLet 4
     (.let₂ (.var 0) (.let₂ (.var 1) (.br 5 (.pair (.pair (.var 1) (.var 0)) (.var 2))))) = true :=
-  by decide +kernel
+  by cases usesLet <;> decide +kernel
 
-example : scheduleRowMatches 5
+example (usesLet : Bool) : scheduleRowMatches usesLet 5
     (.let₂ (.var 0) (.let₂ (.var 1)
       (.let₁ (.op 2 (.pair (.var 0) (.pair (.var 2) (.var 1)))) (.br 6 (.pair (.var 5) (.var 0)))))) = true :=
-  by decide +kernel
+  by cases usesLet <;> decide +kernel
 
-example : scheduleRowMatches 6
+example (usesLet : Bool) : scheduleRowMatches usesLet 6
     (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1)
       (.case (.var 4) (.br 0 (.var 0)) (.br 9 (.pair (.var 0) (.var 2))))))) = true :=
-  by decide +kernel
+  by cases usesLet <;> decide +kernel
 
 private def scheduleLeft : scheduleSig.Request := ⟨0, first⟩
-private def scheduleRight : scheduleSig.Request := ⟨1, first⟩
+private def scheduleRight (usesLet : Bool) (left : Denote bit) : scheduleSig.Request :=
+  ⟨1, if usesLet then left else first⟩
 private def scheduleOuter (left : Denote bit) (right : Denote replyType) : scheduleSig.Request :=
   ⟨2, (left, right, first)⟩
 
@@ -1163,24 +1170,27 @@ private theorem schedule_vis_congr (key : scheduleSig.Request)
     (agree : ∀ reply, left reply = right reply) :
     vis (.ask key) left = vis (.ask key) right := congrArg (vis (.ask key)) (funext agree)
 
-private def scheduledArgument : Operand scheduleSig [bit] (scheduleSig.argument 2) :=
-  .pair (.call 0 (.pure (.var .here))) (.pair (.call 1 (.pure (.var .here))) (.pure (.var .here)))
+private def scheduledArgument (usesLet : Bool) : Operand scheduleSig [bit] (scheduleSig.argument 2) :=
+  if usesLet then
+    .let₁ (.call 0 (.pure (.var .here)))
+      (.pair (.pure (.var .here)) (.pair (.call 1 (.pure (.var .here))) (.pure (.var (.there .here)))))
+  else .pair (.call 0 (.pure (.var .here))) (.pair (.call 1 (.pure (.var .here))) (.pure (.var .here)))
 
-private theorem scheduled_entry :
-    region scheduleSig.primitive (env first) schedulePolling.entry.erase =
+private theorem scheduled_entry (usesLet : Bool) :
+    region scheduleSig.primitive (env first) (schedulePolling usesLet).entry.erase =
       vis (.ask scheduleLeft) (fun (left : scheduleSig.Reply scheduleLeft) =>
-        vis (.ask scheduleRight) (fun (right : scheduleSig.Reply scheduleRight) =>
+        vis (.ask (scheduleRight usesLet left)) (fun (right : scheduleSig.Reply (scheduleRight usesLet left)) =>
           vis (.ask (scheduleOuter left right)) (fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
             match reply with
             | .inl payload => pure (0, bit.encode payload)
             | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first))))) := by
-  change (region scheduleSig.primitive (env first)
-    (.let₁ (.op 2 scheduledArgument.written) (.case (.var 0)
-      (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))))) = _
-  have scheduled : scheduledArgument.schedule.term =
-      .let₁ (.op 0 (.var 0)) (.let₁ (.op 1 (.var 1)) (.pair (.var 1) (.pair (.var 0) (.var 2)))) := rfl
-  rw [region, LambdaSSA.Semantics.Interaction.term,
-    scheduledArgument.preserves_run scheduleSig.primitive (env first), scheduled]
+  have written : (schedulePolling usesLet).entry.erase = .let₁ (.op 2 (scheduledArgument usesLet).written)
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) := by cases usesLet <;> rfl
+  have scheduled : (scheduledArgument usesLet).schedule.term =
+      .let₁ (.op 0 (.var 0)) (.let₁ (.op 1 (.var (if usesLet then 0 else 1)))
+        (.pair (.var 1) (.pair (.var 0) (.var 2)))) := by cases usesLet <;> rfl
+  rw [written, region, LambdaSSA.Semantics.Interaction.term,
+    (scheduledArgument usesLet).preserves_run scheduleSig.primitive (env first), scheduled]
   simp only [LambdaSSA.Semantics.Interaction.term, bind_assoc, pure_bind, LambdaSSA.Semantics.extend_zero,
     LambdaSSA.Semantics.extend_succ]
   change (scheduleSig.primitive scheduleLeft.1 ((scheduleSig.argument scheduleLeft.1).encode scheduleLeft.2) >>= _) = _
@@ -1188,10 +1198,14 @@ private theorem scheduled_entry :
   simp only [pure_bind]
   apply schedule_vis_congr scheduleLeft
   intro left
-  change (scheduleSig.primitive scheduleRight.1 ((scheduleSig.argument scheduleRight.1).encode scheduleRight.2) >>= _) = _
-  rw [schedule_call scheduleRight, vis_bind]
+  let next := scheduleRight usesLet left
+  have argument : LambdaSSA.Semantics.extend (env first) (bit.encode left) (if usesLet then 0 else 1) =
+      (scheduleSig.argument next.1).encode next.2 := by cases usesLet <;> rfl
+  change (scheduleSig.primitive next.1
+    (LambdaSSA.Semantics.extend (env first) (bit.encode left) (if usesLet then 0 else 1)) >>= _) = _
+  rw [argument, schedule_call next, vis_bind]
   simp only [pure_bind]
-  apply schedule_vis_congr scheduleRight
+  apply schedule_vis_congr next
   intro right
   let key := scheduleOuter left right
   change (scheduleSig.primitive key.1 ((scheduleSig.argument key.1).encode key.2) >>= _) = _
@@ -1210,28 +1224,28 @@ private theorem scheduled_entry :
     simp only [region, LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero,
       LambdaSSA.Semantics.extend_succ, pure_bind, env]
 
-private noncomputable def scheduleWritten : Tree ScheduleEvents (Transfer Atom) :=
-  resultCodec id <$> (region scheduleSig.primitive (env first) schedulePolling.erase >>=
+private noncomputable def scheduleWritten (usesLet : Bool) : Tree ScheduleEvents (Transfer Atom) :=
+  resultCodec id <$> (region scheduleSig.primitive (env first) (schedulePolling usesLet).erase >>=
     fun out => pure (FiniteCFG.packedTreeOutput out))
 
-private noncomputable def scheduleExpected : Tree ScheduleEvents (Transfer Atom) :=
+private noncomputable def scheduleExpected (usesLet : Bool) : Tree ScheduleEvents (Transfer Atom) :=
   vis (.ask scheduleLeft) fun (left : scheduleSig.Reply scheduleLeft) =>
-    vis (.ask scheduleRight) fun (right : scheduleSig.Reply scheduleRight) =>
+    vis (.ask (scheduleRight usesLet left)) fun (right : scheduleSig.Reply (scheduleRight usesLet left)) =>
       vis (.ask (scheduleOuter left right)) fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
         match reply with
         | .inl _ => pure firstExit
         | .inr payload => pure (output payload first)
 
-/-- Both operand requests run in written order. The outer key records
-both replies in separate fields and retains the older capture. -/
-private theorem schedule_source : scheduleWritten = scheduleExpected := by
+/-- The let initializer makes one request. Its reply supplies the second
+request and remains in the outer key with the second reply and capture. -/
+private theorem schedule_source (usesLet : Bool) : scheduleWritten usesLet = scheduleExpected usesLet := by
   unfold scheduleWritten scheduleExpected
-  rw [show schedulePolling.erase = .cfg schedulePolling.entry.erase 1
-    (fun i => (schedulePolling.block i).erase) from rfl, region, scheduled_entry]
+  rw [show (schedulePolling usesLet).erase = .cfg (schedulePolling usesLet).entry.erase 1
+    (fun i => ((schedulePolling usesLet).block i).erase) from rfl, region, scheduled_entry usesLet]
   simp only [map_eq_pure_bind, bind_assoc, vis_bind]
   apply schedule_vis_congr scheduleLeft
   intro left
-  apply schedule_vis_congr scheduleRight
+  apply schedule_vis_congr (scheduleRight usesLet left)
   intro right
   apply schedule_vis_congr (scheduleOuter left right)
   intro reply
@@ -1240,7 +1254,7 @@ private theorem schedule_source : scheduleWritten = scheduleExpected := by
     let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
         Tree ScheduleEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
       region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
-        (schedulePolling.block p.1).erase >>= fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+        ((schedulePolling usesLet).block p.1).erase >>= fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
     have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
       change Elgot.iter step (0, bit.encode payload) = _
       rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
@@ -1254,14 +1268,16 @@ private theorem schedule_source : scheduleWritten = scheduleExpected := by
   | inr payload =>
     simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
 
-theorem schedule_packed
-    (built : EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits schedulePolling) :
-    built.checked.publicReadback.packed.observe (env first) recursiveRecord = scheduleExpected := by
+theorem schedule_packed (usesLet : Bool)
+    (built : EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits
+      (schedulePolling usesLet)) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = scheduleExpected usesLet := by
   have primitives : PrimitivesAgree scheduleSig.primitive scheduleSig.primitive id := by
     intro op value
     rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
-  exact (built.public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans schedule_source
+  exact (built.public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans (schedule_source usesLet)
 
-example := schedule_packed scheduleBuilt
+example := schedule_packed false (scheduleBuilt false)
+example := schedule_packed true (scheduleBuilt true)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples

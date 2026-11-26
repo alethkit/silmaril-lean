@@ -18,23 +18,37 @@ variable {F : Type} {blocks exits captures : Nat} {Γ Δ Θ : List PacketType}
 
 /-- The checked operand grammar shares structural leaves with the public
 dispatcher. A primitive's argument is checked recursively at its input type. -/
-inductive Operand (sig : PrimitiveSignature F) (Γ : List PacketType) : PacketType → Type
-  | pure {a : PacketType} (value : Expr Γ a) : Operand sig Γ a
-  | pair {a b : PacketType} (left : Operand sig Γ a) (right : Operand sig Γ b) :
+inductive Operand (sig : PrimitiveSignature F) : List PacketType → PacketType → Type
+  | pure {Γ : List PacketType} {a : PacketType} (value : Expr Γ a) : Operand sig Γ a
+  | pair {Γ : List PacketType} {a b : PacketType} (left : Operand sig Γ a) (right : Operand sig Γ b) :
       Operand sig Γ (.product a b)
-  | call (op : F) (arg : Operand sig Γ (sig.argument op)) : Operand sig Γ (sig.reply op)
+  | call {Γ : List PacketType} (op : F) (arg : Operand sig Γ (sig.argument op)) : Operand sig Γ (sig.reply op)
+  | let₁ {Γ : List PacketType} {a b : PacketType} (value : Operand sig Γ a) (body : Operand sig (a :: Γ) b) :
+      Operand sig Γ b
 
-def Operand.written : {ty : PacketType} → Operand sig Γ ty → Tm F
-  | _, .pure value => operand position value
-  | _, .pair left right => .pair left.written right.written
-  | _, .call op arg => .op op arg.written
+def Operand.written : {Γ : List PacketType} → {ty : PacketType} → Operand sig Γ ty → Tm F
+  | _, _, .pure value => operand position value
+  | _, _, .pair left right => .pair left.written right.written
+  | _, _, .call op arg => .op op arg.written
+  | _, _, .let₁ value body => .let₁ value.written body.written
 
 abbrev SlotMap (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Slot Δ a
 
-def renameExpr (slots : SlotMap Γ Δ) : {ty : PacketType} → Expr Γ ty → Expr Δ ty
-  | _, .var slot => .var (slots slot)
+abbrev Substitution (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Expr Δ a
+
+def substExpr (values : Substitution Γ Δ) : {ty : PacketType} → Expr Γ ty → Expr Δ ty
+  | _, .var slot => values slot
   | _, .unit => .unit
-  | _, .pair left right => .pair (renameExpr slots left) (renameExpr slots right)
+  | _, .pair left right => .pair (substExpr values left) (substExpr values right)
+
+def renameExpr (slots : SlotMap Γ Δ) (value : Expr Γ ty) : Expr Δ ty :=
+  substExpr (fun slot => .var (slots slot)) value
+
+/-- Only the body gets the initializer's residual value at slot zero. -/
+def bindSubstitution (value : Expr Δ ty) (older : Substitution Γ Δ) : Substitution (ty :: Γ) Δ :=
+  fun {_} slot => match slot with
+  | .here => value
+  | .there slot => older slot
 
 /-- Each scheduled application has a structural argument and adds its
 typed reply to the current scope. -/
@@ -51,6 +65,10 @@ def Requests.append : {Γ Δ : List PacketType} → Requests sig Γ Δ → Reque
 def Requests.slots : {Γ Δ : List PacketType} → Requests sig Γ Δ → SlotMap Γ Δ
   | _, _, .done, _, slot => slot
   | _, _, .request _ _ next, _, slot => next.slots (.there slot)
+
+/-- Carry substituted values through all replies added by a schedule. -/
+def Requests.weaken (requests : Requests sig Δ Θ) (values : Substitution Γ Δ) : Substitution Γ Θ :=
+  fun {_} slot => renameExpr requests.slots (values slot)
 
 /-- The same embedding for raw lexical indices, including the caller's
 ambient environment beyond the checked slots. -/
@@ -69,19 +87,25 @@ structure Scheduled (sig : PrimitiveSignature F) (Γ : List PacketType) (ty : Pa
   requests : Requests sig Γ scope
   value : Expr scope ty
 
-/-- Schedule a product left to right. The right operand uses the original
-slots behind the left replies. The final pair retains the left result
-behind the right replies. -/
-def Operand.scheduleAt : {ty : PacketType} → Operand sig Γ ty →
-    {Δ : List PacketType} → SlotMap Γ Δ → Scheduled sig Δ ty
-  | _, .pure value, Δ, slots => ⟨Δ, .done, renameExpr slots value⟩
-  | _, .pair left right, _, slots =>
-    let l := left.scheduleAt slots
-    let r := right.scheduleAt (fun slot => l.requests.slots (slots slot))
+/-- Compose effects in written order. A let schedules its initializer
+once and substitutes only the resulting structural value into its body. -/
+def Operand.scheduleWith : {Γ : List PacketType} → {ty : PacketType} → Operand sig Γ ty →
+    {Δ : List PacketType} → Substitution Γ Δ → Scheduled sig Δ ty
+  | _, _, .pure value, Δ, values => ⟨Δ, .done, substExpr values value⟩
+  | _, _, .pair left right, _, values =>
+    let l := left.scheduleWith values
+    let r := right.scheduleWith (l.requests.weaken values)
     ⟨r.scope, l.requests.append r.requests, .pair (renameExpr r.requests.slots l.value) r.value⟩
-  | _, .call op arg, _, slots =>
-    let result := arg.scheduleAt slots
+  | _, _, .call op arg, _, values =>
+    let result := arg.scheduleWith values
     ⟨sig.reply op :: result.scope, result.requests.append (.request op result.value .done), .var .here⟩
+  | _, _, .let₁ value body, _, values =>
+    let init := value.scheduleWith values
+    let body := body.scheduleWith (bindSubstitution init.value (init.requests.weaken values))
+    ⟨body.scope, init.requests.append body.requests, body.value⟩
+
+def Operand.scheduleAt (arg : Operand sig Γ ty) (slots : SlotMap Γ Δ) : Scheduled sig Δ ty :=
+  arg.scheduleWith (fun slot => .var (slots slot))
 
 def Operand.schedule (arg : Operand sig Γ ty) : Scheduled sig Γ ty :=
   arg.scheduleAt (fun slot => slot)
@@ -89,18 +113,22 @@ def Operand.schedule (arg : Operand sig Γ ty) : Scheduled sig Γ ty :=
 def Scheduled.term (scheduled : Scheduled sig Γ ty) : Tm F :=
   scheduled.requests.wrap Tm.let₁ (operand position scheduled.value)
 
-def readOperand (sig : PrimitiveSignature F) (Γ : List PacketType) :
-    Tm F → Option (Σ ty : PacketType, Operand sig Γ ty)
-  | .op op arg => do
+def readOperand (sig : PrimitiveSignature F) :
+    (Γ : List PacketType) → Tm F → Option (Σ ty : PacketType, Operand sig Γ ty)
+  | Γ, .op op arg => do
     let ⟨ty, arg⟩ ← readOperand sig Γ arg
     if typed : ty = sig.argument op then
       some ⟨sig.reply op, .call op (typed ▸ arg)⟩
     else none
-  | .pair left right => do
+  | Γ, .pair left right => do
     let ⟨a, left⟩ ← readOperand sig Γ left
     let ⟨b, right⟩ ← readOperand sig Γ right
     return ⟨.product a b, .pair left right⟩
-  | raw => do
+  | Γ, .let₁ value body => do
+    let ⟨a, value⟩ ← readOperand sig Γ value
+    let ⟨b, body⟩ ← readOperand sig (a :: Γ) body
+    return ⟨b, .let₁ value body⟩
+  | Γ, raw => do
     let ⟨ty, value⟩ ← elaborateExpr Γ raw
     return ⟨ty, .pure value⟩
 
