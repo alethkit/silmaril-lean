@@ -48,6 +48,13 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
                   cases operand_type ren a _ payload
                   exact ⟨_, labelEq.symm⟩
   | exit i hitExit a => exact False.elim hit
+  | let₁ value body ih =>
+      change (Region.let₁ (value.term.rename ρ)
+        (body.region tag (Silmaril.DeBruijn.lift ρ))).HasType Δ (List.ofFn S ++ L) at typed
+      cases typed with
+      | let₁ hv hb =>
+          cases operand_type ren value _ hv
+          exact ih (ren.lift _) hit hb
   | case arg left right ihl ihr =>
       change (Region.case (arg.term.rename ρ)
         (left.region tag (Silmaril.DeBruijn.lift ρ))

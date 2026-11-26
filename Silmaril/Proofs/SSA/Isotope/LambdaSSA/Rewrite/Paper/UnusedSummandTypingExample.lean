@@ -1,6 +1,8 @@
 module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnaryLet.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.StructuralValues.Freyd.Iteration.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseReturns.BinaryFold.StructuralValues.Thms
 
@@ -185,5 +187,128 @@ example (uniform : StructuralUniformity Seed) :
   refine ⟨?_, fun d e => noTargets.denotes_eq_trimmed inc model chosenRolling d e⟩
   intro i target
   rcases target with (h | h) | ⟨_, h⟩ <;> exact h
+
+section NativeLet
+
+private def initializer : Operand (Φ := Op) [Flag] U := .let₁ .unit (.var 0 rfl)
+
+private def letEntry : Region Op :=
+  .let₁ (.let₁ .unit (.var 0)) (.br 0 (.inl (.var 0)))
+
+private def letBlocks : Fin 2 → Region Op :=
+  Fin.cases
+    (.let₁ (.op .poll .unit)
+      (.case (.var 0) (.br 0 (.inl (.var 0))) (.br 3 (.var 0))))
+    (fun _ => .let₁ .unit (.br 2 (.var 0)))
+
+private def letProgram : Program (Φ := Op) payloads [U, U] [Flag] where
+  entry := .let₁ initializer (.jump 0 (.var 0 rfl))
+  blocks := Fin.cases
+    (.let₁ (.op .poll .unit) (.case (.var 0 rfl)
+      (.jump 0 (.var 0 rfl)) (.exit 1 rfl (.var 0 rfl))))
+    (fun _ => .let₁ .unit (.exit 0 rfl (.var 0 rfl)))
+
+private theorem letProgram_region : letProgram.region true = .cfg letEntry 2 letBlocks := by
+  unfold Program.region letProgram letEntry letBlocks
+  congr 1
+  funext i
+  exact Fin.cases rfl (fun _ => rfl) i
+
+private def letFamily (tail spare : Ty Empty) : Fin 2 → Ty Empty :=
+  Fin.cases (Silmaril.coprod U tail) (fun _ => spare)
+
+private theorem letEntry_typed (tail spare : Ty Empty) :
+    letEntry.HasType [Flag] (List.ofFn (letFamily tail spare) ++ [U, U]) :=
+  .let₁ (.let₁ .unit (.var rfl)) (.br rfl (.inl (.var rfl)))
+
+private theorem letBlocks_typed (tail spare : Ty Empty) (i : Fin 2) :
+    (letBlocks i).HasType (letFamily tail spare i :: [Flag])
+      (List.ofFn (letFamily tail spare) ++ [U, U]) := by
+  refine Fin.cases ?_ (fun _ => ?_) i
+  · exact .let₁ (.op .unit) (.case (.var rfl) (.br rfl (.inl (.var rfl))) (.br rfl (.var rfl)))
+  · exact .let₁ .unit (.br rfl (.var rfl))
+
+private theorem letFamily_distinct : letFamily .empty U ≠ letFamily U .empty := by
+  intro eq
+  have spare := congrFun eq (1 : Fin 2)
+  change Ty.unit = Ty.empty at spare
+  cases spare
+
+private theorem untargeted : ¬ letProgram.targets 1 := by
+  intro hit
+  rcases hit with h | ⟨i, h⟩
+  · have neq : (0 : Fin 2) ≠ 1 := by decide
+    exact neq h
+  · revert h
+    refine Fin.cases ?_ (fun _ h => h) i
+    rintro (h | h)
+    · have neq : (0 : Fin 2) ≠ 1 := by decide
+      exact neq h
+    · exact h
+
+variable {V C : Type} [Category V] [Category C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : Silmaril.Isotope.LetIter.Semantics.Categorical.TypeModel (Ty Empty) V)
+  [Silmaril.Isotope.LetIter.Semantics.Categorical.InstructionModel J M Op]
+
+/-- The entry uses a native term let. Its exact witnesses agree at the
+synthesized type, including the type of the term binder. -/
+example {t : Tm.HasType [Flag] (.let₁ (.unit : Tm Op) (.var 0)) U}
+    {f g : J.obj (ctxObj M [Flag]) ⟶ J.obj (M.obj U)}
+    (d : Denotes J M t f) (e : Denotes J M t g) : f = g :=
+  (initializer.determined (Ren.id _)).denotes_eq J M d e
+
+example :
+    (∃ f : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U]),
+      CfgDenotesAt J M (letFamily .empty U) letEntry letBlocks f) ∧
+    (∃ g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U]),
+      CfgDenotesAt J M (letFamily U .empty) letEntry letBlocks g) :=
+  ⟨CfgDenotesAt.exists_of_typing J M _ (letEntry_typed .empty U) (letBlocks_typed .empty U),
+   CfgDenotesAt.exists_of_typing J M _ (letEntry_typed U .empty) (letBlocks_typed U .empty)⟩
+
+/-- Two independently typed witnesses of the raw CFG compare. The poll is
+bound once; its reply selects a repeat or the second outward index. The
+untargeted block uses the first outward index and has different parameter
+types in the two graph witnesses. -/
+example (roll : IterationRolling C) :
+    (¬ letProgram.targets 1) ∧ (letFamily .empty U ≠ letFamily U .empty) ∧
+    ∀ {f g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U])},
+      CfgDenotesAt J M (letFamily .empty U) letEntry letBlocks f →
+      CfgDenotesAt J M (letFamily U .empty) letEntry letBlocks g → f = g := by
+  refine ⟨untargeted, letFamily_distinct, ?_⟩
+  intro f g d e
+  have asRendered {tail spare : Ty Empty} {h}
+      (w : CfgDenotesAt J M (letFamily tail spare) letEntry letBlocks h) :
+      ∃ t : (letProgram.region true).HasType [Flag] [U, U], RegionDenotes J M t h := by
+    rw [letProgram_region]
+    exact ⟨.cfg _ (letEntry_typed tail spare) (letBlocks_typed tail spare), w.denotes J M⟩
+  obtain ⟨_, left⟩ := asRendered d
+  obtain ⟨_, right⟩ := asRendered e
+  exact letProgram.denotes_eq_trimmed J M roll left right
+
+/-- The final label context does not select an intermediate type for a raw
+unannotated initializer. Even a body that branches on the bound value can
+admit both typings. -/
+private def ambiguousLet : Region Op :=
+  .let₁ (.inl .unit) (.case (.var 0) (.br 0 .unit) (.br 1 .unit))
+
+private theorem ambiguousLet_typed (tail : Ty Empty) : ambiguousLet.HasType [Flag] [U, U] :=
+  Region.HasType.let₁ (A := Silmaril.coprod U tail) (.inl .unit)
+    (.case (.var rfl) (.br rfl .unit) (.br rfl .unit))
+
+example : ambiguousLet.HasType [Flag] [U, U] ∧
+    ¬ ∃ A : Ty Empty, TypeDetermined [Flag] (.inl (.unit : Tm Op)) A := by
+  refine ⟨ambiguousLet_typed U, ?_⟩
+  rintro ⟨A, determined⟩
+  have left := determined (Silmaril.coprod U U) (.inl .unit)
+  have right := determined (Silmaril.coprod U (Ty.empty : Ty Empty)) (.inl .unit)
+  have eq := (Ty.coprod.inj (left.trans right.symm)).2
+  cases eq
+
+end NativeLet
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.UnusedSummandFixture
