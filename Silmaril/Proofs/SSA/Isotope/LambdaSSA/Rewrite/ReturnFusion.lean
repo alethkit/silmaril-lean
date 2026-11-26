@@ -21,7 +21,7 @@ open CategoryTheory CategoryTheory.Limits
 open CartesianMonoidalCategory (fst snd lift)
 open Silmaril.Isotope.LetIter.Semantics.Categorical
   (TypeModel InstructionModel case_postcomp extend_map extend_postmap)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (duplicate retainedContext)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (duplicate extend retainedContext)
 open Region.CfgEta.TypeCategory (returnRegion returnRegion_typed)
 open SingletonDispatcher (labelInject_payload)
 
@@ -50,6 +50,24 @@ private theorem boundReturn_denotes {Γ : VCtx τ} {L : LCtx τ} {i : Nat} {A : 
   have e := (RegionDenotes.eq_denote J M (RegionDenotes.br (h := hi) da)).trans
     (denoteRegion_branchBind J M (FreydCategory.CentralUnit.unit_central (J := J)) hi ha)
   exact e.symm ▸ denoteRegion_spec J M (.let₁ ha (.br hi (.var (i := 0) rfl)))
+
+set_option backward.isDefEq.respectTransparency false in
+theorem denote_op_boundReturn_sequencing {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
+    {a : Tm Φ} (p : Φ) (hi : At L i (instrTrg p)) (ha : Tm.HasType Γ a (instrSrc p)) :
+    denoteRegion J M (.let₁ (.op ha) (.br hi (.var (i := 0) rfl))) =
+      denoteRegion J M (.let₁ (.let₁ ha (.op (f := p) (.var (i := 0) rfl))) (.br hi (.var (i := 0) rfl))) := by
+  let arg := denote J M ha
+  have value := denote_spec J M ha
+  have newest := Denotes.var (J := J) (M := M) (Φ := Φ) (i := 0) (rfl : At (instrSrc p :: Γ) 0 (instrSrc p))
+  rw [← RegionDenotes.eq_denote J M (boundReturn_denotes J M hi (Denotes.op value)),
+    ← RegionDenotes.eq_denote J M (boundReturn_denotes J M hi (Denotes.let₁ value (Denotes.op newest)))]
+  change (arg ≫ _) ≫ _ = (bindArrow J arg (J.map (snd (ctxObj M Γ) (M.obj (instrSrc p))) ≫ _)) ≫ _
+  have project : extend J arg ≫ J.map (snd (ctxObj M Γ) (M.obj (instrSrc p))) = arg := by
+    simp only [extend, PremonoidalCategory.leftTensor, PremonoidalCategory.id_whiskerRight,
+      Category.id_comp, Category.assoc]
+    rw [FreydCategory.whiskerLeft_snd J, ← J.map_comp_assoc]
+    simp [duplicate]
+  simp only [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, ← Category.assoc, project]
 
 theorem denote_let₂_boundReturn_fusion {Γ : VCtx τ} {L : LCtx τ} {i : Nat}
     {A B D : τ} {a b : Tm Φ} (hi : At L i D)
