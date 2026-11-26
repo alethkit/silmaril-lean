@@ -9,7 +9,7 @@ namespace Silmaril.Proofs.Machine.MulticoreVM.Placed
 
 open Silmaril.Machine.MulticoreVM
 open Silmaril.Machine.MulticoreVM.Placed (Config TaggedWord threadWord coreWord tagFragment
-  Action threadSchedule Instruction Scheduled StoreView)
+  Action threadSchedule Instruction Scheduled)
 
 universe u
 
@@ -43,23 +43,24 @@ theorem coreWord_tagFragment (core : CoreId) (thread : ThreadId)
   intro letter _
   cases letter <;> rfl
 
-theorem scheduled_refinesBy [DecidableEq CoreId] {State : Type u}
+theorem scheduled_refines [DecidableEq CoreId]
     {instruction : Instruction CoreId ThreadId Core Thread Choice Event}
-    {view : StoreView CoreId ThreadId Core Thread State} {step : Transition State ThreadId Choice Event}
-    (refines : instruction.RefinesBy view step)
+    {step : Transition (ThreadId → Option Thread) ThreadId Choice Event}
+    (refines : instruction.Refines step)
     {schedule : List (Action CoreId ThreadId Choice)} {initial final : Config CoreId ThreadId Core Thread}
     {word : TaggedWord CoreId ThreadId Event} (run : Scheduled instruction schedule initial word final) :
-    Silmaril.Machine.MulticoreVM.Scheduled step (threadSchedule schedule)
-      (view initial.cores initial.threads) (threadWord word) (view final.cores final.threads) := by
+    Silmaril.Machine.MulticoreVM.Scheduled step (threadSchedule schedule) initial.threads
+      (threadWord word) final.threads := by
   induction run with
-  | nil cfg => exact .nil (view cfg.cores cfg.threads)
+  | nil cfg => exact .nil cfg.threads
   | cons first _ ih =>
     cases first with
     | execute resident instructionStep =>
       rw [show threadWord (_ ++ _) = threadWord _ ++ threadWord _ from List.map_append,
         threadWord_tagFragment]
       exact .cons (refines resident instructionStep) ih
-    | idle _ changes | assign _ _ _ changes | migrate _ _ _ changes =>
-      exact changes.1.symm ▸ changes.2.1.symm ▸ ih
+    | idle _ changes => exact changes.2.1.symm ▸ ih
+    | assign _ _ _ changes => exact changes.2.1.symm ▸ ih
+    | migrate _ _ _ changes => exact changes.2.1.symm ▸ ih
 
 end Silmaril.Proofs.Machine.MulticoreVM.Placed
