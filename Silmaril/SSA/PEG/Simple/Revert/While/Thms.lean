@@ -39,4 +39,14 @@ theorem Certificate.observe_of_returns [DecidableEq Data] (cert : Certificate g)
     g.observe m (g.denote m input cert.demandWellFounded) idx = .cons (some value) .nil :=
   Proofs.observe_of_returns cert m input notSem returns idx cert.demandWellFounded
 
+/-- Defined PEG returns give successful extracted SIMPLE returns when
+the guard and complete body step are total. -/
+theorem Certificate.returns_of_defined [DecidableEq Data] (cert : Certificate g)
+    (m : Interpretation.{u,v,w} P) (input : Tuple m.Value [state]) (total : cert.form.program.Total m)
+    (notSem : ∀ b : Bool, m.run cert.form.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (idx : Index 1) {value : m.Value state}
+    (defined : g.observe m (g.denote m input cert.demandWellFounded) idx = .cons (some value) .nil) :
+    cert.revert.Returns m input value :=
+  Proofs.returns_of_defined cert m input total notSem cert.demandWellFounded idx defined
+
 end Silmaril.SSA.PEG.Simple.Revert.While
