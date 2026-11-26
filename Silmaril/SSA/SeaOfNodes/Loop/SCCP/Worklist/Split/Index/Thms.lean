@@ -39,6 +39,22 @@ theorem step_eq (job : Task carried) (state : State m.value carried out) (pendin
     step m input index job state pending = Split.step m g input job state pending :=
   Proofs.step_eq index job state pending
 
+/-- One popped job has enough information to recover the general Φ notifications. -/
+theorem destinationsAfter_eq (job : Task carried) (state : State m.value carried out) :
+    let new := Split.update m g input job state
+    index.destinationsAfter job state new = index.destinations state new :=
+  Proofs.destinationsAfter_eq (m := m) (input := input) index job state
+
+/-- The specialized pop has the same full assignment and ordered pending queue
+as the general indexed step. -/
+theorem stepLocal_eq (job : Task carried) (state : State m.value carried out) (pending : List (Task carried)) :
+    stepLocal m input index job state pending = step m input index job state pending :=
+  Proofs.stepLocal_eq index job state pending
+
+/-- The specialized runner agrees at every budget, including the visit trace. -/
+theorem runSteps_eq_step : runSteps m input index = FIFO.runSteps (step m input index) :=
+  Proofs.runSteps_eq_step index
+
 theorem runSteps_eq : runSteps m input index = Split.runSteps m g input :=
   Proofs.runSteps_eq index
 
