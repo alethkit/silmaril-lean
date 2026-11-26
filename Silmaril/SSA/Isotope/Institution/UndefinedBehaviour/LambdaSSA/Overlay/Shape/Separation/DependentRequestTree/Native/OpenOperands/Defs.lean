@@ -37,6 +37,7 @@ def Tree.execute {n : Nat} (prim : Syntax.Primitives Φ n) : Tree S → Fin n �
 /-- Native rows use exact constructor expressions in their written context. -/
 inductive Row (S : RequestSignature Φ) (R Γ : List Syntax.Ty) where
   | exit (i : Tag)
+  | diverge
   | request (f : Φ) (arg : Syntax.Expr Γ (instrSrc f))
       (next : Fin (S.replies f).length → Fin R.length)
       (packet : ∀ i, R.get (next i) = (S.replies f).get i)
@@ -44,12 +45,13 @@ inductive Row (S : RequestSignature Φ) (R Γ : List Syntax.Ty) where
 variable {R Γ : List Syntax.Ty}
 
 def Row.targets : Row S R Γ → List (Fin R.length)
-  | .exit _ => []
+  | .exit _ | .diverge => []
   | .request _ _ next _ => List.ofFn next
 
 def Row.native : Row S R Γ → CFG.Dependent.Native.Typed Φ Γ (R ++ Exits)
   | .exit i => CFG.Dependent.Native.jump (CFG.Dependent.exitLabel R Exits i)
       ((external_type (R := R) (L := Exits) i).trans (exit_type i)) .unit
+  | .diverge => CFG.Dependent.Native.diverge
   | .request f arg next packet =>
     CFG.Dependent.Native.packedRequestTo f arg (S.target f)
       (fun j => Feedback.internal R Exits (next j))
@@ -76,12 +78,22 @@ def Table.blocks (g : Table S R) (i : Fin R.length) :
 def Table.native (g : Table S R) : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits :=
   ⟨nativeFeedback g.entryRegion g.blocks, nativeFeedback_hasType g.entryRegion g.blocks⟩
 
-def Table.targets (g : Table S R) (i : Fin R.length) : List (Fin R.length) := (g.row i).targets
+/-- The acyclic tree extractor has no ordinary-divergence leaf. A
+divergent row is treated as a self-cycle by its rank admission check. -/
+def Table.targets (g : Table S R) (i : Fin R.length) : List (Fin R.length) :=
+  match g.row i with
+  | .diverge => [i]
+  | row => row.targets
 
 abbrev Table.ranks (g : Table S R) := Rank.rounds g.targets R.length
 
 def Table.entryCheck (g : Table S R) : Bool :=
   Rank.checkFrom g.targets [g.entry]
+
+theorem Table.ranked_not_diverge (g : Table S R) {i : Fin R.length}
+    (ranked : (g.ranks.get i).isSome = true) (row : g.row i = .diverge) : False := by
+  have edge : i ∈ g.targets i := by simp [Table.targets, row]
+  exact (Nat.lt_irrefl _) (Rank.ranked_successor g.targets ranked edge).2
 
 /-- Consume one unit of the decreasing rank budget per local transfer.
 The reply creates the next environment only when the continuation is used. -/
@@ -92,10 +104,11 @@ def Table.expand (g : Table S R) (input : Syntax.Payload (R.get g.entry)) :
   | fuel + 1, i, ranked, bound, incoming =>
     match eq : g.row i with
     | .exit j => .stop (if g.selected j then .ub else .ret j)
+    | .diverge => (g.ranked_not_diverge ranked eq).elim
     | .request f arg next packet =>
       .ask f (arg.eval ((g.bindings input).push incoming)) fun j a =>
         have edge : next j ∈ g.targets i := by
-          rw [Table.targets, eq, Row.targets]
+          rw [Table.targets, eq]
           exact List.mem_ofFn.mpr ⟨j, rfl⟩
         have successor := Rank.ranked_successor g.targets ranked edge
         g.expand input fuel (next j) successor.1

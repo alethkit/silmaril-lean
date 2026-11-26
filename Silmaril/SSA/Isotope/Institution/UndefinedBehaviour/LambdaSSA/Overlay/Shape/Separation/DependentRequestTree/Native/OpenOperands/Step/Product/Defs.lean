@@ -22,6 +22,7 @@ def Head.MatchesWith (returns : Tag → Tag → Prop) (rel : Packet R → Packet
     Head S R → Head S T → Prop
   | _, .exit _ true => True
   | .exit i false, .exit j false => returns i j
+  | .diverge, .diverge => True
   | .request f arg next, .request g arg' next' => ∃ keys : f = g,
       arg.val = arg'.val ∧ ∀ reply : Packet (S.replies f),
         let target : Packet (S.replies g) := keys ▸ reply
@@ -36,6 +37,7 @@ def Head.checkPair [DecidableEq Φ] (replies : ReplyEnumeration S)
     (related : Packet R → Packet T → Bool) : Head S R → Head S T → Bool
   | _, .exit _ true => true
   | .exit i false, .exit j false => decide (i = j)
+  | .diverge, .diverge => true
   | .request f arg next, .request g arg' next' =>
     if eq : (f, arg.val) = (g, arg'.val) then
       let keys : f = g := congrArg Prod.fst eq

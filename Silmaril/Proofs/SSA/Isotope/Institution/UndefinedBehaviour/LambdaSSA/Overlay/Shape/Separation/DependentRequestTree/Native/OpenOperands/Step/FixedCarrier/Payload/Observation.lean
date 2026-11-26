@@ -11,6 +11,8 @@ import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Sha
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Elimination.Transport.Thms
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.State.Defs
 
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Thms
+
 public section
 
 namespace Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload
@@ -54,6 +56,10 @@ theorem raw_step {σ : Type v} (g : Endpoint S R A)
     rw [Syntax.denote_push prim _ incoming, Endpoint.blocks, rowEq, returnPacket_value]
     exact CFG.observe_jump (L := R ++ Exits A) prim ((g.control.bindings caller).push incoming)
       (exitLabel R (Exits A) j) ((external_type (R := R) (L := Exits A) j).trans (exit_type j)) (g.output i) s
+  · rename_i rowEq
+    change denote (.native (g.blocks i)) (extendModel (model prim (g.control.bindings caller)).raw incoming.val) s = _
+    rw [Syntax.denote_push prim _ incoming, Endpoint.blocks, rowEq]
+    exact CFG.Dependent.Native.observe_diverge prim ((g.control.bindings caller).push incoming) s
   · rename_i f arg next typed rowEq
     let env := (g.control.bindings caller).push incoming
     let target (j : Fin (S.replies f).length) := Feedback.internal R (Exits A) (next j)
@@ -205,7 +211,7 @@ theorem observeAt_mapState {σ τ : Type v} (g : Endpoint S R A) (e : σ ↪ τ)
     unfold Endpoint.transition
     dsimp [point]
     cases g.control.head caller p with
-    | exit => rfl
+    | exit | diverge => rfl
     | request f arg route =>
       simp only [Head.execute, agree]
       cases prim f arg s <;> rfl

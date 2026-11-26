@@ -30,6 +30,7 @@ def RootAgrees {Φ : Type} {R : List Syntax.Ty} {A : Syntax.Ty}
   ∀ p, tree p =
     match g.control.head caller p with
     | .exit i _ => ret (packedReturn (g.returnPacket caller p i))
+    | .diverge => Silmaril.Elgot.ITree.diverge
     | .request f arg next => vis (.call f arg) (fun reply => tree (next reply.1 reply.2))
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.LiveOut.PacketLocal.Guarded.FixedCarrier

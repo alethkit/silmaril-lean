@@ -32,12 +32,14 @@ private theorem expand_follows_rank (g : Table S R) (caller : Syntax.Payload (R.
     split at path
     · cases path
       exact Nat.zero_le _
+    · rename_i row
+      exact (g.ranked_not_diverge ranked row).elim
     · rename_i f arg route typed row
       cases path with
       | stop => exact Nat.zero_le _
       | @step n f' arg' arms j value rest tail =>
         have edge : route j ∈ g.targets i := by
-          rw [Table.targets, row, Row.targets]
+          rw [Table.targets, row]
           exact List.mem_ofFn.mpr ⟨j, rfl⟩
         have successor := Rank.ranked_successor g.targets ranked edge
         have smaller := successor.2.trans_le (Nat.le_of_lt_succ bound)

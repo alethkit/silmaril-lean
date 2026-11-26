@@ -52,16 +52,31 @@ theorem payload_local_mismatch_refutes [DecidableEq Φ] (g : Endpoint S R A) (h 
           apply mismatch
           simp only [lower, upper, Head.MatchesWith]
           exact Prod.ext same.1 same.2
-      | request f arg next =>
+      | diverge | request =>
         refine ⟨test none, ?_⟩
         rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
         simp [Head.execute, test, h.control.head_mark b q upper, WithTop.coe_le_coe]
+  | diverge =>
+    cases lower : g.control.head a p with
+    | diverge => exact (mismatch (by simp [lower, upper, Head.MatchesWith])).elim
+    | exit i marked =>
+      refine ⟨test none, ?_⟩
+      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      cases marked <;> simp [Head.execute, g.control.head_mark a p lower, WithTop.coe_le_coe]
+    | request f arg next =>
+      refine ⟨test (some (f, arg.val)), ?_⟩
+      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      simp [Head.execute, test, WithTop.coe_le_coe]
   | request k operand route =>
     cases lower : g.control.head a p with
     | exit i marked =>
       refine ⟨test none, ?_⟩
       rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
       cases marked <;> simp [Head.execute, test, g.control.head_mark a p lower, WithTop.coe_le_coe]
+    | diverge =>
+      refine ⟨test (some (k, operand.val)), ?_⟩
+      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      simp [Head.execute, test, WithTop.coe_le_coe]
     | request f arg next =>
       have different : ¬ (f = k ∧ arg.val = operand.val) := by
         rintro ⟨rfl, values⟩

@@ -192,14 +192,23 @@ private theorem tail_failure
     cases a : g.control.selected i <;> cases b : h.control.selected j <;>
       simp [a, b, WithTop.coe_le_coe] at bad ⊢
     exact bad
+  · rename_i i marked
+    cases g.control.selected i <;> simp [WithTop.coe_le_coe]
   · rename_i i marked f arg route
     rw [ordinaryDiv]
     cases g.control.selected i <;> simp [WithTop.coe_le_coe]
+  · rename_i j marked
+    cases b : h.control.selected j
+    · simp [WithTop.coe_le_coe]
+    · exact (bad (by simp [b])).elim
+  · simp_all
+  · simp_all
   · rename_i f arg route j marked
     rw [ordinaryDiv]
     cases b : h.control.selected j
     · simp [WithTop.coe_le_coe]
     · exact (bad (by simp [b])).elim
+  · simp_all
   · simp_all
 
 private def replay (reply : CFG.Dependent.Packed Recognize.Packets) : Primitives Φ 2 :=

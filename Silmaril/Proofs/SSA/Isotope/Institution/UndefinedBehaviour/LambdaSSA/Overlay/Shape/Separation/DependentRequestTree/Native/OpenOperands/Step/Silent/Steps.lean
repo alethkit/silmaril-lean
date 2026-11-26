@@ -39,7 +39,7 @@ private theorem specialize_head (selected : Tag → Bool) (arg : Expr [A, C] B)
     evalHead selected (env.push p) (specialize arg row) =
       evalHead selected (env.push (arg.eval (env.push p))) row := by
   cases row with
-  | exit => rfl
+  | exit | diverge => rfl
   | request f operand next typed =>
     simp only [specialize, evalHead]
     rw [eval_substitute]
@@ -123,20 +123,27 @@ theorem resolve_segment (g : Table S R) (caller : Payload (R.get g.entry)) (prim
         refine ⟨q, .head (jump_branch g caller prim eq p s) path, ?_⟩
         rwa [specialize_head]
 
-theorem normalized_segment (g : Table S R) (ok : g.normalizes = true)
-    (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (p : Packet R) (s : σ) :
+theorem normalize_head (g : Table S R) (caller : Payload (R.get g.entry)) (p : Packet R) :
+    g.normalize.head caller p =
+      match g.resolve R.length p.1 with
+      | some row => evalHead g.selected ((g.visible.bindings caller).push p.2) row
+      | none => .diverge := by
+  unfold OpenOperands.Table.head
+  cases found : g.resolve R.length p.1 with
+  | none => simp [found]
+  | some row =>
+    cases row <;> simp [found, evalHead, OpenOperands.Table.bindings]
+
+theorem normalized_segment (g : Table S R)
+    (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (p : Packet R) (s : σ)
+    (resolves : g.resolve R.length p.1 ≠ none) :
     ∃ q, ReflTransGen (Branch (g.feedback caller prim)) (blockPoint p s) q ∧
-      g.feedback caller prim q = (((g.normalized ok).head caller p).execute prim s).routed := by
+      g.feedback caller prim q = ((g.normalize.head caller p).execute prim s).routed := by
   obtain ⟨i, a⟩ := p
-  have found : g.resolve R.length i = some ((g.normalized ok).row i) :=
-    (Option.some_get _).symm
-  obtain ⟨q, path, step⟩ := resolve_segment g caller prim R.length i found a s
-  have head : (g.normalized ok).head caller ⟨i, a⟩ =
-      evalHead g.selected ((g.visible.bindings caller).push a) ((g.normalized ok).row i) := by
-    unfold OpenOperands.Table.head
-    generalize (g.normalized ok).row i = r
-    cases r <;> rfl
-  exact ⟨q, path, head ▸ step⟩
+  rw [normalize_head g caller]
+  cases found : g.resolve R.length i with
+  | none => exact (resolves found).elim
+  | some row => exact resolve_segment g caller prim R.length i found a s
 
 theorem native_close (g : Table S R) (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (s : σ) :
     denote (.native g.native) (model prim (g.visible.bindings caller)).raw s =

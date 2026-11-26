@@ -36,9 +36,14 @@ theorem check_pair_iff [DecidableEq Φ] (replies : ReplyEnumeration S)
   | exit i selected =>
     cases q with
     | exit j selected' => cases selected <;> cases selected' <;> simp [Head.checkPair, Head.Matches, Head.MatchesWith]
-    | request => cases selected <;> simp [Head.checkPair, Head.Matches, Head.MatchesWith]
+    | request | diverge => cases selected <;> simp [Head.checkPair, Head.Matches, Head.MatchesWith]
+  | diverge =>
+    cases q with
+    | exit _ selected => cases selected <;> simp [Head.checkPair, Head.Matches, Head.MatchesWith]
+    | request | diverge => simp [Head.checkPair, Head.Matches, Head.MatchesWith]
   | request f arg next =>
     cases q with
+    | diverge => simp [Head.checkPair, Head.Matches, Head.MatchesWith]
     | exit i selected => cases selected <;> simp [Head.checkPair, Head.Matches, Head.MatchesWith]
     | request g arg' next' =>
       rw [Head.checkPair, Head.Matches, Head.MatchesWith]
@@ -70,7 +75,7 @@ theorem head_mark (g : Table S R) (caller : Payload (R.get g.entry)) (p : Packet
   split at head
   · obtain ⟨rfl, eq⟩ := Head.exit.inj head
     exact eq
-  · contradiction
+  all_goals contradiction
 
 theorem payload_observe_infinite (g : Endpoint S R A) (caller : Payload (R.get g.control.entry))
     (prim : StatePrimitives Φ σ) (configs : Nat → Packet R) (store : Nat → σ)
@@ -114,10 +119,17 @@ private theorem local_match (g : Endpoint S R A) (h : Endpoint S T A) (caller : 
           simp only [Head.execute, head_mark g.control caller p lower, head_mark h.control caller' q upper,
             Bool.false_eq_true, ↓reduceIte]
           rw [val, tag]
-      | request => simp [lower, upper, Head.MatchesWith] at agreement
+      | request | diverge => simp [lower, upper, Head.MatchesWith] at agreement
+  | diverge =>
+    cases lower : g.control.head caller p with
+    | exit | request => simp [lower, upper, Head.MatchesWith] at agreement
+    | diverge =>
+      left
+      rw [g.observe_state_step, h.observe_state_step, lower, upper]
+      exact le_rfl
   | request op' operand' next' =>
     cases lower : g.control.head caller p with
-    | exit => simp [lower, upper, Head.MatchesWith] at agreement
+    | exit | diverge => simp [lower, upper, Head.MatchesWith] at agreement
     | request op operand next =>
       rw [lower, upper] at agreement
       obtain ⟨keys, values, replies⟩ := agreement
@@ -176,13 +188,17 @@ theorem unit_matches_iff (g : Table S R) (h : Table S T) (a : Payload (R.get g.e
       (fun i j => ((Endpoint.unit g).returnPacket a p i).raw = ((Endpoint.unit h).returnPacket b q j).raw)
       rel upper ↔ lower.Matches rel upper := by
   cases lower with
+  | diverge =>
+    cases upper with
+    | request | diverge => rfl
+    | exit _ selected => cases selected <;> rfl
   | request =>
     cases upper with
-    | request => rfl
+    | request | diverge => rfl
     | exit j selected => cases selected <;> rfl
   | exit i marked =>
     cases upper with
-    | request => rfl
+    | request | diverge => rfl
     | exit j selected =>
       cases marked <;> cases selected
       all_goals try rfl

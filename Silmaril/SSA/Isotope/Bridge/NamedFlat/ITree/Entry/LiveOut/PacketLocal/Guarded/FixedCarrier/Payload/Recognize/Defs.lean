@@ -144,6 +144,7 @@ def payloadStep {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature �
   | .inr p =>
     match g.control.head caller p with
     | .exit i _ => pure (.inr ⟨.inl (g.returnPacket caller p i)⟩)
+    | .diverge => Silmaril.Elgot.ITree.diverge
     | .request f arg next => query f arg >>= fun r => pure (.inr ⟨.inr (next r.down.1 r.down.2)⟩)
 
 noncomputable def packetTree {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ) Incoming A)
@@ -156,6 +157,7 @@ def rowTransfer {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature �
     Tree (Request Φ) (Transfer Runtime) :=
   match g.control.head caller p with
   | .exit i _ => pure ((i.natAdd 3).val, packetValue (g.returnPacket caller p i))
+  | .diverge => Silmaril.Elgot.ITree.diverge
   | .request f arg next => query f arg >>= fun r =>
     let q := next r.down.1 r.down.2
     pure (q.1.val, .pair (Recognize.encodeValue ULift.up q.2.val) .unit)

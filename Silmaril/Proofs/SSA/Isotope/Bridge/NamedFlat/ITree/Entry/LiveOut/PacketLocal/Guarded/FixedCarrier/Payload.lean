@@ -74,6 +74,7 @@ theorem observe_roots (g : Endpoint (Recognize.signature Φ) R A)
           (Outcome.ret q.1 (Recognize.encodeValue (fun _ => (diverge : RunTree Φ)) q.2.val) input.2)
         (WithTop.some {outward} : Behaviour (Loop ++ UnitExits).length (RunTree Φ) (Fin states)))
         (codec.apply_symm_apply (g.returnPacket caller input.1 i)).symm
+    | diverge => simp [Head.execute, treeStep, terminal, Row.routed]
     | request f arg next =>
       simp only [Head.execute, treeStep, out_vis, Part.some_dom, ↓reduceDIte, Part.get_some]
       cases prim f arg input.2 with

@@ -58,6 +58,7 @@ theorem roots {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ)
   have head : payloadStep g caller ⟨.inr p⟩ =
       (match (g).control.head caller p with
       | .exit i _ => pure (Sum.inr (⟨.inl ((g).returnPacket caller p i)⟩ : Phase A))
+      | .diverge => Silmaril.Elgot.ITree.diverge
       | .request f arg next => query f arg >>= fun r =>
         pure (Sum.inr (⟨.inr (next r.down.1 r.down.2)⟩ : Phase A))) := rfl
   rw [head]
@@ -67,6 +68,7 @@ theorem roots {Φ : Type} {A : Syntax.Ty} (g : Endpoint (Recognize.signature Φ)
     change (pure (Sum.inl ((packedReturn ((g).returnPacket caller p i)))) >>= _) = _
     simp only [pure_bind, Sum.elim_inl]
     rfl
+  | diverge => simp
   | request f x next => simp [query, vis_bind]
 
 private theorem literal_query {Φ : Type} (literals : Φ → Option Bool) (op : Φ) :
@@ -182,6 +184,8 @@ private theorem named_step (row : ∀ (p : Packet Incoming) (env : Env Runtime),
     | exit i _ =>
       simp only [pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr, encodePhase, restore_exit]
       rfl
+    | diverge =>
+      simp only [Silmaril.Elgot.ITree.diverge_bind]
     | request f arg next =>
       simp only [bind_assoc, pure_bind, liftPure, Function.comp_apply, Sum.map_inr, Sum.elim_inr,
         encodePhase, restore_block]

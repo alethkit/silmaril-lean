@@ -1472,14 +1472,26 @@ ordinary divergence from an ordinary exit and checks the directed order
 against a selected exit.
 
 `Silent.Table.checkEntries?` specializes the existing reachable-product
-checker to the normalized heads. Its cutoff counts synchronized label
-and packet pairs after silent normalization. Pure jumps do not add
-interpreter queries or prefix stores. The count keeps the exact
-label and packet positions at request boundaries. Certified productive
-infinite replay expands into nonempty native segments. The comparison currently
-requires resolution at every written label, including unreachable labels.
-An exhausted scan returns `none` from the comparison even though the
-per-invocation head classifier identifies its native divergence.
+checker to the normalized heads. The cutoff counts synchronized label
+and packet pairs after silent normalization. Silent transfers contribute
+no interpreter query or extra prefix store. Productive infinite replay
+expands into nonempty native segments.
+
+A certified exhausted scan is an ordinary-divergence terminal in the
+product. It matches another divergent terminal or a selected target exit.
+A pending request differs from a divergent terminal in either direction
+because a primitive fault can separate them. The normalized emitter
+implements the terminal with a silent unit self-loop. Its native
+observation is exactly the divergence singleton. Shortest mismatch paths
+still use one store per shared reply and one store for the terminal test.
+
+The finite comparison is exact for the original decorated packed CFGs at
+the computed cutoff, and acceptance there is equivalent to arbitrary-store
+deterministic refinement. Exhaustion at a written label, including an
+unreachable label, needs no further admission gate. Failed exact readback
+still returns `none`. Regressions cover two native silent cycles and a
+shared state-changing request that reaches a silent cycle on one side and
+an ordered return on the other.
 [Silent head normalization][ssa-ub-open-guarded-silent]
 
 ## Coverage and gaps

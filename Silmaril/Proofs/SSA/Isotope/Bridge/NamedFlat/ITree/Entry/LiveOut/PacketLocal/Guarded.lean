@@ -148,11 +148,15 @@ private theorem pairedHeads (query : Query S E) (rel : Packet R → Packet T →
           exact ⟨pure (.inr (.exit i)), by simp [liftPure, Coupled.left, headStep],
             by simp [liftPure, Coupled.right, headStep]⟩
         · contradiction
-      | request => contradiction
+      | request | diverge => contradiction
     · exact (ordinary j rfl).elim
+  | diverge =>
+    cases p with
+    | exit | request => contradiction
+    | diverge => exact ⟨Silmaril.Elgot.ITree.diverge, by simp [headStep], by simp [headStep]⟩
   | request op arg next =>
     cases p with
-    | exit => contradiction
+    | exit | diverge => contradiction
     | request op' arg' next' =>
       obtain ⟨key, args, matchesReply⟩ := matched
       subst op'
@@ -170,6 +174,7 @@ private theorem head_ordinary (h : Table S T) (caller : Syntax.Payload (T.get h.
   unfold Table.head at same
   split at same
   · simp [ordinary] at same
+  · contradiction
   · contradiction
 
 theorem iter_eq_of_closed (g : Table S R) (h : Table S T)

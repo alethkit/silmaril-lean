@@ -53,6 +53,7 @@ private theorem run_head (g : Table (Recognize.signature Φ) Packets)
     iter (m := Tree (Request Φ)) (step g caller query result) (atBlock p) =
       match g.head caller p with
       | .exit i _ => ret (result i)
+      | .diverge => Silmaril.Elgot.ITree.diverge
       | .request f arg next =>
         vis (.call f arg) (fun reply =>
           iter (step g caller query result) (atBlock (next reply.1 reply.2))) := by
@@ -64,6 +65,7 @@ private theorem run_head (g : Table (Recognize.signature Φ) Packets)
     rw [congrFun (iterate_fixpoint (step g caller query result)) (atExit i)]
     simp only [step, atExit, pure_bind, Sum.elim_inl]
     rfl
+  | diverge => simp [headStep]
   | request f arg next =>
     simp only [headStep, query, vis_bind, pure_bind, Sum.elim_inr]
 
@@ -98,6 +100,7 @@ private theorem step_row (g : Table (Recognize.signature Φ) Packets)
   | exit tag selected =>
     simp [Head.execute, treeStep, decodes, Row.routed, carrier, terminal]
     rfl
+  | diverge => simp [Head.execute, treeStep, Row.routed, terminal]
   | request f arg next =>
     simp only [Head.execute, treeStep, out_vis, Part.some_dom, ↓reduceDIte, Part.get_some]
     cases hp : prim f arg i.2 with

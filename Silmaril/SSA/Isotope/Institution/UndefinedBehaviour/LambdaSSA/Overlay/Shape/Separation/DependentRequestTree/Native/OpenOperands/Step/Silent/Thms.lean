@@ -14,7 +14,7 @@ namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.Nativ
 open Category.FiniteIteration hiding Row Table
 open CFG.Dependent (Packet)
 open CFG.Dependent.Native (withExitUB)
-open Syntax (Payload StatePrimitives model)
+open Syntax (Payload StatePrimitives Primitives model)
 open TwoRequest (Exits)
 
 universe u v
@@ -24,12 +24,12 @@ variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ}
 
 /-- Resolving the silent prefixes preserves complete observations at each
 typed feedback invocation, including productive infinite replay. -/
-theorem Table.close_normalized (g : Table S R) (ok : g.normalizes = true)
+theorem Table.close_normalized (g : Table S R)
     (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (p : Packet R) (s : σ) :
     Feedback.close (g.feedback caller prim) (blockPoint p s) =
-      Feedback.close ((g.normalized ok).feedback caller prim) (blockPoint p s) :=
+      Feedback.close (g.normalize.feedback caller prim) (blockPoint p s) :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.close_normalized
-    g ok caller prim p s
+    g caller prim p s
 
 /-- An exhausted silent scan yields an infinite path of native steps at
 the unchanged store. Exhaustive packets give an actual repeated typed configuration. -/
@@ -71,13 +71,21 @@ theorem Table.head_correct (g : Table S R)
 
 /-- Exact native readback transports the whole decorated observation
 from the original packed CFG to the normalized guarded emitter. -/
+theorem Table.normalize_observes (g : Table S R)
+    (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits) (checked : g.checkNative raw = true)
+    (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (s : σ) :
+    Shape.denote (withExitUB raw g.selected) (model prim (g.visible.bindings caller)) s =
+      Shape.denote (withExitUB g.normalize.native g.selected) (model prim (g.visible.bindings caller)) s :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.normalize_observes
+    g raw checked caller prim s
+
+/-- Compatibility with all-resolved tables. -/
 theorem Table.normalized_observes (g : Table S R) (ok : g.normalizes = true)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits) (checked : g.checkNative raw = true)
     (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (s : σ) :
     Shape.denote (withExitUB raw g.selected) (model prim (g.visible.bindings caller)) s =
       Shape.denote (withExitUB (g.normalized ok).native g.selected) (model prim (g.visible.bindings caller)) s :=
-  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.normalized_observes
-    g ok raw checked caller prim s
+  g.normalize_observes raw checked caller prim s
 
 /-- Selected exit continuations do not alter the ordinary divergence
 of an exhausted entry scan. -/
@@ -97,22 +105,41 @@ variable {g : Table S R} {h : Table S T}
   {decodeLeft : Payload A → Payload (R.get g.entry)} {decodeRight : Payload A → Payload (T.get h.entry)}
   {replies : ReplyEnumeration S} {left : ConfigurationEnumeration R} {right : ConfigurationEnumeration T}
 
-/-- The comparison keeps unsupported readback and exhausted silent scans
-unknown. The guarded product has no silent-divergence head. -/
+/-- Unknown is exactly a failed original readback. Exhausted scans become
+ordinary-divergence heads of the finite comparison. -/
 theorem Table.checkEntries_none_iff :
     g.checkEntries? h raw raw' callers decodeLeft decodeRight replies left right = none ↔
-      g.checkNative raw = false ∨ h.checkNative raw' = false ∨
-        g.normalizes = false ∨ h.normalizes = false :=
+      g.checkNative raw = false ∨ h.checkNative raw' = false :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.none_iff
 
 /-- The existing reachable-product cutoff for the normalized heads decides
 deterministic refinement of the original packed endpoints. -/
 theorem Table.checkEntries_accepts_iff
-    (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true)
-    (ng : g.normalizes = true) (nh : h.normalizes = true) :
+    (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true) :
     g.checkEntries? h raw raw' callers decodeLeft decodeRight replies left right = some true ↔
       g.DeterministicRefines.{u,v} h raw raw' decodeLeft decodeRight :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.accepts_iff
-    hg hh ng nh
+    hg hh
+/-- The computed carrier comparison is exact for the original
+decorated packed endpoints at that carrier. -/
+theorem Table.checkEntries_accepts_cutoff_iff
+    (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true) :
+    let n := g.cutoff h callers decodeLeft decodeRight replies left right
+    g.checkEntries? h raw raw' callers decodeLeft decodeRight replies left right = some true ↔
+      ∀ (input : Payload A) (prim : Primitives Φ n) (s : Fin n),
+        Shape.denote (withExitUB raw g.selected) (model prim (g.visible.bindings (decodeLeft input))) s ≤
+          Shape.denote (withExitUB raw' h.selected) (model prim (h.visible.bindings (decodeRight input))) s :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.accepts_cutoff_iff
+    hg hh
+
+/-- A negative verdict on admitted originals is exactly failure of
+arbitrary-store deterministic refinement. -/
+theorem Table.checkEntries_rejects_iff
+    (hg : g.checkNative raw = true) (hh : h.checkNative raw' = true) :
+    g.checkEntries? h raw raw' callers decodeLeft decodeRight replies left right = some false ↔
+      ¬ g.DeterministicRefines.{u,v} h raw raw' decodeLeft decodeRight :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.rejects_iff
+    hg hh
+
 
 end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent

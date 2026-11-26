@@ -53,6 +53,14 @@ private theorem matches_reachable
       · trivial
       · simp only [lower, upper, Head.MatchesWith] at agrees
       · trivial
+    | request | diverge => simp only [lower, upper, Head.MatchesWith] at agrees
+  | diverge =>
+    cases upper : h.control.head b q with
+    | diverge => trivial
+    | exit _ chosen =>
+      cases chosen
+      · simp only [lower, upper, Head.MatchesWith] at agrees
+      · trivial
     | request => simp only [lower, upper, Head.MatchesWith] at agrees
   | request f arg next =>
     cases upper : h.control.head b q with
@@ -60,6 +68,7 @@ private theorem matches_reachable
       cases chosen
       · simp only [lower, upper, Head.MatchesWith] at agrees
       · trivial
+    | diverge => simp only [lower, upper, Head.MatchesWith] at agrees
     | request k operand route =>
       rw [lower, upper] at agrees
       obtain ⟨keys, values, _⟩ := agrees

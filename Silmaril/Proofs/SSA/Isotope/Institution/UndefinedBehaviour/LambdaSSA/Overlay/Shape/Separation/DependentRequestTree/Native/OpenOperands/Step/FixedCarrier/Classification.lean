@@ -42,7 +42,7 @@ private theorem execute_mapState (e : Fin states → Fin larger)
     (head : Head S R) (s : Fin states) :
     head.execute other (e s) = (head.execute prim s).mapState e := by
   cases head with
-  | exit => rfl
+  | exit | diverge => rfl
   | request f a next =>
     simp only [Head.execute, agree]
     cases prim f a s <;> rfl

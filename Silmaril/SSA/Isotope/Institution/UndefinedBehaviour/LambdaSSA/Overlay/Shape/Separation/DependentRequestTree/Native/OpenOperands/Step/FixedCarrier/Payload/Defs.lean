@@ -45,6 +45,7 @@ def Endpoint.blocks (g : Endpoint S R A) (i : Fin R.length) :
     CFG.Dependent.Native.Typed Φ [R.get i, R.get g.control.entry] (R ++ Exits A) :=
   match g.control.row i with
   | .exit j => jump (exitLabel R (Exits A) j) ((external_type (R := R) (L := Exits A) j).trans (exit_type j)) (g.output i)
+  | .diverge => CFG.Dependent.Native.diverge
   | .request f arg next typed => packedRequestTo f arg (S.target f)
       (fun j => Feedback.internal R (Exits A) (next j))
       (fun j => (internal_type (L := Exits A) (next j)).trans (typed j))

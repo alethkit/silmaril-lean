@@ -33,7 +33,7 @@ variable {g : Table S R} {caller : Payload (R.get g.entry)} {prim : StatePrimiti
 /-- Match the complete typed query key. The answer is unconstrained here. -/
 def listed (run : GuardedReplay g caller prim p s) (rows : List (RunRow Φ σ)) (i : Nat) : Prop :=
   match g.head caller (run.point i).1 with
-  | .exit .. => False
+  | .exit .. | .diverge => False
   | .request f a _ => ∃ reply, (⟨f, a, (run.point i).2, reply⟩ : RunRow Φ σ) ∈ rows
 
 def mappedStep (run : GuardedReplay g caller prim p s) (code : σ → τ)

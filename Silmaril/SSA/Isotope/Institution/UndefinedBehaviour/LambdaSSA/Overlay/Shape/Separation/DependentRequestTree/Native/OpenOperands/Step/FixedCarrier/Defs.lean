@@ -61,7 +61,7 @@ theorem ConfigurationEnumeration.invocation_mem (configs : ConfigurationEnumerat
 /-- Use the full typed key at a request head and no key at an exit. -/
 def Head.query? (head : Head S R) (s : Fin states) : Option (InterpreterScript.Query Φ states) :=
   match head with
-  | .exit .. => none
+  | .exit .. | .diverge => none
   | .request f arg _ => some ⟨f, arg, s⟩
 
 def Table.queries (g : Table S R) (caller : Syntax.Payload (R.get g.entry))

@@ -109,7 +109,7 @@ theorem head_execute_congr (g : Table S R) (caller : Syntax.Payload (R.get g.ent
     (p : Packet R) (s : Fin states) :
     (g.head caller p).execute prim s = (g.head caller p).execute other s := by
   cases head : g.head caller p with
-  | exit => rfl
+  | exit | diverge => rfl
   | request f arg next =>
     let q : InterpreterScript.Query Φ states := ⟨f, arg, s⟩
     have listed := query_mem g caller configs stores p s (q := q) (by rw [head]; rfl)
