@@ -115,26 +115,32 @@ def capturedGroup : {ports : Ports (Ty V S)} → (values : Tuple m.Val ports) �
       (exportGroup value).map fun found => ⟨found.members, found.group, memberSlot value, .member found.known plain⟩
     else none
 
-/-- The key is only used to rule out mixed dispatch between a new λ and
-earlier λ bindings. Actual capture membership comes from typed link origins. -/
-abbrev LambdaKey (V S : Type u) := Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S)
+/-- An isomorphism invariant used only to rule out mixed dispatch. The
+last field counts vertices in the actual outer body region. -/
+abbrev LambdaKey (V S : Type u) := Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × Nat
 
 def lambdaKey {port : Ty V S} : m.Val port → Option (LambdaKey V S)
-  | .closure (params := params) (results := results) (context := context) _ _ =>
-    some (params, results, context)
+  | .closure (params := params) (results := results) (context := context) (sigs := sigs) _ _ =>
+    some (params, results, context, sigs.length)
   | _ => none
 
+/-- The ordered checker may skip an empty γ even when the other body has
+no partner for that row. Keep the two observed vertex counts separately. -/
+structure LambdaKeys (V S : Type u) where
+  left : List (LambdaKey V S)
+  right : List (LambdaKey V S)
+
 /-- A checked finite prefix, with a conservative bound on the λ keys
-present on either side. A fixed φ table needs no λ key. -/
+present on each side. A fixed φ table needs no λ key. -/
 structure LinkedFamily (primitives : Primitives m σ) (ids : GlobalRel) (left right : Family m)
-    (keys : List (LambdaKey V S)) : Prop where
+    (keys : LambdaKeys V S) : Prop where
   checked : CheckedFamily primitives ids left right
   ordinaryL : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → left value
   ordinaryR : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → right value
   keysL : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaKey V S},
-    left value → lambdaKey value = some key → key ∈ keys
+    left value → lambdaKey value = some key → key ∈ keys.left
   keysR : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaKey V S},
-    right value → lambdaKey value = some key → key ∈ keys
+    right value → lambdaKey value = some key → key ∈ keys.right
 
 variable {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
 
