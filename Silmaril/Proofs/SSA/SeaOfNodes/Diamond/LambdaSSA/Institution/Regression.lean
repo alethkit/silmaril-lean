@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Thms
+import Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber.Thms
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution
 
@@ -87,5 +87,49 @@ example : ((inst.{0, 0, 0} Unit).I.map swap).sen (lowerEquation equation) =
 example : (lowerEquation (equation.map swap)).Holds arithmetic ↔
     (equation.map swap).Holds arithmetic :=
   (comparison.{0, 0, 0} Unit).satisfaction sig (Discrete.mk arithmetic) (equation.map swap)
+
+open Isotope.Institution.Observational (Observation ssaBeh)
+
+example : (Fiber.inputModel arithmetic Nat (entry true)).bound (0 : Fin 2) = .inl .unit := rfl
+example : (Fiber.inputModel arithmetic Nat (entry true)).bound (1 : Fin 2) =
+    .atom ⟨(), (4 : Nat)⟩ := rfl
+
+private def generated := GeneratedRegion.ofGraph (P := sig) graph
+
+example : Observation.ret (17 : Nat) (0, .atom ⟨(), (5 : Nat)⟩) 17 ∈
+    ssaBeh 1 (Fiber.inputModel arithmetic Nat (entry true)) (Fiber.scope generated) :=
+  (Fiber.ret_mem_eval generated arithmetic (entry true) 17 17 0 _).2
+    ((lower_eval_iff graph arithmetic (entry true) 17 17 0 _).2 ⟨rfl, rfl, rfl⟩)
+
+example : Observation.ret (17 : Nat) (0, .atom ⟨(), (5 : Nat)⟩) 18 ∉
+    ssaBeh 1 (Fiber.inputModel arithmetic Nat (entry true)) (Fiber.scope generated) := by
+  intro member
+  have run := (Fiber.ret_mem_eval generated arithmetic (entry true) 17 18 0 _).1 member
+  have state := ((lower_eval_iff graph arithmetic (entry true) 17 18 0 _).1 run).2.2
+  contradiction
+
+private def identify : sig ⟶ sig := ⟨fun | .inc | .double => .inc⟩
+
+example : ∀ input,
+    (Fiber.fiberRoom.{0, 0, 0, 0} sig inputs.length).Sat
+      (Discrete.mk (Fiber.inputModel arithmetic Nat input))
+      (Fiber.translateEquation (lowerEquation (equation.map identify))) :=
+  (Fiber.translated_satisfaction Nat (equation.map identify) arithmetic).2 (fun _ => rfl)
+
+example : ¬ ∀ input,
+    (Fiber.fiberRoom.{0, 0, 0, 0} sig inputs.length).Sat
+      (Discrete.mk (Fiber.inputModel arithmetic Nat input))
+      (Fiber.translateEquation (lowerEquation equation)) := by
+  intro holds
+  have diff := (Fiber.translated_satisfaction Nat equation arithmetic).1 holds (entry true)
+  change (5 : Nat) = 8 at diff
+  cases diff
+
+-- The same unequal diamond equation satisfies the existing room at an empty
+-- state carrier, where no observation has an initial state.
+example : (Fiber.fiberRoom.{0, 0, 0, 0} sig inputs.length).Sat
+    (Discrete.mk (Fiber.inputModel arithmetic Empty (entry true)))
+    (Fiber.translateEquation (lowerEquation equation)) :=
+  Fiber.empty_state_satisfies (σ := Empty) (lowerEquation equation) arithmetic (entry true)
 
 end Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution
