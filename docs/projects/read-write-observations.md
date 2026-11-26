@@ -76,3 +76,42 @@ stale reads, and an out-of-bounds read.
 lake build --wfail +Silmaril.Process.Memory.Trace.Projections.Checks \
   +Silmaril.Semantics.Page.Array.Observations.Checks
 ```
+
+## Executing access programs with a Writer
+
+`Program.read` and `Program.write` build programs in the free monad over the
+two access operations. Programs can branch on returned read values. The
+interpreter delegates each operation to the supplied `Access` backend,
+threads its state and records each successful event with its value.
+`LoggedState.run` returns `some ((result, final), log)` on success.
+Failure returns `none` and discards the state and prefix log.
+
+```lean
+import Silmaril.Semantics.ReadWrite.Writer.State.Thms
+
+open Silmaril.Semantics.ReadWrite
+
+def increment : Program Nat Nat (Nat × Nat) := do
+  let before ← Program.read 0
+  let _ ← Program.write 0 (before + 1)
+  let after ← Program.read 0
+  pure (before, after)
+
+def incrementSummary {State : Type} (access : Access Nat Nat State) (initial : State) :
+    Option (((Nat × Nat) × State) × UseDef Nat) :=
+  LoggedState.run (LoggedState.mapLog ValueLog.useDef (increment.interpret access)) initial
+```
+
+Run `increment.interpret access` before applying any projection to obtain the
+valued log. Given a successful run, `Program.replays_of_run` proves that
+`log.toList` replays against the same backend from the initial state to the
+returned state. The theorem applies to the restricted programs above, whose
+only effects are the backend operations. Erased logs cannot be consumed for
+replay or used to check equality of repeated read values.
+
+`LoggedState.mapLog` accepts any monoid homomorphism on logs. Its
+`isMonadHom_mapLog` law preserves pure and bind, and `run_mapLog_outcome`
+preserves failure or success with the same result and final state.
+`Program.mapLog_interpret` lets a projection run at each operation instead of
+after collecting the valued trace.
+[API](../../Silmaril/Semantics/ReadWrite/Writer/State/Thms.lean) · [Process and page checks](../../Silmaril/Process/Memory/TraceWriter/Integration/Checks.lean)
