@@ -65,7 +65,7 @@ theorem readReply_discards (n : Nat) (i : Fin n) :
   | succ n ih => exact bindReply_discards (readReply n) ih i
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem constant_quote {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
+theorem constant_quote {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
     (b : Bool) (pos : Position L) (slots : Fin n → Term signature.Instr X Bit) (bits : List Bool)
     (drop : ∀ j, Discards [X] (slots j).elaborate.val) :
     selectedEq (selectTerminal pos (Finite.Expr.quote n (fun _ => b)) slots bits)
