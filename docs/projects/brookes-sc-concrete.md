@@ -34,8 +34,9 @@ before the continuation are independent. `eval_call_external` uses the
 model's chosen external behavior in the same bind.
 
 `Concrete.institution W` is a functor from `Signature W` to rooms.
-`satisfies_iff` expresses trace inclusion at every input, and `eval_mono`
-expresses preservation of program inclusion under model refinement.
+`satisfies_iff` expresses trace inclusion at every input. For a model arrow
+`M ⟶ N`, `eval_mono` gives inclusion of `M.eval program` in `N.eval program`
+for the same program.
 `eval_translate`, `reduct_external` and `satisfaction` give the translation
 and reduct equations. A signature arrow forwards labels in each full
 designation fiber of the same world. The full designation fixes the primitive
