@@ -139,11 +139,7 @@ private theorem liftCode_edgePackets (code : Block TargetOp (Label saved carried
     | here => rfl
     | there ref => exact same ref
 
-private def liftTarget : Target (Label saved carried result extra) → Target (Label saved carried result (consumer :: extra))
-  | ⟨_, .header⟩ => ⟨_, .header⟩
-  | ⟨_, .exit⟩ => ⟨_, .exit⟩
-
-private theorem liftCode_target (code : Block TargetOp (Label saved carried result extra) Γ [result])
+theorem liftCode_target (code : Block TargetOp (Label saved carried result extra) Γ [result])
     (rename : Rename Γ Δ) (keep : Var Δ consumer) (slot : EdgeSlot) :
     (shape.ofBlock (liftCode rename keep code)).target slot =
       ((shape.ofBlock code).target slot).map liftTarget := by

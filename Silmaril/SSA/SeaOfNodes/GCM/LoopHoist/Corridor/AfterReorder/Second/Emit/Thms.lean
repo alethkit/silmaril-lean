@@ -42,6 +42,14 @@ theorem liftCode_eval {Γ Δ extra : List Width} {saved consumer : Width}
       (code.eval evalOp (fun term env => Terminator.eval env term) source).map (Saved.prependFrame (target.get keep)) id :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftCode_eval code rename keep source target same
 
+/-- Lifting saved arguments preserves the destination at each exact terminator slot. -/
+theorem liftCode_target {Γ Δ extra : List Width} {saved consumer : Width}
+    (code : Block TargetOp (Label saved carried result extra) Γ [result])
+    (rename : Rename Γ Δ) (keep : Var Δ consumer) (slot : EdgeSlot) :
+    (shape.ofBlock (liftCode rename keep code)).target slot =
+      ((shape.ofBlock code).target slot).map liftTarget :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftCode_target code rename keep slot
+
 /-- Extending the carried packet respects each terminator occurrence. -/
 theorem liftCode_targets_congr {Γ Δ Γ' Δ' extra : List Width} {saved consumer : Width}
     (left : Block TargetOp (Label saved carried result extra) Γ [result])
