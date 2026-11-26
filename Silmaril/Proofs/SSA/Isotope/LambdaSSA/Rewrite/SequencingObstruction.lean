@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Syn
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Labels
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.SequencingObstruction.Terms
+public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.SequencingObstruction.Terms
 import Silmaril.Raw.SSA.Isotope.LambdaSSA.Substitution
 
 /-! # A separating observation for the native CFG rules -/
@@ -13,42 +13,54 @@ public section
 
 namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Sequencing
 
-open Silmaril.Isotope Silmaril.Isotope.LambdaSSA
+open Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open Silmaril.Isotope.LambdaSSA.Region.SequencingObstruction
 open Silmaril.DeBruijn (lift liftN liftN_lt liftN_ge)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend)
 
-private structure Exit where
+structure Exit where
   label : Nat
   value : Val
   effect : Bool
   marked : Bool
 
-private def Exit.relabel (x : Exit) (f : Nat → Nat) : Exit :=
+@[expose] def Exit.relabel (x : Exit) (f : Nat → Nat) : Exit :=
   { x with label := f x.label }
 
-private def Exit.prepend (x : Exit) (effect marked : Bool) : Exit :=
+@[expose] def Exit.prepend (x : Exit) (effect marked : Bool) : Exit :=
   { x with effect := effect || x.effect, marked := marked || x.marked }
 
-private def Exit.branch (label : Nat) (v : Val) (effect : Bool) : Exit :=
+@[expose] def Exit.branch (label : Nat) (v : Val) (effect : Bool) : Exit :=
   ⟨label, v, effect, false⟩
 
-/-- Count local transfers within one CFG. Mark an effect if at least two
-local transfers in this binder still follow it. Nested observations propagate
-through the result, while each binder counts its own transfers. -/
-private inductive Follow {n : Nat} (block : Fin n → Val → Exit → Prop) :
+/-- The native diagnostic and the Paper diagnostic share their finite-run
+calculus and choose different arities at which to add marks. -/
+class MarkArity where
+  enabled : Nat → Bool
+
+section
+set_option linter.concreteInstances false
+variable [MarkArity]
+
+@[expose] def markAt (n : Nat) (first : Exit) (remaining : Nat) : Bool :=
+  first.marked || (MarkArity.enabled n && first.effect && decide (1 ≤ remaining))
+
+/-- Count transfers within one CFG. An enabled arity marks an effect with
+at least two local transfers still ahead. Observations from nested binders
+retain their marks independently of the current count. -/
+inductive Follow {n : Nat} (block : Fin n → Val → Exit → Prop) :
     Exit → Nat → Exit → Prop where
   | exit {first : Exit} (h : n ≤ first.label) :
       Follow block first 0 (first.relabel (· - n))
   | step {first next out : Exit} {count : Nat} (h : first.label < n)
       (head : block ⟨first.label, h⟩ first.value next) (tail : Follow block next count out) :
       Follow block first (count + 1)
-        (out.prepend first.effect (first.marked || (first.effect && decide (1 ≤ count))))
+        (out.prepend first.effect (markAt n first count))
 
-private def withTerm (env : Env) (a : Tm Instruction) (body : Val → Exit → Prop) (out : Exit) : Prop :=
+@[expose] def withTerm (env : Env) (a : Tm Instruction) (body : Val → Exit → Prop) (out : Exit) : Prop :=
   ∃ v e, term env a = some (v, e) ∧ ∃ x, body v x ∧ out = x.prepend e false
 
-private def observe (env : Env) : Region Instruction → Exit → Prop
+@[expose] def observe (env : Env) : Region Instruction → Exit → Prop
   | .br i a => fun out => ∃ v e, term env a = some (v, e) ∧ out = Exit.branch i v e
   | .let₁ a r => withTerm env a (fun v => observe (extend env v) r)
   | .let₂ a r => withTerm env a (fun
@@ -62,6 +74,7 @@ private def observe (env : Env) : Region Instruction → Exit → Prop
       ∃ first count, observe env r first ∧
         Follow (fun i v => observe (extend env v) (blocks i)) first count out
 
+omit [MarkArity] in
 private theorem withTerm_congr {env env' : Env} {a a' : Tm Instruction}
     {f g : Val → Exit → Prop} (ht : term env a = term env' a')
     (h : ∀ v e, term env' a' = some (v, e) → f v = g v) :
@@ -76,7 +89,7 @@ private theorem withTerm_congr {env env' : Env} {a a' : Tm Instruction}
   · rintro ⟨v, e, hv, x, hx, rfl⟩
     exact ⟨v, e, hv, x, (h v e hv).symm ▸ hx, rfl⟩
 
-private theorem observe_subst (r : Region Instruction) {env env' : Env} {σ : Nat → Tm Instruction}
+theorem observe_subst (r : Region Instruction) {env env' : Env} {σ : Nat → Tm Instruction}
     (h : ∀ i, term env (σ i) = some (env' i, false)) :
     observe env (r.substVars σ) = observe env' r := by
   induction r generalizing env env' σ with
@@ -94,13 +107,15 @@ private theorem observe_subst (r : Region Instruction) {env env' : Env} {σ : Na
   | cfg r n blocks ih ib =>
     simp only [Region.substVars, observe, ih h, ib _ (lift_realizes h _)]
 
-private theorem single_realizes {env : Env} {a : Tm Instruction} {v : Val} (h : term env a = some (v, false)) :
+omit [MarkArity] in
+theorem single_realizes {env : Env} {a : Tm Instruction} {v : Val} (h : term env a = some (v, false)) :
     ∀ i, term env (Tm.singleSubst a i) = some (extend env v i, false) := by
   intro i
   cases i with
   | zero => exact h
   | succ i => rfl
 
+omit [MarkArity] in
 private theorem replace_realizes (env : Env) (arg : Val) :
     (∀ i, term (extend env arg) (Tm.replaceNewest (.inl (.var 0)) i) =
         some (extend env (.inl arg) i, false)) ∧
@@ -108,10 +123,12 @@ private theorem replace_realizes (env : Env) (arg : Val) :
         some (extend env (.inr arg) i, false)) := by
   constructor <;> intro i <;> cases i <;> rfl
 
-@[simp] private theorem prepend_false (o : Exit) : o.prepend false false = o := by
+omit [MarkArity] in
+@[simp] theorem prepend_false (o : Exit) : o.prepend false false = o := by
   cases o; rfl
 
-private theorem withTerm_value {env : Env} {a : Tm Instruction} {v : Val}
+omit [MarkArity] in
+theorem withTerm_value {env : Env} {a : Tm Instruction} {v : Val}
     (h : term env a = some (v, false)) (body : Val → Exit → Prop) :
     withTerm env a body = body v := by
   funext out
@@ -163,6 +180,7 @@ private theorem follow_rename {n : Nat} {f g : Fin n → Val → Exit → Prop}
       simp only [Exit.relabel, liftN_lt ρ inside]
       exact (h _ _ _).mpr ⟨_, head, rfl⟩
 
+omit [MarkArity] in
 private theorem withTerm_rename {env : Env} {a : Tm Instruction} {f g : Val → Exit → Prop}
     (ρ : Nat → Nat) (h : ∀ v x, g v x ↔ ∃ y, f v y ∧ x = y.relabel ρ) (x : Exit) :
     withTerm env a g x ↔ ∃ y, withTerm env a f y ∧ x = y.relabel ρ := by
@@ -173,7 +191,7 @@ private theorem withTerm_rename {env : Env} {a : Tm Instruction} {f g : Val → 
   · rintro ⟨_, ⟨v, e, hv, z, hz, rfl⟩, rfl⟩
     exact ⟨v, e, hv, _, (h v _).mpr ⟨z, hz, rfl⟩, rfl⟩
 
-private theorem observe_renameLabels (r : Region Instruction) (ρ : Nat → Nat) (env : Env) (x : Exit) :
+theorem observe_renameLabels (r : Region Instruction) (ρ : Nat → Nat) (env : Env) (x : Exit) :
     observe env (r.renameLabels ρ) x ↔ ∃ y, observe env r y ∧ x = y.relabel ρ := by
   induction r generalizing env x ρ with
   | br i a =>
@@ -202,9 +220,10 @@ private theorem observe_renameLabels (r : Region Instruction) (ρ : Nat → Nat)
     · rintro ⟨y, ⟨first, k, he, hl⟩, rfl⟩
       exact ⟨_, k, (ie _ _ _).mpr ⟨first, he, rfl⟩, (hf first k _).mpr ⟨y, hl, rfl⟩⟩
 
-private def Exit.WellTyped (L : LCtx (Ty Empty)) (x : Exit) : Prop :=
+@[expose] def Exit.WellTyped (L : LCtx (Ty Empty)) (x : Exit) : Prop :=
   ∃ A, At L x.label A ∧ Typed x.value A
 
+omit [MarkArity] in
 private theorem prepend_typed {L : LCtx (Ty Empty)} {x : Exit} {e m : Bool}
     (h : x.WellTyped L) : (x.prepend e m).WellTyped L := h
 
@@ -228,7 +247,7 @@ private theorem follow_mapTyped {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty
     obtain ⟨ho, tail⟩ := ih hn
     exact ⟨ho, .step inside hg tail⟩
 
-private theorem observe_typed {Γ : VCtx (Ty Empty)} {r : Region Instruction} {L : LCtx (Ty Empty)}
+theorem observe_typed {Γ : VCtx (Ty Empty)} {r : Region Instruction} {L : LCtx (Ty Empty)}
     (hr : Region.HasType Γ r L) {env : Env} (he : EnvTyped Γ env)
     {out : Exit} (h : observe env r out) : out.WellTyped L := by
   induction hr generalizing env out with
@@ -254,16 +273,16 @@ private theorem observe_typed {Γ : VCtx (Ty Empty)} {r : Region Instruction} {L
     exact (follow_mapTyped R _ (fun i _ _ hv hx => ⟨ib i (he.extend hv) hx, hx⟩)
       hf (ie he hfirst)).1
 
-private def Preserves (Γ : VCtx (Ty Empty)) (r s : Region Instruction) : Prop :=
+@[expose] def Preserves (Γ : VCtx (Ty Empty)) (r s : Region Instruction) : Prop :=
   ∀ env, EnvTyped Γ env → observe env r = observe env s
 
-private theorem preserves_let₁ {Γ : VCtx (Ty Empty)} {A : Ty Empty} {a : Tm Instruction}
+theorem preserves_let₁ {Γ : VCtx (Ty Empty)} {A : Ty Empty} {a : Tm Instruction}
     {r s : Region Instruction} (ha : Tm.HasType Γ a A) (h : Preserves (A :: Γ) r s) :
     Preserves Γ (.let₁ a r) (.let₁ a s) := by
   intro env he
   exact withTerm_congr rfl (fun v _ hv => h (extend env v) (he.extend (term_typed ha he hv)))
 
-private theorem preserves_let₂ {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm Instruction}
+theorem preserves_let₂ {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm Instruction}
     {r s : Region Instruction} (ha : Tm.HasType Γ a (.product A B)) (h : Preserves (B :: A :: Γ) r s) :
     Preserves Γ (.let₂ a r) (.let₂ a s) := by
   intro env he
@@ -273,7 +292,7 @@ private theorem preserves_let₂ {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm
   cases ht with
   | pair ha hb => exact h _ ((he.extend ha).extend hb)
 
-private theorem preserves_case {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm Instruction}
+theorem preserves_case {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm Instruction}
     {l l' r r' : Region Instruction} (ha : Tm.HasType Γ a (.coprod A B))
     (hl : Preserves (A :: Γ) l l') (hr : Preserves (B :: Γ) r r') :
     Preserves Γ (.case a l r) (.case a l' r') := by
@@ -285,7 +304,7 @@ private theorem preserves_case {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : Tm I
   | inl ha => exact hl _ (he.extend ha)
   | inr hb => exact hr _ (he.extend hb)
 
-private theorem preserves_cfg {n : Nat} {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
+theorem preserves_cfg {n : Nat} {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
     {r s : Region Instruction} {f g : Fin n → Region Instruction} (R : Fin n → Ty Empty)
     (hr : Region.HasType Γ r (List.ofFn R ++ L)) (hs : Region.HasType Γ s (List.ofFn R ++ L))
     (hf : ∀ i, Region.HasType (R i :: Γ) (f i) (List.ofFn R ++ L))
@@ -307,7 +326,7 @@ private theorem preserves_cfg {n : Nat} {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Emp
         ⟨observe_typed (hg i) (ht.extend hv) hx, (hb i _ (ht.extend hv)).symm ▸ hx⟩)
         tail (observe_typed hs ht entry)).2⟩
 
-private theorem follow_outward {n : Nat} {f : Fin n → Val → Exit → Prop} {first out : Exit}
+theorem follow_outward {n : Nat} {f : Fin n → Val → Exit → Prop} {first out : Exit}
     {k : Nat} (h : n ≤ first.label) :
     Follow f first k out ↔ k = 0 ∧ out = first.relabel (· - n) := by
   constructor
@@ -337,7 +356,7 @@ private theorem observe_cfg_zero (r : Region Instruction) (blocks : Fin 0 → Re
     observe env (.cfg r 0 blocks) = observe env r := by
   simpa only [Nat.zero_add, show (fun x : Nat => x) = id from rfl, Region.renameLabels_id] using observe_outward r 0 blocks env
 
-private theorem observe_br {env : Env} {a : Tm Instruction} {v : Val} {e : Bool}
+theorem observe_br {env : Env} {a : Tm Instruction} {v : Val} {e : Bool}
     (h : term env a = some (v, e)) (i : Nat) :
     observe env (.br i a) = (· = Exit.branch i v e) := by
   funext out
@@ -357,10 +376,10 @@ private theorem observe_cfg_local {n : Nat} {env : Env} {a : Tm Instruction} {v 
   · rintro ⟨x, k, rfl, run⟩
     cases run with
     | exit he => exact False.elim ((Nat.not_lt_of_ge he) i.isLt)
-    | @step _ x _ k hi hx ht => exact ⟨x, k, hx, by simpa [Exit.branch] using ht⟩
+    | @step _ x _ k hi hx ht => exact ⟨x, k, hx, by simpa [Exit.branch, markAt] using ht⟩
   · rintro ⟨x, k, hx, ht⟩
     exact ⟨_, k + 1, rfl, by
-      simpa [Exit.branch] using Follow.step (first := Exit.branch i v false) i.isLt hx ht⟩
+      simpa [Exit.branch, markAt] using Follow.step (first := Exit.branch i v false) i.isLt hx ht⟩
 
 private theorem observe_letValue {Γ : VCtx (Ty Empty)} {A : Ty Empty} {a : Tm Instruction}
     {r : Region Instruction} (ha : Tm.BranchValue Γ a A) :
@@ -393,6 +412,7 @@ private theorem observe_caseValue {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a : T
   | inl ht => exact observe_subst r (replace_realizes env _).1
   | inr ht => exact observe_subst r (replace_realizes env _).2
 
+omit [MarkArity] in
 private theorem withTerm_result {env : Env} {a : Tm Instruction} {v : Val} {e : Bool}
     (h : term env a = some (v, e)) (body : Val → Exit → Prop) (out : Exit) :
     withTerm env a body out ↔ ∃ x, body v x ∧ out = x.prepend e false := by
@@ -412,7 +432,7 @@ private theorem observe_acyclic_arm {n : Nat} {f : Fin n → Val → Exit → Pr
       rw [h] at head
       obtain ⟨x, hx, rfl⟩ := (observe_renameLabels r (n + ·) env next).mp head
       obtain ⟨rfl, rfl⟩ := (follow_outward (by simp [Exit.relabel])).mp tail
-      exact ⟨x, hx, by simp [Exit.branch, Exit.relabel]⟩
+      exact ⟨x, hx, by simp [Exit.branch, Exit.relabel, markAt]⟩
   · rintro ⟨x, hx, rfl⟩
     have head : f i v (x.relabel (n + ·)) := by
       rw [h]
@@ -420,7 +440,7 @@ private theorem observe_acyclic_arm {n : Nat} {f : Fin n → Val → Exit → Pr
     have tail : Follow f (x.relabel (n + ·)) 0 x := by
       apply (follow_outward (by simp [Exit.relabel])).mpr
       simp [Exit.relabel]
-    exact ⟨1, by simpa [Exit.branch] using Follow.step (first := Exit.branch i v e) i.isLt head tail⟩
+    exact ⟨1, by simpa [Exit.branch, markAt] using Follow.step (first := Exit.branch i v e) i.isLt head tail⟩
 
 private theorem observe_cfg_dispatch {n : Nat} {entry next : Region Instruction} {blocks : Fin n → Region Instruction}
     (env : Env) (i : Fin n) (v : Val) (e : Bool) (h : blocks i = next.renameLabels (n + ·))
@@ -527,7 +547,7 @@ private theorem observe_rewriteEquiv {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)
   | caseInl ha _ _ => exact observe_caseInl ha
   | caseInr hb _ _ => exact observe_caseInr hb
 
-private theorem observe_substitutionEquiv {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
+theorem observe_substitutionEquiv {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
     {r s : Region Instruction} (h : Region.SubstitutionEquiv Γ r s L) : Preserves Γ r s := by
   induction h with
   | base h => exact observe_rewriteEquiv h
@@ -568,6 +588,7 @@ private theorem follow_unique {n : Nat} {blocks : Fin n → Val → Exit → Pro
       obtain ⟨rfl, rfl⟩ := ih tail'
       exact ⟨rfl, rfl⟩
 
+omit [MarkArity] in
 private theorem withTerm_unique {env : Env} {a : Tm Instruction} {f : Val → Exit → Prop}
     (h : ∀ v x y, f v x → f v y → x = y)
     {x y : Exit} (hx : withTerm env a f x) (hy : withTerm env a f y) : x = y := by
@@ -577,7 +598,7 @@ private theorem withTerm_unique {env : Env} {a : Tm Instruction} {f : Val → Ex
   cases eq
   rw [h v u z hu hz]
 
-private theorem observe_unique (r : Region Instruction) (env : Env) {x y : Exit}
+theorem observe_unique (r : Region Instruction) (env : Env) {x y : Exit}
     (hx : observe env r x) (hy : observe env r y) : x = y := by
   induction r generalizing env x y with
   | br i a =>
@@ -606,14 +627,14 @@ private theorem observe_unique (r : Region Instruction) (env : Env) {x y : Exit}
     subst g
     exact (follow_unique (fun i v _ _ => ib i (extend env v)) hfx hgy).2
 
-private def followFuel {n : Nat} (blocks : Fin n → Val → Option Exit) :
+@[expose] def followFuel {n : Nat} (blocks : Fin n → Val → Option Exit) :
     Nat → Exit → Option (Nat × Exit)
   | 0, _ => none
   | fuel + 1, first =>
     if h : first.label < n then
       (blocks ⟨first.label, h⟩ first.value).bind fun next =>
         (followFuel blocks fuel next).map fun (count, out) =>
-          (count + 1, out.prepend first.effect (first.marked || (first.effect && decide (1 ≤ count))))
+          (count + 1, out.prepend first.effect (markAt n first count))
     else
       some (0, first.relabel (· - n))
 
@@ -633,10 +654,10 @@ private theorem followFuel_sound {n : Nat} {f : Fin n → Val → Option Exit}
       obtain ⟨rfl, rfl⟩ := run
       exact .exit (Nat.le_of_not_gt inside)
 
-private def executeTerm (env : Env) (a : Tm Instruction) (body : Val → Option Exit) : Option Exit :=
+@[expose] def executeTerm (env : Env) (a : Tm Instruction) (body : Val → Option Exit) : Option Exit :=
   (term env a).bind fun (v, e) => (body v).map (fun x => x.prepend e false)
 
-private def execute (fuel : Nat) (env : Env) : Region Instruction → Option Exit
+@[expose] def execute (fuel : Nat) (env : Env) : Region Instruction → Option Exit
   | .br i a => (term env a).map (fun (v, e) => Exit.branch i v e)
   | .let₁ a r => executeTerm env a (fun v => execute fuel (extend env v) r)
   | .let₂ a r => executeTerm env a (fun
@@ -649,6 +670,7 @@ private def execute (fuel : Nat) (env : Env) : Region Instruction → Option Exi
   | .cfg r _ blocks => (execute fuel env r).bind fun first =>
     (followFuel (fun i v => execute fuel (extend env v) (blocks i)) fuel first).map Prod.snd
 
+omit [MarkArity] in
 private theorem executeTerm_sound {env : Env} {a : Tm Instruction} {f : Val → Option Exit}
     {g : Val → Exit → Prop} (h : ∀ v x, f v = some x → g v x)
     {out : Exit} (he : executeTerm env a f = some out) :
@@ -657,7 +679,7 @@ private theorem executeTerm_sound {env : Env} {a : Tm Instruction} {f : Val → 
   obtain ⟨⟨v, e⟩, ht, x, hx, rfl⟩ := he
   exact ⟨v, e, ht, x, h v x hx, rfl⟩
 
-private theorem execute_sound (fuel : Nat) (r : Region Instruction) (env : Env) {out : Exit}
+theorem execute_sound (fuel : Nat) (r : Region Instruction) (env : Env) {out : Exit}
     (he : execute fuel env r = some out) : observe env r out := by
   induction r generalizing env out with
   | br i a =>
@@ -682,6 +704,11 @@ private theorem execute_sound (fuel : Nat) (r : Region Instruction) (env : Env) 
     simp only [execute, Option.bind_eq_some_iff, Option.map_eq_some_iff] at he
     obtain ⟨first, hf, ⟨k, x⟩, hx, rfl⟩ := he
     exact ⟨first, k, ie env hf, followFuel_sound (fun i v _ => ib i (extend env v)) fuel first hx⟩
+
+end
+
+private local instance : MarkArity where
+  enabled _ := true
 
 theorem producer_valueBranches :
     Region.ValueBranches [stateType] producer [.coprod .unit stateType] :=
