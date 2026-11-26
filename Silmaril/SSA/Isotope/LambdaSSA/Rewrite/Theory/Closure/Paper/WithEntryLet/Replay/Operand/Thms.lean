@@ -27,6 +27,13 @@ theorem Site.move_substVars (site : Site) (r : Region Φ) (θ : Nat → Tm Φ) :
 
 variable {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
 
+/-- A successful addressed move of a guarded region preserves guarded
+typing and is an equation in the EntryLet extension. -/
+theorem Site.move_sound (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (hm : site.move r = some s) :
+    ValueBranches Γ s L ∧ Eqv Γ r s L :=
+  EntryLetOperand.move_sound site hr hm
+
 /-- A successful move on a substituted region factors through the same move
 on the original guarded region, with its original typing context and exits. -/
 theorem Site.move_pullback (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}

@@ -45,6 +45,13 @@ theorem unfinishedRequests_ne_bothMoved {r : Region Instruction}
     ¬ Paper.Eqv [B] (r.substVars θ) (bothRequestsMoved.substVars θ) [B] :=
   Sequencing.unfinishedRequests_ne_bothMoved hr
 
+/-- The asymmetric case observes different diagnostic marks on the two
+tags. Every substituted region has the same observation on both inputs. -/
+theorem oneMovedRequest_no_image (q : Region Instruction) :
+    let B := Silmaril.coprod U U
+    ¬ Paper.Eqv [B] (q.substVars discardInput) oneMovedRequest [B] :=
+  Sequencing.oneMovedRequest_no_image q
+
 theorem flatRequest_typed : ValueBranches [U] flatRequest [U] :=
   Sequencing.flatRequest_typed
 

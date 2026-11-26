@@ -35,16 +35,27 @@ private theorem right_forget : (sumCofan (Φ := Instruction) U U).inr ≫ forget
   rw [sumCofan_inr]
   exact discard_comp_branchValue (.inr (.var rfl))
 
-theorem movedTarget_eq :
-    ofRegion movedStep_typed ≫ (sumIso U U).hom =
-      ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr := by
+private theorem recurringTarget_eq {r : Region Instruction} (hr : ValueBranches [U] r [U]) :
+    ofRegion (CfgEta.TypeCategory.seqValueBranches hr
+      (s := .br 0 (.inr .unit)) (.br rfl (.inr .unit))) ≫ (sumIso U U).hom =
+      ofRegion hr ≫ discardArrow U ≫ coprod.inr := by
   let h : ValueBranches [U] (.br 0 (.inr .unit) : Region Instruction) [Bit] :=
     .br rfl (.inr .unit)
   have leg : discardArrow (Φ := Instruction) U ≫ (sumCofan U U).inr = ofRegion h := by
     rw [sumCofan_inr]
     rfl
-  rw [← ofRegion_comp movedRequest_typed h movedStep_typed, ← leg]
+  rw [← ofRegion_comp hr h (CfgEta.TypeCategory.seqValueBranches hr h), ← leg]
   simp
+
+theorem movedTarget_eq :
+    ofRegion movedStep_typed ≫ (sumIso U U).hom =
+      ofRegion movedRequest_typed ≫ discardArrow U ≫ coprod.inr :=
+  recurringTarget_eq movedRequest_typed
+
+theorem flatTarget_eq :
+    ofRegion flatStep_typed ≫ (sumIso U U).hom =
+      ofRegion flatRequest_typed ≫ discardArrow U ≫ coprod.inr :=
+  recurringTarget_eq flatRequest_typed
 
 theorem taggedSource_forget (q : X ⟶ X) :
     taggedSource q ≫ coprod.map (𝟙 X) forget = forget ≫ q ≫ discardArrow U ≫ coprod.inr := by
@@ -204,5 +215,8 @@ theorem no_retraction : ¬ ∃ k : (J).obj X ⟶ (J).obj D, (J).map forget ≫ k
   exact projected_tags_ne eq
 
 end DistinctTags
+
+theorem move_recurring_request : Site.here.move flatRecurringRequest = some movedRecurringRequest :=
+  move_written
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetOperandExample
