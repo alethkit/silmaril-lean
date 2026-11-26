@@ -2918,7 +2918,7 @@ example : Eqv Γ .unit bound nestedArgs splitArgs := by
     ((nestedArgs_order.toLetIter rfl lowers).trans (splitArgs_order.toLetIter rfl lowers).symm)
 
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.ReplyArguments
-  (CaseRaw case_reflection)
+  (CaseRaw case_reflection let_case_eqv)
 
 private abbrev branchLeft : Expr Instruction :=
   .op .sendTagged (.pair (.inl (.var 0)) .unit)
@@ -3027,5 +3027,129 @@ example : Eqv ΔRight .unit bound
   have hw := hp.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
   exact (Eqv.step (.reduce (.case (.inr hw) hl hr) (.let₁ hw hr) (.case_inr _ _ _))).trans
     (.step (.let1_beta hp hr))
+
+private abbrev RequestArg : T := .product R .unit
+private abbrev returnLeft : Expr Instruction := .pair (.inl (.var 0)) .unit
+private abbrev returnRight : Expr Instruction := .pair (.inr (.var 0)) .unit
+private abbrev postRequest : Expr Instruction := .op .sendTagged (.var 0)
+private abbrev caseValue : Expr Instruction := .case caseScrutinee returnLeft returnRight
+private abbrev consumeBound : Expr Instruction := .let₁ caseValue postRequest
+private abbrev consumeDirect : Expr Instruction := .op .sendTagged caseValue
+private abbrev consumeArms : Expr Instruction :=
+  .case caseScrutinee (.let₁ returnLeft postRequest) (.let₁ returnRight postRequest)
+
+private theorem returnLeftWf (Δ : EffectCtx T Eff) :
+    Wf ((.product X X, ⊥) :: Δ) returnLeft RequestArg (⊥ : Eff) :=
+  .pair (.inl (.var 0 le_rfl)) (.unit _ _)
+
+private theorem returnRightWf (Δ : EffectCtx T Eff) :
+    Wf ((.product .unit X, ⊥) :: Δ) returnRight RequestArg (⊥ : Eff) :=
+  .pair (.inr (.var 0 le_rfl)) (.unit _ _)
+
+private theorem postRequestWf (Δ : EffectCtx T Eff) :
+    Wf ((RequestArg, ⊥) :: Δ) postRequest .unit bound :=
+  .op le_rfl (.var 0 bot_le)
+
+private theorem postRequestRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((RequestArg, ⊥) :: Δ) .unit postRequest :=
+  .straight (.call taggedVisible le_rfl (.leaf (.var 0 le_rfl) (.var 0)))
+
+private theorem returnLeftRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product X X, ⊥) :: Δ) RequestArg returnLeft :=
+  .straight (.leaf (returnLeftWf Δ) (.pair (.inl (.var 0)) .unit))
+
+private theorem returnRightRaw (Δ : EffectCtx T Eff) :
+    CaseRaw bound ((.product .unit X, ⊥) :: Δ) RequestArg returnRight :=
+  .straight (.leaf (returnRightWf Δ) (.pair (.inr (.var 0)) .unit))
+
+private theorem caseValueRaw : CaseRaw bound Γ RequestArg caseValue :=
+  .case caseScrutineeRaw (returnLeftRaw Γ) (returnRightRaw Γ)
+
+private theorem consumeBoundRaw : CaseRaw bound Γ .unit consumeBound :=
+  .bind caseValueRaw (postRequestRaw Γ)
+
+private theorem consumeDirectRaw : CaseRaw bound Γ .unit consumeDirect :=
+  .call taggedVisible le_rfl caseValueRaw
+
+private theorem consumeArmsRaw : CaseRaw bound Γ .unit consumeArms :=
+  .case caseScrutineeRaw (.bind (returnLeftRaw Γ) (postRequestRaw _))
+    (.bind (returnRightRaw Γ) (postRequestRaw _))
+
+private abbrev nativeReturnLeft : Tm Empty Instruction 1 := .pair (.inl (.bv 0)) .unit
+private abbrev nativeReturnRight : Tm Empty Instruction 1 := .pair (.inr (.bv 0)) .unit
+private abbrev nativeValue : Tm Empty Instruction 0 := .case nativeScrutinee nativeReturnLeft nativeReturnRight
+private abbrev nativeConsumeBound : Tm Empty Instruction 0 := .let₁ nativeValue (.op .sendTagged (.bv 0))
+private abbrev nativeConsumeArms : Tm Empty Instruction 0 :=
+  .case nativeScrutinee (.let₁ nativeReturnLeft (.op .sendTagged (.bv 0)))
+    (.let₁ nativeReturnRight (.op .sendTagged (.bv 0)))
+
+private theorem nativeConsume : AbortEquiv (⊥ : Eff) (Ctx.nil : Ctx Empty T) Γ.toBoundCtx
+    nativeConsumeBound nativeConsumeArms .unit := by
+  have left : HasType Instruction .nil (Γ.toBoundCtx.snoc (.product X X)) nativeReturnLeft RequestArg :=
+    .pair (.inl .bv) .unit
+  have right : HasType Instruction .nil (Γ.toBoundCtx.snoc (.product .unit X)) nativeReturnRight RequestArg :=
+    .pair (.inr .bv) .unit
+  exact .equiv (.ax (.sequencing (.bindLetCase nativeScrutinee nativeReturnLeft nativeReturnRight
+    (.op .sendTagged (.bv 0)))) (.let₁ (.case (.op (.op .unit)) left right) (.op .bv))
+    (.case (.op (.op .unit)) (.let₁ left (.op .bv)) (.let₁ right (.op .bv))))
+
+-- The two raw endpoints are recognized independently at (true, false).
+example : Eqv Γ .unit bound consumeBound consumeArms :=
+  (case_reflection profile pureCtx slotTy consumeBoundRaw consumeArmsRaw rfl rfl).mp nativeConsume
+
+-- The same case can also be written directly in the request's argument.
+example : Eqv Γ .unit bound consumeDirect consumeArms := by
+  have typed : Wf Γ caseValue RequestArg bound :=
+    .case (.op le_rfl (.op le_rfl (.unit _ _)))
+      ((returnLeftWf Γ).weakenEffect bot_le) ((returnRightWf Γ).weakenEffect bot_le)
+  have seq := CallByValue.op_bind (f := Instruction.sendTagged) le_rfl typed
+  have lowered : consumeDirect.toLetIter 0 = some (.op .sendTagged nativeValue) := rfl
+  exact (case_reflection profile pureCtx slotTy consumeDirectRaw consumeArmsRaw rfl rfl).mp
+    ((seq.toLetIter lowered (rfl : consumeBound.toLetIter 0 = some nativeConsumeBound)).trans nativeConsume)
+
+private abbrev boundReply : Expr Instruction :=
+  .let₁ (.case (.var 0) returnLeft returnRight) postRequest
+
+private abbrev consumeReply : Expr Instruction :=
+  .case (.var 0) (.let₁ returnLeft postRequest) (.let₁ returnRight postRequest)
+
+private theorem specializeConsume {n : Nat} {sorts : Fin n → Unit} (shape : ReplyShape sorts R) :
+    Eqv (fieldCtx sorts Γ) .unit bound (shape.specialize Γ boundReply) (shape.specialize Γ consumeReply) := by
+  let Δ : EffectCtx T Eff := (R, ⊥) :: Γ
+  have eq : Eqv Δ .unit bound boundReply consumeReply :=
+    let_case_eqv (.var 0 bot_le) ((returnLeftWf Δ).weakenEffect bot_le)
+      ((returnRightWf Δ).weakenEffect bot_le) (postRequestWf Δ)
+  exact eq.subst_typed (fun i => shape.specialize_wf (Wf.var (Γ := Δ) i le_rfl))
+
+private theorem returnLeftPost (Δ : EffectCtx T Eff) :
+    Eqv ((.product X X, ⊥) :: Δ) .unit bound (.let₁ returnLeft postRequest) branchLeft :=
+  .step (.let1_beta (returnLeftWf Δ) (postRequestWf _))
+
+private abbrev requestRight : Expr Instruction := .op .sendTagged (.pair (.inr (.var 0)) .unit)
+
+private theorem returnRightPost (Δ : EffectCtx T Eff) :
+    Eqv ((.product .unit X, ⊥) :: Δ) .unit bound (.let₁ returnRight postRequest) requestRight :=
+  .step (.let1_beta (returnRightWf Δ) (postRequestWf _))
+
+-- Each explicit reply specialization leaves exactly one sendTagged, with
+-- the result from its chosen arm. The request arguments retain distinct tags.
+example : Eqv ΔLeft .unit bound (leftReply.specialize Γ boundReply) selectedLeft := by
+  have tag : Wf ΔLeft (.inl leftPayload) R bound := .inl (leftPayloadWf.weakenEffect bot_le)
+  exact (specializeConsume leftReply).trans
+    ((Eqv.case (.refl tag) (returnLeftPost ΔLeft) (returnRightPost ΔLeft)).trans
+      (specializeLeft (returnRightPost ΔLeft).endpoints_wf.2
+        (rfl : leftReply.specialize Γ (.case (.var 0) branchLeft requestRight) = _)))
+
+example : Eqv ΔRight .unit bound (rightReply.specialize Γ boundReply)
+    (.op .sendTagged (.pair (.inr rightPayload) .unit)) := by
+  have hp : Wf ΔRight rightPayload (.product .unit X) (⊥ : Eff) :=
+    .pair (.unit _ _) (Wf.var (Γ := ΔRight) ⟨0, by decide⟩ le_rfl)
+  have hw := hp.weakenEffect (show (⊥ : Eff) ≤ bound from bot_le)
+  have left := (returnLeftPost ΔRight).endpoints_wf.2
+  have right := (returnRightPost ΔRight).endpoints_wf.2
+  exact (specializeConsume rightReply).trans
+    ((Eqv.case (.refl (.inr hw)) (returnLeftPost ΔRight) (returnRightPost ΔRight)).trans
+      ((Eqv.step (.reduce (.case (.inr hw) left right) (.let₁ hw right) (.case_inr _ _ _))).trans
+        (.step (.let1_beta hp right))))
 
 end LetIterSharedReplyReflectionFixture
