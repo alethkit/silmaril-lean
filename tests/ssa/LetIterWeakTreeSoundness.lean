@@ -13,6 +13,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Structured.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1857,3 +1858,124 @@ example : Eqv Γ Held strict direct rebuilt := by
     directTyped rebuiltTyped rfl rfl).mp hn
 
 end LetIterStructuredInputFixture
+
+namespace LetIterStructuredReplyFixture
+
+open Silmaril.Isotope.Semantics Silmaril.Elgot
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Instr
+  | stop | split | sendL | sendR | pureBit
+  deriving DecidableEq
+
+private def atom : Ty Unit := .base ()
+private def payload : Ty Unit := .product (.coprod atom atom) .unit
+
+private instance : HasTy Instr (Ty Unit) where
+  src
+    | .stop | .split | .pureBit => .unit
+    | .sendL | .sendR => atom
+  trg
+    | .stop => .empty
+    | .split => payload
+    | .pureBit => atom
+    | .sendL | .sendR => .unit
+
+private instance : HasEff Instr Bool where
+  eff f := f != .pureBit
+
+private def V : Unit → Type := fun _ => Bool
+
+private def P : PureMaps (Φ := Instr) (ε := Bool) V :=
+  fun f hf => by
+    cases f
+    case pureBit => exact fun _ => true
+    all_goals cases hf
+
+private theorem stop_visible : ¬ IsPure (⊥ : Bool) Instr.stop := by
+  change true ≠ false
+  decide
+private theorem split_visible : ¬ IsPure (⊥ : Bool) Instr.split := by
+  change true ≠ false
+  decide
+private theorem left_visible : ¬ IsPure (⊥ : Bool) Instr.sendL := by
+  change true ≠ false
+  decide
+
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev β₀ := (BoundCtx.nil : BoundCtx (Ty Unit) 0)
+private abbrev D := Ty.denote (Lifted V)
+private abbrev noVars : BoundEnv D β₀ := fun i => i.elim0
+private noncomputable abbrev M := instructions V P
+
+private def halt : Tm Empty Instr 0 :=
+  .let₁ (.op .stop .unit) (.abort (.bv 0))
+
+private def haltTyping : Derivation Instr Γ₀ β₀ halt (.unit : Ty Unit) :=
+  .let₁ (.op .unit) (.abort (.bv (ι := 0)))
+
+-- Empty response means the continuation has no possible entry. The request
+-- from the actual native program remains observable.
+example : headRequest V (haltTyping.denote D M (fun x => x.elim) noVars) =
+    Part.some (some ⟨Instr.stop, PUnit.unit⟩) := by
+  unfold haltTyping
+  rw [denote_letOp_of_not_pure V P stop_visible]
+  simp only [Derivation.denote, pure_bind]
+  exact head_of_vis V _ _ _
+
+private def continuation : Tm Empty Instr 1 :=
+  .let₂ (.bv 0)
+    (.case (.bv 1) (.op .sendL (.bv 0)) (.op .sendR (.bv 0)))
+
+private def continuationTyping :
+    Derivation Instr Γ₀ (β₀.snoc payload) continuation (.unit : Ty Unit) :=
+  .let₂ (.bv (ι := 0)) (.case (.bv (ι := 1))
+    (.op (.bv (ι := 0))) (.op (.bv (ι := 0))))
+
+private def call : Tm Empty Instr 0 := .let₁ (.op .split .unit) continuation
+
+private def callTyping : Derivation Instr Γ₀ β₀ call (.unit : Ty Unit) :=
+  .let₁ (.op .unit) continuationTyping
+
+private def leftSlots : Fin (1 + 0) → Unit := Fin.addCases (fun _ => ()) Fin.elim0
+private def leftShape : ReplyShape leftSlots payload :=
+  .pair (.inl (.atom ())) .unit
+private def leftValues (_ : Fin (1 + 0)) : Bool := true
+
+-- The test reply really is source syntax at bottom, with one fresh atomic slot.
+example : Wf ([(atom, false)] : EffectCtx (Ty Unit) Bool)
+    (leftShape.source (Φ := Instr) id) payload (⊥ : Bool) :=
+  ReplyShape.wf leftShape (Γ := [(atom, false)]) id (by
+    intro i
+    exact Fin.cases (motive := fun j => ([(atom, false)] : EffectCtx (Ty Unit) Bool).get j =
+      (.base (leftSlots j), (⊥ : Bool))) rfl (fun j => j.elim0) i)
+
+private noncomputable def next
+    (reply : Ty.denote V payload) : ITree.Tree (Event (Φ := Instr) V) (D (.unit : Ty Unit)) :=
+  continuationTyping.denote D M (fun x => x.elim)
+    (noVars.snoc ((toSmall V payload).symm reply))
+
+-- The actual native call emits only the outer request before any reply.
+example : callTyping.denote D M (fun x => x.elim) noVars =
+    ITree.vis (.call Instr.split PUnit.unit) next := by
+  unfold callTyping
+  rw [denote_letOp_of_not_pure V P split_visible]
+  simp only [Derivation.denote, pure_bind]
+  rfl
+
+-- Testing the left constructor under true reaches the distinct left
+-- request and passes the very payload field selected by that shape.
+example : headRequest V (next (leftShape.denote V leftValues)) =
+    Part.some (some ⟨Instr.sendL, true⟩) := by
+  unfold next continuationTyping
+  simp only [Derivation.denote, pure_bind, BoundEnv.snoc_zero]
+  change headRequest V ((M.eval Instr.sendL ⟨true⟩)) = _
+  rw [show M.eval Instr.sendL ⟨true⟩ = ITree.vis (.call Instr.sendL true) (fun _ => ITree.ret PUnit.unit) by
+    classical
+    simp only [M, instructions, left_visible, dite_false]
+    rfl]
+  exact head_of_vis V _ _ _
+
+end LetIterStructuredReplyFixture
