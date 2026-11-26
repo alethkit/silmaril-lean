@@ -435,3 +435,37 @@ keeping the first.
 ```sh
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Transport the contract along typed entry maps
+
+`AddressContract.transport` uses the memory-diamond institution's
+`PortMap` to rename the nominated address and both fact lists. It refuses
+identifying a required disjoint port with the anchor or any of its listed
+aliases. It permits identifying two must-alias ports. A target invocation
+passes the transported contract exactly when its pulled-back source
+valuation passes the original contract.
+[Typed entry maps](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/Institution/Defs.lean) ·
+[Transport definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Reindex/Defs.lean)
+
+For a successful source cut, `cut_transport` maps the nominated Store and
+each checked access through the same typed map. The first overwrite stays
+at the same version, and the retained table is the exact original edit with
+renamed entry uses and the same memory edges. Apply this to the current
+entry table after any earlier cleanup. `lower_observations` uses the
+existing native reindexing laws and the static MemRef emitter to compare
+the re-emitted optimized CFG with the source artifact at the pulled-back
+invocation. It proves equality of the entry successor packet and buffer,
+and of the returned word and every final cell for either predicate, any
+initialized buffer and every CF budget. The theorem compares execution
+observations across the typed interfaces.
+[Transport theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Retained/Load/Static/Reindex/Thms.lean) ·
+[Pinned Simple chapter 10 Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65)
+
+The regression swaps two address ports and runs the actual emitted pair.
+Identifying the two must-alias ports gives the same observations, while
+identifying the required disjoint port with the anchor refuses transport.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
