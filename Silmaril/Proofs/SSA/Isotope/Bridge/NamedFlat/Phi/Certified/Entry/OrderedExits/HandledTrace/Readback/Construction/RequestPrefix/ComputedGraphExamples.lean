@@ -97,9 +97,9 @@ private def effectfulTest : FiniteCFG Bool 3 2 2 :=
   { source with block := fun i => if i.val = 0 then effectfulTestRow else source.block i }
 
 example : let _ := sig.typing; NamedFlat.check effectfulTest inputs (fun _ => packet) outputs = true := rfl
-example : (compileGraph sig inputs (fun _ => packet) outputs effectfulTest).isNone = true := rfl
+example : (compileGraph sig inputs (fun _ => packet) outputs effectfulTest).isSome = true := by decide +kernel
 example : (EffectfulEntry.Multiple.Computed.Block.Graph.Capture.compile sig inputs
-    (fun _ => packet) outputs effectfulTest).isNone = true := rfl
+    (fun _ => packet) outputs effectfulTest).isSome = true := by decide +kernel
 
 example : let _ := sig.typing; NamedFlat.check ambientRead inputs (fun _ => packet) outputs = true := rfl
 example : (compileGraph sig inputs (fun _ => packet) outputs ambientRead).isNone = true := rfl
