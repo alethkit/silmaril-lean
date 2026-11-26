@@ -1,28 +1,20 @@
 module
 
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.SlotMaps.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Check.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Exits.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Paths.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Check.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Mixed.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Trim.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Restriction.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.ReplaceNewest.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.BlockParameters.Defs
+import Mathlib.Tactic.FinCases
 
 /-! # A written outer cycle with a left-tagged and an ordinary retained row -/
 
 namespace Silmaril.Isotope.LambdaSSA.Semantics.Categorical.NestedCfgMixedSlotsExample
 
 open CategoryTheory CategoryTheory.Limits
-open scoped MonoidalCategory
-open CartesianMonoidalCategory (snd)
 open UnusedSummand.BlockParameters (Program)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open NestedAdmission (exits)
+open NestedAdmission.Finite
 
 set_option backward.isDefEq.respectTransparency false
 set_option backward.isDefEq.respectTransparency.types false
@@ -71,70 +63,12 @@ private def compact : CfgRestriction Op 3 :=
   ⟨start true, Fin.cases guarded (Fin.cases (.br 2 .unit) (Fin.cases (ordinary true) Fin.elim0))⟩
 
 private abbrev graph : Region Op := compact.source keep
-private abbrev liveRows : Fin 2 → Region Op := fun i => compact.rows (keep i)
-private def commonRows : Fin 2 → Region Op := Fin.cases inner.region (fun _ => ordinary false)
-
-private theorem restrict_ok : CfgRestriction.check? keep exits.length graph = some compact := by
-  change some _ = some compact
-  apply congrArg some
-  unfold compact
-  congr 1
-  funext i
-  refine Fin.cases ?_ (fun j => Fin.cases rfl (fun _ => rfl) j) i
-  congr 2
-  simp only [Program.region, Region.renameVars]
-  congr 1
-  funext j
-  change Fin 1 at j
-  cases Subsingleton.elim j (0 : Fin 1)
-  rfl
-
 private def innerKeep : Fin 1 ↪ Fin 1 := Function.Embedding.refl _
-private def singleton : Region Op := .cfg (start true) 1 (fun _ => guarded)
-private def innerRow : Region Op := (inner.blocks 0).region
-
-private def plan : NestedAdmission.Finite.Plan Op 1 1 :=
-  ⟨.unit, U, guarded, inner.entry.region false id, Fin.cases innerRow Fin.elim0,
-    inner.entry.region false id, Fin.cases innerRow Fin.elim0⟩
-
-private theorem checkInner : NestedAdmission.Finite.check? innerKeep innerTypes singleton
-    (Pair :: exits) = some plan := rfl
-
-private theorem chosen_inner : plan.selectedInner innerKeep = inner.region := by
-  unfold NestedAdmission.Finite.Plan.selectedInner Program.region
-  congr 1
-  funext i
-  cases Subsingleton.elim i (0 : Fin 1)
-  rfl
-
-private theorem common_inner : plan.commonInner = inner.region := by
-  unfold NestedAdmission.Finite.Plan.commonInner Program.region
-  congr 1
-  funext i
-  cases Subsingleton.elim i (0 : Fin 1)
-  rfl
-
-private def routeLayout : RouteLayout Empty := (U, true) :: (Pair :: exits).map (fun A => (A, false))
-private theorem entryRoute : CheckedRoutes routeLayout [] (start false) (start true) :=
-  Region.checkRoutes?_sound rfl
-private theorem ordinaryRoute : CheckedRoutes routeLayout [Pair] (ordinary false) (ordinary true) :=
-  Region.checkRoutes?_sound rfl
+private abbrev ordinaryTypes : Fin 1 → Ty Empty := fun _ => Pair
 
 private theorem inner_typed (A : Ty Empty) : inner.region.HasType [U] (labels A) :=
   .cfg innerTypes (.br rfl (.var rfl)) (fun _ =>
     .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.var rfl)))
-
-private theorem anchor_plain {S : Fin 2 → Ty Empty} (typed : inner.region.HasType [U] (List.ofFn S ++ exits)) :
-    S 1 = Pair :=
-  inner.enclosing_type_at_reached (j := 0) (.entry rfl) 1 (Or.inl ⟨rfl, rfl⟩) typed
-
-private theorem anchor_left {S : Fin 2 → Ty Empty}
-    (typed : (start true).HasType [] (List.ofFn S ++ exits)) : ∃ D : Ty Empty, S 0 = tag D := by
-  have h : At (List.ofFn S ++ exits) 0 (S 0) := by simp [At]
-  cases typed with
-  | br hit operand =>
-      cases operand with
-      | inl init => cases init; exact ⟨_, Option.some.inj (h.symm.trans hit)⟩
 
 private theorem actualEntry_typed (D dead : Ty Empty) :
     (compact.entry.renameLabels (retainLabelIndex keep)).HasType [] (List.ofFn (fullTypes D dead) ++ exits) :=
@@ -192,99 +126,140 @@ example : Semantics.Region.Eval (replies true) (fun _ => .unit) graph 0 1 (.pair
   · exact .step (label := 2) (next := 4) (by decide)
       (.case_inr (.op .var rfl) (.br .var)) (.exit (by decide))
 
-section ValueMaps
+private def wrongGuarded : Region Op :=
+  .case (.var 0) (inner.region.renameVars (Silmaril.DeBruijn.lift Nat.succ)) (.br 2 .unit)
 
-variable {V : Type} [Category V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
-  (M : TypeModel (Ty Empty) V)
+private def wrongOrdinary : Region Op :=
+  .case (.op .resume (.var 0)) (.br 0 (.inr (.var 0))) (.br 3 (.var 0))
 
-private noncomputable abbrev leftIn (D : Ty Empty) : M.obj U ⟶ M.obj (tag D) :=
-  coprod.inl ≫ (M.coprodIso U D).inv
+private def wrong : CfgRestriction Op 3 :=
+  ⟨start true, Fin.cases wrongGuarded (Fin.cases (.br 2 .unit) (Fin.cases wrongOrdinary Fin.elim0))⟩
 
-private noncomputable def slot (D : Ty Empty) (i : Fin 2) :
-    M.obj (retainedTypes U i) ⟶ M.obj (retainedTypes (tag D) i) :=
-  Fin.cases (leftIn M D) (fun _ => 𝟙 (M.obj Pair)) i
+private abbrev wrongGraph : Region Op := wrong.source keep
 
-private noncomputable abbrev post (D : Ty Empty) := mapLabelHead M (Pair :: exits) (leftIn M D)
-private noncomputable abbrev cut (A : Ty Empty) := labelAppendSplit M (List.ofFn (retainedTypes A)) exits
-private noncomputable abbrev stepPost (D : Ty Empty) :=
-  coprod.map (𝟙 (labelObj M exits)) (mapSlotLabels M (slot M D))
+private theorem wrong_typed : wrongGraph.HasType [] exits := by
+  let compactLabels := List.ofFn (fun i => fullTypes U U (keep i)) ++ exits
+  have first : wrongGuarded.HasType [tag U] compactLabels :=
+    .case (.var rfl) ((inner_typed (tag U)).renameVars ((Ren.wk [] (tag U)).lift U)) (.br rfl .unit)
+  have second : wrongOrdinary.HasType [Pair] compactLabels :=
+    .case (.op (.var rfl)) (.br rfl (.inr (.var rfl))) (.br rfl (.var rfl))
+  have omitted : (Region.br 2 .unit : Region Op).HasType [U] compactLabels := .br rfl .unit
+  have ren := retainLabelRen keep (fullTypes U U) exits
+  exact .cfg (fullTypes U U) (actualEntry_typed U U) (fun i =>
+    Fin.cases (first.renameLabels ren)
+      (Fin.cases (omitted.renameLabels ren) (Fin.cases (second.renameLabels ren) (fun j => Fin.elim0 j))) i)
 
-@[reassoc] private theorem cut_zero (A : Ty Empty) :
-    labelInject M 0 (rfl : At (labels A) 0 A) ≫ cut M A =
-      labelInject M 0 (rfl : At (List.ofFn (retainedTypes A)) 0 A) ≫ coprod.inr :=
-  labelAppendSplit_local M (retainedTypes A) exits 0 rfl rfl
+/-- The source graph is exactly typed and passes outer restriction. Its
+right-tagged recurrence cannot pass mixed admission. -/
+example : wrongGraph.HasType [] exits ∧ (CfgRestriction.check? keep exits.length wrongGraph).isSome = true ∧
+    Mixed.compare? keep innerKeep innerTypes ordinaryTypes wrongGraph = .unknown :=
+  ⟨wrong_typed, by decide, by decide⟩
 
-@[reassoc] private theorem cut_one (A : Ty Empty) :
-    labelInject M 1 (rfl : At (labels A) 1 Pair) ≫ cut M A =
-      labelInject M 1 (rfl : At (List.ofFn (retainedTypes A)) 1 Pair) ≫ coprod.inr :=
-  labelAppendSplit_local M (retainedTypes A) exits 1 rfl rfl
+/-- The bad tag is selected by a reachable primitive reply. The right arm
+of the nested row sends it to the first actual exit. -/
+example : Semantics.Region.Eval (replies false) (fun _ => .unit) wrongGraph 0 0 .unit 2 := by
+  refine .cfg (.br (.inl .unit)) ?_
+  refine .step (label := 0) (next := 2) (middle := .pair .unit .unit) (s₁ := 1) (by decide) ?_ ?_
+  · exact .case_inl .var (.cfg (.br .var)
+      (.step (label := 0) (next := 3) (by decide)
+        (.case_inl (.op .var
+          (show replies false Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro)) (.br .var))
+        (.exit (by decide))))
+  · refine .step (label := 2) (next := 0) (middle := .inr .unit) (s₁ := 2) (by decide)
+      (.case_inl (.op .var rfl) (.br (.inr .var))) ?_
+    exact .step (label := 0) (next := 3) (by decide) (.case_inr .var (.br .unit)) (.exit (by decide))
 
-@[reassoc] private theorem cut_exit (A : Ty Empty) {i : Nat} {T : Ty Empty} (h : At exits i T) :
-    labelInject M (i + 2) (show At (labels A) (i + 2) T from h) ≫ cut M A =
-      labelInject M i h ≫ coprod.inl := by
-  have shifted : At (labels A) (i + 2) T := h
-  have exit := labelAppendSplit_exit M (retainedTypes A) exits h (by simpa only [Nat.add_comm 2 i] using shifted)
-  simpa only [Nat.add_comm 2 i] using exit
+namespace MoreOrdinary
 
-private theorem post_cut (D : Ty Empty) : post M D ≫ cut M (tag D) = cut M U ≫ stepPost M D := by
-  apply labelHom_ext M
-  intro i A hit
-  cases i with
-  | zero =>
-      have eq : U = A := Option.some.inj hit
-      subst A
-      simp only [post, mapLabelHead_zero_assoc, cut_zero, cut_zero_assoc, stepPost, coprod.inr_map]
-      exact (mapSlotLabels_inject_assoc M (slot M D) (0 : Fin 2) rfl rfl coprod.inr).symm
-  | succ i =>
-      cases i with
-      | zero =>
-          have eq : Pair = A := Option.some.inj hit
-          subst A
-          rw [mapLabelHead_succ_assoc M (Pair :: exits) (leftIn M D) (i := 0) rfl]
-          change labelInject M 1 (rfl : At (labels (tag D)) 1 Pair) ≫ cut M (tag D) =
-            labelInject M 1 (rfl : At (labels U) 1 Pair) ≫ cut M U ≫ stepPost M D
-          simp only [cut_one, cut_one_assoc, stepPost, coprod.inr_map]
-          have eq := mapSlotLabels_inject_assoc M (slot M D) (1 : Fin 2) rfl rfl
-            (coprod.inr : labelObj M (List.ofFn (retainedTypes (tag D))) ⟶ labelObj M exits ⨿ _)
-          have identity : slot M D (1 : Fin 2) = 𝟙 (M.obj Pair) := rfl
-          rw [identity] at eq
-          exact (Category.id_comp _).symm.trans eq.symm
-      | succ i =>
-          have hi : At exits i A := hit
-          have tail : At (Pair :: exits) (i + 1) A := hi
-          simp only [post, mapLabelHead_succ_assoc M (Pair :: exits) (leftIn M D) tail,
-            cut_exit M _ hi, cut_exit_assoc M _ hi, stepPost, coprod.inl_map, Category.id_comp]
+private def indexing : Fin 3 → Fin 4 := Fin.cases 2 (Fin.cases 0 (fun _ => 3))
 
-private theorem checked_routes (D : Ty Empty) {Γ : VCtx (Ty Empty)} {r s : Region Op}
-    (checked : CheckedRoutes routeLayout Γ r s) : RegionConstructorRoutes M (post M D) (𝟙 _) Γ r s := by
-  apply CheckedRoutes.toConstructorRoutes M checked
-  · intro i A hit
-    cases i with
-    | zero => simp [routeLayout] at hit
-    | succ i =>
-        simp only [routeLayout, List.getElem?_cons_succ, List.getElem?_map] at hit
-        obtain ⟨T, get, eq⟩ := Option.map_eq_some_iff.mp hit
-        have ht : At (Pair :: exits) i A := get.trans (congrArg (fun x : Ty Empty × Bool => some x.1) eq)
-        exact ⟨ht, ht, (mapLabelHead_succ M (Pair :: exits) (leftIn M D) ht).trans (Category.comp_id _).symm⟩
-  · intro i A hit
-    cases i with
-    | zero =>
-        have eq : U = A := congrArg Prod.fst (Option.some.inj hit)
-        subst A
-        exact ⟨D, rfl, rfl, by rw [Category.comp_id]; exact mapLabelHead_zero M (Pair :: exits) (leftIn M D)⟩
-    | succ i =>
-        simp only [routeLayout, List.getElem?_cons_succ, List.getElem?_map] at hit
-        obtain ⟨_, _, eq⟩ := Option.map_eq_some_iff.mp hit
-        cases eq
+private def mask : Fin 3 ↪ Fin 4 :=
+  ⟨indexing, by
+    intro i j h
+    fin_cases i <;> fin_cases j <;> first | rfl | contradiction⟩
 
-private theorem append_cut {C : Type} [Category C] (J : V ⥤ C) {D : Ty Empty}
-    {Γ : VCtx (Ty Empty)} {a : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M (labels U))}
-    {b : J.obj (ctxObj M Γ) ⟶ J.obj (labelObj M (labels (tag D)))}
-    (eq : b = a ≫ J.map (post M D)) :
-    b ≫ J.map (cut M (tag D)) = a ≫ J.map (cut M U) ≫ J.map (stepPost M D) := by
-  rw [eq, Category.assoc, ← J.map_comp, post_cut, J.map_comp]
+private def types : Fin 2 → Ty Empty := Fin.cases Pair (fun _ => U)
+private def fullTypes (D dead : Ty Empty) : Fin 4 → Ty Empty :=
+  Fin.cases Pair (Fin.cases dead (Fin.cases (tag D) (fun _ => U)))
 
-end ValueMaps
+private def nested : Region Op :=
+  .cfg (.br 0 (.var 0)) 1 (fun _ =>
+    .case (.op .poll (.var 0)) (.br 2 (.var 0)) (.br 4 (.var 0)))
+
+private def taggedRow : Region Op :=
+  .case (.var 0) (nested.renameVars (Silmaril.DeBruijn.lift Nat.succ)) (.br 0 (.var 1))
+
+private def pairRow : Region Op :=
+  .case (.op .resume (.var 0)) (.br 2 (.var 0)) (.br 4 (.var 0))
+
+private def unitRow : Region Op :=
+  .case (.op .poll (.var 0)) (.br 4 (.var 0)) (.br 0 (.inl (.var 0)))
+
+private def table : CfgRestriction Op 4 :=
+  ⟨.br 0 (.inl .unit), Fin.cases pairRow
+    (Fin.cases (.br 3 .unit) (Fin.cases taggedRow (fun _ => unitRow)))⟩
+
+private abbrev graph : Region Op := table.source mask
+
+private def plan : Mixed.Plan Op 2 4 1 1 :=
+  (Mixed.check? mask innerKeep innerTypes types graph).get (by decide)
+
+/-- The nested table anchors only the first ordinary row. One worklist
+step discovers the second ordinary input through the first row's reply. -/
+example : (plan.anchors 0).contains 1 = false ∧ (plan.anchors 1).contains 1 = true :=
+  ⟨by decide, by decide⟩
+
+private theorem entry_typed (D dead : Ty Empty) :
+    (table.entry.renameLabels (retainLabelIndex mask)).HasType [] (List.ofFn (fullTypes D dead) ++ exits) :=
+  (show table.entry.HasType [] (List.ofFn (fun i => fullTypes D dead (mask i)) ++ exits) from
+    .br rfl (.inl .unit)).renameLabels (retainLabelRen mask _ _)
+
+private theorem rows_typed (D dead : Ty Empty) (i : Fin 4) :
+    ((table.rows i).renameLabels (retainLabelIndex mask)).HasType
+      [fullTypes D dead i] (List.ofFn (fullTypes D dead) ++ exits) := by
+  let localLabels := List.ofFn (fun i => fullTypes D dead (mask i)) ++ exits
+  have first : pairRow.HasType [Pair] localLabels :=
+    .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.var rfl))
+  have omitted : (Region.br 3 .unit : Region Op).HasType [dead] localLabels := .br rfl .unit
+  have innerTyped : nested.HasType [U] localLabels :=
+    .cfg innerTypes (.br rfl (.var rfl)) (fun _ =>
+      .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.var rfl)))
+  have known : taggedRow.HasType [tag D] localLabels :=
+    .case (.var rfl) (innerTyped.renameVars ((Ren.wk [] (tag D)).lift U)) (.br rfl (.var rfl))
+  have last : unitRow.HasType [U] localLabels :=
+    .case (.op (.var rfl)) (.br rfl (.var rfl)) (.br rfl (.inl (.var rfl)))
+  have ren := retainLabelRen mask (fullTypes D dead) exits
+  exact Fin.cases (first.renameLabels ren) (Fin.cases (omitted.renameLabels ren)
+    (Fin.cases (known.renameLabels ren) (fun _ => last.renameLabels ren))) i
+
+private def responses : Op → Value Empty → Nat → Value Empty → Nat → Prop
+  | .poll, .unit, 0, .inl (.pair .unit .unit), 1 => True
+  | .resume, .pair .unit .unit, 1, .inl .unit, 2 => True
+  | .poll, .unit, 2, .inr .unit, 3 => True
+  | .poll, .unit, 3, .inr .unit, 4 => True
+  | _, _, _, _, _ => False
+
+/-- The nested row is at written slot two. Its reply visits slots zero
+and three before a tagged backedge enters slot two again. -/
+example : Semantics.Region.Eval responses (fun _ => .unit) graph 0 0 .unit 4 := by
+  refine .cfg (.br (.inl .unit)) ?_
+  refine .step (label := 2) (next := 0) (middle := .pair .unit .unit) (s₁ := 1) (by decide) ?_ ?_
+  · exact .case_inl .var (.cfg (.br .var)
+      (.step (label := 0) (next := 1) (by decide)
+        (.case_inl (.op .var
+          (show responses Op.poll .unit 0 (.inl (.pair .unit .unit)) 1 from True.intro)) (.br .var))
+        (.exit (by decide))))
+  · refine .step (label := 0) (next := 3) (middle := .unit) (s₁ := 2) (by decide)
+      (.case_inl (.op .var (show responses Op.resume (.pair .unit .unit) 1 (.inl .unit) 2 from True.intro))
+        (.br .var)) ?_
+    refine .step (label := 3) (next := 2) (middle := .inl .unit) (s₁ := 3) (by decide)
+      (.case_inr (.op .var (show responses Op.poll .unit 2 (.inr .unit) 3 from True.intro))
+        (.br (.inl .var))) ?_
+    refine .step (label := 2) (next := 4) (middle := .unit) (s₁ := 4) (by decide) ?_ (.exit (by decide))
+    exact .case_inl .var (.cfg (.br .var)
+      (.step (label := 0) (next := 5) (by decide)
+        (.case_inr (.op .var (show responses Op.poll .unit 3 (.inr .unit) 4 from True.intro)) (.br .var))
+        (.exit (by decide))))
 
 section Model
 
@@ -294,86 +269,41 @@ variable {V C : Type} [Category V] [Category C]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
 
-local notation "Env" => ctxObj M []
-local notation "Arrow" => J.obj Env ⟶ J.obj (labelObj M exits)
+local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
 
-private theorem select_inner (D : Ty Empty) {L : LCtx (Ty Empty)} {t : guarded.HasType [tag D] L}
-    {b : J.obj (ctxObj M [tag D]) ⟶ J.obj (labelObj M L)} (w : RegionDenotes J M t b) :
-    ∃ h : inner.region.HasType [U] L, RegionDenotes J M h (J.map (Env ◁ leftIn M D) ≫ b) := by
-  have da : Denotes J M (.inl (.var rfl) (B := D) : (Tm.inl (.var 0) : Tm Op).HasType [U] (tag D))
-      (J.map (snd Env (M.obj U) ≫ leftIn M D)) := by
-    rw [J.map_comp]
-    exact .inl (.var rfl)
-  obtain ⟨_, restricted⟩ := w.replaceNewest J M da
-  have prune : Region.PruneConstructorTests (guarded.substVars (Tm.replaceNewest (.inl (.var 0))))
-      (plan.selectedInner innerKeep) := (NestedAdmission.Finite.check?_sound checkInner).outer
-  rw [chosen_inner] at prune
-  exact prune.denotes J M restricted
+example (roll : IterationRolling C) :
+    ∃ f g : Arrow,
+      CfgDenotesAt J M (fullTypes U U) (table.entry.renameLabels (retainLabelIndex mask))
+        (fun i => (table.rows i).renameLabels (retainLabelIndex mask)) f ∧
+      CfgDenotesAt J M (fullTypes .empty .empty) (table.entry.renameLabels (retainLabelIndex mask))
+        (fun i => (table.rows i).renameLabels (retainLabelIndex mask)) g ∧ f = g := by
+  obtain ⟨f, left⟩ := CfgDenotesAt.exists_of_typing J M (fullTypes U U) (entry_typed U U) (rows_typed U U)
+  obtain ⟨g, right⟩ := CfgDenotesAt.exists_of_typing J M (fullTypes .empty .empty)
+    (entry_typed .empty .empty) (rows_typed .empty .empty)
+  have tl : graph.HasType [] exits := .cfg (fullTypes U U) (entry_typed U U) (rows_typed U U)
+  have tr : graph.HasType [] exits := .cfg (fullTypes .empty .empty)
+    (entry_typed .empty .empty) (rows_typed .empty .empty)
+  have dl : RegionDenotes J M tl f := left.denotes J M
+  have dr : RegionDenotes J M tr g := right.denotes J M
+  have ok : Mixed.compare? mask innerKeep innerTypes types graph = .certified := by decide
+  exact ⟨f, g, left, right, Mixed.compare?_sound J M roll ok dl dr⟩
 
-private theorem align {S : Fin 2 → Ty Empty} {f : Arrow}
-    (w : CfgDenotesAt J M S compact.entry liveRows f) : ∃ D : Ty Empty, S = retainedTypes (tag D) := by
-  obtain ⟨ent, _, _, b, _, _, rows, _⟩ := w
-  obtain ⟨D, first⟩ := anchor_left ent
-  have row : ∃ (t : guarded.HasType [tag D] (List.ofFn S ++ exits))
-      (a : J.obj (ctxObj M [tag D]) ⟶ J.obj (labelObj M (List.ofFn S ++ exits))), RegionDenotes J M t a := by
-    rw [← first]
-    exact ⟨_, b 0, rows 0⟩
-  obtain ⟨_, _, row⟩ := row
-  obtain ⟨selected, _⟩ := select_inner J M D row
-  have second := anchor_plain selected
-  refine ⟨D, funext (Fin.cases first ?_)⟩
-  intro i
-  cases Subsingleton.elim i (0 : Fin 1)
-  exact second
+end Model
 
-private theorem compare_reduced (roll : IterationRolling C) (D : Ty Empty) {f g : Arrow}
-    (small : CfgDenotesAt J M (retainedTypes U) (start false) commonRows f)
-    (wide : CfgDenotesAt J M (retainedTypes (tag D)) compact.entry liveRows g) : f = g := by
-  have mapped := CfgDenotesAt.postmap_of_slot_squares J M (slot M D) (𝟙 (labelObj M exits))
-    (fun _ _ _ _ de dw => by
-      have eq := RegionConstructorRoutes.denotes J M (checked_routes M D entryRoute) de dw
-      rw [J.map_id, Category.comp_id] at eq
-      exact append_cut M J eq.symm)
-    (fun i => Fin.cases (fun _ _ a b ds dw => by
-      obtain ⟨_, selected⟩ := select_inner J M D dw
-      obtain ⟨_, common⟩ : ∃ t : plan.commonInner.HasType [U] (labels U), RegionDenotes J M t a := by
-        rw [common_inner]
-        exact ⟨_, ds⟩
-      obtain ⟨_, wide⟩ : ∃ t : (plan.selectedInner innerKeep).HasType [U] (labels (tag D)),
-          RegionDenotes J M t (J.map (Env ◁ leftIn M D) ≫ b) := by
-        rw [chosen_inner]
-        exact ⟨_, selected⟩
-      have eq := (NestedAdmission.Finite.check?_sound checkInner).postmap_inner J M roll D common wide
-      have component := append_cut M J eq
-      rw [Category.assoc] at component
-      exact component)
-      (fun j => by
-        cases Subsingleton.elim j (0 : Fin 1)
-        intro _ _ _ _ ds dw
-        have eq := RegionConstructorRoutes.denotes J M (checked_routes M D ordinaryRoute) ds dw
-        rw [J.map_id, Category.comp_id] at eq
-        change J.map (Env ◁ 𝟙 (M.obj Pair)) ≫ _ ≫ _ = _
-        rw [MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp]
-        exact append_cut M J eq.symm) i)
-    small wide
-  rwa [J.map_id, Category.comp_id, eq_comm] at mapped
+end MoreOrdinary
 
-private theorem compare_original (roll : IterationRolling C)
-    {h h' : graph.HasType [] exits} {f g : Arrow}
-    (left : RegionDenotes J M h f) (right : RegionDenotes J M h' g) : f = g := by
-  have rows : ∀ i, (commonRows i).HasType [retainedTypes U i] (labels U) :=
-    Fin.cases (inner_typed U) (fun _ => ordinaryRoute.hasType)
-  obtain ⟨base, small⟩ := CfgDenotesAt.exists_of_typing J M (retainedTypes U) (L := exits)
-    entryRoute.hasType rows
-  have agree {ht : graph.HasType [] exits} {a : Arrow} (actual : RegionDenotes J M ht a) : base = a := by
-    obtain ⟨_, _, reduced⟩ := (CfgRestriction.check?_sound restrict_ok).readback J M roll actual
-    obtain ⟨D, shape⟩ := align J M reduced
-    rw [shape] at reduced
-    exact compare_reduced J M roll D small reduced
-  exact (agree left).symm.trans (agree right)
+section Model
 
-/-- Compare independently typed denotations of the same original full
-graph. Both the unused right summand and the omitted outer slot vary. -/
+variable {V C : Type} [Category V] [Category C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : TypeModel (Ty Empty) V) [InstructionModel J M Op]
+
+local notation "Arrow" => J.obj (ctxObj M []) ⟶ J.obj (labelObj M exits)
+
+/-- The original #4860 program certifies directly. The denotation witnesses
+still use the full written table and choose different right and dead types. -/
 example (roll : IterationRolling C) :
     ∃ f g : Arrow,
       CfgDenotesAt J M (fullTypes U U) (compact.entry.renameLabels (retainLabelIndex keep))
@@ -388,7 +318,8 @@ example (roll : IterationRolling C) :
     (actualEntry_typed .empty .empty) (actualRows_typed .empty .empty)
   have dl : RegionDenotes J M tl f := left.denotes J M
   have dr : RegionDenotes J M tr g := right.denotes J M
-  exact ⟨f, g, left, right, compare_original J M roll dl dr⟩
+  have ok : Mixed.compare? keep innerKeep innerTypes ordinaryTypes graph = .certified := by decide
+  exact ⟨f, g, left, right, Mixed.compare?_sound J M roll ok dl dr⟩
 
 end Model
 

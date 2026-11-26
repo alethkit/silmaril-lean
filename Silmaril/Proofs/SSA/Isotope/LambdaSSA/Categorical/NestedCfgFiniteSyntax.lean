@@ -109,6 +109,19 @@ private theorem local_at {α : Type} {m : Nat} (P : Fin m → α) (L : List α) 
     (List.ofFn P ++ L)[i.val]? = some (P i) := by
   simp [List.getElem?_append_left, i.isLt]
 
+/-- A sound seed and transfer rule establish the claim at every bounded anchor. -/
+theorem of_worklist {m : Nat} {seed : Fin m → Bool} {edge : Fin m → Fin m → Bool}
+    {claim : Fin m → Prop} (initial : ∀ i, seed i = true → claim i)
+    (advance : ∀ j i, claim j → edge j i = true → claim i) {depth : Nat} {i : Fin m}
+    (hit : i ∈ anchorWorklist seed edge depth) : claim i := by
+  induction depth generalizing i with
+  | zero => exact initial i (List.mem_filter.mp hit).2
+  | succ depth ih =>
+      rcases Bool.or_eq_true_iff.mp (List.mem_filter.mp hit).2 with start | step
+      · exact initial i start
+      · obtain ⟨j, known, next⟩ := List.any_eq_true.mp step
+        exact advance j i (ih known) next
+
 theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
     {L K : LCtx (Ty Empty)} {A : Ty Empty} {entry commonEntry : Region Φ} {rows : Fin n → Region Φ}
     {commonRows : Fin m → Region Φ} (wide : Bool)
@@ -121,19 +134,12 @@ theorem aligned {m n : Nat} {keep : Fin m ↪ Fin n} {P S : Fin m → Ty Empty}
   have entryFixed (i : Fin m) (h : branchesTo i commonEntry = true) : S i = P i :=
     Option.some.inj ((local_at S K i).symm.trans
       (plain_target wide er h (local_at (fun j => (P j, false)) _ i) typedEntry))
-  have along (d : Nat) (i : Fin m) (h : i ∈ anchored commonEntry commonRows d) : S i = P i := by
-    induction d generalizing i with
-    | zero =>
-        exact entryFixed i (List.mem_filter.mp h).2
-    | succ d ih =>
-        have edges := Bool.or_eq_true_iff.mp (List.mem_filter.mp h).2
-        rcases edges with start | step
-        · exact entryFixed i start
-        · obtain ⟨j, known, next⟩ := List.any_eq_true.mp step
-          have typed := typedRows j
-          rw [ih j known] at typed
-          exact Option.some.inj ((local_at S K i).symm.trans
-            (plain_target wide (rr j) next (local_at (fun j => (P j, false)) _ i) typed))
-  exact funext fun i => along d i (paths i)
+  have advance (j i : Fin m) (known : S j = P j) (next : branchesTo i (commonRows j) = true) :
+      S i = P i := by
+    have typed := typedRows j
+    rw [known] at typed
+    exact Option.some.inj ((local_at S K i).symm.trans
+      (plain_target wide (rr j) next (local_at (fun j => (P j, false)) _ i) typed))
+  exact funext fun i => of_worklist entryFixed advance (paths i)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax
