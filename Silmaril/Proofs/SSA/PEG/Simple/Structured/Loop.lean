@@ -221,7 +221,7 @@ theorem evalEquation (j : Index all.length) (r : Port vars t) :
   rw [loopRows_exit]
   rfl
 
-private theorem passValue {fixed : Index all.length} {k : Nat} {final : Tuple m.Value vars}
+theorem passValue {fixed : Index all.length} {k : Nat} {final : Tuple m.Value vars}
     (exit : Exits view fixed 0 k final) (j : Index all.length) (agree : Agrees active fixed j) :
     read (view.embed (passRef vars)) j = some ⟨k⟩ := by
   have atExit : flags view j k = some true := by
