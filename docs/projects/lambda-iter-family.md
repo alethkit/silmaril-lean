@@ -570,3 +570,46 @@ the next tick operands. A silent loop refines the relabelled cycle at
 every typed input, and that trace at 7 separates the reverse comparison.
 [Named supplied-entry theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
 · [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Admitted named comparisons at a typed entry
+
+`NamedFlat.Entry.Interface` fixes the typed entry context, distinct names
+for its slots, and an ordered exit list with a payload type at each
+position. The product input is the same record as in `Program.ofCFGEntry`.
+`inputEnv_packet` checks its runtime encoding, `store_at` checks a
+lookup at each supplied name, and `store_version_zero` checks the
+projection to a mutable input store. Names outside the supplied profile
+have the default value unit.
+[Typed record and store](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Thms.lean)
+
+`Entry.SSA.admit` checks a named lexical table at its supplied internal
+profile. `Entry.RTL.admit` uses the actual `compileTyped` result of cyclic
+versioning. A certificate records the elaborated open table and its
+exact typing. `elaborateAt_mapOp` commutes with primitive relabelling at
+the original block count, including failure of untyped elaboration.
+`Versioning.compile_mapOp` commutes with the literal generated syntax.
+Sentence translation transports the certificate at its written internal
+profile, so both squares use literal syntax equality and proof
+irrelevance. They require no independent choice of a typing profile.
+[Elaboration law](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/InstructionMap/Thms.lean)
+· [Versioning law](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/InstructionMap/Thms.lean)
+· [Admission and translation](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Institution/Defs.lean)
+
+The named rooms use the flat room's models and reducts. Their satisfaction
+compares finite weak traces of the actual named runners at every typed
+input after numbering and tagging external exits. The RTL observation
+forgets the final store. `RTL.observe_version` uses the weak ITree
+instance of the lawful Elgot versioning theorem, with the structural pair
+law. `SSA.observe_tree` agrees with the actual packed execution at the
+same typed input. The two comorphisms compose with the open flat packing
+map and their satisfaction laws hold in both directions. Named lexical
+admission checks the supported table and its typed elaboration. Global
+φ certification, and named `Part` linking, have separate APIs.
+[Runner agreement and comorphisms](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Institution/Thms.lean)
+
+The generated cyclic example supplies `((), 7)` directly. The
+noninjective seed/tick map is tested against fresh execution of the
+admission checker at the same profile. The named mutable trace witnesses
+strict refinement from a silent self-loop, and the composed comorphism
+transports the comparison to packed satisfaction.
+[Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
