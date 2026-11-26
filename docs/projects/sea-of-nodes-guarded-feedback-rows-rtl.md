@@ -862,16 +862,62 @@ agrees with the machine's word list and final memory. Compose with
 three feedback packets, a missing occurrence, a finite return and a
 fixed bank with no finite return. [Checked regression][table-regression]
 
-The MLIR CF bank emitter now has flag-free subtraction and signed
-less-than with exact RTL word agreement. Lowering the resized family to
-CF still needs typed arguments for the header temporaries read by later
-dispatch blocks, plus an occurrence and packet correspondence for the
-full dispatch chain. [CF bank emitter][cf-bank] · [Shared word operations][cf-word-ops]
-· [CF block scope][cf-scope]
+### Live header values in MLIR CF
+
+`Family.MLIR.check` reads every dispatch row from the emitted RTL
+function. A row must be the expected empty dispatcher block with a
+positional feedback edge to header 1. Each subsequent test is the next
+dispatcher. Each selector and feedback register must occur in the
+declared live list. `column_eq_phi` recovers the same ordered operands as
+the existing explicit-Φ view at that occurrence.
+[Typed transport API][cf-dispatch]
+
+`Family.MLIR.lower` takes a typed CF bank program and a list of live
+header origins. The existing producer emitter runs its preheader and
+header, including flag-free wrapping subtraction and signed comparison.
+The header passes the live words as block arguments. Each conditional
+dispatcher uses unsigned `0 < selector` to implement RTL's nonzero test.
+A fallthrough forwards the whole live tuple. A selected feedback edge
+projects its ordered operands from that tuple, including any old bank
+words or header temporaries, before the header rebinds its bank.
+[Shared word operations][cf-word-ops] · [CF block scope][cf-scope]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (Reg)
+open Silmaril.Machine.RTL.SSA (Func)
+open Silmaril.MLIR.Arith (Width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (TargetOp)
+open Silmaril.MLIR.CF (Cfg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List (Silmaril.SSA.SeaOfNodes.Diamond.Ty Width))}
+    (fn : Func Reg) (g : Family.MLIR.Program 4 3 entrySigs sigs)
+    (live : Family.MLIR.Live 4 3 sigs) :
+    Option (Cfg TargetOp (Family.MLIR.Label live.length 3 2) (Family.MLIR.wordsTy 4) [i64]) :=
+  (Family.MLIR.check fn (Family.MLIR.liveRegs live) 3 2).map (Family.MLIR.lower g live)
+```
+
+`header_frame` establishes the CF header packet from the supplied CF
+producer table. `checked_dispatch_step` compares execution of every
+emitted dispatcher block with the corresponding actual RTL.SSA step
+when its live arguments match the old RTL frame. The theorem records
+the successor occurrence, exact ordered operands, post-transfer bank
+readback, and unchanged whole memory. A fallthrough preserves the frame
+and transported tuple, so the same relation applies at the next block.
+The three-to-four regression exercises three distinct feedback packets,
+an actually used header result, and refusal when that result is missing
+from the live list. Whole-loop agreement still needs a producer-table
+translation, establishment of the snapshot relation at each header,
+and composition with entry and exit execution.
+[Checked regression][table-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -904,6 +950,6 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 
 [resized-rtl]: https://github.com/hiloopai/silmaril-lean/pull/4456
 [family-phi]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/Phi/Thms.lean
-[cf-bank]: ../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Defs.lean
 [cf-scope]: ../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean
 [cf-word-ops]: sea-of-nodes-loop-mlir-cf.md#signed-i64-operations-shared-with-rtl
+[cf-dispatch]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Thms.lean

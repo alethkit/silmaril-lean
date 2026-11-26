@@ -39,7 +39,7 @@ theorem key_injective : Function.Injective (@key tests) := by
     change 3 + i.val = 3 + j.val at same
     omega
 
-private theorem checkPacket_registers {regs : List Reg} {packet : Packet scope width}
+theorem checkPacket_registers {regs : List Reg} {packet : Packet scope width}
     (checked : checkPacket scope width regs = some packet) : packet.registers = regs := by
   induction width generalizing regs with
   | zero =>
