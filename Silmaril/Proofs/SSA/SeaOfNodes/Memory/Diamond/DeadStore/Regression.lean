@@ -7,6 +7,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
@@ -21,6 +22,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
@@ -1007,5 +1009,57 @@ example : (Staged.lower (samePortDiamond .onFalse) inferredEntry input).map (·.
     .ok (Entry.lowerPair (samePortDiamond .onFalse) inferredEntry inferredFinal input) := rfl
 #guard runStaged (samePortDiamond .onFalse) inferredEntry input true 3 ==
   some (33, 33, [11, 11, 99, 33, 55], [11, 11, 99, 33, 55])
+
+private def entryWithLoadedPrefix (rest : Memory.Body args [[.word]] 1) : Memory.Graph args :=
+  .load (.latest 0) (.arg rightPort) (.store (.latest 0) (.arg leftPort) loaded rest)
+
+private def retainedFinalPrefix : Memory.Graph args :=
+  entryWithLoadedPrefix (.ret (.latest 1) loaded)
+
+private def finalStoreEntry : Memory.Graph args :=
+  entryWithLoadedPrefix (.store (.latest 1) (.arg headPort) (.arg entryWord) (.ret (.latest 2) loaded))
+
+private def overwriteThenReadPrefix (word : Port args .word) : Memory.Graph args :=
+  .store (.latest 0) (.arg headPort) (.arg word)
+    (.load (.latest 1) (.arg leftPort) (.ret (.latest 1) loaded))
+
+private def finalStoreDiamond (first : Projection) : Graph args :=
+  { samePortDiamond first with
+    arm
+      | .onTrue => overwriteThenReadPrefix leftWord
+      | .onFalse => lastSideStore.prepend (overwriteThenReadPrefix rightWord) }
+
+example : (Static.Sequence.Search.discover finalStoreEntry (inferContracts finalStoreEntry)).entry =
+    finalStoreEntry := rfl
+example : Final.cut 2 finalStoreEntry = some (middleStore, retainedFinalPrefix) := rfl
+example : Final.cut 1 finalStoreEntry = none := rfl
+example : Final.cut 3 finalStoreEntry = none := rfl
+example : Final.cut 2
+    (entryWithLoadedPrefix (.store (.latest 1) (.arg headPort) loaded (.ret (.latest 2) loaded))) = none := rfl
+
+private def runFinalStore (first : Projection) (valuation : Tuple (Val 4) args)
+    (guard : Bool) (fuel : Nat) : Option (Word × Word × List Word × List Word) := do
+  let artifacts ← Final.lower 4 (finalStoreDiamond first) finalStoreEntry 2
+  runEntryPrograms ⟨valuation, artifacts.original, artifacts.optimized⟩ guard fuel
+
+-- The earlier Load supplies 3 to the retained Store. Each route reads
+-- that cell after its overwrite, so the effect remains observable.
+/-- info: some (99#64, 7#64, [3#64, 33#64, 3#64, 33#64, 55#64], [3#64, 33#64, 3#64, 33#64, 55#64]) -/
+#guard_msgs in
+#eval runFinalStore .onFalse input false 3
+
+#guard runFinalStore .onFalse input true 3 == some (99, 7, [3, 11, 3, 3, 55], [3, 11, 3, 3, 55])
+#guard runFinalStore .onTrue input false 3 == runFinalStore .onFalse input false 3
+#guard runFinalStore .onTrue input true 3 == runFinalStore .onFalse input true 3
+#guard runFinalStore .onFalse input false 2 == none
+
+-- The earlier Store can target the nominated cell through another port.
+-- Its 3 reaches the optimized entry boundary until the arm writes 33.
+#guard runFinalStore .onFalse (chainInput headCell rightCell) false 3 ==
+  some (99, 3, [33, 33, 2, 33, 55], [33, 33, 2, 33, 55])
+
+example : Final.lower 4 observingRoute finalStoreEntry 2 = none := rfl
+#guard runEntryPrograms (Entry.lowerPair observingRoute finalStoreEntry finalStoreEntry input) false 3 ==
+  some (99, 99, [99, 33, 3, 3, 55], [99, 33, 3, 3, 55])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
