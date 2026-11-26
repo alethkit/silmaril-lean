@@ -58,4 +58,58 @@ def sentence (read : PointRead snapshot) (key : Int64) (test : SqlValue → Bool
     row.rowId? == some key && test (row.get read.column)⟩
 
 end PointRead
+
+/-- The table part of a resolved SQLite catalog gives a signature independently of any rows. -/
+def queryCatalogOfTables (catalog : TableCatalog Affinity Expr) : QueryCatalog Type :=
+  QueryCatalog.ofCatalog catalog querySchema
+
+/-- Read a snapshot's checked tables over a declared catalog with the same table schemas. -/
+def tablesOver (snapshot : SqlSnapshot sem) {catalog : TableCatalog Affinity Expr}
+    (compatible : snapshot.catalog.tables = catalog) :
+    Database.Over catalog (CheckedTable ValueModel.sqlValue sem) :=
+  fun name => congrFun compatible name ▸ (Database.Packed.unpack snapshot.tables).snd name
+
+/-- The checked rows of a compatible snapshot, interpreted at the declared catalog signature. -/
+def queryModelOfSnapshot (snapshot : SqlSnapshot sem) {catalog : TableCatalog Affinity Expr}
+    (compatible : snapshot.catalog.tables = catalog) :
+    QueryCatalog.Model id (queryCatalogOfTables catalog) :=
+  QueryCatalog.modelOfOver (fun _ table => CheckedTable.rows table) (tablesOver snapshot compatible)
+
+/-- A named point projection admitted by the declared table schemas. The selected table must
+be present, with a visible `rowid` pseudocolumn and an ordinary projected column. -/
+structure CatalogPointRead (catalog : TableCatalog Affinity Expr) where
+  table : Database.Support catalog
+  columnName : String
+  column : (QueryCatalog.entryAt catalog table).Index
+  found : (QueryCatalog.entryAt catalog table).findColumn columnName = some column
+  rowIdVisible : (QueryCatalog.entryAt catalog table).resolvesRowId "rowid" = true
+  ordinary : (QueryCatalog.entryAt catalog table).generation column = none
+
+namespace CatalogPointRead
+
+variable {catalog : TableCatalog Affinity Expr}
+
+def schema (read : CatalogPointRead catalog) : TableSchema Affinity Expr :=
+  QueryCatalog.entryAt catalog read.table
+
+def invocation (read : CatalogPointRead catalog) (key : Int64) : Invocation Names :=
+  ⟨⟨⟨read.table.val, read.columnName⟩⟩, some (1, key)⟩
+
+/-- A bound rowid and projected-cell test at the declared catalog signature. -/
+def sentence (read : CatalogPointRead catalog) (key : Int64) (test : SqlValue → Bool) :
+    DatabaseQuery.Sentence id (queryCatalogOfTables catalog) :=
+  .atom ⟨read.table, fun (row : TableRow ValueModel.sqlValue read.schema) =>
+    row.rowId? == some key && test (row.get read.column)⟩
+
+/-- Resolve the declared projection to the checked payload in a compatible snapshot. -/
+def target (read : CatalogPointRead catalog) (snapshot : SqlSnapshot sem)
+    (compatible : snapshot.catalog.tables = catalog) : Target sem :=
+  ⟨read.schema, read.column,
+    (tablesOver snapshot compatible).lookup read.table.val (Option.some_get _).symm⟩
+
+def result (read : CatalogPointRead catalog) (snapshot : SqlSnapshot sem)
+    (compatible : snapshot.catalog.tables = catalog) (key : Int64) : SelectResult SqlValue :=
+  ⟨read.schema.name read.column, (read.target snapshot compatible).lookup key⟩
+
+end CatalogPointRead
 end Silmaril.SQLite.Relational.CatalogExecutor

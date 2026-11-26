@@ -1,10 +1,10 @@
 module
 
-import Silmaril.Machine.SQLite.CommandProcessor.Execute.Thms
+import Silmaril.Machine.SQLite.CommandProcessor.Query.Thms
 
 namespace Silmaril.Machine.SQLite.CommandProcessor.ExecuteChecks
 
-open Silmaril.SQLite.Relational
+open Silmaril.Relational Silmaril.SQLite.Relational
 
 private def semantics : TableSemantics SqlValue Affinity Unit where
   evalGenerated _ _ := none
@@ -129,5 +129,19 @@ example : ¬ CodeGenerator.Represents (snapshot shortTable) address plan.target 
 
 example : observe (snapshot shortTable) sql (some (1, 9)) =
     .ok (.statement (.ok ⟨"value", some .null⟩)) := by cbv
+
+private def catalogRead : CatalogExecutor.CatalogPointRead connection.catalog.catalog.tables where
+  table := ⟨"items", by decide⟩
+  columnName := "value"
+  column := ⟨1, by decide⟩
+  found := rfl
+  rowIdVisible := rfl
+  ordinary := rfl
+
+example : DatabaseQuery.eval (CatalogExecutor.queryModelOfSnapshot connection.catalog rfl)
+    (catalogRead.sentence (-7) fun value => decide (value = .null)) = true := by
+  apply (pointRead_sat_iff_execute (db := connection) (vm := snapshot table) (locate := locate)
+    catalogRead rfl ((parse_iff sql statement).mp (by cbv)) represented _ _).mpr
+  exact ⟨⟨"value", some .null⟩, connection, by cbv, rfl⟩
 
 end Silmaril.Machine.SQLite.CommandProcessor.ExecuteChecks

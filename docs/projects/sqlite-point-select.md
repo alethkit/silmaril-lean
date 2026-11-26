@@ -89,6 +89,14 @@ SQLite grammar, the C handle lifecycle and native SQLite equivalence
 are outside these results.
 [Fixtures](../../Silmaril/Machine/SQLite/CommandProcessor/Execute/Checks.lean)
 
+`CommandProcessor.pointRead_sat_iff_execute` composes this execution judgment
+with a `CatalogPointRead` sentence. The same bound sentence can be evaluated
+against each snapshot with the declared table schema. In each case, the text
+must represent the declared names and the addressed VM table must represent
+that snapshot's resolved projection.
+[Query theorem](../../Silmaril/Machine/SQLite/CommandProcessor/Query/Thms.lean) ·
+[Catalog sentences](relational-query-institutions.md#sqlite-point-reads)
+
 ## Upstream source and reproduction
 
 The architecture diagram places the tokenizer, parser and code generator in
