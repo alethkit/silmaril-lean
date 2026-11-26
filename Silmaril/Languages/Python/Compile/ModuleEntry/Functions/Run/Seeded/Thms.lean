@@ -5,6 +5,7 @@ public import Silmaril.Languages.Python.Core.Module.Functions.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity
 
 public section
 
@@ -38,6 +39,36 @@ theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (com
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_builtins
     space compiled.instructions { table := compiled.table, heap, fuel }
 
+/-- The comparison profile gives identical values and defined failures when
+both runners observe the same globals. -/
+theorem evaluateScalar_comparable {scope : Source.Scope} (space : Namespace)
+    (session : Core.Module.Functions.Session)
+    (reads : ∀ name, space.lookupGlobal name = (session.globals name).map seededValue)
+    (operand : Operand scope) (admitted : operand.comparable = true) :
+    evaluateScalar space true operand = ((Run.evaluate session operand).map seededValue).mapError scalarFailure :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity.evaluateScalar_agrees
+    space session reads operand admitted
+
+theorem evaluate_singletonResult {scope : Source.Scope} (session : Core.Module.Functions.Session)
+    (operand : Operand scope) (certified : operand.singletonResult = true) (value : Core.Closure.Value)
+    (evaluated : Run.evaluate session operand = .ok value) :
+    ∃ exact, (Run.scalar? value).bind Core.Module.Value.singleton? = some exact :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity.evaluate_singletonResult
+    session operand certified value evaluated
+
+theorem evaluateScalar_identityContext {scope : Source.Scope} (space : Namespace)
+    (left : Operand scope) (links : List (Core.Module.IdentityOperator × Operand scope)) :
+    evaluateScalar space false (.identityChain left links) = evaluateScalar space true (.identityChain left links) := by
+  rw [evaluateScalar, evaluateScalar]
+
+theorem run_identityAssertion {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (left : Operand scope) (links : List (Core.Module.IdentityOperator × Operand scope)) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.scalar (.assertion (.identityChain left links)) :: rest) =
+      match (assertOperand space (.identityChain left links) true).binding with
+      | .ok _ => runInstructionsIn space context rest
+      | .error error => ⟨space, .error error, [], context.heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity.run_identityAssertion space context left links rest
+
 theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespace)
     (equalityOperand : Bool) (operand : ModuleEntry.Operand scope) :
     evaluateScalar space equalityOperand operand.conditionalResult =
@@ -45,7 +76,7 @@ theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespa
       | .boolean value => .ok (.bool value)
       | other => evaluateScalar space equalityOperand other := by
   cases operand with
-  | boolean value => cases value <;> rfl
+  | boolean value => cases value <;> simp [Operand.conditionalResult, Operand.booleanResult, evaluateScalar] <;> rfl
   | _ => rfl
 
 theorem evaluateScalar_booleanResult {scope : Source.Scope} (space : Namespace)
@@ -59,9 +90,9 @@ theorem evaluateScalar_scalarResult {scope : Source.Scope} (space : Namespace) (
     evaluateScalar space equalityOperand (ModuleEntry.Operand.scalarResult (scope := scope) value) =
       .ok (seededValue (Run.embed value)) := by
   cases value with
-  | int value => rfl
+  | int value => simp [Operand.scalarResult, evaluateScalar, lowerScalarOperand]; rfl
   | bool value => exact evaluateScalar_booleanResult space equalityOperand value
-  | none => rfl
+  | none => simp [Operand.scalarResult, evaluateScalar, lowerScalarOperand]; rfl
 
 theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
     (left right : ModuleEntry.Operand scope) :
@@ -70,7 +101,7 @@ theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (cont
       let second ← evaluateScalar space true right
       let some first := scalar? first | throw .unsupported
       let some second := scalar? second | throw .unsupported
-      return .bool (!first.equal second)) := rfl
+      return .bool (!first.equal second)) := by rw [evaluateScalar]; rfl
 
 theorem effect_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value) :
@@ -173,7 +204,8 @@ theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (contex
     runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =
       if value then runInstructionsIn space context rest
       else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
-  cases value <;> rfl
+  cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effect, assertOperand,
+    evaluateScalar, lowerScalarOperand, Core.Module.SeededCall.Operand.eval] <;> rfl
 
 /-- Settle one direct discard call from the actual executor state. A
 finished call emits one receipt before its tail, and a failed call skips the tail. -/

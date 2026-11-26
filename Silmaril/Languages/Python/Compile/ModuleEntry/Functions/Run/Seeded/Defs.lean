@@ -70,13 +70,18 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
   | .read name _ => .global name
   | .integer value => .literal (.int value)
   | .none_ => .literal .none
-  | .boolean _ | .binary .. => .unsupported
+  | .boolean _ | .binary .. | .identityChain .. => .unsupported
 
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
   | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
+
+/-- Observation map for the shared scalar comparison profile. -/
+def scalarFailure : Completion → Failure
+  | .raised error => .raised (.runtime error)
+  | _ => .unsupported
 
 /-- Boolean literals are admitted inside equality and inequality. The resulting Boolean
 can be bound as a value. Other compound operands use the existing boundary. -/
@@ -92,9 +97,22 @@ def evaluateScalar {scope : Scope} (space : Namespace) (equalityOperand : Bool) 
       let same := first.equal second
       return .bool (match operator with | .notEqual => !same | _ => same)
     | _ => .error .unsupported
+  | .identityChain left links =>
+    let singleton value := (scalar? value).bind Core.Module.Value.singleton?
+    (Core.Module.Identity.project singleton .unsupported (evaluateScalar space true left)).bind fun first =>
+      (Core.Module.Identity.scan first (links.attach.map fun link =>
+        (link.val.1, fun _ => Core.Module.Identity.project singleton .unsupported (evaluateScalar space true link.val.2)))).map .bool
   | .boolean value =>
     if equalityOperand then .ok (.bool value) else .error .unsupported
   | operand => (lowerScalarOperand operand).eval space #v[]
+termination_by operand => sizeOf operand
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
+      omega
 
 def truth : Value → Bool
   | .int value => decide (value ≠ 0)

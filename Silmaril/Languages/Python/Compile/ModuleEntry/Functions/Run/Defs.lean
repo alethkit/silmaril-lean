@@ -42,7 +42,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
   | .integer value => some (.literal (.int value))
   | .boolean value => some (.literal (.bool value))
   | .read name _ => some (.readGlobal name)
-  | .none_ | .binary .. => none
+  | .none_ | .binary .. | .identityChain .. => none
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .scalar operand => (callOperand? operand).map .scalar
@@ -158,6 +158,20 @@ def evaluate {scope : Scope} (session : Session) : Operand scope → Except Comp
     | .error (.nameError name) => .error (.raised (.nameError name))
     | .error .assertionError => .error .assertionError
     | .error .unsupportedArithmetic => .error .scalarProfile
+    | .error .unsupportedIdentity => .error .scalarProfile
+  | .identityChain left links =>
+    let singleton value := (scalar? value).bind Core.Module.Value.singleton?
+    (Core.Module.Identity.project singleton .scalarProfile (evaluate session left)).bind fun first =>
+      (Core.Module.Identity.scan first (links.attach.map fun link =>
+        (link.val.1, fun _ => Core.Module.Identity.project singleton .scalarProfile (evaluate session link.val.2)))).map .bool
+termination_by operand => sizeOf operand
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
+      omega
 
 def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
     Argument → Body layout
