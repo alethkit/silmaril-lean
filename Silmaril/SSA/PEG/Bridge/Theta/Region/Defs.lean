@@ -22,13 +22,17 @@ inductive Opcode (P : InstructionSet.{0,0} Data) : RVSDG.Dialect (Ty Data) PUnit
   | branch : Opcode P (valuePorts [.bool]) [.control 2]
 
 /-- The descriptor's guard is a continuation test. True selects the update
-arm, while PEG pass tests the negated guard. -/
+arm, while PEG pass tests the negated guard. No primitive uses a state port. -/
+def evalOpcode (m : TotalModel P) {snapshot : PUnit → Type} {ins outs : List (ValuePort Data)} :
+    Opcode P ins outs → Tuple (RVSDG.PortType.Val m.toPEG.Value snapshot) ins →
+      Tuple (RVSDG.PortType.Val m.toPEG.Value snapshot) outs
+  | .primitive op, input => .cons (m.run op (fromPorts _ input)) .nil
+  | .branch, .cons flag .nil => .cons ⟨if flag.down then 1 else 0⟩ .nil
+
 abbrev model (m : TotalModel P) : RVSDG.Model (Opcode P) where
   value := m.toPEG.Value
   state _ := PEmpty
-  run
-    | .primitive op, input => .cons (m.run op (fromPorts _ input)) .nil
-    | .branch, .cons flag .nil => .cons ⟨if flag.down then 1 else 0⟩ .nil
+  run := evalOpcode m
 
 abbrev encode (m : TotalModel P) (xs : Tuple m.toPEG.Value vars) :
     Tuple (model m).Val (valuePorts vars) := toPorts (F := (model m).Val) xs
