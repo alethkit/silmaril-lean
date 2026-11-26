@@ -1436,6 +1436,34 @@ mismatch requires a packet-changing reply. A longer path to the same
 mismatch takes an avoidable self-edge.
 [Reachable-product cutoff][ssa-ub-open-guarded-reachable-cutoff]
 
+The native silent-head profile adds unconditional exact-typed constructor
+jumps to guarded rows. Constructor substitution composes the carried
+payload into the next request operand while keeping the caller binding.
+The label scan stops within the number of written labels when the silent
+prefix reaches an existing request or ordered exit. The request itself
+still uses the interpreter at the store left by the preceding reply.
+The exact native readback check precedes normalization.
+
+`Silent.Table.head_correct` certifies an exposed head at a typed invocation
+by actual native transfers. Exhausting the scan certifies ordinary
+divergence in the original native evaluator. The proof builds an infinite
+silent path at the unchanged store, and an exhaustive typed packet
+inventory supplies a repeated configuration on it. A selected exit
+remains fresh top only when reached. The cycle regression separates its
+ordinary divergence from an ordinary exit and checks the directed order
+against a selected exit.
+
+`Silent.Table.checkEntries?` specializes the existing reachable-product
+checker to the normalized heads. Its cutoff counts synchronized label
+and packet pairs after silent normalization. Pure jumps do not add
+interpreter queries or prefix stores. The count keeps the exact
+label and packet positions at request boundaries. Certified productive
+infinite replay expands into nonempty native segments. The comparison currently
+requires resolution at every written label, including unreachable labels.
+An exhausted scan returns `none` from the comparison even though the
+per-invocation head classifier identifies its native divergence.
+[Silent head normalization][ssa-ub-open-guarded-silent]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1609,6 +1637,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
 [ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
 [ssa-ub-open-guarded-reachable-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Reachable/Thms.lean
+[ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 

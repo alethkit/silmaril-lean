@@ -29,6 +29,12 @@ theorem denote_push {σ : Type v} (prim : StatePrimitives Φ σ) (env : Bindings
       LambdaSSA.UB.Overlay.denote body (model prim (env.push a)).raw s :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.denote_push prim env a body s
 
+/-- An ordinary divergence carries through exit substitution. -/
+theorem diverge_bind {α : Type u} {σ : Type v} {n m : Nat}
+    (k : Fin n → Value α → σ → Behaviour m α σ) :
+    Behaviour.bind (WithTop.some ({Outcome.diverge} : Set (Outcome n α σ))) k = WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.diverge_bind k
+
 /-- The generated rows certify the actual typed overlay step at all coded
 capture, seed and initial state combinations. -/
 theorem generate_certified (codes : Codes X A B captures seeds results) (prim : Primitives Φ states)
