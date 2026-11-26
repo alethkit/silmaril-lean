@@ -963,6 +963,35 @@ the default layout requested the overwritten atom again.
 · [Typed admission and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/Thms.lean)
 · [Packet and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
 
+### Packet-local admission of a supplied named RTL table
+
+`LiveOut.admit` already checks the default compiler result at a supplied
+saved-packet profile. `LiveOut.PacketLocal.admit` accepts the named graph, typed entry interface
+with distinct caller register names, ordered exit types, selected register
+fields per exit, and original block argument types in written order. It
+checks the entry and every written row after attaching the live-out reads.
+Entry inputs are resolved against the caller names and jump targets use the
+actual versioner's first-match numbering. Each row starts with only its
+packet parameter in scope, so this check rejects ambient block reads,
+including ones introduced by live-out attachment.
+
+`Straight.packetLocalSource_sound` derives packet closure and exact
+elaboration of `compilePacketLocal` at the original argument types paired
+with unit. `LiveOut.PacketLocal.Admission.packed_tree` reuses the original
+typed caller record, its version-zero store projection, and the shared
+primitive model to equate complete weak trees of the actual named run and
+packed reversion. The reverse lowerer's packet-local admission uses the
+same constructor.
+
+The hand-written two-block example revisits its first block with the two
+sum fields swapped. The next case takes the second ordered exit and
+returns the replacement sum's payload from the case-assigned live-out
+register. Lean checks the versioned entry and backward jump packets, the
+named and packed results, and rejection by the existing LetCase rank gate.
+
+[Named typed admission and packed agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Thms.lean)
+· [Cyclic packet and live-out regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocalRegression.lean)
+
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by
