@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.EntryLet.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.EntryLet.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Eta.Thms
 
 /-! # Arity boundary of literal CFG η and codiagonal -/
 
@@ -11,26 +12,10 @@ public section
 namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLet
 
 open Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
-open Silmaril.DeBruijn (lift)
 
 universe u v
 
 variable {τ : Type u} {Φ : Type v} [TypeFormers τ] [HasTy Φ τ]
-
-omit [TypeFormers τ] [HasTy Φ τ] in
-private theorem lift_entries {n : Nat} (blocks : Fin n → Region Φ) :
-    liftLSubstVars (cfgEntryContinuations blocks) =
-      cfgEntryContinuations (fun i => (blocks i).renameVars (lift Nat.succ)) := by
-  funext i
-  simp only [liftLSubstVars, cfgEntryContinuations, Region.renameVars, Tm.rename]
-  congr 1
-  funext j
-  rw [renameVars_comp, renameVars_comp]
-  congr 1
-  funext i
-  cases i with
-  | zero => rfl
-  | succ i => cases i <;> rfl
 
 theorem of_entryEta {n : Nat} (h : Paper.EntryEta τ Φ n) :
     CfgEta.EntryLet (Paper.Eqv (τ := τ) (Φ := Φ)) n := by
@@ -38,7 +23,7 @@ theorem of_entryEta {n : Nat} (h : Paper.EntryEta τ Φ n) :
   have before := h R (.let₁ ha hd) hb
   change Paper.Eqv Γ (.cfg (.let₁ a d) n blocks)
     (.let₁ a (d.lsubst (liftLSubstVars (cfgEntryContinuations blocks)))) L at before
-  rw [lift_entries] at before
+  rw [lift_cfgEntryContinuations] at before
   exact before.trans (.let₁ ha (h R hd
     (fun i => (hb i).renameVars ((Ren.wk Γ S).lift (R i)))).symm)
 
