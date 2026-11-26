@@ -341,6 +341,41 @@ occurrence. Run it with
 `lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Regression.lean`.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Sequence/Replay/Search/Regression.lean)
 
+### Discover one cut across a mixed finite-switch entry suffix
+
+`Finite.MemRef.CF.MixedTail.lower` scans the current entry's real Store
+versions oldest first. A nominated Store takes a prefix-produced word
+and an original address argument. The retained suffix may interleave
+Loads and Stores on original address arguments, and its Stores and
+Return may consume retained Load words. The native entry grammar
+supplies word bindings through Loads. The checker enumerates every
+suffix access and validates concrete separation from the nominated cell
+at the saved typed input. It reuses finite occurrence inference and
+independently checks each original arm's same-port overwrite and reader
+obligations.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Defs.lean) ·
+[Pinned Simple memory model](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
+The suffix proof commutes the removed write across every covered Store
+and keeps every Load's binding. Reapplying the original prefix-produced
+word to the retained post-entry buffer reconstructs the complete
+original entry buffer. The two actual MemRef CFGs keep the same selected
+occurrence, complete join packet, return word and final buffer at every
+common CF budget and for every initialized buffer at that input. The
+entry probes also keep each ordered Load value and the Return word.
+This entry point selects one mixed cut. The existing bounded replay
+continues to serve the trailing-Load profile.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Thms.lean)
+
+The fixture accepts a nonfinal Store followed by Load, Store, and Load.
+The intervening Load supplies the retained Store, and the resulting
+cell reaches all three original join occurrences, two with the same
+predecessor ID. When the intervening Load's port names the nominated
+cell, its word and the retained Store's word would change, so discovery
+refuses. Run the fixture with
+`lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Regression.lean`.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
