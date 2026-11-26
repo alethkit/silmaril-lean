@@ -775,3 +775,35 @@ loop-to-return direction and rejects the reverse. The actual attached RTL
 also replays the ordered return through a handler that moves from its
 initial state on the reply.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Examples.lean)
+
+#### Constructing the public observation from exact readback
+
+`PublicMatch.ofReadback` derives the whole-run equation from the flat
+table recovered by exact reverse readback and the actual checked public
+entry. The round-trip theorem connects that table to the re-admitted
+LambdaSSA program. On the φ side the typed input record supplies
+`Entry.inputEnv`. On the public side the record must agree with the
+public packet at the capture names selected by `PackedEntry`. Both
+dispatchers use the existing packed context decoder.
+
+`Readback.Alignment` compares the resulting entry transfer and each
+local block step at their decoded captures. Its state codec translates
+private block indices and packets. The result codec maps only the atomic
+carrier and preserves the ordered exit and the shape and ordering of its
+fields. Both primitive interpreters use the same event family, and the
+step equations compare all reply continuations. Elgot iteration then
+lifts the local equations across cycles. Exact readback identifies the
+φ table and exact public elaboration identifies the comparison table.
+The local alignment premises relate those two tables.
+[Readback bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Thms.lean)
+
+The fixture compares the actual admitted flat rows to their public
+elaboration and proves the local packet equations. Its φ entry builds a
+packet containing one φ argument and a saved capture. The matched public
+entry reads that literal packet from its capture slot. One variant passes
+the primitive reply around a self-edge and the other returns it at exit 1.
+The whole-interface result applies after covering the sole public entry
+and the only inhabitant of its structural packet type. The two accepted
+tables also witness that exact acceptance alone cannot align the looping
+readback with the returning public dispatcher.
+[Readback regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/HandledTrace/Readback/Examples.lean)
