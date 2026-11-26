@@ -1214,6 +1214,25 @@ has worst-case exponential size in the number of keys. The result applies
 to the guarded grammar at fixed callers and the supplied carrier.
 [Fixed-carrier refinement][ssa-ub-open-guarded-fixed-carrier]
 
+The payload-aware endpoint uses the same guarded control and emits a
+typed constructor expression at each terminal row. The expression can
+read the incoming packet and the caller. Its finite result code indexes
+the complete typed exit packet, including the ordered tag. Exit selection
+runs after decoding that packet. It hides the payload at a selected
+exit and preserves the payload and final state at ordinary exits.
+The decision reuses the existing fixed-carrier interpreter scan.
+
+For the named weak-tree observer, agreement at each request and each
+typed reply continuation, plus exact decoding at returns, gives
+agreement with the exact native readback. The named regression reads
+one register assigned by the incoming block packet and compares it to a
+pure assignment of false. Two reconstructed interpreters produce
+different projected bits at ordered exit zero in final state one.
+The true reply rejects refinement into the fixed projection at those
+same endpoints.
+[Payload-aware native endpoint][ssa-ub-open-guarded-payload]
+[Named weak-tree transport][ssa-ub-named-guarded-payload]
+
 `Table.compareEntries?` lifts the fixed-carrier comparison to the
 existing exhaustive `CallerEnumeration` of a shared typed domain. Each
 caller is decoded separately into the exact entry type of each original
@@ -1464,3 +1483,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
+
+[ssa-ub-open-guarded-payload]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Payload/Thms.lean
+[ssa-ub-named-guarded-payload]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Thms.lean

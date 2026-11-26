@@ -108,7 +108,7 @@ private theorem step_row (g : Table (Recognize.signature Φ) Packets)
     | fault t => rfl
     | diverge => rfl
 
-private theorem lower_lift {Φ : Type} (p : Value Unit) :
+theorem lower_lift {Φ : Type} (p : Value Unit) :
     Recognize.encodeValue (fun _ => ()) (Recognize.encodeValue
       (fun _ => (Silmaril.Elgot.ITree.diverge : RunTree Φ)) p) = p := by
   induction p with

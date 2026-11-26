@@ -107,15 +107,7 @@ theorem runFinite_congr (g : Table S R) (caller : Syntax.Payload (R.get g.entry)
     unfold rows
     dsimp only
     let cfg := (configs.invocations stores).get code
-    have step : (g.head caller cfg.1).execute prim cfg.2 = (g.head caller cfg.1).execute other cfg.2 := by
-      cases head : g.head caller cfg.1 with
-      | exit => rfl
-      | request f arg next =>
-        let q : InterpreterScript.Query Φ states := ⟨f, arg, cfg.2⟩
-        have listed := query_mem g caller configs stores cfg.1 cfg.2 (q := q) (by rw [head]; rfl)
-        have reply : prim f arg cfg.2 = other f arg cfg.2 := agree q listed
-        simp only [Head.execute, reply]
-    rw [step]
+    rw [head_execute_congr g caller configs stores agree cfg.1 cfg.2]
   simp only [Table.runFinite, sameRows]
 
 end Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier

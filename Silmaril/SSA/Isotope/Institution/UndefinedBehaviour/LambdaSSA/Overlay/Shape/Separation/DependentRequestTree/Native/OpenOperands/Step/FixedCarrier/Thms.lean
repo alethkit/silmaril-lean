@@ -39,6 +39,26 @@ theorem InterpreterScript.restricted [DecidableEq Φ] (replies : ReplyEnumeratio
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.restricted
     replies stores keys prim
 
+/-- The shared interpreter restriction scan is exact for tests that depend
+only on the listed queries. -/
+theorem InterpreterScript.checkAll_iff [DecidableEq Φ] (replies : ReplyEnumeration S) (stores : StateInventory states)
+    (keys : List (InterpreterScript.Query Φ states)) (test : Syntax.Primitives Φ states → Fin states → Bool)
+    (stable : ∀ (prim other : Syntax.Primitives Φ states),
+      (∀ q ∈ keys, q.read prim = q.read other) → ∀ s, test prim s = test other s) :
+    InterpreterScript.checkAll replies stores keys test = true ↔
+      ∀ (prim : Syntax.Primitives Φ states) (s : Fin states), test prim s = true :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.check_all_iff
+    replies stores keys test stable
+
+/-- A guarded step depends only on the complete typed keys in its support. -/
+theorem Table.head_execute_congr (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
+    (configs : ConfigurationEnumeration R) (stores : StateInventory states) {prim other : Syntax.Primitives Φ states}
+    (agree : ∀ q ∈ g.queries caller configs stores, q.read prim = q.read other)
+    (p : Packet R) (s : Fin states) :
+    (g.head caller p).execute prim s = (g.head caller p).execute other s :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.head_execute_congr
+    g caller configs stores agree p s
+
 /-- The scan gives the full installed observation. If the finite bound is
 exhausted by repeats, the actual feedback has an infinite replay. -/
 theorem Table.observe_runFinite (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
