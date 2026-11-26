@@ -146,12 +146,10 @@ immutable-only variant crosses both saves at cut 0. The fixture refuses cuts
 before the older or newer saved producer, a latch read, and a stale origin.
 [Example][earlier-example] · [Regression][earlier-regression]
 
-The earlier result is a terminal CFG in this pure single-latch profile.
 Append replay and discovery still use their established physical slot order.
-Continuing after an earlier splice would require threading the physical map
-into later capture and placement checks. This slice leaves cut selection to
-the caller and leaves Click's loop-depth ranking (§2.4) to the existing
-placement APIs.
+The explicit earlier result also supports one checked follow-on placement
+through the interface below. Cut selection stays with the caller and
+Click's loop-depth ranking (§2.4) stays in the existing placement APIs.
 
 ```sh
 lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Thms \
@@ -166,6 +164,55 @@ LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-earlier-prefix.lean
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Insert.Thms
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Thms
+```
+
+## Placing a dependent binding after an earlier splice
+
+`Replay.Step.Earlier.Follow.emit?` takes the earlier emission and a nomination
+in its current preheader coordinates. It resolves the original identity in
+the surviving header, which the earlier CFG shares with its append reference.
+The capture names logical saved slots and immutable inputs. `physicalOperands`
+renames that tuple with the earlier insertion's typed map. Each renamed
+reference determines its defining cut in the physical prefix. The existing
+cut checker runs on the actual earlier CFG with these cuts and the unchanged
+ordinary and exact incoming Φ occurrences. The same typed splice inserts
+the new let, remaps the crossed saves, and lifts the actual entry tail.
+[Definitions][follow-defs] · [Click §§2.2–2.4][paper]
+
+`physicalOperands_eval` relates every remapped read to the actual append
+prefix's logical value. `savedCount_eq` proves that both scopes have the same
+number of saves. `emit?_placement` identifies the current header binding and
+certifies the physical cut. `emit?_routes` proves both actual transitions add
+their values to the logical entry and feedback packets and preserve the exact
+exit transfer. `emit?_entry_targets` preserves successor slots and the labeled
+blocks are shared with the two-append result. `emit?_append_replay` identifies
+that exact reference CFG. The run and partial-denotation laws compare the two
+emitted CFGs at common block fuel. With the verified native seed, block fuel
+`budget + 3` again corresponds to native backedge budget `budget`.
+[Theorems][follow-thms]
+
+The fixture first puts origin 5 at cut 1. Origin 6 reads origin 5, whose
+definition is at cut 2 in that physical prefix and cut 3 in append order.
+Origin 6 therefore inserts at physical cut 2, ahead of the last old save.
+For inputs `2, 10, 1`, the physical definitions evaluate in the order
+`2, 4, 5, 3` and the logical packet starts with `5, 4, 3, 2`. Two feedbacks
+carry those words in that order and the `.onFalse` exit argument is `5`.
+A cut before the remapped producer, a stale origin, and a latch read are
+refused. This API covers one follow-on placement in the pure, total
+single-latch profile. Longer mixed replay still needs a shared state that
+composes maps across every edit. [Example][follow-example] · [Regression][follow-regression]
+
+```sh
+lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Follow.Thms \
+  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Follow.Regression
+cat >/tmp/gcm-layout-followup.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Follow.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Follow.Example
+#eval observe
+#eval refused
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-layout-followup.lean
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier.Follow.Thms
 ```
 
 [paper]: https://doi.org/10.1145/207110.207154
@@ -183,3 +230,7 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.
 [earlier-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Example/Defs.lean
 [earlier-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Regression.lean
 [insert-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Prefix/Insert/Thms.lean
+[follow-defs]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Follow/Defs.lean
+[follow-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Follow/Thms.lean
+[follow-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Follow/Example/Defs.lean
+[follow-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Earlier/Follow/Regression.lean
