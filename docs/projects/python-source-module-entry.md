@@ -255,6 +255,24 @@ missing assertion helper after producing the exact Boolean flags.
 of the stock truth helper. Run the CPython 3.13.5 controls and exact
 pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
 
+The exceptional cleanup prerequisite checks scalar suites of passes,
+literal or name-read assignments, and assertions over the same atoms.
+It supports a finally-only statement and a single bare handler. Both
+adapters run those suites through the existing scalar runners. A reached
+defined error skips the else suite and selects the bare handler if present.
+Cleanup starts from the reached state. Normal cleanup restores the pending
+completion and a cleanup error replaces it. Profile failures stop outside
+Python exception transfer. The proofs bound ordinary execution by the
+number of scalar actions and preserve the seeded heaps and receipts.
+
+The adapters expose the reached completion independently of module
+instruction settlement. Installing the source rule needs a module
+continuation that can enter cleanup from a failed suite and publish all
+reached bindings with the final completion. The historical reached-raise
+cutoffs also need explicit raise lowering or typed exception lookup.
+Run the CPython 3.13.5 transfer and cutoff controls with
+`python3.13 -I scripts/check-python-exceptional-cleanup.py --upstream /path/to/pinned/rigorous`.
+
 Checked call operands can carry exact text code points, including
 surrogates. The ordinary executor transports that tag through argument
 preparation. The seeded runner uses its existing live module-first lookup
