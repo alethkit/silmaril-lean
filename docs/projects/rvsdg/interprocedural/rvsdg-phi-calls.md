@@ -679,6 +679,46 @@ input productively alternates between the same two linked members.
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
 ```
 
+### Synthesizing recursive summaries
+
+`Family.Template` keeps the typed bodies and link wires before closure
+is certified. `MemberSummaries.signaturesOnly` supplies the member order
+and signatures for writing those bodies. The solver starts with an
+empty table. Each round evaluates the existing shared GenKill plan,
+including γ capture selection and the native θ feedback iteration.
+Static calls use their witnessed capture and argument wires to
+translate the callee row selected by the suffix's result demand.
+
+The table uses a finite set of bits indexed by member, an output mask,
+and a position in the member's captures and formal arguments. Lookup
+joins subdemands during iteration so that even a candidate with
+nonmonotone rows induces a monotone callable summary. At the fixed
+point the rows themselves are monotone and lookup equals the exact
+selected row. Only signature positions need finite enumeration and
+decidable equality. Runtime values and primitive meanings need
+neither. The solver materializes each round and stops at the first
+stable table. The height bound counts the available bits, which grows
+exponentially with output arity.
+
+`Template.synthesize_isLeast` gives closure and leastness in the
+finite table order. `Template.synthesize_le_supplied` also compares
+the inferred reads with any supplied monotone transfer closed on
+the finite rows. `Template.admit` checks that the full output demand
+leaves the recursive reference prefix dead as data. The existing
+`Ready` premise still checks the actual static targets and typed
+capture witnesses. `Template.linked_prefixes_agree` uses the inferred
+summary with the same partial runner and saved-suffix agreement.
+Dynamic target selection remains outside this admission.
+[Synthesis API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Synthesis/Thms.lean)
+
+A variant of the two-member fixture seeds demand at A's second result
+in round one. Round two carries it to B's second result and round
+three carries it back to A's first result. The spare input stays dead
+even at full output demand. The linked runner returns payload `41`
+at store `46`, blocks on the zero capture at store `24`, and returns
+at store `70` after both saved suffix effects run on resumption.
+[Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
