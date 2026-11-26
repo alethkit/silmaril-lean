@@ -15,10 +15,10 @@ open Silmaril.MLIR.CF (Block)
 open Silmaril.MLIR.Pure (Operands)
 open Loop.MLIR.CF (Program TargetOp evalOp lower)
 
-variable {Input Γ : List Width} {saved carried result : Width}
+variable {Input Γ extra : List Width} {saved carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 
-def savedHeader : BlockId (Label saved carried result) := some ⟨_, .header⟩
+def savedHeader : BlockId (Label saved carried result extra) := some ⟨_, .header⟩
 
 /-- Read the saved argument as the new preheader result, the latch as
 local, and the remaining arguments as the immutable inputs. -/
@@ -26,29 +26,37 @@ def savedOrigins : Origins (saved :: Input) (saved :: carried :: Input) :=
   Saved.origins [saved]
 
 /-- A candidate reads the saved value and immutable inputs in this scope. -/
-structure Candidate (Input : List Width) (saved carried result : Width) where
+structure Candidate (Input : List Width) (saved carried result : Width) (extra : List Width := []) where
   width : Width
   args : List Width
   op : TargetOp args width
-  inputs : Operands (saved :: Input) args
-  operands : List (Point (Label saved carried result))
-  uses : List (Use (Label saved carried result))
+  inputs : Operands ((extra ++ [saved]) ++ Input) args
+  operands : List (Point (Label saved carried result extra))
+  uses : List (Use (Label saved carried result extra))
 
-/-- Operand origins after capture: the saved input is defined at cut one. -/
-def savedSites : {args : List Width} → Operands (saved :: Input) args →
-    List (Point (Label saved carried result))
+/-- Each operand's defining cut in the saved prefix or the immutable inputs. -/
+def prefixSites : {args : List Width} → Operands ((extra ++ [saved]) ++ Input) args →
+    List (Point (Label saved carried result extra))
   | _, .nil => []
-  | _, .cons ref tail => ⟨none, Saved.definitionCut [saved] ref⟩ :: savedSites tail
+  | _, .cons ref tail => ⟨none, Saved.definitionCut (extra ++ [saved]) ref⟩ :: prefixSites tail
+
+abbrev savedSites {args : List Width} (operands : Operands (saved :: Input) args) :
+    List (Point (Label saved carried result)) := prefixSites operands
+
+def readsSaved {args : List Width} (operands : Operands Γ args) : Nat → Bool
+  | 0 => false
+  | n + 1 => !(positions n operands 0).isEmpty || readsSaved operands n
 
 /-- Read the current typed binding and require a genuine use of the already
 hoisted producer. Preceding header bindings still create local origins. -/
-def findCandidate? : (index cut : Nat) → {Γ : List Width} → Origins (saved :: Input) Γ →
-    Block TargetOp (Label saved carried result) Γ [result] →
-    Option (Candidate Input saved carried result)
+def findCandidate? : (index cut : Nat) → {Γ : List Width} → Origins ((extra ++ [saved]) ++ Input) Γ →
+    Block TargetOp (Label saved carried result extra) Γ [result] →
+    Option (Candidate Input saved carried result extra)
   | 0, cut, _, origins, .letOp op operands rest => do
     let inputs ← captureOrigins? origins operands
-    if (positions 0 inputs 0).isEmpty then none
-    else pure ⟨_, _, op, inputs, savedSites inputs, useSitesAt savedHeader 0 (cut + 1) rest⟩
+    if readsSaved inputs (extra ++ [saved]).length then
+      pure ⟨_, _, op, inputs, prefixSites inputs, useSitesAt savedHeader 0 (cut + 1) rest⟩
+    else none
   | index + 1, cut, _, origins, .letOp _ _ rest =>
     findCandidate? index (cut + 1) (afterBinding origins (cut + 1)) rest
   | _, _, _, _, .terminator _ => none
@@ -61,23 +69,26 @@ def valueAt? : Nat → {Γ : List Width} → Block TargetOp (Label saved carried
     valueAt? index rest (.cons (evalOp op (operands.eval env)) env)
   | _, _, .terminator _, _ => none
 
-def isExit (target : Target (Label saved carried result)) : Bool :=
+def isExit (target : Target (Label saved carried result extra)) : Bool :=
   match target with
   | ⟨_, .exit⟩ => true
   | ⟨_, .header⟩ => false
 
-def targetDecEq : DecidableEq (Target (Label saved carried result)) :=
+def targetDecEqWith : DecidableEq (Target (Label saved carried result extra)) :=
   fun a b => decidable_of_iff (isExit a = isExit b)
     ⟨by rcases a with ⟨_, a⟩; rcases b with ⟨_, b⟩; cases a <;> cases b <;> simp_all [isExit],
       congrArg isExit⟩
 
-def intermediateBlocks : List (Target (Label saved carried result)) :=
+abbrev targetDecEq : DecidableEq (Target (Label saved carried result)) := targetDecEqWith
+
+def intermediateBlocks : List (Target (Label saved carried result extra)) :=
   [⟨_, .header⟩, ⟨_, .exit⟩]
 
-def checkConsumer (cfg : Silmaril.MLIR.CF.Cfg TargetOp (Label saved carried result) Input [result])
-    (candidate : Candidate Input saved carried result) : Bool :=
-  let _ := targetDecEq (saved := saved) (carried := carried) (result := result)
-  GCM.Dominance.Placement.checkCut cfg intermediateBlocks candidate.operands candidate.uses ⟨none, 1⟩
+def checkConsumer (cfg : Silmaril.MLIR.CF.Cfg TargetOp (Label saved carried result extra) Input [result])
+    (candidate : Candidate Input saved carried result extra) : Bool :=
+  let _ := targetDecEqWith (saved := saved) (carried := carried) (result := result) (extra := extra)
+  GCM.Dominance.Placement.checkCut cfg intermediateBlocks candidate.operands candidate.uses
+    ⟨none, (extra ++ [saved]).length⟩
 
 structure Prepared (Input : List Width) (carried result : Width) where
   intermediate : Output Input carried result

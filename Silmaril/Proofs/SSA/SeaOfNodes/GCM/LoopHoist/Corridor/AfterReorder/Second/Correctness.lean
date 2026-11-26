@@ -48,9 +48,10 @@ theorem findCandidate?_value {index cut : Nat}
       cases capture : captureOrigins? origins operands with
       | none => simp [findCandidate?, capture] at found
       | some captured =>
-        by_cases empty : positions 0 captured 0 = []
-        · simp [findCandidate?, capture, empty] at found
-        · simp [findCandidate?, capture, empty] at found
+        cases reads : readsSaved captured 1 with
+        | false => simp [findCandidate?, capture, reads] at found
+        | true =>
+          simp [findCandidate?, capture, reads] at found
           subst candidate
           simp only [valueAt?, evalCaptureOrigins origins operands capture env inputs agree]
     | succ index =>

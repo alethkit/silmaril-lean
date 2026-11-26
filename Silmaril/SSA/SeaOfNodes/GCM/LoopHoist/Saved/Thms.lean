@@ -31,7 +31,7 @@ theorem promote_perm (slots : Slots widths) {header : List Nat} {index origin : 
 /-- A typed capture reads the same value in the leading preheader scope
 as in the header's saved packet and immutable inputs, for any latch value. -/
 theorem origins_agree (values : Env widths) (latch : BitVec carried.val) (input : Env Input) :
-    CapturesAgree (origins (carried := carried) widths) (values.append (.cons latch input))
+    CapturesAgree (origins (carried := carried) widths) ((values.append (.cons latch .nil)).append input)
       (values.append input) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.origins_agree values latch input
 
@@ -41,7 +41,7 @@ theorem prefixRef_get (ref : Var widths w) (values : Env widths) (suffix : Env I
 
 /-- A saved header argument resolves to the same typed slot in the preheader. -/
 theorem origins_prefixRef (ref : Var widths w) :
-    origins (carried := carried) widths (prefixRef (carried :: Input) ref) =
+    origins (carried := carried) widths (prefixRef Input (prefixRef [carried] ref)) =
       .inl (prefixRef Input ref) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Saved.origins_prefixRef ref
 

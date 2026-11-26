@@ -9,8 +9,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit
 
 open Silmaril.MLIR.Arith (Env Var Width)
-open Silmaril.MLIR.CF (Block Terminator)
-open Silmaril.MLIR.CF.SwitchAssert (Cfg)
+open Silmaril.MLIR.CF (Block Cfg Terminator)
 open Silmaril.MLIR.Pure (Operands)
 open Header.Earlier (operations)
 open Header.Sequence (State)
@@ -31,6 +30,21 @@ theorem liftTerm_eval {Γ Δ extra : List Width} {saved consumer : Width}
     (liftTerm rename keep term).eval target =
       (term.eval source).map (Saved.prependFrame (target.get keep)) id :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.liftTerm_eval rename keep term source target same
+
+/-- The shared splice preserves evaluated transfers and extends the checked
+entry-prefix evaluation witness for the next step. -/
+theorem emitAt?_step {saved : Width} {extra : List Width}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {candidate : Candidate Input saved carried result extra} {index : Nat}
+    {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
+    {input : Env Input} {values : Env (extra ++ [saved])}
+    (matched : Saved.Prefix.Matches cfg.entry input values)
+    (found : findCandidate? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
+    (emitted : emitAt? cfg index candidate.op candidate.inputs = some target) :
+    let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
+    Saved.StepRoutes cfg target input values value ∧
+      Saved.Prefix.Matches target.entry input (.cons value values) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.emitAt?_step matched found emitted
 
 /-- Substitution and edge lifting preserve the order of every retained let. -/
 theorem rewriteAt?_operations {Γ Δ extra : List Width} {saved consumer : Width}
@@ -92,6 +106,22 @@ theorem replay?_packet_step (accepted : replay? g first consumerOrigin = some mo
       StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_packet_step accepted input
 
+/-- The actual two-save entry computes the same saved values used in the
+edge simulation, so it supplies a starting prefix for another step. -/
+theorem replay?_prefix_routes (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
+      (operands : Operands Input args) (tail : Block TargetOp (Label moved.prepared.intermediate.1 carried result)
+        (moved.prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      moved.prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      let firstValue := evalOp producer (operands.eval input)
+      let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+      RoutesWith state.cfg moved.prepared.intermediate.2 input (.cons firstValue .nil) ∧
+      StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue ∧
+      Saved.Prefix.Matches moved.cfg.entry input (.cons secondValue (.cons firstValue .nil)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_prefix_routes accepted input
+
 /-- The second edit preserves both return and exhaustion at the same CFG fuel. -/
 theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)
     (input : Env Input) (fuel : Nat) :
@@ -106,6 +136,7 @@ theorem replay?_budget (accepted : replay? g first consumerOrigin = some moved)
         (fun value => Env.cons value .nil) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.replay?_budget accepted input budget
 
+open Silmaril.MLIR.CF.SwitchAssert (Cfg) in
 /-- The complete replay preserves the native lowering's partial denotation. -/
 theorem replay?_denotePart (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
     (Cfg.embed moved.cfg).denotePart evalOp input = (Cfg.embed (lower g)).denotePart evalOp input :=

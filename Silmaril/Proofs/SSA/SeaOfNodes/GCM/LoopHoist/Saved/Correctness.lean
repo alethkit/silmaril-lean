@@ -52,7 +52,7 @@ theorem promote_perm (slots : Slots widths) {header : List Nat} {index origin : 
   exact List.perm_middle.symm.trans (chosen.append_left _)
 
 theorem origins_agree (values : Env widths) (latch : BitVec carried.val) (input : Env Input) :
-    CapturesAgree (origins (carried := carried) widths) (values.append (.cons latch input))
+    CapturesAgree (origins (carried := carried) widths) ((values.append (.cons latch .nil)).append input)
       (values.append input) := by
   induction values with
   | nil =>
@@ -80,11 +80,15 @@ theorem prefixRef_get (ref : Var widths w) (values : Env widths) (suffix : Env I
   | there ref ih => cases values; exact ih _
 
 theorem origins_prefixRef (ref : Var widths w) :
-    origins (carried := carried) widths (prefixRef (carried :: Input) ref) =
+    origins (carried := carried) widths (prefixRef Input (prefixRef [carried] ref)) =
       .inl (prefixRef Input ref) := by
   induction ref with
   | here => rfl
-  | there ref ih => rw [prefixRef, origins, ih]; rfl
+  | there ref ih =>
+    change (origins _ (prefixRef Input (prefixRef [carried] ref))).map Var.there id =
+      .inl (.there (prefixRef Input ref))
+    rw [ih]
+    rfl
 
 private theorem prepend_carry (values : Env (extra ++ [saved])) (value : BitVec w.val)
     (frame : Frame (SourceLabel carried result)) :

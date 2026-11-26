@@ -6,6 +6,7 @@ import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Thms
 import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
 
@@ -99,17 +100,18 @@ private theorem liftCode_eval (code : Block TargetOp (Label saved carried result
     | here => rfl
     | there ref => exact same ref
 
-private theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result) Γ [result]}
-    {index cut : Nat} {origins : Origins (saved :: Input) Γ}
-    {candidate : Candidate Input saved carried result}
+theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    {index cut : Nat} {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {candidate : Candidate Input saved carried result extra}
     (found : findCandidate? index cut origins code = some candidate)
-    (inputs : Env (saved :: Input)) (source : Env Γ) (agree : CapturesAgree origins source inputs)
+    (inputs : Env ((extra ++ [saved]) ++ Input)) (source : Env Γ) (agree : CapturesAgree origins source inputs)
     (rename : Rename Γ Δ) (keep : Var Δ candidate.width) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
     (value : target.get keep = evalOp candidate.op (candidate.inputs.eval inputs)) :
     ∃ rewritten, rewriteAt? index rename keep code = some rewritten ∧
       rewritten.eval evalOp (fun term env => Terminator.eval env term) target =
-        (code.eval evalOp (fun term env => Terminator.eval env term) source).map (carryConsumer (target.get keep)) id := by
+        (code.eval evalOp (fun term env => Terminator.eval env term) source).map
+          (Saved.prependFrame (target.get keep)) id := by
   induction code generalizing index cut Δ with
   | terminator => simp [findCandidate?] at found
   | letOp op operands rest ih =>
@@ -118,9 +120,10 @@ private theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried resu
       cases capture : captureOrigins? origins operands with
       | none => simp [findCandidate?, capture] at found
       | some captured =>
-        by_cases empty : positions 0 captured 0 = []
-        · simp [findCandidate?, capture, empty] at found
-        · simp [findCandidate?, capture, empty] at found
+        cases reads : readsSaved captured (extra.length + 1) with
+        | false => simp [findCandidate?, capture, reads] at found
+        | true =>
+          simp [findCandidate?, capture, reads] at found
           subst candidate
           refine ⟨liftCode (replaceBinding rename keep) keep rest, by simp [rewriteAt?], ?_⟩
           rw [Code.eval, evalCaptureOrigins origins operands capture source inputs agree, ← value]
@@ -148,6 +151,60 @@ private theorem rewriteAt?_eval {code : Block TargetOp (Label saved carried resu
 private theorem header_agrees (first : BitVec saved.val) (old : BitVec carried.val) (input : Env Input) :
     CapturesAgree savedOrigins (.cons first (.cons old input)) (.cons first input) :=
   Saved.origins_agree (.cons first .nil) old input
+
+theorem emitAt?_step
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {candidate : Candidate Input saved carried result extra} {index : Nat}
+    {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
+    {input : Env Input} {values : Env (extra ++ [saved])}
+    (matched : Saved.Prefix.Matches cfg.entry input values)
+    (found : findCandidate? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
+    (emitted : emitAt? cfg index candidate.op candidate.inputs = some target) :
+    let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
+    Saved.StepRoutes cfg target input values value ∧
+      Saved.Prefix.Matches target.entry input (.cons value values) := by
+  obtain ⟨leading, tail, split, evaluates⟩ := matched
+  let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
+  have header (latch : BitVec carried.val) :=
+    rewriteAt?_eval found (values.append input) ((values.append (.cons latch .nil)).append input)
+      (Saved.origins_agree values latch input) Var.there .here
+      (.cons value ((values.append (.cons latch .nil)).append input)) (fun _ => rfl) rfl
+  obtain ⟨rewritten, rewrite, _⟩ := header 0
+  cases exit : cfg.block .exit with
+  | letOp => simp [emitAt?, split, rewrite, exit] at emitted
+  | terminator term =>
+    cases term with
+    | br => simp [emitAt?, split, rewrite, exit] at emitted
+    | condBr => simp [emitAt?, split, rewrite, exit] at emitted
+    | ret returns =>
+      let liftedTail := liftCode (consumer := candidate.width) Var.there .here tail
+      let newEntry := leading.wrap (.letOp candidate.op candidate.inputs liftedTail)
+      have accepted : withBlocks newEntry rewritten returns = target := by
+        simpa [emitAt?, split, rewrite, exit, newEntry, liftedTail] using emitted
+      subst target
+      refine ⟨⟨?_, ?_⟩, ?_⟩
+      · rw [← Saved.splitPrefix?_wrap split]
+        simp only [withBlocks, newEntry, Saved.Prefix.wrap_eval, evaluates, Code.eval]
+        exact liftCode_eval tail Var.there .here (values.append input) (.cons value (values.append input))
+          (fun _ => rfl)
+      · rintro ⟨label, packet⟩
+        cases label with
+        | exit =>
+          change _ = ((cfg.block .exit).eval evalOp (fun term env => Terminator.eval env term)
+            (packet.append input)).map (Saved.prependFrame value) id
+          rw [exit]
+          rfl
+        | header =>
+          cases packet with
+          | cons latch rest =>
+            cases rest
+            obtain ⟨code, foundCode, evaluation⟩ := header latch
+            rw [rewrite] at foundCode
+            cases foundCode
+            exact evaluation
+      · exact ⟨.snoc leading candidate.op candidate.inputs, liftedTail,
+          Saved.splitPrefix?_snoc split candidate.op candidate.inputs liftedTail,
+          by simp [Saved.Prefix.eval, evaluates, Env.append]⟩
 
 private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrigin = some prepared)
     (input : Env Input) :
@@ -177,14 +234,12 @@ private theorem emit_exists_and_routes (accepted : prepare? g first consumerOrig
       Var.there .here (.cons value (.cons saved (.cons old input))) (fun _ => rfl) rfl
   obtain ⟨rewritten, rewrite, _⟩ := header 0
   let target : TargetCfg prepared :=
-    { entry := .letOp producer operands
-        (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail))
-      block
-        | .header => rewritten
-        | .exit => .terminator (.ret (.cons .here .nil)) }
+    withBlocks (.letOp producer operands
+      (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail)))
+      rewritten (.cons .here .nil)
   refine ⟨target, state, args, producer, operands, tail, ?_, ran, entry, rfl, rewrite, rfl,
     ⟨routed.entry, routed.block⟩, ?_, ?_⟩
-  · simp [emit?, entry, rewrite, exit, target]; rfl
+  · simp [emit?, emitAt?, entry, rewrite, exit, target, Saved.splitPrefix?, Saved.Prefix.wrap]
   · rw [entry]
     exact liftCode_eval tail Var.there .here (.cons saved input) (.cons value (.cons saved input))
       (fun _ => rfl)
@@ -247,6 +302,29 @@ theorem replay?_header_operations (accepted : replay? g first consumerOrigin = s
   obtain ⟨_, _, _, _, _, _, rewritten, _⟩ := replay?_routes accepted (zeroEnv Input)
   exact rewriteAt?_operations rewritten
 
+theorem replay?_prefix_routes (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
+      (operands : Operands Input args) (tail : Block TargetOp (Label moved.prepared.intermediate.1 carried result)
+        (moved.prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      moved.prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      let firstValue := evalOp producer (operands.eval input)
+      let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+      RoutesWith state.cfg moved.prepared.intermediate.2 input (.cons firstValue .nil) ∧
+      StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue ∧
+      Saved.Prefix.Matches moved.cfg.entry input (.cons secondValue (.cons firstValue .nil)) := by
+  obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
+  obtain ⟨target, state, args, producer, operands, tail, edit, ran, entry, newEntry, _, _, prior, step⟩ :=
+    emit_exists_and_routes checked input
+  rw [emitted] at edit
+  cases edit
+  refine ⟨state, args, producer, operands, tail, ran, entry, prior, step, ?_⟩
+  rw [newEntry]
+  refine ⟨.snoc (.snoc .nil producer operands) moved.prepared.consumer.op moved.prepared.consumer.inputs,
+    liftCode Var.there .here tail, ?_, rfl⟩
+  simp [Saved.splitPrefix?]
+
 theorem replay?_packet_step (accepted : replay? g first consumerOrigin = some moved) (input : Env Input) :
     ∃ (state : State Input carried result)
       (args : List Width) (producer : TargetOp args moved.prepared.intermediate.1)
@@ -258,11 +336,8 @@ theorem replay?_packet_step (accepted : replay? g first consumerOrigin = some mo
       let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
       RoutesWith state.cfg moved.prepared.intermediate.2 input (.cons firstValue .nil) ∧
       StepRoutes moved.prepared.intermediate.2 moved.cfg input firstValue secondValue := by
-  obtain ⟨checked, emitted, _⟩ := replay?_spec accepted
-  obtain ⟨target, state, args, producer, operands, tail, edit, ran, entry, _, _, _, prior, step⟩ :=
-    emit_exists_and_routes checked input
-  rw [emitted] at edit
-  cases edit
+  obtain ⟨state, args, producer, operands, tail, ran, entry, prior, step, _⟩ :=
+    replay?_prefix_routes accepted input
   exact ⟨state, args, producer, operands, tail, ran, entry, prior, step⟩
 
 theorem replay?_run_eq (accepted : replay? g first consumerOrigin = some moved)

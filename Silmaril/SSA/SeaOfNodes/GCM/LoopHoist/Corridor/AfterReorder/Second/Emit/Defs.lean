@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Defs
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Defs
 
 /-! # Apply the checked consumer move to the emitted one-save CFG -/
 
@@ -10,6 +11,7 @@ namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emi
 
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Block Cfg Edge Frame Terminator)
+open Silmaril.MLIR.Pure (Operands)
 open Silmaril.MLIR.SCF (For)
 open Loop.MLIR.CF (Program TargetOp evalOp)
 
@@ -59,26 +61,31 @@ def rewriteAt? : Nat → {Γ Δ : List Width} → Rename Γ Δ → Var Δ consum
       (.letOp op (For.renameOperands rename operands))
   | _, _, _, _, _, .terminator _ => none
 
-/-- Apply the edit to a checked handoff. Insert immediately after the
-leading save and remove the binding at the handoff's current header index.
-The exit returns the same operand tuple. -/
+def withBlocks
+    (entry : Block TargetOp (Label saved carried result extra) Input [result])
+    (header : Block TargetOp (Label saved carried result extra)
+      (((extra ++ [saved]) ++ [carried]) ++ Input) [result])
+    (returns : Operands ([result] ++ Input) [result]) :
+    Cfg TargetOp (Label saved carried result extra) Input [result] where
+  entry := entry
+  block
+    | .header => header
+    | .exit => .terminator (.ret returns)
+
+/-- Apply the same splice after any length of typed leading saves. The
+caller supplies a binding and operands checked in that exact prefix scope. -/
+def emitAt? {args : List Width}
+    (cfg : Cfg TargetOp (Label saved carried result extra) Input [result]) (index : Nat)
+    (op : TargetOp args consumer) (operands : Operands ((extra ++ [saved]) ++ Input) args) :
+    Option (Cfg TargetOp (Label saved carried result (consumer :: extra)) Input [result]) := do
+  let (leading, tail) ← Saved.splitPrefix? cfg.entry (extra ++ [saved])
+  let header ← rewriteAt? index Var.there .here (cfg.block .header)
+  let .terminator (.ret returns) := cfg.block .exit | none
+  pure (withBlocks (leading.wrap (.letOp op operands (liftCode Var.there .here tail))) header returns)
+
+/-- Apply the shared splice to the checked one-save handoff. -/
 def emit? (prepared : Prepared Input carried result) : Option (TargetCfg prepared) :=
-  let cfg := prepared.intermediate.2
-  match cfg.entry with
-  | .letOp (w := width) producer operands tail =>
-    if same : width = prepared.intermediate.1 then by
-      subst width
-      exact do
-        let header ← rewriteAt? prepared.index Var.there .here (cfg.block .header)
-        let .terminator (.ret returns) := cfg.block .exit | none
-        pure
-          { entry := .letOp producer operands
-              (.letOp prepared.consumer.op prepared.consumer.inputs (liftCode Var.there .here tail))
-            block
-              | .header => header
-              | .exit => .terminator (.ret returns) }
-    else none
-  | .terminator _ => none
+  emitAt? prepared.intermediate.2 prepared.index prepared.consumer.op prepared.consumer.inputs
 
 structure Emission (Input : List Width) (carried result : Width) where
   prepared : Prepared Input carried result
