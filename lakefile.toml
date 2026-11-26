@@ -477,6 +477,11 @@ globs = ["tests.ssa.LetIterWeakTreeSoundness"]
 name = "PEGCoreTests"
 globs = ["tests.ssa.PEG"]
 
+# Check finite first-exit agreement for the actual PEG and RVSDG loop evaluators.
+[[lean_lib]]
+name = "PEGStructuredThetaTests"
+globs = ["tests.ssa.PEGStructuredTheta"]
+
 # Check the PEG bridge against the Figure 11, ordered RVSDG and MLIR evaluators.
 [[lean_lib]]
 name = "PEGIRBridgeTests"
