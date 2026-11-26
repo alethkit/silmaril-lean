@@ -1,9 +1,10 @@
 # SQLite global object state
 
-Import `Silmaril.Machine.SQLite.GlobalState.Store.Thms` for finite snapshots,
-checked projections, the kind store and the VFS roots. This layer sits beside
-the components exposed by `Silmaril.Machine.SQLite.Architecture.All`. The starting boundaries
-are those in the [Track E coverage inventory at `9aeb8467`][coverage].
+Import `Silmaril.Machine.SQLite.GlobalState.Store.Allocator.Thms` for the
+allocator-inclusive store, or `Silmaril.Machine.SQLite.GlobalState.Store.Thms`
+for object histories, checked projections, the kind store and the VFS roots.
+This layer sits beside `Silmaril.Machine.SQLite.Architecture.All` and uses the
+boundaries in the [Track E coverage inventory at `9aeb8467`][coverage].
 
 ## Object store
 
@@ -66,16 +67,55 @@ in the payload. Its `none` records a null field inside a present object.
 [Close API][close] · [Zombie disposal][main]
 
 `History.allocate` requires `Fresh` (a missing history binding) and records
-a live object. `History.free` requires a present allocation and replaces its
+a live object. `History.free` requires a present object and replaces its
 record with a tombstone. `fresh_allocate_iff` removes just the allocated ID
 from the fresh IDs and `fresh_free_iff` preserves freshness at every ID.
 Together these prevent reuse across these edits on a retained history.
+`History.updatePresent` requires evidence of the current present entry.
+Its new state and payload replace that entry at the same ID, with the payload
+typed at the current kind. A live entry can become a zombie and remain in
+the present view. The operation accepts either present state as input and
+output. The contract supplies allowed lifecycle changes and permissions.
+`lookup_updatePresent_self` gives the exact new entry, all three edit
+operations have `lookup_*_of_ne` frame laws, and
+`fresh_updatePresent_iff` preserves freshness at every ID.
 `toObjects_free` equates forgetting a tombstone with deleting the binding
 in the objects-only snapshot. `toObjects_not_injective` exhibits the
 obstruction to reversing that erasure. The same objects can come from a
 history with a tombstone or one where the ID was never bound. These edits
 are operations on finite maps. Resource families, address reuse, and
 SQLite API transitions belong to subsequent resource contracts.
+
+## Raw blocks and object visibility
+
+`AllocatorStore ObjectId AllocId Payload Live Tombstone` combines an object
+`History` with a separate `AllocationHistory AllocId Live Tombstone`.
+An allocation lookup returns `some (.live metadata)`, `some (.freed metadata)`,
+or `none` for an ID never issued in that history. The last case defines
+`AllocationHistory.Fresh`. The live and tombstone metadata types are
+parameters. The resource contract can supply allocation family, requested
+and usable sizes, and ownership rules. The raw table has pointwise lookup
+laws for an empty table and insertion at the edited or any other ID.
+The C API allows `sqlite3_msize` to report more bytes than originally requested
+and permits memory to be reused after `sqlite3_free`. A contract that
+models address reuse can use allocation identities with a generation.
+[Allocation API][allocation-api]
+
+`StoreId.object` and `StoreId.allocation` select distinct identity spaces
+even when the ID types and underlying values coincide. Object visibility
+comes from a present object entry. It carries no assertion about which
+allocator block provides storage. For example, `sqlite3PagerOpen` lays
+out a `Pager`, `PCache` and file-handle storage in a single allocation.
+An object ID for each visible instance does not imply a separate allocation
+for each portion. A resource contract can relate multiple objects to one
+block and express any offset or ownership facts it needs. [Pager layout][pager-layout]
+
+`AllocatorStore.lookup_toObjects` gives the tagged erasure law. It preserves
+present objects, including zombies, and erases object tombstones and all
+raw blocks. `checkObjectId` passes object-tagged IDs to the component view's
+checked admission. `checkObjectId_allocation` proves that an allocation tag
+cannot supply a checked object ID. The check suite covers both lookups at
+coincident numeric IDs and a live-to-zombie update with a null payload field.
 
 ## Checked component views
 
@@ -136,12 +176,13 @@ carrier of the given snapshot.
 
 ```bash
 root=Silmaril.Machine.SQLite.GlobalState
-lake build --wfail +"$root".Checks +"$root".Store.Checks
-for check in Checks Store/Checks; do
+lake build --wfail +"$root".Checks +"$root".Store.Checks +"$root".Store.Allocator.Checks
+for check in Checks Store/Checks Store/Allocator/Checks; do
   lake env lean -DautoImplicit=false -DwarningAsError=true \
     "Silmaril/Machine/SQLite/GlobalState/$check.lean" || exit 1
 done
 for module in "$root".{Defs,Roots,Thms,Checks,Store.Defs,Store.Thms,Store.Checks} \
+    "$root".Store.Allocator.{Defs,Thms,Checks} \
     Silmaril.Proofs.Machine.SQLite.GlobalState.Store.Erasure; do
   SILMARIL_REPLAY_MODULE="$module" \
     lake env lean -DwarningAsError=true tools/compiler-explorer/Replay.lean || exit 1
@@ -156,6 +197,8 @@ and a freed ID versus a never-bound ID.
 [coverage]: https://github.com/hiloopai/silmaril-lean/blob/9aeb8467ad1e1f962f9f166965e9fabc4e7e03b4/docs/projects/sqlite-track-e/coverage-v1.md
 [api]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/sqlite.h.in
 [close]: https://www.sqlite.org/c3ref/close.html
+[allocation-api]: https://www.sqlite.org/c3ref/free.html
+[pager-layout]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L4924-L4951
 [vdbeapi]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/vdbeapi.c
 [blob]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/vdbeblob.c
 [backup]: https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/backup.c
