@@ -37,10 +37,39 @@ different port. The scope is the ordered, initialized word-cell profile
 with one supplied pair of Store versions.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/DeadStore/Regression.lean)
 
+## Discover the overwrite
+
+`DeadStore.Search.discover` takes only the original one-based version
+to remove and the existing reader certificate. It verifies the
+nominated Store's address and scans forward to the first Store on
+that same typed wire. An observing or uncovered Load, or reaching
+Return without a qualifying overwrite, stops the search. The chosen
+version is strictly later and the pair passes the structural deletion
+checker. `Search.rewrite` checks the listed concrete inequalities at
+the invocation before rewriting.
+[Search definitions](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Defs.lean) ·
+[Search theorems](../../Silmaril/SSA/SeaOfNodes/Memory/DeadStore/Search/Thms.lean)
+
+`Memory.Loop.DeadStore.Search.rewrite` searches only the original
+activation body and calls the same-activation checker. The wrapper
+inherits preservation of the body result, the exit or feedback step,
+exact backedge evaluation and finite returns with the whole heap.
+The fixtures cover a read after the first overwrite, rejection of a
+same-cell read and concrete aliasing, and a loop with only one Store
+in each activation.
+[Loop theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Loop/DeadStore/Search/Thms.lean) ·
+[Loop regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/DeadStore/Regression.lean)
+
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression'
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms +Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression'
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Defs
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Defs
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Defs
+lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Loop.DeadStore.Search.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Regression
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.DeadStore.Regression
 ```
