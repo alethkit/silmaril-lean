@@ -34,6 +34,13 @@ def movedRequest : Region Instruction :=
   .let₁ request (.cfg (.br 0 (.var 0)) 2
     (fun i => (blocks i).renameVars (Silmaril.DeBruijn.lift Nat.succ)))
 
+/-- Return a recurrent Unit packet after the two local transfers. -/
+def flatRecurringRequest : Region Instruction :=
+  compLSubst (fun _ => flatRequest) (fun _ => .br 0 (.inr .unit)) 0
+
+def movedRecurringRequest : Region Instruction :=
+  compLSubst (fun _ => movedRequest) (fun _ => .br 0 (.inr .unit)) 0
+
 def unaryBlock : Region Instruction := .br 1 (.var 0)
 
 /-- Run the request under a unary binder before the two local transfers. -/

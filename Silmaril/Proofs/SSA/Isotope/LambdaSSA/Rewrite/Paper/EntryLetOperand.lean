@@ -1,0 +1,192 @@
+module
+
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Operand.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
+
+/-! # Pulling an entry-let move back along a constructor substitution -/
+
+public section
+
+universe u v
+
+namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetOperand
+
+open Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
+open Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet (Site Step)
+open Silmaril.DeBruijn (lift)
+
+variable {Φ : Type v}
+
+theorem move_substVars (site : Site) (r : Region Φ) (θ : Nat → Tm Φ) :
+    site.move (r.substVars θ) = (site.move r).map (·.substVars θ) := by
+  induction site generalizing r θ with
+  | here =>
+    cases r with
+    | cfg body n bs =>
+      cases body <;> simp [Site.move, Region.substVars, substVars_renameVars,
+        renameVars_substVars, Tm.liftSubst_comp_lift_succ]
+    | _ => rfl
+  | unaryBody next ih | binaryBody next ih | leftArm next ih | rightArm next ih | entry next ih =>
+    cases r <;> simp [Site.move, Region.substVars, ih, Option.map_map, Function.comp_def]
+  | block i next ih =>
+    cases r with
+    | cfg e n bs =>
+      simp only [Site.move, Region.substVars]
+      by_cases hi : i < n
+      · simp only [hi, dite_true, ih, Option.map_map, Function.comp_def]
+        apply congrArg (fun k => (next.move (bs ⟨i, hi⟩)).map k)
+        funext b
+        apply congrArg (Region.cfg (e.substVars θ) n)
+        funext j
+        by_cases h : j = ⟨i, hi⟩ <;> simp [h]
+      · simp only [hi, dite_false, Option.map_none]
+    | _ => rfl
+
+variable {τ : Type u} [TypeFormers τ] [HasTy Φ τ]
+
+theorem move_sound (site : Site) {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (hm : site.move r = some s) :
+    ValueBranches Γ s L ∧ Paper.WithEntryLet.Eqv Γ r s L := by
+  induction site generalizing Γ L r s with
+  | here =>
+    cases hr with
+    | cfg R he hb =>
+      cases he with
+      | let₁ ha hd =>
+        simp only [Site.move, Option.some.injEq] at hm
+        subst s
+        have hs := ValueBranches.let₁ ha (.cfg R hd
+          (fun i => (hb i).renameVars ((Ren.wk _ _).lift (R i))))
+        exact ⟨hs, .extra (ValueBranches.cfg R (.let₁ ha hd) hb).hasType hs.hasType (.seq R ha hd hb)⟩
+      | _ => simp [Site.move] at hm
+    | _ => simp [Site.move] at hm
+  | unaryBody next ih =>
+    cases hr with
+    | let₁ ha hb =>
+      simp only [Site.move] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hb hbody
+      exact ⟨.let₁ ha ht, .let₁ ha eq⟩
+    | _ => simp [Site.move] at hm
+  | binaryBody next ih =>
+    cases hr with
+    | let₂ ha hb =>
+      simp only [Site.move] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hb hbody
+      exact ⟨.let₂ ha ht, .let₂ ha eq⟩
+    | _ => simp [Site.move] at hm
+  | leftArm next ih =>
+    cases hr with
+    | case ha hl hr =>
+      simp only [Site.move] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hl hbody
+      exact ⟨.case ha ht hr, .case ha eq (.paper (.refl hr.hasType))⟩
+    | _ => simp [Site.move] at hm
+  | rightArm next ih =>
+    cases hr with
+    | case ha hl hr =>
+      simp only [Site.move] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih hr hbody
+      exact ⟨.case ha hl ht, .case ha (.paper (.refl hl.hasType)) eq⟩
+    | _ => simp [Site.move] at hm
+  | entry next ih =>
+    cases hr with
+    | cfg R he hb =>
+      simp only [Site.move] at hm
+      obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+      obtain ⟨ht, eq⟩ := ih he hbody
+      exact ⟨.cfg R ht hb, .cfg R eq (fun i => .paper (.refl (hb i).hasType))⟩
+    | _ => simp [Site.move] at hm
+  | block i next ih =>
+    cases hr with
+    | cfg R he hb =>
+      simp only [Site.move] at hm
+      split at hm
+      next hi =>
+        obtain ⟨body, hbody, rfl⟩ := Option.map_eq_some_iff.mp hm
+        obtain ⟨ht, eq⟩ := ih (hb ⟨i, hi⟩) hbody
+        refine ⟨.cfg R he ?_, .cfg R (.paper (.refl he.hasType)) ?_⟩
+        · intro j
+          by_cases h : j = ⟨i, hi⟩
+          · subst j
+            simpa using ht
+          · simpa [Function.update_apply, h] using hb j
+        · intro j
+          by_cases h : j = ⟨i, hi⟩
+          · subst j
+            simpa using eq
+          · simpa [Function.update_apply, h] using
+              (Paper.Extension.Eqv.paper (Seed := Step) (.refl (hb j).hasType))
+      next _ => contradiction
+    | _ => simp [Site.move] at hm
+
+theorem move_pullback (site : Site) {Γ : VCtx τ} {L : LCtx τ}
+    {r s : Region Φ} (hr : ValueBranches Γ r L) (θ : Nat → Tm Φ)
+    (hm : site.move (r.substVars θ) = some s) :
+    ∃ q, site.move r = some q ∧ s = q.substVars θ ∧
+      ValueBranches Γ q L ∧ Paper.WithEntryLet.Eqv Γ r q L := by
+  rw [move_substVars] at hm
+  obtain ⟨q, he, rfl⟩ := Option.map_eq_some_iff.mp hm
+  exact ⟨q, he, rfl, move_sound site hr he⟩
+
+
+open CategoryTheory CategoryTheory.Limits
+open Paper.TypeCategory (ofType ofRegion sumIso)
+open Paper.Extension.Singleton (projection projectStep iterateChosen)
+
+variable {A D B : τ} {a : Tm Φ} {r s : Region Φ}
+
+local notation "Seed" => Step (τ := τ) (Φ := Φ)
+local notation "Obj" => ofType (τ := τ) (Φ := Φ)
+
+theorem comp_constructor {C : τ} {q : Region Φ} (ha : Tm.BranchValue [A] a D)
+    (hq : ValueBranches [D] q [C])
+    (ht : ValueBranches [A] (q.substVars (Tm.singleSubst a ∘ lift Nat.succ)) [C]) :
+    ofRegion (.br (ℓ := 0) rfl ha) ≫ ofRegion hq = ofRegion ht := by
+  have e : compLSubst (fun _ => Region.br 0 a) (fun _ => q) 0 =
+      q.substVars (Tm.singleSubst a ∘ lift Nat.succ) :=
+    substVars_renameVars q (lift Nat.succ) (Tm.singleSubst a)
+  have hc : ValueBranches [A] (compLSubst (fun _ => Region.br 0 a) (fun _ => q) 0) [C] :=
+    e.symm ▸ ht
+  rw [Paper.TypeCategory.ofRegion_comp (.br rfl ha) hq hc]
+  apply (Paper.TypeCategory.ofRegion_eq_iff hc ht).2
+  rw [e]
+  exact .refl ht.hasType
+
+theorem repairTarget (site : Site) (ha : Tm.BranchValue [A] a D)
+    (hr : ValueBranches [D] r [Silmaril.coprod B D])
+    (f : Obj A ⟶ Obj B ⨿ Obj A)
+    (hs : ValueBranches [A] s [Silmaril.coprod B D])
+    (hm : site.move (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
+    (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
+      ofRegion hs ≫ (sumIso B D).hom) :
+    let h := ofRegion (.br (ℓ := 0) rfl ha)
+    ∃ g : Obj D ⟶ Obj B ⨿ Obj D,
+      projectStep Seed g = projectStep Seed (ofRegion hr ≫ (sumIso B D).hom) ∧
+      f ≫ coprod.map (𝟙 (Obj B)) h = h ≫ g := by
+  obtain ⟨q, _, rfl, hq, eq⟩ := move_pullback site hr _ hm
+  refine ⟨ofRegion hq ≫ (sumIso B D).hom, ?_, ?_⟩
+  · have ec := (Paper.Extension.Singleton.ofRegion_eq_iff Seed hr hq).2 eq
+    unfold projectStep
+    simp only [Functor.map_comp]
+    exact congrArg (fun k => (k ≫ (projection Seed).map (sumIso B D).hom) ≫ _) ec.symm
+  · rwa [← Category.assoc, comp_constructor]
+
+theorem uniformity_of_target_move (site : Site) (ha : Tm.BranchValue [A] a D)
+    (hr : ValueBranches [D] r [Silmaril.coprod B D])
+    (f : Obj A ⟶ Obj B ⨿ Obj A)
+    (hs : ValueBranches [A] s [Silmaril.coprod B D])
+    (hm : site.move (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) = some s)
+    (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
+      ofRegion hs ≫ (sumIso B D).hom) :
+    iterateChosen Seed (projectStep Seed f) =
+      (projection Seed).map (ofRegion (.br (ℓ := 0) rfl ha)) ≫
+        iterateChosen Seed (projectStep Seed (ofRegion hr ≫ (sumIso B D).hom)) := by
+  obtain ⟨g, hg, native⟩ := repairTarget site ha hr f hs hm comm
+  rw [← hg]
+  exact Paper.Extension.Singleton.uniformity_of_constructor_square Seed ⟨a, ha, rfl⟩ f g native
+
+end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetOperand

@@ -1,0 +1,42 @@
+module
+
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Thms
+
+/-! # A single directed entry-let rewrite in a written region -/
+
+@[expose] public section
+
+universe v
+
+namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet
+
+open Silmaril.DeBruijn (lift)
+
+/-- An address in a region. Addresses only descend through region
+constructors, leaving term operands intact. -/
+inductive Site where
+  | here
+  | unaryBody (next : Site)
+  | binaryBody (next : Site)
+  | leftArm (next : Site)
+  | rightArm (next : Site)
+  | entry (next : Site)
+  | block (index : Nat) (next : Site)
+
+/-- Move the entry let at one addressed CFG. Failure means the address does
+not reach a CFG with a unary let at its entry. -/
+def Site.move {Φ : Type v} : Site → Region Φ → Option (Region Φ)
+  | .here, .cfg (.let₁ a body) n blocks =>
+    some (.let₁ a (.cfg body n (fun i => (blocks i).renameVars (lift Nat.succ))))
+  | .unaryBody next, .let₁ a body => (next.move body).map (.let₁ a)
+  | .binaryBody next, .let₂ a body => (next.move body).map (.let₂ a)
+  | .leftArm next, .case a left right => (next.move left).map (fun l => .case a l right)
+  | .rightArm next, .case a left right => (next.move right).map (.case a left)
+  | .entry next, .cfg body n blocks => (next.move body).map (fun e => .cfg e n blocks)
+  | .block i next, .cfg body n blocks =>
+    if hi : i < n then
+      (next.move (blocks ⟨i, hi⟩)).map (fun b => .cfg body n (Function.update blocks ⟨i, hi⟩ b))
+    else none
+  | _, _ => none
+
+end Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet

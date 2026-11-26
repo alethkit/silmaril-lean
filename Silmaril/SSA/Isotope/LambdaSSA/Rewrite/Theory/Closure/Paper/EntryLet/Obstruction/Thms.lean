@@ -28,6 +28,14 @@ theorem observes_iff_of_eqv {Γ L : List (Ty Empty)} {r s : Region Instruction}
     observes env r out ↔ observes env s out :=
   Sequencing.observesFlat_eq_of_paper h env he out
 
+/-- The diagnostic still distinguishes the two requests when both
+discard a tagged input and return the same recurrent packet. -/
+theorem discardedRecurringRequest_ne :
+    let B := Silmaril.coprod U U
+    let θ : Nat → Tm Instruction := Tm.singleSubst .unit ∘ Silmaril.DeBruijn.lift Nat.succ
+    ¬ Paper.Eqv [B] (movedRecurringRequest.substVars θ) (flatRecurringRequest.substVars θ) [B] :=
+  Sequencing.discardedRecurringRequest_ne
+
 theorem flatRequest_typed : ValueBranches [U] flatRequest [U] :=
   Sequencing.flatRequest_typed
 
