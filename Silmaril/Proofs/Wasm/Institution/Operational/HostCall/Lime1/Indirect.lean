@@ -7,7 +7,7 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Proofs
 
-open Execution.Runtime (Frame FuncInst Value)
+open Execution.Runtime (Frame FuncAddr FuncInst Value)
 open Wasm.Lime1.Execution
 open CallContinuation.OuterCall
 
@@ -27,11 +27,20 @@ theorem indirect_step_iff {H : Type} {base : Store H} {memory : Memory32 base}
     · exact ⟨none, .null entry, rfl⟩
     · have allocation : base.funcs[address.value]? = some fn := allocated
       by_cases same : fn.type = site.signature
-      · obtain ⟨declared, found, matchingHost⟩ := linked.entries address (List.mem_of_getElem? entry)
+      · obtain ⟨declared, found, registered⟩ := linked.entries address (List.mem_of_getElem? entry)
         rw [allocation] at found
         cases found
-        obtain ⟨code, rfl⟩ := matchingHost same
-        exact ⟨_, .host entry allocation, by simp [IndirectSite.lookupHead, FuncInst.type]⟩
+        cases fn with
+        | host actual code =>
+          change actual = site.signature at same
+          subst actual
+          exact ⟨_, .host entry allocation, by simp [IndirectSite.lookupHead, FuncInst.type]⟩
+        | wasm actual module body =>
+          obtain ⟨callee, found⟩ := registered same
+          have exactAllocation := linked.graphAllocated address callee found
+          have declType := congrArg FuncInst.type (Option.some.inj (allocation.symm.trans exactAllocation))
+          exact ⟨_, .wasm (callee := ⟨address, callee⟩) entry found exactAllocation (declType.symm.trans same),
+            by simp [IndirectSite.lookupHead, same]⟩
       · exact ⟨none, .mismatch entry allocation same, by simp [IndirectSite.lookupHead, same]⟩
   · rintro ⟨target, found, rfl⟩
     cases found with
@@ -43,27 +52,36 @@ theorem indirect_step_iff {H : Type} {base : Store H} {memory : Memory32 base}
       exact .inr ⟨address, .host site.signature code, entry, allocated,
         by simp [IndirectSite.lookupHead, FuncInst.type]⟩
 
+    | @wasm callee entry _ allocated typed =>
+      exact .inr ⟨callee.address, _, entry, allocated, by simp [IndirectSite.lookupHead, FuncInst.type, typed]⟩
+
+private theorem failure_excludes_allocation {H : Type} {base : Store H} {site : IndirectSite}
+    {selector : BitVec 32} {address : FuncAddr} {fn : FuncInst Wasm.Lime1.Func H}
+    (entry : site.table.refs[selector.toNat]? = some (some address))
+    (allocated : base.funcs[address.value]? = some fn) (typed : fn.type = site.signature)
+    (failure : site.Lookup base selector none) : False := by
+  cases failure with
+  | bounds missing =>
+    rw [entry] at missing
+    cases missing
+  | null empty =>
+    rw [entry] at empty
+    cases empty
+  | mismatch present found different =>
+    rw [entry] at present
+    cases present
+    rw [allocated] at found
+    cases found
+    exact different typed
+
 private theorem lookup_trap {H : Type} {base : Store H} {site : IndirectSite}
-    {selector : BitVec 32} {target : Option (Site H)}
+    {selector : BitVec 32} {target : Option (IndirectTarget H)}
     (failure : site.Lookup base selector none) (lookup : site.Lookup base selector target) :
     target = none := by
   cases lookup with
   | bounds | null | mismatch => rfl
-  | host entry allocated =>
-    cases failure with
-    | bounds missing =>
-      rw [entry] at missing
-      cases missing
-    | null empty =>
-      rw [entry] at empty
-      cases empty
-    | mismatch present found different =>
-      rw [entry] at present
-      cases present
-      unfold Site.Allocated at allocated
-      rw [allocated] at found
-      cases found
-      exact (different rfl).elim
+  | host entry allocated => exact (failure_excludes_allocation entry allocated rfl failure).elim
+  | wasm entry _ allocated typed => exact (failure_excludes_allocation entry allocated typed failure).elim
 
 theorem indirect_trap_iff {H : Type} {base : Store H} {memory : Memory32 base}
     {site : IndirectSite} {active : Frame} {bytes : ByteArray} {stack : List Value}

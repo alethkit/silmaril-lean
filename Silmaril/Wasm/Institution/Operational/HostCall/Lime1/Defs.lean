@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Lime1.Execution.Callout
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Native.Defs
 
 @[expose] public section
 
@@ -9,6 +10,8 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1
 
 open Execution.Runtime (EvalCtx Frame FuncAddr FuncInst MemAddr MemInst ModuleInst Result Value)
 open Wasm.Lime1.Execution
+open CallContinuation.OuterCall (CallTarget)
+open CallContinuation.OuterCall.Ranked
 
 /-- The designated memory is allocated in the base store. Its live byte array
 may change, while its extent, declared limit and all other allocations stay fixed. -/
@@ -59,17 +62,34 @@ def Site.pending {H : Type} (site : Site H) (s : Store H) (outer : Frame)
     (context : EvalCtx Wasm.Lime1.Instr) (args : List Value) : Config H :=
   ⟨s, outer, context.plug value (values args ++ [.invoke site.address])⟩
 
-abbrev IndirectSite := CallResolution.Indirect.Site
+structure IndirectSite extends CallResolution.Indirect.Site where
+  graph : Graph.Program
+
+structure WasmTarget where
+  address : FuncAddr
+  fn : Graph.Function
+
+def WasmTarget.callTarget (callee : WasmTarget) : CallTarget :=
+  ⟨⟨0⟩, callee.address, callee.fn.declaration⟩
+
+inductive IndirectTarget (H : Type) where
+  | host (site : Site H)
+  | wasm (callee : WasmTarget)
 
 /-- The consulted table and expected type are fixed in the active module and
-base store. All nonnull entries are allocated. Matching entries denote hosts. -/
+base store. All nonnull entries are allocated. Each matching Wasm entry
+must belong to the checked graph. -/
 structure IndirectSite.Linked {H : Type} (site : IndirectSite) (base : Store H)
     (module : ModuleInst) : Prop where
   tableAt : frameTable base ⟨[], module⟩ = some site.table
   signatureAt : module.types[site.typeIndex.toNat]? = some site.signature
+  graphChecked : site.graph.checkDirect = true
+  graphAllocated : site.graph.LimeAllocated base
   entries : ∀ address, some address ∈ site.table.refs →
     ∃ fn : FuncInst Wasm.Lime1.Func H, base.funcs[address.value]? = some fn ∧
-      (fn.type = site.signature → ∃ code, fn = .host site.signature code)
+      (fn.type = site.signature → match fn with
+        | .host .. => True
+        | .wasm .. => ∃ checked, site.graph.lookup address = some checked)
 
 /-- Each matching, allocated target supplies the ordinary host contract. -/
 def IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite) (memory : Memory32 base)
@@ -78,10 +98,10 @@ def IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite) (mem
     (⟨address, site.signature, code⟩ : Site H).Allocated base →
     (⟨address, site.signature, code⟩ : Site H).Contract memory host
 
-/-- A single native lookup supplies an allocated host or one of the three
+/-- A single native lookup supplies an allocated target or one of the three
 trap witnesses. The selector is the unsigned i32 table index. -/
 inductive IndirectSite.Lookup {H : Type} (site : IndirectSite) (base : Store H) (selector : BitVec 32) :
-    Option (Site H) → Prop where
+    Option (IndirectTarget H) → Prop where
   | bounds (entry : site.table.refs[selector.toNat]? = none) : site.Lookup base selector none
   | null (entry : site.table.refs[selector.toNat]? = some none) : site.Lookup base selector none
   | mismatch {address : FuncAddr} {fn : FuncInst Wasm.Lime1.Func H}
@@ -91,10 +111,18 @@ inductive IndirectSite.Lookup {H : Type} (site : IndirectSite) (base : Store H) 
   | host {address : FuncAddr} {code : H}
       (entry : site.table.refs[selector.toNat]? = some (some address))
       (allocated : (⟨address, site.signature, code⟩ : Site H).Allocated base) :
-      site.Lookup base selector (some ⟨address, site.signature, code⟩)
+      site.Lookup base selector (some (.host ⟨address, site.signature, code⟩))
+  | wasm {callee : WasmTarget}
+      (entry : site.table.refs[selector.toNat]? = some (some callee.address))
+      (found : site.graph.lookup callee.address = some callee.fn)
+      (allocated : base.funcs[callee.address.value]? =
+        some (.wasm callee.fn.declaration.type callee.fn.declaration.module callee.fn.limeFunc))
+      (typed : callee.fn.declaration.type = site.signature) :
+      site.Lookup base selector (some (.wasm callee))
 
-def IndirectSite.lookupHead {H : Type} : Option (Site H) → Admin
-  | some target => .invoke target.address
+def IndirectSite.lookupHead {H : Type} : Option (IndirectTarget H) → Admin
+  | some (.host target) => .invoke target.address
+  | some (.wasm target) => .invoke target.address
   | none => .trap
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1
