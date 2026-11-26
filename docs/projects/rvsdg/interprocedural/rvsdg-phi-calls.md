@@ -851,6 +851,27 @@ imports with an empty dispatch and admit λ and φ bindings using the
 existing plan. This entry point covers the plan's λ/φ fragment.
 [Ordered template API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Synthesis/Defs.lean)
 
+For a numbered module with one leading δ, use `DeltaPrefix.check` to
+run both initializations and obtain the exact typed result row on each
+side and a common post-link store. `Plan.analyzeNumberedAfterDelta`
+runs the same source-indexed λ/φ walk from that store and certifies its
+results against the original numbered link. A blocked initializer or
+unequal post-link stores fail prefix admission. The initializer adds
+no callable summaries. The existing typed capture check recognizes
+ordinary initialized globals by type and checks callable positions as
+before. This entry point analyzes the exported invocation after
+initialization. Interleaved δ bindings remain outside it.
+[Leading δ API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Delta/Thms.lean)
+
+The δ→φ→λ fixture uses a synthesized φ summary for the member that
+reads the initialized global. The export calls the actual member and
+passes the same global as its capture witness. The probe keeps that
+global live under empty demand. Varying the dead formal preserves
+exact return, the typed block and resumption through the λ's saved
+suffix. A same-payload global from another vertex fails the witness
+equality.
+[Leading δ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Delta/Regression.lean)
+
 The cross-group fixture starts with a λ and synthesizes both groups'
 summaries in order. The exported λ calls the second group and then
 uses the leading λ for its saved suffix. The second group takes a
