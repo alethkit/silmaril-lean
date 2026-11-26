@@ -1315,8 +1315,8 @@ observations. The child shares the producer's global cell with an
 earlier closure and owns a different captured local. A second-call
 error leaves the earlier factory and ordinary assignment effects.
 
-The same suite now admits any finite number of parameterless consumer
-definitions whose return calls the file-local import. Elaboration appends
+The same suite admits any finite number of consumer definitions whose return
+calls the file-local import. Elaboration appends
 each declaration at the current table size, in source order, and retains
 every earlier lookup. The reached-prefix proof carries the extended table
 and live provenance across definitions, copies, assignments and calls.
@@ -1337,10 +1337,10 @@ through the consumer wrapper.
 
 The UTF-8 adapter compiles normalized modules in manifest order and feeds
 the final linked table to the loader. The source theorem starts at
-normalized commands. Consumer parameters, defaults and other wrapper
-bodies, multiple imports, general graphs, and arbitrary cache histories
-remain open. Calls in textual function bodies belong to the frontend
-profile.
+normalized commands. The checked definitions admit a required positional
+header, including the nullary header. Wrapper defaults, keyword-only
+parameters, collectors and broader wrapper bodies remain separate.
+Calls in textual function bodies belong to the frontend profile.
 [Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
 
 ### Composing checked imports
@@ -1388,9 +1388,22 @@ caller. Go's public initialization result does not expose the file-local cells.
 The checked prefix admits a nonempty group of public callable imports per load.
 Its static missing-export evidence requires the name to be outside the
 dependency's declared globals. Grouped syntax already lowers through the normal
-frontend load adapter. Arbitrary incoming caches, broader bodies, untracked
-exports, and callable wrapper parameters remain open. The checked wrappers are
-nullary.
+frontend load adapter. The positional wrapper uses the ordinary binder to
+deliver actual values to its own formals in declaration order. Its body reads
+operands in the order written at the inner call. The alias must be distinct
+from every formal, so activation preserves the actual captured import cell and
+the lower declaration-index guard. Arguments remain values and supply no
+callable provenance.
+
+A three-module control publishes a wrapper that calls the second import of a
+grouped load with two integer formals in the opposite order. A downstream
+caller checks distinct results, surplus-argument rejection before activation,
+and a reached index error after the imported callee allocates a list. Lean
+checks exact retained cells, skipped publication and restored caller; pinned
+Go checks the operand order, reached errors, and visible effects. Both run
+cold and after an actual request for the wrapper module. Arbitrary incoming
+caches, untracked exports, broader bodies and dispatch through a parameter
+remain outside this proof.
 [Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
 
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)

@@ -7,6 +7,7 @@ import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.T
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Wrapper.Thms
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Invariant
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Definition
 
 public section
 
@@ -84,8 +85,7 @@ theorem invoke_callable {origin seed : Program} {source : List Modules.Resolve.C
           Exec resolved.program (withoutDeclaration available id) active declaration.site.body.code out ∧
           Body.Keeps packed.heap.size packed (finishState (Leaf.returnTo packed out))
         have slotFound : active.slots (fileSlot importName) = some (.captured cell true) :=
-          activate_capture packed declaration.site.declaration [capture] capture assigned
-            (by simp [capture]) (by change ¬ _ ∈ ([] : List Binding); simp)
+          wrapper_import_slot declaration packed cell assigned
         have previous : KeepsContents packed active := by
           intro address old present
           exact ⟨old.frozen, (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Wrapper.activation_preserves packed
@@ -94,9 +94,10 @@ theorem invoke_callable {origin seed : Program} {source : List Modules.Resolve.C
         obtain ⟨nextFlag, aliasStored⟩ := keeps_initialized transported stored
         have fromAlias : active.bindingValue (fileSlot importName) = .ok (.function target) := by
           simp [State.bindingValue, slotFound, Slot.address, aliasStored]
+        obtain ⟨notOwned, enclosing⟩ := wrapper_import_origin declaration
         have calleeRead := Body.Evaluates.read (state := active)
           (Assignment.ReadResolves.enclosing (block := declaration.site.block) (name := importName)
-            (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using declaration.visible))
+            notOwned enclosing)
         change Body.Evaluates _ _ _ _ (active.read (.bound (fileSlot importName))) at calleeRead
         rw [State.read, fromAlias] at calleeRead
         obtain ⟨result, ran, interpreted, saved⟩ := ih bodyGuard (fileSlot importName) calleeRead

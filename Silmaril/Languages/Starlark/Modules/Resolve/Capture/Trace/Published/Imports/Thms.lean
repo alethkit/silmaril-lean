@@ -6,6 +6,8 @@ import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Publishe
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Execution
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Producer
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Consumer
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Definition
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Entry.Thms
 
 public section
 
@@ -15,6 +17,18 @@ open Functions (Program)
 open Defaults.Nested.Sequence (PreservesDeclarations)
 open Lists (State)
 open Loader (Session)
+
+/-- The independent positional binder supplies the wrapper's own slots
+in declaration order. Required positional formals introduce no defaults. -/
+theorem wrapper_positional_binding {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals) {values : List Lists.Value}
+    {result : Except Lists.Error (List (Binding × Lists.Value))}
+    (checked : relay.site.declaration.signature.validate = .ok ())
+    (source : Entry.Binds relay.parameters values result) :
+    Functions.bindArguments relay.site.declaration.signature [] ⟨values, []⟩ =
+      result.map (fun bound => ⟨bound, [], []⟩) := by
+  rw [Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.wrapper_signature] at checked ⊢
+  exact Entry.required_binds checked source
 
 /-- The importer elaborates in source order and appends each declaration to the linked table. -/
 theorem consumer_layout (plan : Consumer) {program : Program} {consumer : ResolvedModule}

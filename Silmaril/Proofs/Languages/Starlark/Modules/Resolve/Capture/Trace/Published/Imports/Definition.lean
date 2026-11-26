@@ -21,7 +21,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
-open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (compile_site)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (compile_site parameterNames)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named
   (resolves_at runs_at)
@@ -31,14 +31,41 @@ open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (Capture Cell Slot State Outcome)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
 
+theorem wrapper_import_origin {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) :
+    importName ∉ relay.site.block.owned ∧ importName ∈ relay.site.block.enclosing := by
+  change importName ∉ (wrapperBlock relay.parameters aliases globals).owned ∧ importName ∈ aliases ++ []
+  exact ⟨by simpa [wrapperBlock, parameterNames, Parameters.names] using relay.unshadowed,
+    by simpa using relay.visible⟩
+
+theorem wrapper_signature {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) :
+    relay.site.declaration.signature = requiredSignature relay.parameters := by
+  simp [WrapperDeclaration.site, Nested.Sequence.Recursive.Site.declaration, Parameters.signature, requiredSignature]
+
+theorem wrapper_import_slot {importName aliases globals}
+    (relay : WrapperDeclaration importName aliases globals) (state : State) (cell : Nat)
+    (assigned : List (Binding × Lists.Value)) :
+    (activate state relay.site.declaration [⟨fileSlot importName, cell, true⟩] assigned).slots (fileSlot importName) =
+      some (.captured cell true) := by
+  let capture : Capture := ⟨fileSlot importName, cell, true⟩
+  apply activate_capture state relay.site.declaration [capture] capture assigned (by simp [capture])
+  change fileSlot importName ∉ relay.site.declaration.signature.slots ++ relay.site.declaration.locals
+  have notFormal : fileSlot importName ∉ relay.parameters.map fileSlot := by
+    intro member
+    obtain ⟨name, declared, same⟩ := List.mem_map.mp member
+    have equal : name = importName := congrArg Binding.name same
+    exact relay.unshadowed (equal ▸ declared)
+  rw [wrapper_signature]
+  simpa [WrapperDeclaration.site, Nested.Sequence.Recursive.Site.declaration, Signature.slots, Signature.named,
+    requiredSignature, Function.comp_def] using notFormal
+
 theorem wrapper_compiles {importName aliases globals} (relay : WrapperDeclaration importName aliases globals) (program : Program) :
     elaborateCommand ⟨(block aliases globals).context, .global⟩ (.define relay.name relay.site.sourceSignature relay.site.source)
       program = .ok (.exec (.define relay.name program.size), program.push relay.site.declaration) := by
+  obtain ⟨notOwned, enclosing⟩ := wrapper_import_origin relay
   have imported : Body.Operand relay.site.block (.scalar (.read importName))
       (Leaf.readOperand (fileSlot importName)) [fileSlot importName] :=
     .read relay.legalAlias
-      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
-      (.enclosing (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
+      (.enclosing notOwned enclosing) (.enclosing notOwned enclosing)
   have compiled : compileBody ⟨relay.site.block.context, .local⟩ relay.site.source program =
       .ok (relay.site.body, program) :=
     compileBody_plainReturn _ _ _ _ _
@@ -75,7 +102,7 @@ theorem wrapper_returns {importName aliases globals} (relay : WrapperDeclaration
   have present : callee.id ∈ available :=
     guarded (List.mem_range.mpr (Array.getElem?_eq_some_iff.mp known.1).choose)
   have captures : active.slots (fileSlot importName) = some (.captured aliasCell true) :=
-    activate_capture packed relay.site.declaration [capture] capture assigned (by simp) (by change ¬ _ ∈ ([] : List Binding); simp)
+    wrapper_import_slot relay packed aliasCell assigned
   have stored := kept.2 _ _ (Array.getElem?_eq_some_iff.mp aliasStored).choose aliasStored
   have sameHeap (address : Nat) (cell : Cell) (found : packed.heap[address]? = some cell) :
       active.heap[address]? = some cell :=
@@ -83,9 +110,10 @@ theorem wrapper_returns {importName aliases globals} (relay : WrapperDeclaration
       relay.site.declaration [capture] assigned address (Array.getElem?_eq_some_iff.mp found).choose).trans found
   have aliasRead : active.bindingValue (fileSlot importName) = .ok (.function origin) := by
     simp [State.bindingValue, captures, Slot.address, sameHeap _ _ stored]
+  obtain ⟨notOwned, enclosing⟩ := wrapper_import_origin relay
   have read := Body.Evaluates.read (state := active)
     (Assignment.ReadResolves.enclosing (block := relay.site.block) (name := importName)
-      (by change ¬ _ ∈ ([] : List String); simp) (by change importName ∈ aliases ++ []; simpa using relay.visible))
+      notOwned enclosing)
   change Body.Evaluates _ _ _ _ (active.read (.bound (fileSlot importName))) at read
   rw [State.read, aliasRead] at read
   obtain ⟨packedRecord⟩ := keep_record record kept
