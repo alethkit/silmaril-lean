@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Flat.Thms
 public import Silmaril.SSA.Isotope.LetCase.Thms
 
-/-! # Carry a selected ambient slot in the actual internal packets -/
+/-! # Carry selected ambient slots in the actual internal packets -/
 
 @[expose] public section
 
@@ -36,9 +36,25 @@ packets and the scope immediately under their decoders change. -/
 def graph (g : FiniteCFG F blocks exits n) (slot : Fin n) : FiniteCFG F blocks exits n :=
   ⟨body g.entry id slot, fun i => .let₂ (.bv 0) (body (g.block i) (decodedIndex slot) 0)⟩
 
+/-- Extend each packet in caller-specified order. The last selected
+field is the first one decoded in a row. An empty list leaves the graph alone. -/
+def graphList (g : FiniteCFG F blocks exits n) (slots : List (Fin n)) : FiniteCFG F blocks exits n :=
+  slots.foldl graph g
+
 variable {τ : Type u} [HasProduct τ]
 
 def packetTypes (R : Fin blocks → τ) (β : BoundCtx τ n) (slot : Fin n) : Fin blocks → τ :=
   fun i => product (R i) (β.get slot)
+
+/-- The heterogeneous argument families grow in the same order as the
+actual packets. Each selected slot contributes its type in the caller context. -/
+def packetTypesList (R : Fin blocks → τ) (β : BoundCtx τ n) (slots : List (Fin n)) :
+    Fin blocks → τ :=
+  slots.foldl (fun types slot => packetTypes types β slot) R
+
+/-- Ordered runtime packet encoding. Each decoder projects the last added
+field and passes the remaining packet to the next decoder. -/
+def packValue {α : Type u} (env : Nat → Value α) (slots : List (Fin n)) (v : Value α) : Value α :=
+  slots.foldl (fun packet slot => .pair packet (env slot.val)) v
 
 end Silmaril.Isotope.Bridge.NamedFlat.Capture.Carry

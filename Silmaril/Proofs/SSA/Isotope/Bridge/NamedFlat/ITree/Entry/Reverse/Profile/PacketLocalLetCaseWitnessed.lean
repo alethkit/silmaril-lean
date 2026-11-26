@@ -44,20 +44,16 @@ variable {source : Operand P.Instr context (Region.packedExitType
     (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source}
 
 omit [DecidableEq K] [AtomValues κ] in
-theorem flat_hasType (g : ResultGrammar source) (slot : Option (Fin n)) :
-    (flat g slot).HasType context (packetTypes g slot) exitTypes := by
-  cases slot with
-  | none => exact g.toTable.toFlat_hasType
-  | some slot => exact Capture.Carry.graph_hasType g.toTable.toFlat_hasType slot
+theorem flatList_hasType (g : ResultGrammar source) (slots : List (Fin n)) :
+    (flatList g slots).HasType context (packetTypesList g slots) exitTypes :=
+  Capture.Carry.graphList_hasType g.toTable.toFlat_hasType slots
 
 omit [DecidableEq K] in
-private theorem flat_region (g : ResultGrammar source) (slot : Option (Fin n)) (M : Model (κ := κ) Events P.Instr)
+private theorem flat_region (g : ResultGrammar source) (slots : List (Fin n)) (M : Model (κ := κ) Events P.Instr)
     (env : Env (Sigma C)) :
-    region M.raw env (flat g slot).erase =
-      region M.raw env (g.toTable.toFlat (exits := exits.length) List.length_ofFn).erase := by
-  cases slot with
-  | none => rfl
-  | some slot => exact Capture.Carry.graph_tree M.raw _ slot env
+    region M.raw env (flatList g slots).erase =
+      region M.raw env (g.toTable.toFlat (exits := exits.length) List.length_ofFn).erase :=
+  Capture.Carry.graphList_tree M.raw _ slots env
 
 omit [DecidableEq K] in
 private theorem packedFlat_tree {blocks : Nat} {code : FiniteCFG P.Instr blocks exits.length n}
@@ -68,13 +64,13 @@ private theorem packedFlat_tree {blocks : Nat} {code : FiniteCFG P.Instr blocks 
   rw [← inputEnv_packet]
   exact Capture.packed_context_tree M.raw typed ambient _
 
-theorem named_tree {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr)
-    (c : Compiled g slot) (x : Record.Input context) :
+theorem named_tree {slots : List (Fin n)} (M : Model (κ := κ) Events P.Instr)
+    (c : CompiledList g slots) (x : Record.Input context) :
     (sourceTree M source x >>= fun b => pure (0, encodeValue C B b)) =
       LiveOut.observe M ports fields c.lowered.source x := by
   let env := inputEnv context x
   let ambient : Env (Sigma C) := fun _ => .unit
-  let typed := flat_hasType g slot
+  let typed := flatList_hasType g slots
   have native :
       (sourceTree M source x >>= fun b => pure (encodeValue C B b)) =
         term M.raw env (erase source.1) :=
@@ -82,7 +78,7 @@ theorem named_tree {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr)
       (Record.inputEnv_field context x)
   have packed :
       region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry typed).code =
-        (region M.raw env (flat g slot).erase >>= fun p => pure (FiniteCFG.packedTreeOutput p)) :=
+        (region M.raw env (flatList g slots).erase >>= fun p => pure (FiniteCFG.packedTreeOutput p)) :=
     packedFlat_tree typed M x ambient
   calc
     _ = (term M.raw env (erase source.1) >>= fun b => pure (0, b)) := by
@@ -93,17 +89,17 @@ theorem named_tree {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr)
       simp only [pure_bind, FiniteCFG.packedTreeOutput]
     _ = _ := c.lowered.packed_observe M typed x ambient
 
-theorem packed_eq {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+theorem packed_eq {slots : List (Fin n)} (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots) :
     (Program.ofCFGEntry (g.toTable.toFlat_hasType (D := exitTypes))).denote M = c.admission.program.denote M := by
   let ambient : Env (Sigma C) := fun _ => .unit
   have compare (x : Record.Input context) :
       region M.raw (extend ambient (encodeValue C A x))
         (Program.ofCFGEntry (g.toTable.toFlat_hasType (D := exitTypes))).code =
       region M.raw (extend ambient (encodeValue C A x)) c.admission.program.code := by
-    refine Eq.trans ?_ (c.admission.packed_roundTrip M (flat_hasType g slot) x ambient)
+    refine Eq.trans ?_ (c.admission.packed_roundTrip M (flatList_hasType g slots) x ambient)
     let env := inputEnv context x
     let original := g.toTable.toFlat_hasType (D := exitTypes)
-    let emitted := flat_hasType g slot
+    let emitted := flatList_hasType g slots
     have originalTree :
         region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry original).code =
           (region M.raw env (g.toTable.toFlat (exits := exits.length) List.length_ofFn).erase >>=
@@ -111,11 +107,11 @@ theorem packed_eq {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr) 
       packedFlat_tree original M x ambient
     have emittedTree :
         region M.raw (extend ambient (encodeValue C A x)) (Program.ofCFGEntry emitted).code =
-          (region M.raw env (flat g slot).erase >>= fun p => pure (FiniteCFG.packedTreeOutput p)) :=
+          (region M.raw env (flatList g slots).erase >>= fun p => pure (FiniteCFG.packedTreeOutput p)) :=
       packedFlat_tree emitted M x ambient
     exact originalTree.trans ((emittedTree.trans
       (congrArg (fun t => t >>= fun p => pure (FiniteCFG.packedTreeOutput p))
-        (flat_region g slot M env))).symm)
+        (flat_region g slots M env))).symm)
   rw [le_antisymm_iff, denote_le_iff M M _ _ ambient, denote_le_iff M M _ _ ambient]
   exact ⟨fun x => (eq_iff_traceLE.mp (compare x)).1, fun x => (eq_iff_traceLE.mp (compare x)).2⟩
 
@@ -127,7 +123,7 @@ variable {P : FlatInstitution.Signature.{u, u+1} κ}
   {source : Operand P.Instr context (Region.packedExitType
     (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source}
 
-theorem satisfies {slot : Option (Fin n)} (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+theorem satisfies {slots : List (Fin n)} (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots) :
     (equationRoom P).Sat (algebra (P := P) M) c.equation := by
   apply (Silmaril.Isotope.Institution.LetCase.sat_iff (emptyContext (κ := κ)) (signature P)
     (algebra (P := P) M) (closedOperand (P := P) source.2).2
