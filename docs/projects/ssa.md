@@ -599,6 +599,21 @@ The continuation cannot jump back to its own label.
   [Cycle criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Thms.lean) ·
   [Denotation](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Categorical/Thms.lean) ·
   [Diamond and cycle regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Regression.lean)
+- Ranked positional blocks can read the shared typed ambient context as
+  well as their newest packet. The checker still uses all local targets.
+  The structured lowering projects away intervening packet binders while
+  preserving the shared values and the current packet. The native proof
+  unfolds the contextual dispatcher once at each ranked block. It retains
+  the ambient context through the current computation and then runs the
+  selected continuation. This gives the same native arrow at the ordered
+  exits in coherent strong Elgot Freyd models with central unit. Primitive
+  arrows may have ordered effects. A backward-numbered diamond reads a
+  shared bias in both arms and again at their common successor. Its
+  state-trace examples record the entry, classifier, selected arm and
+  shared computation in order.
+  [Captured tables](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Defs.lean) ·
+  [Denotation square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Categorical/Thms.lean) ·
+  [Diamond trace](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
