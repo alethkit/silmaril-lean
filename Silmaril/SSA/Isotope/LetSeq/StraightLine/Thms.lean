@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LetSeq.StraightLine.Defs
+import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Coverage
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.Reflection
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.PureAssembly
 import Silmaril.Proofs.SSA.Isotope.LetSeq.StraightLine.ProductReflection
@@ -170,5 +171,36 @@ theorem entry_product_embed_iff_native {t u : Term 3} {A : Types}
       (Morphism.SeqCase.embed (.let₂ (.bv 0) t)) (Morphism.SeqCase.embed (.let₂ (.bv 0) u)) A ↔
       Equiv false Γ₀ input (.let₂ (.bv 0) t) (.let₂ (.bv 0) u) A :=
   entry_product_embed_iff_native_proof p q d e
+
+/-- Normalize any exact derivation after supplying assemblies for its input
+variables. The bound variable and unit cases give pure assemblies. The
+primitive case sequences argument effects before the request. The pair case
+sequences left before right. Both let constructors thread their result into
+the continuation, with product destructuring substituting both fields.
+Named free variables are absent in this signature. -/
+theorem normalize_exact {n m : Nat} {source : BoundCtx Types n} {target : BoundCtx Types m}
+    {t : Term n} {A : Types} (d : Derivation Request Γ₀ source t A)
+    (σ : AssemblyEnv source target) : ProductNormalizes target (t.bsubst σ.terms) A :=
+  normalize_exact_proof d σ
+
+/-- Every exactly typed term at the native packet boundary is equivalent to
+destructuring its input followed by an existing `ProductProgram`.
+This includes whole-packet uses and arbitrary effectful nesting. -/
+theorem packet_program {t : Term 1} {A : Types} (d : Derivation Request Γ₀ input t A) :
+    ∃ u : Term 3, ∃ _ : ProductProgram ((input.snoc Atom).snoc Atom) u A,
+      Equiv false Γ₀ input t (.let₂ (.bv 0) u) A :=
+  packet_program_proof d
+
+/-- Reflection at the fixed packet boundary requires only the exact typings. -/
+theorem packet_run_eq_iff_native {t u : Term 1} {A : Types}
+    (d : Derivation Request Γ₀ input t A) (e : Derivation Request Γ₀ input u A) :
+    run d (packetEnv (0, 1)) = run e (packetEnv (0, 1)) ↔ Equiv false Γ₀ input t u A :=
+  packet_run_iff_native_proof d e
+
+theorem packet_embed_iff_native {t u : Term 1} {A : Types}
+    (d : Derivation Request Γ₀ input t A) (e : Derivation Request Γ₀ input u A) :
+    LetCase.LocallyNameless.Equiv false Γ₀ input (Morphism.SeqCase.embed t) (Morphism.SeqCase.embed u) A ↔
+      Equiv false Γ₀ input t u A :=
+  packet_embed_iff_native_proof d e
 
 end Silmaril.Isotope.LetSeq.StraightLine

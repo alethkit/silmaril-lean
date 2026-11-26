@@ -140,6 +140,15 @@ inductive ProductCanonical : {n : Nat} → BoundCtx Types n → Term n → Types
       (rest : ProductCanonical ((β.snoc Atom).snoc Atom) body A) :
       ProductCanonical β (.let₂ (.op f arg.term) body) A
 
+def ProductCanonical.toProgram {n : Nat} {β : BoundCtx Types n} {t : Term n} {A : Types} :
+    ProductCanonical β t A → ProductProgram β t A
+  | .result v => .ret (.assembled v)
+  | .step f arg rest => .request f (.assembled arg) rest.toProgram
+
+/-- Native equivalence to a canonical member of the structural program grammar. -/
+def ProductNormalizes {n : Nat} (β : BoundCtx Types n) (t : Term n) (A : Types) : Prop :=
+  ∃ u : Term n, ∃ _ : ProductCanonical β u A, Equiv false Γ₀ β t u A
+
 /-- The original atomic normal forms, with direct packet destructuring. -/
 inductive Canonical : {n : Nat} → (β : BoundCtx Types n) → Term n → Type where
   | ret {n : Nat} {β : BoundCtx Types n} (x : Slot β) :

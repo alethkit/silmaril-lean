@@ -10,16 +10,16 @@ open LocallyNameless (Derivation Equiv HasType Pure Tm TypedSubst)
 
 set_option backward.isDefEq.respectTransparency false
 
-private def extend {n m : Nat} {source : BoundCtx Types n} {target : BoundCtx Types m}
+def extend {n m : Nat} {source : BoundCtx Types n} {target : BoundCtx Types m}
     {A : Types} (σ : AssemblyEnv source target) (v : Assembly target A) :
     AssemblyEnv (source.snoc A) target :=
   Fin.cases v σ
 
-private theorem terms_typed {n m : Nat} {source : BoundCtx Types n} {target : BoundCtx Types m}
+theorem terms_typed {n m : Nat} {source : BoundCtx Types n} {target : BoundCtx Types m}
     (σ : AssemblyEnv source target) : TypedSubst (Γ := Γ₀) source target σ.terms :=
   fun i => (σ i).derivation.toHasType
 
-private theorem assembly_pure {n : Nat} {β : BoundCtx Types n} {A : Types} (v : Assembly β A) :
+theorem assembly_pure {n : Nat} {β : BoundCtx Types n} {A : Types} (v : Assembly β A) :
     Pure false v.term := by
   induction v with
   | slot => exact .bv
@@ -36,7 +36,7 @@ private theorem instantiate_up {n m : Nat}
   simp only [Fin.cases_succ, Tm.upSub_succ, Tm.lift, Tm.bsubst_rename]
   exact Tm.bsubst_id _
 
-private theorem instantiate_assembly {n m : Nat}
+theorem instantiate_assembly {n m : Nat}
     {source : BoundCtx Types n} {target : BoundCtx Types m} {A : Types}
     (σ : AssemblyEnv source target) (body : Term (n + 1)) (v : Assembly target A) :
     Tm.instantiate (body.bsubst (Tm.upSub σ.terms)) v.term = body.bsubst (extend σ v).terms := by
@@ -57,6 +57,24 @@ private theorem instantiate_pair_assembly {n m : Nat}
     exact Tm.bsubst_id _
   · simp only [Fin.cases_succ, Tm.upSub_succ, Tm.lift, Tm.bsubst_rename]
     exact Tm.bsubst_id _
+
+/-- Destructuring an assembled pair substitutes both fields into any typed
+body. The body may itself be effectful. -/
+theorem replay_assembled_pair {n m : Nat} {source : BoundCtx Types n}
+    {target : BoundCtx Types m} {A B C : Types} {body : Term (n + 2)}
+    (σ : AssemblyEnv source target) (left : Assembly target A) (right : Assembly target B)
+    (typed : HasType Request Γ₀ ((source.snoc A).snoc B) body C) :
+    Equiv false Γ₀ target
+      (.let₂ (.pair left.term right.term) (body.bsubst (Tm.upSub (Tm.upSub σ.terms))))
+      (body.bsubst (extend (extend σ left) right).terms) C := by
+  have bodyType := typed.bsubst (((terms_typed σ).up A).up B)
+  have leftType := left.derivation.toHasType
+  have rightType := right.derivation.toHasType
+  have inner := Equiv.letBeta (assembly_pure right).lift rightType.lift bodyType
+  have outer := Equiv.letBeta (assembly_pure left) leftType inner.hasType.2
+  rw [instantiate_pair_assembly σ body left right] at outer
+  exact (Equiv.pairBeta leftType rightType bodyType).trans
+    ((Equiv.let₁ (.refl leftType) inner).trans outer)
 
 /-- Normalize a native pure derivation with all its free bound-variable
 occurrences supplied by assemblies. Replay substitutes a new assembly at
@@ -93,15 +111,9 @@ theorem pure_normalize_proof {n m : Nat} {source : BoundCtx Types n} {target : B
     cases packet with
     | pair left right =>
       have bodyType := b.toHasType.bsubst (((terms_typed σ).up A).up B)
-      have leftType := left.derivation.toHasType
-      have rightType := right.derivation.toHasType
-      have inner := Equiv.letBeta (assembly_pure right).lift rightType.lift bodyType
-      have outer := Equiv.letBeta (assembly_pure left) leftType inner.hasType.2
       obtain ⟨out, replay⟩ := ihb hb (extend (extend σ left) right)
-      rw [← instantiate_pair_assembly σ body left right] at replay
       exact ⟨out, (Equiv.let₂ ea (.refl bodyType)).trans
-        ((Equiv.pairBeta leftType rightType bodyType).trans
-          ((Equiv.let₁ (.refl leftType) inner).trans (outer.trans replay)))⟩
+        ((replay_assembled_pair σ left right b.toHasType).trans replay)⟩
 
 theorem assembly_normalize_proof {n : Nat} {β : BoundCtx Types n} {t : Term n} {A : Types}
     (p : PureAssembly β t A) : ∃ v : Assembly β A, Equiv false Γ₀ β t v.term A := by
