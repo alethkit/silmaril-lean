@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Entry.State.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -787,6 +787,107 @@ example : ¬ Shape.denote (withExitUB readsCaller.native readsCaller.selected)
   EntryCounterexample.mapState_refutes (g := readsCaller) (h := source)
     (raw := readsCaller.native) (raw' := source.native) (decodeLeft := id) (decodeRight := id)
     (w := statefulWitness) (shiftState 3) rfl rfl inventory inventory (stores 3) statefulRefutes
+
+private def naturalPrim : Syntax.StatePrimitives Op Nat := fun f arg s =>
+  match f with
+  | .flip => .ret (pack (L := replies .flip) ⟨0, left⟩) (s + 100)
+  | .test =>
+    match arg.val with
+    | .inr _ => .fault (s + 200)
+    | _ => .fault (s + 100)
+
+private def naturalFlip : RunRow Op Nat :=
+  ⟨.flip, right, 100, .ret (pack (L := replies .flip) ⟨0, left⟩) 200⟩
+
+private def callerRows : List (RunRow Op Nat) :=
+  [naturalFlip, ⟨.test, right, 200, .fault 400⟩]
+
+private def sourceRows : List (RunRow Op Nat) :=
+  [naturalFlip, ⟨.test, left, 200, .fault 300⟩]
+
+private theorem callerFinite :
+    FiniteRun readsCaller right naturalPrim loopNext 100 callerRows (.fault 400) := by
+  refine .repeat (f := Op.flip) (arg := right) (value := pack (L := replies .flip) ⟨0, left⟩) rfl rfl ?_
+  exact .fault (f := Op.test) (arg := right) rfl rfl
+
+private theorem sourceFinite :
+    FiniteRun source right naturalPrim loopNext 100 sourceRows (.fault 300) := by
+  refine .repeat (f := Op.flip) (arg := right) (value := pack (L := replies .flip) ⟨0, left⟩) rfl rfl ?_
+  exact .fault (f := Op.test) (arg := left) rfl rfl
+
+private theorem naturalRefutes :
+    ¬ Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+        (Syntax.model naturalPrim (readsCaller.bindings right)) 100 ≤
+      Shape.denote (withExitUB source.native source.selected)
+        (Syntax.model naturalPrim (source.bindings right)) 100 := by
+  have lower := (readsCaller.observe_entry readsCaller.native rfl right naturalPrim 100).trans callerFinite.observes
+  have upper := (source.observe_entry source.native rfl right naturalPrim 100).trans sourceFinite.observes
+  intro ordered
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) ordered
+  have bad := (WithTop.coe_le_coe.mp compared) (Set.mem_singleton (Outcome.fault 400))
+  have clash : (Outcome.fault 400 : Outcome 2 Unit Nat) = .fault 300 := Set.mem_singleton_iff.mp bad
+  cases clash
+
+private abbrev naturalSupport := RunSupport.ofRows 100 (callerRows ++ sourceRows)
+private abbrev naturalWitness := naturalSupport.witness right (callerRows ++ sourceRows)
+
+example : naturalSupport.values = [100, 400, 200, 300] := rfl
+example : readsCaller.runFinite right naturalWitness.interpreter inventory (stores 4) loopNext naturalWitness.initial =
+    .fault (1 : Fin 4) := rfl
+example : source.runFinite right naturalWitness.interpreter inventory (stores 4) loopNext naturalWitness.initial =
+    .fault (3 : Fin 4) := rfl
+
+example :
+    readsCaller.checkAllInterpreters? source readsCaller.native source.native right right
+      enumeration inventory inventory (stores 4) = some false ∧
+      ∃ w, readsCaller.compareEntries? source readsCaller.native source.native callers id id
+        enumeration inventory inventory (stores 4) = some (.counterexample w) :=
+  (Table.compress_finite_refutation (g := readsCaller) (h := source)
+    (raw := readsCaller.native) (raw' := source.native) (decodeLeft := id) (decodeRight := id)
+    (input := right) rfl rfl callerFinite sourceFinite naturalRefutes callers enumeration inventory inventory).2.2.2.2
+      (stores 4)
+
+private def quiet : Syntax.StatePrimitives Op Nat := fun _ _ _ => .diverge
+
+example : FiniteRun backedge right quiet loopNext 100 [⟨.flip, right, 100, .diverge⟩] .diverge :=
+  .diverge (f := Op.flip) (arg := right) rfl rfl
+
+example : ∃ rows stop, FiniteRun backedge right quiet loopNext 100 rows stop := by
+  apply FiniteRun.of_feedback_finite (o := .diverge)
+  refine ⟨blockPoint loopNext 100, .refl, ?_⟩
+  have localStep : backedge.feedback right quiet (blockPoint loopNext 100) = WithTop.some {Outcome.diverge} :=
+    backedge.feedback_step right quiet loopNext 100
+  rw [localStep]
+  simp [Behaviour.Ordinary, Behaviour.possible, Feedback.external]
+
+example : marked.observeAt right quiet exitPoint 100 = ⊤ :=
+  (FiniteRun.exit (g := marked) (caller := right) (prim := quiet) (p := exitPoint) (s := 100)
+    (i := 1) (selected := true) rfl).observes
+
+private def ticking : Syntax.StatePrimitives Op Nat := fun f _ s =>
+  match f with
+  | .flip => .ret (pack (L := replies .flip) ⟨0, right⟩) (s + 1)
+  | .test => .diverge
+
+example : Feedback.Infinite (backedge.feedback right ticking) (blockPoint loopNext 0) :=
+  ⟨fun n => blockPoint loopNext n, rfl, fun n =>
+    (backedge.feedback_step_iff right ticking loopNext n _).mpr ⟨loopNext, n + 1, rfl, rfl⟩⟩
+
+-- The infinite replay above visits state n at step n.
+example (support : List Nat) : ∃ n, n ∉ support := by
+  suffices ∃ bound, ∀ n, bound ≤ n → n ∉ support by
+    obtain ⟨bound, outside⟩ := this
+    exact ⟨bound, outside bound le_rfl⟩
+  induction support with
+  | nil => exact ⟨0, by simp⟩
+  | cons a tail ih =>
+    obtain ⟨bound, outside⟩ := ih
+    refine ⟨max (a + 1) bound, fun n large h => ?_⟩
+    have past := (Nat.le_max_left (a + 1) bound).trans large
+    have later := (Nat.le_max_right (a + 1) bound).trans large
+    rcases List.mem_cons.mp h with rfl | mem
+    · omega
+    · exact outside n later mem
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,

@@ -31,10 +31,8 @@ def Result.mapState (f : Fin n → Fin m) : Result results n → Result results 
   | .diverge => .diverge
   | .ub => .ub
 
-def Syntax.Reply.mapState {A : Syntax.Ty} (f : Fin n → Fin m) : Syntax.Reply A n → Syntax.Reply A m
-  | .ret a s => .ret a (f s)
-  | .fault s => .fault (f s)
-  | .diverge => .diverge
+abbrev Syntax.Reply.mapState {A : Syntax.Ty} (f : Fin n → Fin m) :
+    Syntax.Reply A n → Syntax.Reply A m := Syntax.StateReply.mapState f
 
 end Shape.Category.FiniteIteration
 
@@ -44,11 +42,14 @@ open Category.FiniteIteration
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {R : List Syntax.Ty} {n m : Nat}
 
-def Transition.mapState (f : Fin n → Fin m) : Transition R n → Transition R m
+def StateTransition.mapState (f : σ → τ) : StateTransition R σ → StateTransition R τ
   | .exit i selected s => .exit i selected (f s)
   | .repeat p s => .repeat p (f s)
   | .fault s => .fault (f s)
   | .diverge => .diverge
+
+abbrev Transition.mapState (f : Fin n → Fin m) : Transition R n → Transition R m :=
+  StateTransition.mapState f
 
 namespace InterpreterScript
 
