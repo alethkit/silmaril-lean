@@ -61,11 +61,17 @@ theorem region_replay {n : Nat} (t : Tree n) {Γ : VCtx (Ty Empty)} (slots : Slo
     Extension.Eqv Seed Γ (t.region slots) (t.key.region slots) Exits :=
   .paper (.cfgEta (.native (native_region_replay t slots)))
 
+/-- The entry guard is a native expansion of the unguarded region. -/
+theorem native_packed_unguarded (t : Tree 1) :
+    SubstitutionEquiv [Bit] t.guarded.packExits (t.region inputSlots).packExits
+      [packedExitType Exits] :=
+  BitQueryQuotation.packed_unguarded t
+
 /-- The recorded pure guard only supplies its constructor, preserving the open arrow. -/
 theorem packed_unguarded (t : Tree 1) :
     t.packed = Extension.Singleton.ofRegion Seed (t.typed inputSlots).packExits :=
   (Extension.Singleton.ofRegion_eq_iff Seed _ _).mpr
-    (.paper (.cfgEta (.native (BitQueryQuotation.packed_unguarded t))))
+    (.paper (.cfgEta (.native (native_packed_unguarded t))))
 
 theorem packed_replay (t : Tree 1) : t.packed = t.key.packed :=
   (Extension.Singleton.ofRegion_eq_iff Seed _ _).mpr (.paper (.cfgEta (.native (native_packed_replay t))))
