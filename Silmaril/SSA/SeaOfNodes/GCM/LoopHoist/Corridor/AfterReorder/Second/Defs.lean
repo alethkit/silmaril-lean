@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Defs
 public import Silmaril.SSA.SeaOfNodes.GCM.Dominance.Placement.Defs
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Defs
 
 /-! # Checked availability for a second preheader binding -/
 
@@ -21,10 +22,8 @@ def savedHeader : BlockId (Label saved carried result) := some ⟨_, .header⟩
 
 /-- Read the saved argument as the new preheader result, the latch as
 local, and the remaining arguments as the immutable inputs. -/
-def savedOrigins : Origins (saved :: Input) (saved :: carried :: Input)
-  | _, .here => .inl .here
-  | _, .there .here => .inr 0
-  | _, .there (.there ref) => .inl (.there ref)
+def savedOrigins : Origins (saved :: Input) (saved :: carried :: Input) :=
+  Saved.origins [saved]
 
 /-- A candidate reads the saved value and immutable inputs in this scope. -/
 structure Candidate (Input : List Width) (saved carried result : Width) where
@@ -39,8 +38,7 @@ structure Candidate (Input : List Width) (saved carried result : Width) where
 def savedSites : {args : List Width} → Operands (saved :: Input) args →
     List (Point (Label saved carried result))
   | _, .nil => []
-  | _, .cons .here tail => ⟨none, 1⟩ :: savedSites tail
-  | _, .cons (.there _) tail => ⟨none, 0⟩ :: savedSites tail
+  | _, .cons ref tail => ⟨none, Saved.definitionCut [saved] ref⟩ :: savedSites tail
 
 /-- Read the current typed binding and require a genuine use of the already
 hoisted producer. Preceding header bindings still create local origins. -/

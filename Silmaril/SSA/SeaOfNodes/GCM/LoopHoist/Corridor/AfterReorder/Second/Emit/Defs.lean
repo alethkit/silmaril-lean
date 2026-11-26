@@ -13,7 +13,7 @@ open Silmaril.MLIR.CF (Block Cfg Edge Frame Terminator)
 open Silmaril.MLIR.SCF (For)
 open Loop.MLIR.CF (Program TargetOp evalOp)
 
-variable {Input Γ Δ : List Width} {saved consumer carried result : Width}
+variable {Input Γ Δ extra : List Width} {saved consumer carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 
 abbrev TargetCfg (prepared : Prepared Input carried result) :=
@@ -21,26 +21,25 @@ abbrev TargetCfg (prepared : Prepared Input carried result) :=
 
 /-- Lift the existing packet by prepending the new saved result to a
 header transfer. The prior saved result and latch retain their order. -/
-def carryConsumer (value : BitVec consumer.val) :
-    Frame (Label saved carried result) → Frame (Label saved carried result [consumer])
-  | ⟨.header, args⟩ => ⟨.header, .cons value args⟩
-  | ⟨.exit, args⟩ => ⟨.exit, args⟩
+abbrev carryConsumer (value : BitVec consumer.val) :
+    Frame (Label saved carried result) → Frame (Label saved carried result [consumer]) :=
+  Saved.prependFrame value
 
 def liftEdge (rename : Rename Γ Δ) (keep : Var Δ consumer) :
-    Edge (Label saved carried result) Γ → Edge (Label saved carried result [consumer]) Δ
+    Edge (Label saved carried result extra) Γ → Edge (Label saved carried result (consumer :: extra)) Δ
   | ⟨.header, args⟩ => ⟨.header, .cons keep (For.renameOperands rename args)⟩
   | ⟨.exit, args⟩ => ⟨.exit, For.renameOperands rename args⟩
 
 def liftTerm (rename : Rename Γ Δ) (keep : Var Δ consumer) :
-    Terminator (Label saved carried result) [result] Γ →
-      Terminator (Label saved carried result [consumer]) [result] Δ
+    Terminator (Label saved carried result extra) [result] Γ →
+      Terminator (Label saved carried result (consumer :: extra)) [result] Δ
   | .br edge => .br (liftEdge rename keep edge)
   | .condBr test onTrue onFalse => .condBr (rename test) (liftEdge rename keep onTrue) (liftEdge rename keep onFalse)
   | .ret values => .ret (For.renameOperands rename values)
 
 def liftCode : {Γ Δ : List Width} → Rename Γ Δ → Var Δ consumer →
-    Block TargetOp (Label saved carried result) Γ [result] →
-    Block TargetOp (Label saved carried result [consumer]) Δ [result]
+    Block TargetOp (Label saved carried result extra) Γ [result] →
+    Block TargetOp (Label saved carried result (consumer :: extra)) Δ [result]
   | _, _, rename, keep, .terminator term => .terminator (liftTerm rename keep term)
   | _, _, rename, keep, .letOp op operands rest =>
     .letOp op (For.renameOperands rename operands) (liftCode (under rename) (.there keep) rest)
@@ -48,8 +47,8 @@ def liftCode : {Γ Δ : List Width} → Rename Γ Δ → Var Δ consumer →
 /-- Remove this binding in the current header and replace its uses with the
 new parameter. Reindex the kept prefix and all successor arguments. -/
 def rewriteAt? : Nat → {Γ Δ : List Width} → Rename Γ Δ → Var Δ consumer →
-    Block TargetOp (Label saved carried result) Γ [result] →
-    Option (Block TargetOp (Label saved carried result [consumer]) Δ [result])
+    Block TargetOp (Label saved carried result extra) Γ [result] →
+    Option (Block TargetOp (Label saved carried result (consumer :: extra)) Δ [result])
   | 0, _, _, rename, keep, .letOp (w := width) _ _ rest =>
     if same : width = consumer then by
       subst width
@@ -96,18 +95,10 @@ def replay? (g : Program Input carried result entrySigs headerSigs) (first : Aft
 /-- Exact sequential transfers on the packets routed by the first hoist.
 The same branch is taken. A header edge adds the new save in front of the
 old packet, and every exit edge retains its entire payload. -/
-structure StepRoutes
+abbrev StepRoutes
     (source : Cfg TargetOp (Label saved carried result) Input [result])
     (target : Cfg TargetOp (Label saved carried result [consumer]) Input [result])
-    (input : Env Input) (first : BitVec saved.val) (second : BitVec consumer.val) : Prop where
-  entry :
-    target.entry.eval evalOp (fun term env => Terminator.eval env term) input =
-      (source.entry.eval evalOp (fun term env => Terminator.eval env term) input).map (carryConsumer second) id
-  block : ∀ frame : Frame (SourceLabel carried result),
-    let old := carryFrame first frame
-    let new := carryConsumer second old
-    (target.block new.label).eval evalOp (fun term env => Terminator.eval env term) (new.args.append input) =
-      ((source.block old.label).eval evalOp (fun term env => Terminator.eval env term) (old.args.append input)).map
-        (carryConsumer second) id
+    (input : Env Input) (first : BitVec saved.val) (second : BitVec consumer.val) : Prop :=
+  Saved.StepRoutes source target input (.cons first .nil) second
 
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit

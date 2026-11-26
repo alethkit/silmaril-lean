@@ -96,4 +96,17 @@ theorem prepare?_first_routes (accepted : prepare? g first consumerOrigin = some
       Routes source prepared.intermediate.2 input (evalOp producer (operands.eval input)) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.prepare?_first_routes accepted input
 
+/-- The routing invariant is based on the exact checked header sequence. -/
+theorem prepare?_first_replay_routes (accepted : prepare? g first consumerOrigin = some prepared)
+    (input : Env Input) :
+    ∃ (state : State Input carried result)
+      (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)
+      (tail : Block TargetOp (Label prepared.intermediate.1 carried result)
+        (prepared.intermediate.1 :: Input) [result]),
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) first.header = some state ∧
+      prepared.intermediate.2.entry = .letOp producer operands tail ∧
+      prepared.intermediate.2.block .exit = .terminator (.ret (.cons .here .nil)) ∧
+      Routes state.cfg prepared.intermediate.2 input (evalOp producer (operands.eval input)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.prepare?_first_replay_routes accepted input
+
 end Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second

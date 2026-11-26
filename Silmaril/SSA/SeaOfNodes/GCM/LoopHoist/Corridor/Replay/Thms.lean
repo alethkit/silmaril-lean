@@ -8,7 +8,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 
-open Silmaril.MLIR.Arith (Env Width)
+open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF.SwitchAssert (Cfg)
 open Header.Earlier (operations)
 open Header.Sequence (State)
@@ -85,6 +85,43 @@ theorem replay_origins (accepted : replay g header nominations = .ok snapshot) :
     snapshot.origins.map (fun origin => (operations ((lower g).block .header))[origin]?) =
       snapshot.headerOperations.map some :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.replay_origins accepted
+
+/-- Every original identity appears once in the saved prefix or surviving header. -/
+theorem replay_partition (accepted : replay g header nominations = .ok snapshot) :
+    (snapshot.savedSlots.origins ++ snapshot.origins).Perm
+      (List.range (operations ((lower g).block .header)).length) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.replay_partition accepted
+
+theorem locate?_header {origin index : Nat}
+    (located : snapshot.locate? origin = some (.inl index)) :
+    snapshot.origins[index]? = some origin :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.locate?_header located
+
+theorem locate?_saved {origin : Nat} {w : Width} {ref : Var snapshot.savedWidths w}
+    (located : snapshot.locate? origin = some (.inr ⟨w, ref⟩)) :
+    snapshot.savedSlots.origin ref = origin :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.locate?_saved located
+
+theorem locate?_exists {origin : Nat} (accepted : replay g header nominations = .ok snapshot)
+    (bound : origin < (operations ((lower g).block .header)).length) :
+    ∃ loc, snapshot.locate? origin = some loc :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.locate?_exists accepted bound
+
+/-- Both emitted CFGs route their saved prefixes over the same reordered
+CFG. The newer prefix extends the previous one by the consumer result. -/
+theorem replay_two_invariant (accepted : replay g header [producer, consumer] = .ok (.two first consumer moved))
+    (input : Env Input) :
+    ∃ state : State Input carried result,
+      Header.Sequence.run? (Header.Sequence.initial (lower g)) header = some state ∧
+      ∃ (firstValue : BitVec moved.prepared.intermediate.1.val),
+        let inventory := List.range (operations ((lower g).block .header)).length
+        let secondValue := evalOp moved.prepared.consumer.op (moved.prepared.consumer.inputs.eval (.cons firstValue input))
+        Saved.Invariant state.cfg moved.prepared.intermediate.2 inventory first.origins
+          (.cons first.nomination.origin .nil) input (.cons firstValue .nil) ∧
+        Saved.Invariant state.cfg moved.cfg inventory (.two first consumer moved : Snapshot Input carried result).origins
+          (.two first consumer moved : Snapshot Input carried result).savedSlots
+          input (.cons secondValue (.cons firstValue .nil)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.replay_two_invariant accepted input
 
 theorem replay_run_eq (accepted : replay g header nominations = .ok snapshot)
     (input : Env Input) (fuel : Nat) :

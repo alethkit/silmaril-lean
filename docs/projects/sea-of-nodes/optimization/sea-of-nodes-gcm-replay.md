@@ -45,13 +45,43 @@ if the first two succeeded. A rejected reorder reports a header error.
 `run_refuses_at` proves that a failing suffix returns only the refusal.
 
 The supported profile is zero, one or two pure total hoists in one typed
-single-latch loop. To extend it, a subsequent emitter would need a typed map
-from the existing saved header parameters to preheader definitions and a
-matching packet-extension law for entry and feedback. The remaining origin map
-must continue to align with the header after each removal. The prefix replay and
-refusal laws already use a list of requests. The current implementation depends
-on the zero-save, one-save and two-save label layouts and checks supplied
-nominations. [API][defs]
+single-latch loop and checks supplied nominations at cuts zero and one. The
+prefix replay and refusal laws already use a list of requests. [API][defs]
+
+## Saved slots and one-step routing
+
+`Snapshot.locate?` resolves an original identity to a surviving header
+position or a typed reference in the saved prefix. The saved prefix is
+newest first, while the leading preheader lets define those values oldest
+first. A saved reference at packet index `i` has preheader definition cut
+`savedWidths.length - i`. Inserting the next save shifts prior packet
+references by one and retains their definition cuts. `replay_partition`
+proves each original identity appears exactly once across the saved and
+surviving origins. `locate?_exists` gives lookup completeness on that inventory.
+[Saved-slot definitions][saved] · [Saved-slot proofs][saved-thms] · [Replay theorems][thms]
+
+`Saved.origins_prefixRef` and `Saved.origins_agree` justify translating a
+saved header reference into the corresponding preheader variable for any
+latch value. The second checker now uses this origin translation and
+definition-cut computation on its actual CFG. It still checks ordinary uses
+and the exact branch occurrence and argument index for Φ uses.
+
+`Saved.extend_routes` lifts an existing `RoutesWith` invariant by one
+typed slot after a checked edit proves `StepRoutes`. The equations cover
+the evaluated entry and block transfers. The latch and older saved values
+keep their order in every header packet. Exit arguments and returns retain
+their exact values. `Emit.liftTerm_eval` supplies the use-remapping law
+with the same branch choice. The existing second emitter now uses
+`Saved.extend_run_eq` for its same-fuel result. `Saved.Invariant.extend`
+moves the identity and preserves routing together. `replay_two_invariant`
+ties both packet invariants to the exact reordered CFG, and
+`replay_two_eq` still identifies the actual #4020 emission. [Emitter theorems][emit-thms]
+
+The packet and capture laws are parameterized by the existing saved types.
+Extending executable replay beyond two nominations still requires a checker
+and entry splice that can validate and extend a longer leading preheader
+prefix on the current CFG. The existing entry splice inserts after the single
+producer let.
 
 The example shifts both nominations through the reorder and then shifts the
 consumer again when the producer is removed. The third run leaves origins
@@ -69,6 +99,9 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Example
 #eval observe [producer]
 #eval observe [producer, consumer]
 #eval observe [producer, ⟨2, 0⟩, consumer]
+#eval locate [producer] 2                -- header index 2
+#eval locate [producer, consumer] 1      -- saved index 1, definition cut 1
+#eval locate [producer, consumer] 2      -- saved index 0, definition cut 2
 LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-replay-example.lean
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Correctness
@@ -84,3 +117,6 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Thms
 [thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Thms.lean
 [example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Example/Defs.lean
 [regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Regression.lean
+[saved]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Defs.lean
+[saved-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Thms.lean
+[emit-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Thms.lean
