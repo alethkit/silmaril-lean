@@ -35,11 +35,14 @@ inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F)
   | scheduled {transfer : Region F} (body : ScheduledTransfer sig packets outputs input transfer)
       (origin : written = transfer ∨ foldedTransfer written = some transfer)
+  | outlined (count : Nat) (tree : EntryTree sig packets outputs [input] count)
+      (origin : written = tree.written)
   | unchanged (body : Code sig (Sum.elim packets outputs) [input])
       (accepted : elaborateRow (Sum.elim packets outputs) sig [input] written = some body)
 
 def Row.count {input : PacketType} {written : Region F} : Row sig packets outputs input written → Nat
   | .scheduled body _ => body.count
+  | .outlined count _ _ => count
   | .unchanged .. => 0
 
 /-- Fall back to collecting sequential binds when the original row
@@ -56,6 +59,15 @@ def readStraight [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blo
     else none
   | none => none
 
+/-- Check a branch-local continuation tree in the original packet scope.
+The exact erasure check ties every arm to the original written row. -/
+def readTree [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) :
+    Option (Row sig packets outputs input written) := do
+  let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] written
+  let exact ← commonRow (blocks + exits) written tree.written
+  return .outlined count tree (exact.property.1.trans exact.property.2.symm)
+
 structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures) where
   start : Fin blocks
@@ -65,7 +77,7 @@ structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketTyp
 
 /-- Read each original row before relocating any label. Public rows
 keep their existing lowering. The fallback schedules a checked straight
-sequence of binds ending in a transfer. -/
+sequence of binds or outlines a typed continuation tree. -/
 def read [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures) :
     Option (Shape sig packets outputs source) := do
@@ -76,7 +88,9 @@ def read [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → 
     | none =>
       match h : elaborateRow (Sum.elim packets outputs) sig [packets i] (source.block i).erase with
       | some body => some (.unchanged body h)
-      | none => readStraight sig packets outputs (packets i) (source.block i).erase
+      | none =>
+        (readStraight sig packets outputs (packets i) (source.block i).erase).orElse fun _ =>
+          readTree sig packets outputs (packets i) (source.block i).erase
   return ⟨start, seed, entryEq, rows⟩
 
 def Shape.count (s : Shape sig packets outputs source) : Nat := ∑ i, (s.row i).count
@@ -91,12 +105,14 @@ def Row.head {freshCount : Nat} {input : PacketType} {written : Region F} (row :
     (labels : Fin row.count → Fin (blocks + freshCount)) : Region F :=
   match row with
   | .scheduled body _ => body.tree.entry (oldLabel freshCount) labels
+  | .outlined _ tree _ => tree.entry (oldLabel freshCount) labels
   | .unchanged .. => written.renameLabels (moveExit blocks freshCount)
 
 def Row.cell {freshCount : Nat} {input : PacketType} {written : Region F} (row : Row sig packets outputs input written)
     (labels : Fin row.count → Fin (blocks + freshCount)) : Fin row.count → PacketType × Region F :=
   match row with
   | .scheduled body _ => body.tree.cells (oldLabel freshCount) labels
+  | .outlined _ tree _ => tree.cells (oldLabel freshCount) labels
   | .unchanged .. => Fin.elim0
 
 /-- Old block indices and packet types are retained. Only the outward
