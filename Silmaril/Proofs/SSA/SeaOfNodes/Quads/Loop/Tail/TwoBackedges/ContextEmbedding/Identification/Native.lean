@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedd
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Thms
 
 /-! Singleton write fibres preserve projection throughout native execution. -/
 
@@ -12,6 +13,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.Identification.Proofs
 
 open SeaOfNodes.Diamond (Val ValueSort dataPorts)
+open SeaOfNodes.Diamond.SCCP (Fact)
 open SeaOfNodes.Loop.MLIR.CF (Op model)
 open SeaOfNodes.MLIR (Word)
 open Silmaril.MLIR.Arith (Width)
@@ -71,11 +73,11 @@ private theorem pull_write {F : SeaOfNodes.Diamond.Ty Width → Type} (map : Ban
   · have distinct := fun sameImage => same (safe t port sameImage)
     rw [pull_get, get_write_other _ _ _ _ distinct, get_write_other _ _ _ _ same, pull_get]
 
-private theorem operand_reads (map : BankMap old new)
+private theorem operand_reads {F : SeaOfNodes.Diamond.Ty Width → Type} (map : BankMap old new)
     {args : List (SeaOfNodes.Diamond.Ty Width)} (operands : Tuple (Port (dataPorts old)) args)
-    (input : Bank (regs := new) model) :
-    (operands.map map).map (fun _ p => input.get p) =
-      operands.map (fun _ p => (pull map input).get p) := by
+    (input : Tuple F (dataPorts new)) :
+    (operands.map map).map (G := F) (fun _ p => input.get p) =
+      operands.map (G := F) (fun _ p => (pull map input).get p) := by
   induction operands with
   | nil => rfl
   | cons p rest ih => exact congrArg₂ Tuple.cons (pull_get map input p).symm ih
@@ -96,6 +98,21 @@ private theorem block_eval (map : BankMap old new) (block : Block Op old)
     have safeRest : ∀ q ∈ rest, SafeWrite map q := fun q mem => safe q (List.mem_cons_of_mem _ mem)
     simp only [Block.eval, List.map_cons, List.foldl_cons] at ih ⊢
     rw [ih safeRest, quad_eval map q (safe q List.mem_cons_self)]
+
+/-- Singleton written fibres also commute with the shared ordered abstract writes. -/
+theorem blockFacts_pull (map : BankMap old new) (block : Block Op old)
+    (safe : ∀ q ∈ block, SafeWrite map q) (input : Tuple (Fact Word) (dataPorts new)) :
+    pull map (SCCP.blockFacts model (block.map (quad map)) input) =
+      SCCP.blockFacts model block (pull map input) := by
+  simp only [SCCP.blockFacts_fold]
+  induction block generalizing input with
+  | nil => rfl
+  | cons q rest ih =>
+    simp only [List.map_cons, List.foldl_cons]
+    rw [ih (fun other present => safe other (List.mem_cons_of_mem _ present))]
+    apply congrArg (fun bank => rest.foldl (fun row quad => SCCP.quadFacts model quad row) bank)
+    simp only [SCCP.quadFacts, quad, operand_reads]
+    exact pull_write map q (safe q List.mem_cons_self) _ input
 
 private theorem step_eq (map : BankMap old new) (p : Program Op old out)
     (safe : SafeWrites map p) (input : Bank (regs := new) model) :

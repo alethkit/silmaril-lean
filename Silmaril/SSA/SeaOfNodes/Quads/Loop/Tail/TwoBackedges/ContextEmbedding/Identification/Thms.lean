@@ -19,7 +19,7 @@ open SeaOfNodes.Loop.SCCP (decideTupleCovers)
 open SeaOfNodes.Loop.MLIR.CF (Op model)
 open SeaOfNodes.MLIR (Word)
 open Silmaril.MLIR.Arith (Width)
-open RVSDG (Port)
+open RVSDG (Port Tuple)
 open Blocks (Bank)
 open SCCP.Dispatch.DeleteRoute.Bypass.Numbered.EntryGuard (selector selector_run)
 open SCCP.Dispatch.DeleteRoute.Bypass.Backends.Guarded.Institution
@@ -60,6 +60,17 @@ theorem embedding_safe (embedding : Embedding S T) (p : Program Op S.regs out) :
   intro q _ t port shared
   obtain ⟨rfl, same⟩ := Sigma.mk.inj_iff.mp (Reindex.slot_eq _ _ shared)
   exact congrArg slot (embedding.portMap_injective _ (eq_of_heq same))
+
+theorem pull_get {F : SeaOfNodes.Diamond.Ty Width → Type} (map : BankMap old new)
+    (input : Tuple F (dataPorts new)) {t : SeaOfNodes.Diamond.Ty Width} (port : Port (dataPorts old) t) :
+    (pull map input).get port = input.get (map t port) :=
+  Proofs.pull_get map input port
+
+theorem blockFacts_pull (map : BankMap old new) (block : Join.Block Op old)
+    (safe : ∀ q ∈ block, SafeWrite map q) (input : EntryFacts new) :
+    pull map (SCCP.blockFacts model (block.map (quad map)) input) =
+      SCCP.blockFacts model block (pull map input) :=
+  Proofs.blockFacts_pull map block safe input
 
 theorem source_run (map : BankMap old new) (p : Program Op old out)
     (safe : SafeWrites map p) (fuel : Nat) (input : Bank (regs := new) model) :

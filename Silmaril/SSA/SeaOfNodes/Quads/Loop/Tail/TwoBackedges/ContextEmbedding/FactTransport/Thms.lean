@@ -14,7 +14,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.FactTransport
 
 open SeaOfNodes.Diamond (ValueSort dataPorts)
-open SeaOfNodes.Diamond.SCCP (TupleCovers)
+open SeaOfNodes.Diamond.SCCP (TupleCovers TupleLE)
 open SeaOfNodes.Loop.MLIR.CF (model)
 open Silmaril.MLIR.Arith (Width)
 open Blocks (Bank)
@@ -32,6 +32,10 @@ variable {S T U : EntrySignature} {result : Width}
 theorem pushFacts_has_cover (map : BankMap old new) (facts : EntryFacts old) (out : EntryFacts new)
     (pushed : pushFacts map facts = some out) : ∃ input : Bank (regs := new) model, TupleCovers out input :=
   Proofs.pushFacts_has_cover map facts out pushed
+
+theorem pushFacts_refines (map : BankMap old new) (facts : EntryFacts old) (out : EntryFacts new)
+    (pushed : pushFacts map facts = some out) : TupleLE (Identification.pull map out) facts :=
+  Proofs.pushFacts_refines map facts out pushed
 
 theorem pushFacts_compatible_iff (map : BankMap old new) (facts : EntryFacts old) :
     (pushFacts map facts).isSome ↔ Compatible map facts :=

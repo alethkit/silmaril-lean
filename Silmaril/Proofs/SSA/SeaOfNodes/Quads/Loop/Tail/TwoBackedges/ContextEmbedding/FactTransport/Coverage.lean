@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.Composition.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Thms
 
 /-! Successful typed intersections are uniquely determined by their coverage. -/
 
@@ -8,8 +9,8 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.FactTransport.Proofs
 
-open SeaOfNodes.Diamond (ValueSort sortValue dataPorts)
-open SeaOfNodes.Diamond.SCCP (Fact TupleCovers)
+open SeaOfNodes.Diamond (Val ValueSort sortValue dataPorts)
+open SeaOfNodes.Diamond.SCCP (Fact TupleCovers TupleLE)
 open SeaOfNodes.Loop.MLIR.CF (model)
 open SeaOfNodes.MLIR (Word)
 open Semantics.Dataflow (Flat)
@@ -110,6 +111,55 @@ private theorem facts_eq_of_coverage (left right : EntryFacts old) (witness : Ba
 theorem pushFacts_has_cover (map : BankMap old new) (facts : EntryFacts old) (out : EntryFacts new)
     (pushed : pushFacts map facts = some out) : ∃ input : Bank (regs := new) model, TupleCovers out input :=
   covered_of_nonbottom out fun _ port => Identification.pushFacts_nonbottom map facts out pushed port
+
+private theorem dataPort_value {regs : List (ValueSort Width)} {t : SeaOfNodes.Diamond.Ty Width}
+    (port : RVSDG.Port (dataPorts regs) t) : ∃ sort, t = .value sort := by
+  induction regs with
+  | nil => exact nomatch port
+  | cons sort tail ih =>
+    cases port with
+    | head => exact ⟨sort, rfl⟩
+    | tail p => exact ih p
+
+/-- A successful intersection refines each constraint read back through the map. -/
+theorem pushFacts_refines (map : BankMap old new) (facts : EntryFacts old) (out : EntryFacts new)
+    (pushed : pushFacts map facts = some out) : TupleLE (pull map out) facts := by
+  intro t port
+  rw [Identification.pull_get]
+  have includes (value : Val Word t) (localCover : (out.get (map t port)).Covers value) :
+      (facts.get port).Covers value := by
+    obtain ⟨input, covered⟩ := pushFacts_has_cover map facts out pushed
+    let updated := write (map t port) value input
+    have covers : TupleCovers out updated := by
+      intro sort target
+      by_cases same : slot target = slot (map t port)
+      · obtain ⟨rfl, equal⟩ := Sigma.mk.inj_iff.mp (Reindex.slot_eq _ _ same)
+        obtain rfl := eq_of_heq equal
+        simpa only [updated, get_write_same] using localCover
+      · rw [show updated.get target = input.get target from get_write_other _ _ _ _ same]
+        exact covered target
+    have fact := (Identification.pushFacts_covers map facts out pushed updated).mp covers port
+    simpa only [Identification.pull_get, updated, get_write_same] using fact
+  obtain ⟨sort, rfl⟩ := dataPort_value port
+  generalize lhs : out.get (map _ port) = left at includes ⊢
+  generalize rhs : facts.get port = right at includes ⊢
+  cases left with
+  | bottom => exact bot_le
+  | constant value =>
+    have seen := includes value rfl
+    cases right with
+    | bottom => exact seen.elim
+    | constant expected => exact seen.symm
+    | overdefined => exact le_top
+  | overdefined =>
+    cases right with
+    | bottom =>
+      obtain ⟨value, _, _⟩ := distinct_values sort
+      exact (includes value True.intro).elim
+    | constant expected =>
+      obtain ⟨left, right, apart⟩ := distinct_values sort
+      exact (apart ((includes left True.intro).symm.trans (includes right True.intro))).elim
+    | overdefined => exact le_rfl
 
 private theorem option_eq_of_coverage (left right : Option (EntryFacts new))
     (leftNonempty : ∀ facts, left = some facts → ∃ input : Bank (regs := new) model, TupleCovers facts input)
