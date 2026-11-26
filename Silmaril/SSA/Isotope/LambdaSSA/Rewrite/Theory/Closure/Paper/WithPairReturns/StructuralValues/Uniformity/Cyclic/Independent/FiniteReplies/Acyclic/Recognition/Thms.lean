@@ -21,6 +21,13 @@ omit [Profile Φ] in
 theorem sameBody_eq {a b : Region Φ} (h : sameBody a b = true) : a = b :=
   AcyclicReplyRecognition.sameBody_eq h
 
+omit [DecidableEq Φ] in
+/-- The written region for a request followed by control on its reply. -/
+theorem call_region (op : Φ) {t : ReplyShape} (p : Control Φ (Profile.reply op) t) :
+    (Control.let₁ (.call op) p).region =
+      .let₁ (.op op (.var 0)) (p.region.renameVars (Silmaril.DeBruijn.lift Nat.succ)) :=
+  AcyclicReplyRecognition.call_region op p
+
 /-- Recognition of a bare case table also works in an exactly typed
 surrounding context. The renaming specifies the live sum payload. -/
 theorem table_eqv {Γ : VCtx (Ty Atom)} {s t : ReplyShape} {ρ : Nat → Nat}
