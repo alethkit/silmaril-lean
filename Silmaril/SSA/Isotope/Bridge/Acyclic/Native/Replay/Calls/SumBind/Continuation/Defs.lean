@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Defs
 
 /-! # Returning a computed case into a subsequent primitive -/
 
@@ -11,14 +12,15 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Continuation
 
 open Region.Paper
 open Region.Paper.RetainedLet (returnOnce)
+open Region.Paper.UnaryReturn.Beta.Constructors (inlSequence inrSequence)
 open Silmaril.DeBruijn (lift)
 
 universe u v w
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
-/-- Expose a returned case or product destructure as a region binder at the
-same singleton result interface. The operands can have effects. -/
+/-- Expose the evaluation of a case, product destructure or injection
+at the same singleton result interface. The operands can have effects. -/
 inductive ReturnStep : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | split {Γ : VCtx τ} {A B D : τ} {e l r : Tm Φ}
       (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: Γ) l D)
@@ -27,6 +29,10 @@ inductive ReturnStep : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop 
   | splitPair {Γ : VCtx τ} {A B D : τ} {a b : Tm Φ}
       (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D) :
       ReturnStep Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D]
+  | splitInl {Γ : VCtx τ} {A B : τ} {a : Tm Φ} (ha : Tm.HasType Γ a A) :
+      ReturnStep Γ (returnOnce (.inl a)) (inlSequence a) [coprod A B]
+  | splitInr {Γ : VCtx τ} {A B : τ} {a : Tm Φ} (ha : Tm.HasType Γ a B) :
+      ReturnStep Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B]
 
 abbrev Seed {ε : Type w} [HasEff Φ ε] (pe : ε)
     (Γ : VCtx τ) (p q : Region Φ) (L : LCtx τ) : Prop :=

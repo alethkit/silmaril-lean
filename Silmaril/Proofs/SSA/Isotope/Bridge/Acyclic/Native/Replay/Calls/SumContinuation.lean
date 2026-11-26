@@ -14,6 +14,7 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Continuation
 open Region (HasType ValueBranches)
 open Region.Paper
 open Region.Paper.RetainedLet (returnOnce)
+open Region.Paper.UnaryReturn.Beta.Constructors (inlSequence inrSequence)
 open Region.CfgEta.TypeCategory (returnRegion)
 open Region.Paper.WithComputedCallReturns
 open Silmaril.DeBruijn (lift)
@@ -49,6 +50,16 @@ theorem split_let₂_proof {a b : Tm Φ}
   .extra (UnaryReturn.returnOnce_valueBranches (.let₂ ha hb)).hasType
     (.let₂ ha (UnaryReturn.returnOnce_valueBranches hb).hasType)
     (.inr (.splitPair ha hb))
+
+theorem split_inl_proof {a : Tm Φ} (ha : Tm.HasType Γ a A) :
+    Eqv pe Γ (returnOnce (.inl a)) (inlSequence a) [coprod A B] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.inl ha)).hasType
+    (.let₁ ha (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl)))) (.inr (.splitInl ha))
+
+theorem split_inr_proof {a : Tm Φ} (ha : Tm.HasType Γ a B) :
+    Eqv pe Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.inr ha)).hasType
+    (.let₁ ha (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl)))) (.inr (.splitInr ha))
 
 private theorem invoke_typed (hq : HasType (instrTrg f :: Γ) q L) :
     HasType (instrSrc f :: Γ) (invoke f q) L :=
@@ -117,6 +128,14 @@ theorem sound_proof {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Categor
       have native := denote_let₂_boundReturn_fusion J M (L := [_]) (i := 0) rfl ha hb
       change denoteRegion J M tq = denoteRegion J M tp at native
       exact ⟨_, denoteRegion_spec J M tp, native ▸ denoteRegion_spec J M tq⟩
+    | @splitInl X Y _ ha =>
+      have native := denote_inl_boundReturn_sequencing J M (L := [coprod X Y]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
+    | @splitInr X Y _ ha =>
+      have native := denote_inr_boundReturn_sequencing J M (L := [coprod X Y]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
 
 end Native
 

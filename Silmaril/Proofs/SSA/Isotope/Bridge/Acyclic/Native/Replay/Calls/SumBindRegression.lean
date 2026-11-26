@@ -1,6 +1,8 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Recursive.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Model.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.Syntactic.Thms
 import Silmaril.SSA.Isotope.LetCase.Structural.Reply.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.OrderedPairs.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms
@@ -163,17 +165,10 @@ private theorem assemble {A B : Type} (x : A) (y : B) :
 
 -- The observation uses the exact finite-exit encoder. It retains distinct
 -- output tags and executes only the handler selected by the producer reply.
-private theorem run_original (ρ : BoundEnv V β) :
-    run (original producer).encode.toLetCase.2 ρ =
-      (eval .prepare (ρ 0) >>= fun prepared => eval .choose prepared >>= dispatch (ρ 0)) := by
-  simp only [original, FiniteExit.encode, FiniteExit.tag, exits, producer, left, right,
+private theorem run_dispatch (scr : Operand Op β S) (ρ : BoundEnv V β) :
+    run (original scr).encode.toLetCase.2 ρ = (run scr.2 ρ >>= dispatch (ρ 0)) := by
+  simp only [original, FiniteExit.encode, FiniteExit.tag, exits, left, right,
     Code.toLetCase, run, LetCase.LocallyNameless.Derivation.denote]
-  have prep : ((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .prepare) = eval .prepare (ρ 0) :=
-    pure_step (ρ 0) _
-  erw [prep]
-  let start : Trace Empty Op (V X) := eval .prepare (ρ 0)
-  erw [← show (start >>= eval .choose >>= dispatch (ρ 0)) =
-    (start >>= fun prepared => eval .choose prepared >>= dispatch (ρ 0)) from bind_assoc _ _ _]
   congr 1
   funext packet
   cases packet with
@@ -201,6 +196,14 @@ private theorem run_original (ρ : BoundEnv V β) :
         congr 1
         funext reply
         exact pure_step (.inl reply : V (Ty.coprod X Ty.empty)) _)
+
+private theorem run_original (ρ : BoundEnv V β) :
+    run (original producer).encode.toLetCase.2 ρ =
+      (eval .prepare (ρ 0) >>= fun prepared => eval .choose prepared >>= dispatch (ρ 0)) := by
+  rw [run_dispatch]
+  change ((((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .prepare) >>= eval .choose) >>= dispatch (ρ 0)) = _
+  erw [pure_step (A := V X) (ρ 0) (eval .prepare)]
+  exact bind_assoc _ _ _
 
 private def event (f : Op) (a : V (instrSrc f)) (b : V (instrTrg f)) : Log Empty Op :=
   FreeMonoid.of (⟨f, a, b⟩ : Event)
@@ -562,5 +565,116 @@ example (ρ : BoundEnv V β) (prepared selected a b : V X) (payload : V Y) :
   exact request_event (f := Op.tail) (b := b) rfl
 
 end Continuation
+
+section InjectedPayload
+
+open Morphism.CaseSSA (erase)
+
+private def injectedLeft : Operand Op β S :=
+  ⟨.inl (.op .prepare (.bv 0)), .inl (.op .bv)⟩
+
+private def injectedRight : Operand Op β S :=
+  ⟨.inr (.pair .unit (.op .prepare (.bv 0))), .inr (.pair .unit (.op .bv))⟩
+
+private abbrev PackedBit := Region.packedExitType exits
+
+private def injectedPacked (scr : Operand Op β S) : Operand Op β PackedBit :=
+  (original scr).encode.toLetCase
+
+private theorem packedOut : At [PackedBit, PackedBit] 1 PackedBit := rfl
+
+private theorem injected_admitted (scr : Operand Op β S) (h : Recursive.Admitted (erase scr.1)) :
+    Recursive.Admitted (erase (injectedPacked scr).1) :=
+  ⟨h, ⟨trivial, trivial⟩, ⟨trivial, trivial⟩⟩
+
+-- The terms use expression-position injections, with no manually placed
+-- payload let. Both actual guarded endpoints share a schedule at label one.
+private theorem injected_schedule : ∀ scr ∈ [injectedLeft, injectedRight], ∃ s, ∃ paths : List (List Op),
+    Schedule [X] s [PackedBit, PackedBit] (paths.map fun requests => (requests, 1)) ∧
+    Continuation.Eqv false [X] ((Code.br (injectedPacked scr)).guardedSSA 1) s [PackedBit, PackedBit] ∧
+    Continuation.Eqv false [X] ((Code.ofLetCase (injectedPacked scr).2).guardedSSA 1) s [PackedBit, PackedBit] := by
+  intro scr member
+  rcases List.mem_cons.mp member with rfl | member
+  · exact Recursive.normalize packedOut _ (injected_admitted injectedLeft trivial)
+  · obtain rfl := List.mem_singleton.mp member
+    exact Recursive.normalize packedOut _ (injected_admitted injectedRight ⟨trivial, trivial⟩)
+
+open LambdaSSA.Semantics.Categorical (denoteRegion)
+open LetSeq.StraightLine.Structural.Categorical (traceJ traceTypes traceInstructions)
+
+-- Evaluate the actual guarded SSA arrows in the coherent trace category.
+example (scr : Operand Op β S) (member : scr ∈ [injectedLeft, injectedRight]) :
+    let := traceInstructions (α := Empty) (Φ := Op)
+    denoteRegion (traceJ (α := Empty) (Φ := Op)) (traceTypes Empty)
+        ((Code.br (injectedPacked scr)).guardedSSA_valueBranches packedOut).hasType =
+      denoteRegion (traceJ (α := Empty) (Φ := Op)) (traceTypes Empty)
+        ((Code.ofLetCase (injectedPacked scr).2).guardedSSA_valueBranches packedOut).hasType := by
+  let := traceInstructions (α := Empty) (Φ := Op)
+  let := trace_region_coherent (Φ := Op)
+  obtain ⟨_, _, _, literal, reified⟩ := injected_schedule scr member
+  exact Continuation.sound (traceJ (α := Empty) (Φ := Op)) (traceTypes Empty)
+    (fun _ _ => ⟨rfl, rfl⟩) (literal.trans reified.symm) _ _
+
+private theorem run_injectedLeft (ρ : BoundEnv V β) :
+    run (injectedPacked injectedLeft).2 ρ = (eval .prepare (ρ 0) >>= fun payload =>
+      eval .left (payload, ρ 0) >>= fun reply => pure (Sum.inl reply : Output)) := by
+  rw [injectedPacked, run_dispatch]
+  change ((((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .prepare) >>= fun payload =>
+    (pure (Sum.inl payload) : Trace Empty Op (V S))) >>= dispatch (ρ 0)) = _
+  erw [pure_step (A := V X) (ρ 0) (eval .prepare)]
+  exact (bind_assoc _ _ _).trans (congrArg (fun k => eval .prepare (ρ 0) >>= k)
+    (funext fun payload : V X => pure_step (Sum.inl payload : V S) _))
+
+private theorem run_injectedRight (ρ : BoundEnv V β) :
+    run (injectedPacked injectedRight).2 ρ = (eval .prepare (ρ 0) >>= fun payload =>
+      eval .right ((PUnit.unit, payload), ρ 0) >>= fun reply => pure (Sum.inr (.inl reply) : Output)) := by
+  rw [injectedPacked, run_dispatch]
+  change (((pure PUnit.unit : Trace Empty Op PUnit) >>= fun token =>
+    (((pure (ρ 0) : Trace Empty Op (V X)) >>= eval .prepare) >>= fun payload =>
+      (pure (token, payload) : Trace Empty Op (V Y)))) >>= fun payload =>
+        (pure (Sum.inr payload) : Trace Empty Op (V S))) >>= dispatch (ρ 0) = _
+  erw [pure_step PUnit.unit, pure_step (A := V X) (ρ 0) (eval .prepare)]
+  simp only [bind_assoc]
+  exact congrArg (fun k => eval .prepare (ρ 0) >>= k) (funext fun payload : V X =>
+    (pure_step (A := V Y) (PUnit.unit, payload) _).trans (pure_step (Sum.inr (PUnit.unit, payload) : V S) _))
+
+-- Reachability, capture and reply transport, and the exact ordered exits.
+example (ρ : BoundEnv V β) (payload reply : V X) :
+    (Sum.inl reply, event .prepare (ρ 0) payload * event .left (payload, ρ 0) reply) ∈
+        (run (injectedPacked injectedLeft).2 ρ).outcomes ∧
+    (Sum.inr (Sum.inl reply), event .prepare (ρ 0) payload * event .right ((PUnit.unit, payload), ρ 0) reply) ∈
+        (run (injectedPacked injectedRight).2 ρ).outcomes := by
+  constructor
+  · rw [run_injectedLeft]
+    apply request_event (f := Op.prepare) (b := payload)
+    rw [← mul_one (event .left (payload, ρ 0) reply)]
+    exact request_event (f := Op.left) (b := reply) rfl
+  · rw [run_injectedRight]
+    apply request_event (f := Op.prepare) (b := payload)
+    rw [← mul_one (event .right ((PUnit.unit, payload), ρ 0) reply)]
+    exact request_event (f := Op.right) (b := reply) rfl
+
+private theorem one_handler (ρ : BoundEnv V β) (f : Op) (arg : V X → V (instrSrc f))
+    (tag : V (instrTrg f) → Output) {out : Output} {log : Log Empty Op}
+    (h : (out, log) ∈ (eval .prepare (ρ 0) >>= fun payload =>
+      eval f (arg payload) >>= fun reply => pure (tag reply)).outcomes) :
+    log.toList.map Event.generator = [.prepare, f] := by
+  obtain ⟨_, _, next, rfl⟩ := observed_event h
+  obtain ⟨reply, tail, done, rfl⟩ := observed_event next
+  have final : (out, tail) = (tag reply, 1) := done
+  rw [(Prod.mk.inj final).2]
+  rfl
+
+-- Every execution evaluates the payload once, then only the reachable arm.
+example (ρ : BoundEnv V β) (out : Output) (log : Log Empty Op) :
+    ((out, log) ∈ (run (injectedPacked injectedLeft).2 ρ).outcomes →
+      log.toList.map Event.generator = [.prepare, .left]) ∧
+    ((out, log) ∈ (run (injectedPacked injectedRight).2 ρ).outcomes →
+      log.toList.map Event.generator = [.prepare, .right]) := by
+  rw [run_injectedLeft, run_injectedRight]
+  exact ⟨one_handler ρ .left (fun value => (value, ρ 0)) Sum.inl,
+    one_handler ρ .right (fun value => ((PUnit.unit, value), ρ 0)) (fun x => .inr (.inl x))⟩
+
+end InjectedPayload
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind

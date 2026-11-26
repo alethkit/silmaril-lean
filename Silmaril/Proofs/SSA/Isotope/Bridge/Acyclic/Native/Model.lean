@@ -103,7 +103,7 @@ private def finiteSig : Isotope.Institution.InstrSig Types Bool where
   hasTy := inferInstance
   hasEff := inferInstance
 
-private theorem trace_region_coherent :
+theorem trace_region_coherent_proof :
     let := traceInstructions (α := Empty) (Φ := Φ)
     RegionTypingCoherent (Φ := Φ) (traceJ (α := Empty) (Φ := Φ)) (traceTypes Empty) := by
   have coherent (F : Empty → Type) (T : Isotope.Semantics.InstructionModel (Ty.denote F) Φ (Trace Empty Φ)) :
@@ -121,7 +121,7 @@ private theorem trace_of_valid {p q : Endpoint Φ β A} (valid : p.Valid q) :
     traceArrow p.compile.2 = traceArrow q.compile.2 := by
   classical
   let := traceInstructions (α := Empty) (Φ := Φ)
-  let := trace_region_coherent (Φ := Φ)
+  let := trace_region_coherent_proof (Φ := Φ)
   let J := traceJ (α := Empty) (Φ := Φ)
   let M := traceTypes Empty
   have region := valid J M

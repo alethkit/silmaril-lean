@@ -3,7 +3,6 @@ module
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Recursive.Defs
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumRecursiveSchedule
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Continuation.Thms
-import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Constructor.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.FiniteExit.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Syntactic.Join.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Syntactic.Thms
@@ -11,7 +10,6 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.BranchNormalization.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Normalization.Transport.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedCallReturns.OrderedPairs.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms
 
 public section
@@ -61,13 +59,10 @@ private theorem append_return (a : Tm Φ) (q : Region Φ) :
     (returnOnce a).lsubst (fun _ => q) = .let₁ a q :=
   Region.lsubst_bindBranchArguments_br 0 a _
 
-private theorem pure_leaf {n : Nat} {β : BoundCtx (Ty α) n} {A : Ty α}
-    (a : Operand Φ β A) (shape : ConstructorOnly (erase a.1)) :
-    ∃ s, Schedule β.toList s [A] [([], 0)] ∧ Continuation.Eqv pe β.toList (returnOnce (erase a.1)) s [A] := by
-  obtain ⟨value, normal, _⟩ := constructor_replay pe a shape
-  have replay := WithConstructorSequencing.returnOnce_eq_branch normal
-  exact ⟨_, .ret (i := 0) rfl normal.typed.2, ofCalls pe
-    (ConstructorJoin.ofConstructor (WithConstructorSequencing.Joined.ofConstructor replay))⟩
+private theorem pure_leaf {Γ : VCtx (Ty α)} {A : Ty α} {a : Tm Φ}
+    (value : Tm.BranchValue Γ a A) :
+    ∃ s paths, Schedule Γ s [A] paths ∧ Continuation.Eqv pe Γ (returnOnce a) s [A] :=
+  ⟨_, _, .ret (i := 0) rfl value, .paper (.cfgEta (.native (.letValue value (.br (ℓ := 0) rfl (.var rfl)))))⟩
 
 private theorem replay_let {Γ : VCtx (Ty α)} {A D : Ty α} {a b : Tm Φ} {p q : Region Φ}
     {before after : List (List Φ × Nat)}
@@ -94,6 +89,19 @@ private theorem replay_let₂ {Γ : VCtx (Ty α)} {A B D : Ty α} {a b : Tm Φ} 
     (fun e => .inl (.inl (.inr e))) ha hp.valueBranches ep eq
   obtain ⟨s, paths, scheduled, _, done⟩ := splice_schedule_proof (pe := pe) hp unpack rfl
   exact ⟨s, paths, scheduled, (Continuation.split_let₂ ha hb).trans (replay.trans done)⟩
+
+private theorem replay_injection {Γ : VCtx (Ty α)} {A D : Ty α} {a injected value : Tm Φ}
+    {p : Region Φ} {before : List (List Φ × Nat)}
+    (ha : Tm.HasType Γ a A) (tag : Tm.BranchValue (A :: Γ) value D)
+    (hp : Schedule Γ p [A] before) (ep : Continuation.Eqv pe Γ (returnOnce a) p [A])
+    (split : Continuation.Eqv pe Γ (returnOnce injected) (.let₁ a (.br 0 value)) [D]) :
+    ∃ s paths, Schedule Γ s [D] paths ∧ Continuation.Eqv pe Γ (returnOnce injected) s [D] := by
+  have finish : Schedule (A :: Γ) (.br 0 value : Region Φ) [D] [([], 0)] := .ret (i := 0) rfl tag
+  obtain ⟨s, paths, scheduled, _, done⟩ := splice_schedule_proof (pe := pe) hp finish rfl
+  have composed := append_eq pe (UnaryReturn.returnOnce_valueBranches ha) hp.valueBranches ep
+    (Extension.Eqv.refl finish.valueBranches.hasType)
+  rw [append_return] at composed
+  exact ⟨s, paths, scheduled, split.trans (composed.trans done)⟩
 
 private theorem replay_pair {Γ : VCtx (Ty α)} {A B : Ty α} {a b : Tm Φ} {p q : Region Φ}
     {before after : List (List Φ × Nat)}
@@ -159,17 +167,16 @@ theorem normalize_proof {n : Nat} {β : BoundCtx (Ty α) n} {t : LetCase.Locally
   induction d with
   | @fv _ _ x _ _ => exact x.elim
   | @bv _ β i =>
-    obtain ⟨s, h, replay⟩ := pure_leaf pe (β := β) ⟨.bv i, .bv⟩ shape
-    exact ⟨s, _, h, replay⟩
-  | @unit _ β =>
-    obtain ⟨s, h, replay⟩ := pure_leaf pe (β := β) ⟨.unit, .unit⟩ shape
-    exact ⟨s, _, h, replay⟩
-  | @inl _ β _ A B d _ =>
-    obtain ⟨s, h, replay⟩ := pure_leaf pe (β := β) (A := Ty.coprod A B) ⟨_, .inl d⟩ shape
-    exact ⟨s, _, h, replay⟩
-  | @inr _ β _ A B d _ =>
-    obtain ⟨s, h, replay⟩ := pure_leaf pe (β := β) (A := Ty.coprod A B) ⟨_, .inr d⟩ shape
-    exact ⟨s, _, h, replay⟩
+    exact pure_leaf pe (.var (BoundCtx.getElem?_toList β i))
+  | unit => exact pure_leaf pe .unit
+  | inl d ih =>
+    obtain ⟨_, _, h, replay⟩ := ih shape
+    have typed := erase_hasType d.toHasType
+    exact replay_injection pe typed (.inl (.var (i := 0) rfl)) h replay (Continuation.split_inl typed)
+  | inr d ih =>
+    obtain ⟨_, _, h, replay⟩ := ih shape
+    have typed := erase_hasType d.toHasType
+    exact replay_injection pe typed (.inr (.var (i := 0) rfl)) h replay (Continuation.split_inr typed)
   | op d ih =>
     obtain ⟨_, _, h, replay⟩ := ih shape
     exact replay_call pe (erase_hasType d.toHasType) h replay

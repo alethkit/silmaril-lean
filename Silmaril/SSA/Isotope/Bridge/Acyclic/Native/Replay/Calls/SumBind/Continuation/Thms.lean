@@ -12,6 +12,7 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Continuation
 
 open Region (HasType ValueBranches)
 open Region.Paper.RetainedLet (returnOnce)
+open Region.Paper.UnaryReturn.Beta.Constructors (inlSequence inrSequence)
 open Morphism.CaseSSA (erase)
 open CategoryTheory CategoryTheory.Limits
 open LambdaSSA.Semantics.Categorical
@@ -40,6 +41,16 @@ theorem split_let₂ {a b : Tm Φ} (ha : Tm.HasType Γ a (product A B))
     (hb : Tm.HasType (B :: A :: Γ) b D) :
     Eqv pe Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D] :=
   split_let₂_proof ha hb
+
+/-- Evaluate an arbitrary typed payload once before tagging it on the left. -/
+theorem split_inl {a : Tm Φ} (ha : Tm.HasType Γ a A) :
+    Eqv pe Γ (returnOnce (.inl a)) (inlSequence a) [coprod A B] :=
+  split_inl_proof ha
+
+/-- Evaluate an arbitrary typed payload once before tagging it on the right. -/
+theorem split_inr {a : Tm Φ} (ha : Tm.HasType Γ a B) :
+    Eqv pe Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B] :=
+  split_inr_proof ha
 
 /-- Use the computed case as the argument to a later primitive; leave the
 body at its original ordered exits under the primitive reply binder. -/
