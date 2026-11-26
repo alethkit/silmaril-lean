@@ -68,6 +68,7 @@ inductive Helper where
 inductive Builtin where
   | int
   | bool
+  | float
   | callable
   | len
   | ord
@@ -223,16 +224,19 @@ def CallableProbe.result : CallableProbe → Bool
   | .len => true
   | .integer => false
 
-/-- Exact Boolean and integer values against the two stock type descriptors. -/
+/-- Exact Boolean, integer, and finite float values against the stock numeric classes. -/
 inductive InstanceProbe where
   | boolAgainstBool
   | boolAgainstInt
   | intAgainstBool
   | intAgainstInt
+  | floatAgainstFloat
+  | floatAgainstBoolOrInt
+  | boolOrIntAgainstFloat
 
 def InstanceProbe.result : InstanceProbe → Bool
-  | .boolAgainstBool | .boolAgainstInt | .intAgainstInt => true
-  | .intAgainstBool => false
+  | .boolAgainstBool | .boolAgainstInt | .intAgainstInt | .floatAgainstFloat => true
+  | .intAgainstBool | .floatAgainstBoolOrInt | .boolOrIntAgainstFloat => false
 
 /-- Decoding identifies the admitted typed call shapes. In particular,
 calling an exception class would construct an object outside this profile. -/
@@ -281,6 +285,11 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .isinstance, [.bool _, .builtin .int] => .isinstance .boolAgainstInt
   | .builtin .isinstance, [.int _, .builtin .bool] => .isinstance .intAgainstBool
   | .builtin .isinstance, [.int _, .builtin .int] => .isinstance .intAgainstInt
+  | .builtin .isinstance, [.float64 _, .builtin .float] => .isinstance .floatAgainstFloat
+  | .builtin .isinstance, [.float64 _, .builtin .bool]
+  | .builtin .isinstance, [.float64 _, .builtin .int] => .isinstance .floatAgainstBoolOrInt
+  | .builtin .isinstance, [.bool _, .builtin .float]
+  | .builtin .isinstance, [.int _, .builtin .float] => .isinstance .boolOrIntAgainstFloat
   | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>

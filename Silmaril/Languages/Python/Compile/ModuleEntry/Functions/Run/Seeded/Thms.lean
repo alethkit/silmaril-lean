@@ -23,6 +23,33 @@ open Core.Closure (Function Heap)
 open Core.Module (ListHeap ListObject)
 open Core.Closure.Executor (Fault labelledIn)
 
+theorem legacyNumericIsinstanceSeed_float (placement : SeedPlacement) :
+    (legacyNumericIsinstanceSeed placement).lookupGlobal "float" = some (.builtin .float) := by
+  cases placement <;> rfl
+
+theorem legacyNumericIsinstanceSeed_assertTrue (placement : SeedPlacement) :
+    (legacyNumericIsinstanceSeed placement).lookupGlobal "___assertTrue" = some (.helper .assertTrue) := by
+  cases placement <;> rfl
+
+/-- Observe the exact stock instance result before the helper settles. The
+class is the descriptor read from the live namespace, including any shadow. -/
+theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
+    {outer inner className : String} {operand : Core.Module.Functions.Operand}
+    {value : Value} {kind : Core.Module.SeededCall.Builtin} {result : Bool}
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (evaluated : (lowerCallOperand operand).eval space #v[] = .ok value)
+    (classBinding : space.lookupGlobal className = some (.builtin kind))
+    (tested : Core.Module.SeededCall.invoke (.builtin .isinstance) [value, .builtin kind] =
+      .ok (.bool result)) :
+    observeNestedCallIn space context .discard outer [.call inner [operand, .readGlobal className]] =
+      (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
+        [⟨inner, ⟨.ok (.bool result), none⟩⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+        context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_instance
+    helper probe evaluated classBinding tested
+
 /-- Invoke both live descriptors, recording the Boolean before the assertion helper result. -/
 theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallContext}
     {outer inner className : String} (value : Int)
@@ -34,6 +61,18 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
       (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_intInstance
     value helper probe classBinding
+
+/-- A failed inner preparation records the inner failure and skips the
+outer invocation, including when its saved value is noncallable. -/
+theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context : CallContext}
+    {outer inner : String} {operands : List Core.Module.Functions.Operand} {callee : Value} {error : Failure}
+    (outerFound : space.lookupGlobal outer = some callee)
+    (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
+      .error error) :
+    observeNestedCallIn space context .discard outer [.call inner operands] =
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_innerPreparationError
+    outerFound failed
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)

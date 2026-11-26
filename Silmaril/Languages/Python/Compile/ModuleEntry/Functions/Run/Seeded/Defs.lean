@@ -61,6 +61,16 @@ def legacyBoolIsinstanceSeed (placement : SeedPlacement) : Namespace :=
   | .builtin => { seed with builtins := identity :: builtins }
   | .preamble => { seed with moduleGlobals := identity :: seed.moduleGlobals, builtins := builtins }
 
+/-- Supply the stock float class in the builtin table and the Boolean
+assertion helper in the selected harness placement. -/
+def legacyNumericIsinstanceSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacyBoolIsinstanceSeed placement
+  let truth := ("___assertTrue", Value.helper .assertTrue)
+  let builtins := ("float", Value.builtin .float) :: seed.builtins
+  match placement with
+  | .builtin => { seed with builtins := truth :: builtins }
+  | .preamble => { seed with moduleGlobals := truth :: seed.moduleGlobals, builtins := builtins }
+
 /-- Stock list construction is a separate opt-in profile. -/
 def legacyListSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
