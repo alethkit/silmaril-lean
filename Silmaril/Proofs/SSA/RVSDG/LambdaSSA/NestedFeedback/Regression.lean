@@ -1,5 +1,9 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Renumbered.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Renumbered.Defs
+meta import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Check.Defs
+
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Routed.Mixed.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Defs
@@ -1470,6 +1474,37 @@ example (coherent : Coherent) :
   match runPipeline chainGraph 0 with
   | some (.inl (.inl _), 5) => pure ()
   | _ => throw (IO.userError "the routed chain did not preserve the bypass token")
+
+private def checkedActual := chainGraph.toTerm.toGraph
+
+private def identityMap : NestedTheta.Isomorphism.Mapping := fun _ => ⟨id, id⟩
+
+private def swapFirstRows : Nat → Nat
+  | 0 => 1
+  | 1 => 0
+  | n => n
+
+private def swappedRoot : NestedTheta.Isomorphism.Mapping :=
+  fun path => if path.isEmpty then ⟨swapFirstRows, swapFirstRows⟩ else ⟨id, id⟩
+
+example (coherent : Coherent)
+    (f : Translation.Renumbered.Fibre checkedActual chainGraph routedChain.layout) :
+    (Region.denote (ε := Bool) (m := Runtime) f.recovered.typing
+      (PUnit.unit,(1 : Nat))).run 0 = Part.some (chainExit, 1225983) := by
+  obtain ⟨fuel, returned⟩ := (routedChain.compile_run_iff runnerActions coherent
+    (PUnit.unit,(1 : Nat)) chainExit 0 1225983).mpr (chainReturn coherent)
+  exact (f.run_iff runnerActions coherent (PUnit.unit,(1 : Nat)) chainExit 0 1225983).mp
+    ⟨fuel, (f.run_eq runnerActions fuel (1 : Nat) 0).trans returned⟩
+
+#eval show IO Unit from do
+  unless (Translation.Renumbered.recover checkedActual chainGraph routedChain.layout identityMap).isSome do
+    throw (IO.userError "the checked row map did not recover the routed chain")
+  unless (Translation.Renumbered.recover checkedActual chainGraph routedChain.layout swappedRoot).isNone &&
+      (Translation.Renumbered.recover staleChain chainGraph routedChain.layout identityMap).isNone do
+    throw (IO.userError "accepted a swapped dependency or stale route token")
+  match runPipeline checkedActual 1 with
+  | some (.inl (.inr 122598), 1225983) => pure ()
+  | _ => throw (IO.userError "the input numbered graph returned the wrong payload or token")
 
 end Composition
 
