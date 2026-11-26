@@ -1,11 +1,14 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Renumbered.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Renumbered.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
@@ -537,14 +540,15 @@ example (coherent : Coherent) :
 private abbrev ForkGraph := Flat.Serial.Graph Op number number number number number number
   (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number])
 
-private abbrev ForkTerm :=
+private abbrev ForkTerm (rest : List (Ports (OrderedRuntime.Structured.Ty Ty)) := []) :=
   NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number number number) []
-    (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number])
+    (StructuredCFG.Selection number number number number ++ Flat.Serial.WirePorts number number number :: rest)
     (Flat.Serial.WirePorts number number number)
 
 -- The continuation still reads the selected arm's payload through the γ.
 -- Replace its token with the original input token.
-private def staleForkTerm (term : ForkTerm) : ForkTerm :=
+private def staleForkTerm {rest : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    (term : ForkTerm rest) : ForkTerm rest :=
   match term with
   | .bind gate op (.bind fork arms (.bind tail body rest)) =>
     let inputs := tail.inputs.map (fun _ wire => staleLinkToken wire)
@@ -755,7 +759,7 @@ example (coherent : Coherent) :
       Part.some ((.inl (1358888923 : Nat) : Exits),12231223444) :=
   normalizedReturns coherent 0 13454345 122312234 (recursiveRightResult coherent)
 
-example (coherent : Coherent) :
+private theorem normalizedUndefined (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,(99 : Nat))).run 0 =
       Part.none := by
   rw [recover_denote unnormalized normalizedAccepted coherent, unnormalized_run coherent]
@@ -764,6 +768,85 @@ example (coherent : Coherent) :
 #eval show IO Unit from do
   unless (Recursive.recover (compile unnormalized)).isSome do
     throw (IO.userError "could not recover the normalized mixed source")
+
+private def compiledGraph := compile unnormalized
+
+private def checkedView : Renumbered.View compiledGraph :=
+  ⟨_, compiledGraph, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private def recoveredThroughView : Renumbered.Fibre compiledGraph :=
+  (Renumbered.recover compiledGraph checkedView).get
+    (Renumbered.recover_compiled unnormalized checkedView.numbering)
+
+private theorem viewReturns (coherent : Coherent) (input payload token : Nat)
+    (h : (Region.denote (ε := Bool) (m := Runtime) normalizedRecovered.2.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token)) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredThroughView.2.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token) :=
+  (recoveredThroughView.2.region_returns_iff coherent (PUnit.unit,input) (.inl payload) 0 token).mp
+    ((normalizedRecovered.2.region_returns_iff coherent (PUnit.unit,input) (.inl payload) 0 token).mpr h)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredThroughView.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (4579923 : Nat) : Exits),41223444) :=
+  viewReturns coherent 1 4579923 41223444 (normalizedReturns coherent 1 45345 412234 (recursiveLeftResult coherent))
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredThroughView.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (1358888923 : Nat) : Exits),12231223444) :=
+  viewReturns coherent 0 1358888923 12231223444
+    (normalizedReturns coherent 0 13454345 122312234 (recursiveRightResult coherent))
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredThroughView.2.typing (PUnit.unit,(99 : Nat))).run 0 =
+      Part.none :=
+  (recoveredThroughView.2.region_undefined_iff coherent (PUnit.unit,(99 : Nat)) 0).mp
+    ((normalizedRecovered.2.region_undefined_iff coherent (PUnit.unit,(99 : Nat)) 0).mpr (normalizedUndefined coherent))
+
+private theorem compiledChains : compiledGraph.ScopeChains := by
+  have h := NestedTheta.ExplicitRuntime.EntryChecked.scopeChains (compileChecked unnormalized)
+  rw [NestedTheta.Graph.toGraph_toTerm] at h
+  exact h
+
+private theorem rejectSwap {V S : Type} {P : Dialect V S}
+    {args outs : Ports (PortType V S)} {sigs : List (Ports (PortType V S))}
+    (g : NestedTheta.Graph P args [] sigs outs) (chain : g.PredecessorChain)
+    (a b : Fin sigs.length) (distinct : a ≠ b) :
+    ¬ ∀ i, (g.nodes i).inputs.addresses.map (Address.rename (renameVertex (Equiv.swap a b))) =
+      (g.nodes (Equiv.swap a b i)).inputs.addresses := by
+  intro wires
+  have fixed := chain.numbering_fixed (Equiv.swap a b) wires a
+  rw [Equiv.swap_apply_left] at fixed
+  exact distinct (Fin.ext fixed.symm)
+
+-- A top-level switch and a switch of the first two vertices in the right γ
+-- arm would both violate the token dependency.
+example : ¬ ∀ i : Fin 7, (compiledGraph.nodes i).inputs.addresses.map
+    (Address.rename (renameVertex (Equiv.swap (0 : Fin 7) 1))) =
+    (compiledGraph.nodes (Equiv.swap (0 : Fin 7) (1 : Fin 7) i)).inputs.addresses :=
+  rejectSwap compiledGraph compiledChains.here (0 : Fin 7) (1 : Fin 7) (by decide)
+
+private def compiledArm := compiledGraph.children (1 : Fin 7) (1 : Fin 2)
+
+example : ¬ ∀ i : Fin 4, (compiledArm.nodes i).inputs.addresses.map
+    (Address.rename (renameVertex (Equiv.swap (0 : Fin 4) 1))) =
+    (compiledArm.nodes (Equiv.swap (0 : Fin 4) (1 : Fin 4) i)).inputs.addresses :=
+  rejectSwap compiledArm (compiledChains.child (1 : Fin 7) (1 : Fin 2)).here
+    (0 : Fin 4) (1 : Fin 4) (by decide)
+
+private def staleCompiled := (staleForkTerm compiledGraph.toTerm).toGraph
+
+-- Even a different vertex bijection cannot turn this argument token into the
+-- producer's token at the seam.
+example : ¬ NestedTheta.Graph.Isomorphic (Wires.Op Op) staleCompiled compiledGraph := by
+  intro iso
+  have atSeam := iso.inputs_at_rank compiledChains.here (2 : Fin 7) (2 : Fin 7) rfl
+  change [Address.output 1 0, Address.arg 1] = [Address.output 1 0, Address.output 1 1] at atSeam
+  cases atSeam
+
+#eval show IO Unit from do
+  unless (Renumbered.recover compiledGraph checkedView).isSome do
+    throw (IO.userError "could not recover a mixed graph through its checked view")
 
 end Composition
 
