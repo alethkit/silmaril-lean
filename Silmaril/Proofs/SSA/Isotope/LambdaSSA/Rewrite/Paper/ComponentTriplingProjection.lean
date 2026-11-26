@@ -27,7 +27,7 @@ local notation "I" => Paper.TypeCategory.iterate
 
 set_option backward.isDefEq.respectTransparency false
 
-private theorem project_batch {A B : P} (g h : A ⟶ B ⨿ A) :
+theorem project_batch {A B : P} (g h : A ⟶ B ⨿ A) :
     projectStep Seed (thenOnRepeat g h) =
       projectStep Seed g ≫ coprod.desc coprod.inl (projectStep Seed h) := by
   let c := PreservesColimitPair.iso (J) B A
@@ -48,10 +48,7 @@ private theorem project_batch {A B : P} (g h : A ⟶ B ⨿ A) :
   · simp only [coprod.inr_desc, ← Category.assoc]
     rw [second, ← (J).map_comp, coprod.inr_desc]
 
-private noncomputable def transport {A D B : P} (e : A ≅ D) (g : D ⟶ B ⨿ D) : A ⟶ B ⨿ A :=
-  e.hom ≫ g ≫ coprod.map (𝟙 B) e.inv
-
-private theorem transport_batch {A D B : P} (e : A ≅ D) (g h : D ⟶ B ⨿ D) :
+theorem transport_batch {A D B : P} (e : A ≅ D) (g h : D ⟶ B ⨿ D) :
     thenOnRepeat (transport e g) (transport e h) = transport e (thenOnRepeat g h) := by
   have continuation : coprod.map (𝟙 B) e.inv ≫ coprod.desc coprod.inl (transport e h) =
       coprod.desc coprod.inl h ≫ coprod.map (𝟙 B) e.inv := by
@@ -61,7 +58,7 @@ private theorem transport_batch {A D B : P} (e : A ≅ D) (g h : D ⟶ B ⨿ D) 
   simp only [transport, Category.assoc]
   rw [show e.hom ≫ h ≫ coprod.map (𝟙 B) e.inv = transport e h from rfl, continuation]
 
-private theorem iterate_transport {A D B : P} (e : A ≅ D) (f : D ⟶ B ⨿ D) :
+theorem iterate_transport {A D B : P} (e : A ≅ D) (f : D ⟶ B ⨿ D) :
     I (transport e f) = e.hom ≫ I f := by
   rw [transport, iterate_roll, Category.assoc, coprod.map_map, Category.id_comp,
     Iso.inv_hom_id, coprod.map_id_id, Category.comp_id]

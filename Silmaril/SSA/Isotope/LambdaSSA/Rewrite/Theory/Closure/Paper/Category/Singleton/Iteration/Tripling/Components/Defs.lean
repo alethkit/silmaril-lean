@@ -34,6 +34,10 @@ noncomputable def normalize {B : P} (g : BitState (τ := τ) (Φ := Φ) ⟶ B �
 noncomputable abbrev thenOnRepeat {A B : P} (f g : A ⟶ B ⨿ A) : A ⟶ B ⨿ A :=
   f ≫ coprod.desc coprod.inl g
 
+/-- Express a round in isomorphic state coordinates while keeping its outward object. -/
+noncomputable def transport {A D B : P} (e : A ≅ D) (g : D ⟶ B ⨿ D) : A ⟶ B ⨿ A :=
+  e.hom ≫ g ≫ coprod.map (𝟙 B) e.inv
+
 /-- Run the same round in each of the three phases and advance on recurrence. -/
 noncomputable def cycle {A B : P} (g : A ⟶ B ⨿ A) : Phases A ⟶ B ⨿ Phases A :=
   coprod.desc (g ≫ coprod.map (𝟙 B) (coprod.inl ≫ coprod.inr))

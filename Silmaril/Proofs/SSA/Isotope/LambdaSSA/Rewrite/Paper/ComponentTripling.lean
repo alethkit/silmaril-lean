@@ -64,8 +64,8 @@ private theorem enter_forget {tag : U ⟶ Phases U} (h : tag ≫ split.inv ≫ f
     enter tag ≫ forgetPhases = R := by
   rw [enter, coprod.map_map, Category.assoc, h]
 
-private theorem triple_at_first {A B : P} (g : A ⟶ B ⨿ A) :
-    first ≫ iterate (cycle g) = iterate (thenOnRepeat g (thenOnRepeat g g)) := by
+theorem triple_at_first {A B : P} (g : A ⟶ B ⨿ A) :
+    coprod.inl ≫ iterate (cycle g) = iterate (thenOnRepeat g (thenOnRepeat g g)) := by
   let left : A ⟶ (B ⨿ A) ⨿ (A ⨿ A) := g ≫ coprod.map coprod.inl coprod.inl
   let right : A ⨿ A ⟶ (B ⨿ A) ⨿ (A ⨿ A) :=
     coprod.desc (g ≫ coprod.map coprod.inl coprod.inr) (g ≫ coprod.inl)
@@ -98,7 +98,7 @@ private theorem triple_at_first {A B : P} (g : A ⟶ B ⨿ A) :
   congr 1
   simp [left, rightEq]
 
-private theorem iteration_change {A D B : P} (e : A ≅ D) (f : A ⟶ B ⨿ A) :
+theorem iteration_change {A D B : P} (e : A ≅ D) (f : A ⟶ B ⨿ A) :
     iterate f = e.hom ≫ iterate (e.inv ≫ f ≫ coprod.map (𝟙 B) e.hom) := by
   have eq : f = e.hom ≫ (e.inv ≫ f) := by simp
   conv_lhs => rw [eq, iterate_roll]
