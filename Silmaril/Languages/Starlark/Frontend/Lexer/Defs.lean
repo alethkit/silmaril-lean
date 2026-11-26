@@ -22,9 +22,10 @@ structure Span where
   deriving DecidableEq, Repr, Inhabited
 
 inductive Feature where
-  | nonAsciiName | lineContinuation
+  | nonAsciiName
   | floatLiteral | quotedLiteral
   | compoundStatement | loadStatement | functionControl
+  | inlineSuite | parameters | functionFile
   | augmentedAssignment
   | tuple | collection | lambda | call | subscript | attribute | operator
   deriving DecidableEq, Repr
@@ -32,7 +33,13 @@ inductive Feature where
 inductive DiagnosticKind where
   | invalidUtf8
   | invalidCharacter (c : Char)
-  | invalidInteger | invalidFloat | unterminatedQuote | unexpectedIndent
+  | invalidInteger | invalidFloat | unterminatedQuote
+  | unexpectedIndent | expectedIndentedSuite | tabIndent
+  | mismatchedDedent (width : Nat)
+  | unexpectedCloser (found : String)
+  | mismatchedCloser (expected found : String)
+  | unclosedDelimiter (expected : String)
+  | topLevelIf | topLevelReturn | duplicateParameter (name : String)
   | reservedWord (word : String)
   | expected (description : String)
   | chainedComparison | invalidAssignmentTarget
@@ -50,7 +57,7 @@ inductive TokenKind where
   | integer (value : Nat)
   | keyword (text : String)
   | symbol (text : String)
-  | newline | indent | eof
+  | newline | indent | outdent | eof
   | outside (feature : Feature)
   deriving DecidableEq, Repr, Inhabited
 
@@ -195,43 +202,105 @@ private def scanToken (fuel : Nat) (s : Cursor) (c : Char) :
   else if prefixLength != 0 then quoted fuel s prefixLength ((s.popN prefixLength).rest.headD c)
   else if nameStart c then word s
   else if c.isDigit || (c == '.' && s.rest[1]?.any Char.isDigit) then number s
-  else if c == '\\' && s.rest[1]?.any isNewline then
-    return (.outside .lineContinuation, s.pop.pop)
   else if let some symbol := punctuation.find? (containsPrefix s) then
     return (.symbol symbol, s.popN symbol.length)
   else failAt (.invalidCharacter c) s.pos s.pop.pos
 
-private def scan : Nat → Cursor → Bool → Nat → List Token → Except Diagnostic (List Token)
-  | 0, s, _, _, _ => failAt .exhausted s.pos s.pos
-  | fuel + 1, s, lineStart, depth, tokens => do
+private structure Layout where
+  /-- Indentation is checked once per nonblank logical line. -/
+  lineStart : Bool := true
+  hasCode : Bool := false
+  /-- Open levels, deepest first. The base level of zero is implicit. -/
+  indents : List Nat := []
+  /-- Expected closers, with the spans of their opening delimiters. -/
+  delimiters : List (String × Span) := []
+  tokens : List Token := []
+
+private def Position.point (p : Position) : Span := ⟨p, p⟩
+
+private def Layout.emit (layout : Layout) (kind : TokenKind) (span : Span) : Layout :=
+  { layout with tokens := ⟨kind, span⟩ :: layout.tokens }
+
+-- Pop only levels above the new line's width. The caller checks that the
+-- surviving level exists. Width zero also closes all open levels at EOF.
+private def popIndents (width : Nat) (point : Span) :
+    List Nat → List Token → List Nat × List Token
+  | [], tokens => ([], tokens)
+  | level :: rest, tokens =>
+    if level > width then popIndents width point rest (⟨.outdent, point⟩ :: tokens)
+    else (level :: rest, tokens)
+
+private def isSpace (c : Char) : Bool := c == ' ' || c == '\t'
+
+private def startLine (s : Cursor) (layout : Layout) : Except Diagnostic (Cursor × Layout) := do
+  let (spaces, next) := s.take isSpace
+  let layout := { layout with lineStart := false }
+  unless next.rest.head?.any (fun c => c != '#' && !isNewline c) do return (next, layout)
+  if spaces.toList.contains '\t' then return ← failAt .tabIndent s.pos next.pos
+  let width := spaces.length
+  if width > layout.indents.headD 0 then
+    let layout := { layout with indents := width :: layout.indents }
+    return (next, layout.emit .indent ⟨s.pos, next.pos⟩)
+  let (levels, tokens) := popIndents width next.pos.point layout.indents layout.tokens
+  if levels.headD 0 != width then return ← failAt (.mismatchedDedent width) s.pos next.pos
+  return (next, { layout with indents := levels, tokens })
+
+private def updateDelimiters (layout : Layout) (kind : TokenKind) (span : Span) :
+    Except Diagnostic Layout := do
+  match kind with
+  | .symbol "(" => return { layout with delimiters := (")", span) :: layout.delimiters }
+  | .symbol "[" => return { layout with delimiters := ("]", span) :: layout.delimiters }
+  | .symbol "{" => return { layout with delimiters := ("}", span) :: layout.delimiters }
+  | .symbol closer =>
+    if [")", "]", "}"].contains closer then
+      match layout.delimiters with
+      | [] => failAt (.unexpectedCloser closer) span.start span.stop
+      | (expected, _) :: rest =>
+        if closer == expected then return { layout with delimiters := rest }
+        else failAt (.mismatchedCloser expected closer) span.start span.stop
+    else return layout
+  | _ => return layout
+
+private def finish (layout : Layout) (eof : Position) : Except Diagnostic (List Token) := do
+  if let (expected, opener) :: _ := layout.delimiters then
+    return ← failAt (.unclosedDelimiter expected) opener.start opener.stop
+  let point := eof.point
+  let layout :=
+    if layout.hasCode && !layout.indents.isEmpty then layout.emit .newline point else layout
+  let (_, tokens) := popIndents 0 point layout.indents layout.tokens
+  return (⟨.eof, point⟩ :: tokens).reverse
+
+private def scan : Nat → Cursor → Layout → Except Diagnostic (List Token)
+  | 0, s, _ => failAt .exhausted s.pos s.pos
+  | fuel + 1, s, layout => do
+    let (s, layout) ← if layout.lineStart then startLine s layout else pure (s, layout)
     match s.rest with
-    | [] => return (⟨.eof, ⟨s.pos, s.pos⟩⟩ :: tokens).reverse
+    | [] => finish layout s.pos
     | c :: cs =>
       if isNewline c then
         let next := s.pop
-        let tokens := if depth == 0 then ⟨.newline, ⟨s.pos, next.pos⟩⟩ :: tokens else tokens
-        scan fuel next true depth tokens
+        if !layout.delimiters.isEmpty then scan fuel next layout
+        else
+          let layout :=
+            if layout.hasCode then layout.emit .newline ⟨s.pos, next.pos⟩ else layout
+          scan fuel next { layout with lineStart := true, hasCode := false }
       else if c == '#' then
-        scan fuel (skipLine (s.pos.advance c) cs) false depth tokens
-      else if c == ' ' || c == '\t' then
-        let (_, next) := s.take (fun c => c == ' ' || c == '\t')
-        let indented := lineStart && depth == 0 &&
-          next.rest.head?.any (fun c => c != '#' && !isNewline c)
-        let tokens := if indented then ⟨.indent, ⟨s.pos, next.pos⟩⟩ :: tokens else tokens
-        scan fuel next false depth tokens
+        scan fuel (skipLine (s.pos.advance c) cs) layout
+      else if isSpace c then
+        scan fuel (s.take isSpace).2 layout
+      else if c == '\\' && cs.head?.any isNewline then
+        scan fuel s.pop.pop layout
       else
         let (kind, next) ← scanToken (fuel + 1) s c
-        let depth := match kind with
-          | .symbol "(" | .symbol "[" | .symbol "{" => depth + 1
-          | .symbol ")" | .symbol "]" | .symbol "}" => depth - 1
-          | _ => depth
-        scan fuel next false depth (⟨kind, ⟨s.pos, next.pos⟩⟩ :: tokens)
+        let span := ⟨s.pos, next.pos⟩
+        let layout ← updateDelimiters layout kind span
+        scan fuel next ({ layout with hasCode := true }.emit kind span)
 
-/-- Lex decoded text. Nonblank leading whitespace outside delimiters emits an
-`indent` marker, and LF, CRLF and CR each count as one physical newline. -/
+/-- Lex logical lines, with space-only layout and LF, CRLF, or CR physical breaks.
+Blank and comment-only lines contribute no layout tokens. -/
 def lex (source : String) : Except Diagnostic (List Token) :=
   let chars := source.toList
-  scan (chars.length + 1) ⟨chars, {}⟩ true 0 []
+  scan (chars.length + 1) ⟨chars, {}⟩ {}
 
 -- Locate the first bad sequence on the invalid-input path only.
 private def badUtf8 (bytes : ByteArray) : Nat → Position → Diagnostic

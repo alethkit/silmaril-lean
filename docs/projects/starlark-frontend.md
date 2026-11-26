@@ -1,6 +1,6 @@
 # Starlark source frontend
 
-This frontend reads module text in a scalar subset of the [pinned Starlark core
+This frontend reads a scalar subset of the [pinned Starlark core
 profile](starlark.md). The source specification is Bazel's [Starlark Language
 Specification][spec] at `c0af0ea03dc90d3bbc021394b693e6957cc15030`. The SHA-256
 of raw `spec.md` is
@@ -10,91 +10,129 @@ The parse oracle uses [starlark-go][go] at
 
 ## Lean entry points
 
-- `Frontend.lexUtf8` and `Frontend.lex` produce tokens with half-open spans,
-  including a zero-width EOF token. The byte entry point rejects ill-formed
-  UTF-8 and highlights the first byte of the bad sequence. Positions refer to
-  the original bytes and use zero-based byte offsets and one-based lines and
-  Unicode scalar columns. A tab occupies one column. LF, CRLF, and CR each end
-  one line. [Lexer](../../Silmaril/Languages/Starlark/Frontend/Lexer/Defs.lean)
-- `Frontend.parseModuleUtf8` and `Frontend.parseModule` produce a `ParsedModule`
-  or a structured `Diagnostic`. The result retains a span for each top-level
-  statement. `ParsedModule.toSourceStmt` erases locations and sequences the
-  existing scalar AST in source order, with `pass` for an empty module.
+- `Frontend.lexUtf8` and `Frontend.lex` produce spanned tokens for logical
+  lines. The byte entry point rejects ill-formed UTF-8 and highlights the first
+  byte of the bad sequence. Positions use zero-based byte offsets and one-based
+  lines and Unicode scalar columns in the original input. A tab occupies one
+  source column. [Lexer](../../Silmaril/Languages/Starlark/Frontend/Lexer/Defs.lean)
+- `Frontend.parseModuleUtf8` and `Frontend.parseModule` retain top-level
+  statement spans. `ParsedModule.toSourceStmt` sequences the existing scalar
+  AST in source order, with `pass` for an empty module. `Starlark.runModule`
+  resolves and denotes that AST in the closed scalar environment. The module
+  example evaluates `out = -1` through arithmetic, a conditional, and an untaken
+  error branch. [Lean checks](../../Silmaril/Languages/Starlark/Frontend/Checks.lean)
+- `Frontend.parseFunctionUtf8` and `Frontend.parseFunction` accept a file
+  containing one `def` with required positional name parameters and a
+  multiline suite. They return its name, ordered parameters, function span,
+  and located direct body statements. `ParsedFunction.toSourceStmt` lowers
+  branches and returns to the existing scalar body AST. Pass that AST and
+  already bound globals and parameters to `Starlark.runFunctionBody`.
   [Parser](../../Silmaril/Languages/Starlark/Frontend/Defs.lean)
-- `Starlark.runModule` resolves and denotes that AST using the existing
-  closed scalar environment. Its static and dynamic errors keep their existing
-  types. The fixture below checks the output `out = -1` in Lean. It also
-  exercises UTF-8 comments, statement order, exact integers, floor division,
-  precedence, short-circuiting and the untaken error branch.
-  [Lean checks](../../Silmaril/Languages/Starlark/Frontend/Checks.lean)
 
 ```starlark
-# coût 😀
-base = 0x10 + 0o3 * 2
-out = -base // 5 + 4 if not False and 2 < 3 else 1 // 0
+def pick(flag):
+  if flag:
+    if (1 +
+        2) == 3:
+      return 8
+    else:
+      return 0
+  else:
+    return -1
 ```
 
-The implementation imports the scalar AST. The checks also import the scalar
-resolver and denotation. The separate [Lean expression
-quotation](starlark-functions.md#quoting-an-expression-in-lean) runs on Lean
-syntax and targets the function language's normalized AST.
-The existing soundness theorems still begin at the resolved scalar AST.
-Parser soundness and completeness remain open.
+The nested-suite fixture evaluates this body with `flag` bound to `True` and
+`False`, yielding `8` and `-1`. It also exercises CRLF, Unicode comments, and
+explicit line joining. A smaller multiline function with two open levels at
+EOF has a kernel-checked text-to-denotation example. The existing soundness
+proofs still begin at the resolved scalar AST, and static and dynamic failures
+retain their existing types. Parser soundness and completeness remain open.
+[Lean checks](../../Silmaril/Languages/Starlark/Frontend/Checks.lean)
+
+## Logical lines and layout
+
+- LF, CRLF, and bare CR each end one physical line. Blank and comment-only
+  lines contribute no newline or layout tokens. A physical break inside a
+  matched `()`, `[]`, or `{}` pair is ignored for layout. A backslash
+  immediately before a physical break also joins lines. Leading whitespace on
+  the continuation line is ordinary whitespace.
+- A significant line with more leading spaces opens an `indent` level. A
+  smaller width must match an open level or zero, and emits one `outdent` per
+  level closed. `indent` spans the leading spaces. Each `outdent` is zero-width
+  at the first token of the new line. A mismatched dedent highlights its
+  leading whitespace. Tabs are allowed between tokens and on ignored or
+  continued lines. A tab in significant indentation is a `tabIndent` error
+  under the pinned [space-only rule][layout-spec].
+- EOF closes any remaining levels. When a final indented statement has no
+  physical newline, the lexer inserts a zero-width newline before the
+  zero-width outdents and EOF. The tests check that every successful token
+  stream in the fixture corpus keeps a nonnegative layout depth and ends at
+  depth zero with EOF as its final token.
+- A stray or mismatched closing delimiter highlights the closer. An unclosed
+  delimiter highlights the innermost unmatched opener. A missing suite and an
+  unexpected indent are separate parser diagnostics. Function and statement
+  spans end at their final code token. Nested source positions remain available
+  in the token stream.
 
 ## Admitted surface
 
 | Layer | Covered |
 | --- | --- |
-| Text | UTF-8 input, Unicode comments, blank lines, inline spaces and tabs, an optional final newline, implicit line joining inside parentheses. Leading whitespace on a nonblank module line is an error. |
-| Statements | Name assignment, including a parenthesized name target, `pass`, and scalar expression statements. Newlines and semicolons separate statements. A final semicolon is allowed. |
-| Operands | ASCII identifiers, parenthesized scalar expressions, and arbitrary-precision decimal, `0o`/`0O` octal, and `0x`/`0X` hexadecimal integers. `None`, `True`, and `False` are names handled by lexical resolution. |
-| Precedence | Strongest first: unary `+`/`-`, `*`/`//`/`%`, `+`/`-`, `==`/`!=`/`<`/`<=`/`>`/`>=`, unary `not`, `and`, `or`, then `a if test else b`. Binary arithmetic and logical operators associate left, comparisons are non-associative, and conditional expressions associate right in their `else` branch. |
+| Module statements | Name assignment, including a parenthesized name target, `pass`, and scalar expression statements. Newlines and semicolons separate simple statements. A final semicolon is allowed. |
+| Function statements | The same simple statements, bare and valued `return`, and nested multiline `if`, `elif`, and `else` suites. Missing `else` lowers to `pass`. The module entry rejects top-level `if` and `return`. |
+| Operands | ASCII names, parenthesized scalar expressions, and arbitrary-precision decimal, `0o`/`0O` octal, and `0x`/`0X` hexadecimal integers. Lexical resolution handles the names `None`, `True`, and `False`. |
+| Precedence | Strongest first are unary `+`/`-`, `*`/`//`/`%`, `+`/`-`, comparisons, unary `not`, `and`, `or`, and `a if test else b`. Arithmetic and logical binaries associate left, comparisons are non-associative, and conditionals associate right in the `else` branch. |
 
-The lexer validates bytes and token spellings before the parser runs. Syntax
-errors in the admitted grammar include a missing operand or delimiter,
-misplaced indentation, reserved words, malformed integers and chained
-comparisons. `unsupported feature` marks a recognizable boundary, such as a
-call suffix or a suite introducer. The remainder of the construct may contain
-syntax errors. The lexer finds the closing delimiter for quoted literals and
-defers validation of their contents and escapes. Non-ASCII characters outside comments and quoted
-literals are treated as possible name characters without checking Unicode
-categories. `exhausted` is a separate internal recursion guard, bounded from
-the input length and token count.
+`unsupported feature` identifies a boundary such as an inline suite, parameter
+with a default, nested definition, or a call suffix. Later syntax in that
+construct can still be malformed. Parameter binding, function installation, and
+module publication remain outside the standalone function entry point. The
+existing [Lean quotation](starlark-functions.md#quoting-an-expression-in-lean)
+targets the normalized function language and uses Lean syntax.
 
-Run the warning-fatal Lean checks and the pinned oracle from the repository
-root with the repository toolchain, Git, and Go 1.25 or newer.
+The lexer identifies the closing delimiters of quoted literals and defers
+validation of their contents and escapes. Non-ASCII characters outside
+comments and quoted literals are possible name characters pending Unicode
+category checks. `exhausted` is an internal recursion guard bounded from input
+length and token count.
+
+## Pinned parser comparison
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
-The oracle reads the same fixture strings as Lean and calls Go's parser with
-zero-value `syntax.FileOptions`, before name resolution or execution. It checks
-acceptance of the implemented subset and selected forms beyond it, plus
-rejection of malformed inputs. Three fixtures deliberately record different
-outcomes. Go accepts `0b` integer syntax and permits `assert` as a name, which
-the pinned core specification excludes. Go's parser accepts `1 = 2` and leaves
-assignability to its resolver. The Lean frontend rejects that target while
-normalizing the statement. Lean byte-level fixtures additionally check a
-malformed UTF-8 span, along with EOF, CRLF, and non-ASCII source positions.
-[Oracle driver](../../scripts/starlark/frontend/run.sh)
+Use the repository Lean toolchain, Git, and Go 1.25 or newer. The oracle feeds
+Go the same fixture strings as Lean and checks syntax acceptance with
+zero-value `syntax.FileOptions`. The fixtures cover delimiter continuations,
+explicit joining with LF, CRLF, and CR, ignored blank and comment lines,
+multiple EOF outdents, and mismatched dedents. Both parsers accept inline tabs
+and reject form feed and a backslash followed by a space.
+
+The pinned Go scanner accepts significant tabs. The fixtures observe one tab
+or a space plus a tab aligned with eight spaces, and two tabs aligned with
+fifteen spaces. Dedenting from sixteen spaces to two tabs fails in Go. The
+Lean frontend rejects significant tabs under the core rule. Go also admits
+`0b` integers and the name `assert`. Its syntax pass accepts an unassignable
+scalar target, duplicate parameter names, top-level `if`, and top-level
+`return`, with validation handled separately from syntax. The Lean frontend
+reports those errors at its source boundary.
+[Go scanner][go-scan] · [Oracle driver](../../scripts/starlark/frontend/run.sh)
 
 ## Next parser boundary
 
-- Add logical line joining for explicit continuations and an indentation stack
-  with indent and outdent tokens. Parse indented and inline suites and keep
-  dedent and delimiter diagnostics tied to their source spans.
+- Add inline suites and use the layout tokens for `for` and nested definitions.
+  Connect parsed function definitions, parameters, and loads to the existing
+  normalized module and function adapters.
 - Extend expressions with tuple and collection displays, calls, attributes,
   indexing and slices. Add membership, the remaining operator levels,
   comprehensions, and lambdas as their target AST forms become available.
-- Add statement forms for load, function definitions and parameters, `if` and
-  `for` suites, function and loop controls, destructuring and store targets.
-  Connect these to the existing normalized module and function adapters.
 - Finish literal validation and decoding for strings, bytes, escapes, and
-  floats. Add Unicode letter and decimal-digit classification for identifiers.
-  Extend locations to nested syntax and across resolution as the AST adapter
-  acquires that information.
+  floats. Add Unicode letter and decimal-digit classification for identifiers
+  and carry nested source locations through the eventual module adapter.
 
 [spec]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#lexical-elements
+[layout-spec]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#special-tokens
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd
+[go-scan]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/syntax/scan.go#L495-L658
