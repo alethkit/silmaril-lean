@@ -1032,6 +1032,35 @@ successful search and the actual terminating weak trace.
 [Transport theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/Thms.lean)
 · [Exact cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/GuardedRegression.lean)
 
+### Exact readback recognition of the guarded request loop
+
+`Guarded.Recognize.recognizeAdapter` checks the admitted lexical code for
+one bit input, three internal rows and two ordered unit exits. The entry
+packs the caller bit with unit. The first row decodes that packet,
+queries the supplied opcode on the bit, and dispatches replies in the
+exact order `[bit, unit, unit]`. Tag zero loops with the reply bit and
+tags one and two route to the corresponding unit exit rows. The written
+empty-tail arm is checked as part of the exact syntax.
+
+The supplied bijection names the three blocks and the two ordered exits.
+The recognizer checks those five positions against the actual compiled
+table's first-match numbering. The proof uses `SSA.accepted` to obtain
+literal scoped readback, then applies `NamedFlat.entry_tree` and
+`NamedFlat.step_tree`. The checked numbering lets it recover the named
+transfers from their positional encodings. The caller supplies the
+version-zero bit equality and agreement between the raw primitive and
+the shared evaluator on typed query arguments and replies.
+
+The landed cyclic regression now gets its `Corresponds` evidence from
+this recognizer at both register allocations. Its changed-packet trace
+and positive product search use the resulting evidence. A variant that
+sends reply tag one to the other unit exit row still passes typed named
+admission and fails recognition. The failure reports a mismatch against
+the supported syntax and numbering.
+
+[Executable recognizer and checked adapter](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/Recognize/Thms.lean)
+· [Accepted cycle and rejected reply route](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/GuardedRegression.lean)
+
 ### From the opt-in packet-local versioner to LetCase
 
 `PacketLocal.Admission.letCase` expands the actual flat table produced by
