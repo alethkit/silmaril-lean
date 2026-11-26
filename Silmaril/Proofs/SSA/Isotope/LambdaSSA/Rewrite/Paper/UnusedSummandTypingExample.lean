@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnaryLet.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.StructuralValues.Freyd.Iteration.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseReturns.BinaryFold.StructuralValues.Thms
@@ -308,6 +309,105 @@ example : ambiguousLet.HasType [Flag] [U, U] ∧
   have right := determined (Silmaril.coprod U (Ty.empty : Ty Empty)) (.inl .unit)
   have eq := (Ty.coprod.inj (left.trans right.symm)).2
   cases eq
+
+/-- The ambiguity checked above still permits agreement of all exact
+witnesses of that particular raw let. -/
+example {f g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U])}
+    (d : RegionDenotes J M (ambiguousLet_typed U) f)
+    (e : RegionDenotes J M (ambiguousLet_typed .empty) g) : f = g := by
+  have fixed : TypeDetermined [Flag] (.unit : Tm Op) U := by
+    intro D h
+    cases h
+    rfl
+  exact RegionDenotes.let_inl_case_eq J M fixed .unit
+    (left := .br 0 .unit) (right := .br 1 .unit) (right' := .br 1 .unit) (.br rfl .unit) d e
+
+private def pollPayload : Operand (Φ := Op) [Flag] Flag := .op .poll .unit
+
+private def selectedArm : Region Op :=
+  .case (.var 0) (.br 0 (.inl (.var 0))) (.br 3 (.var 0))
+
+private def unselectedArm : Region Op :=
+  .case (.var 1) (.br 3 .unit) (.br 2 .unit)
+
+private def taggedEntry : Region Op :=
+  .let₁ (.inl pollPayload.term)
+    (.case (.var 0) (selectedArm.renameVars (Silmaril.DeBruijn.lift Nat.succ)) unselectedArm)
+
+private def taggedBlocks : Fin 2 → Region Op :=
+  Fin.cases (.br 2 .unit) (fun _ => .br 3 .unit)
+
+private def payloadProgram : Program (Φ := Op) payloads [U, U] [Flag] where
+  entry := .let₁ pollPayload
+    (.case (.var 0 rfl) (.jump 0 (.var 0 rfl)) (.exit 1 rfl (.var 0 rfl)))
+  blocks := Fin.cases (.exit 0 rfl .unit) (fun _ => .exit 1 rfl .unit)
+
+private theorem payloadProgram_region :
+    payloadProgram.region true = .cfg (.let₁ pollPayload.term selectedArm) 2 taggedBlocks := by
+  unfold Program.region payloadProgram taggedBlocks
+  congr 1
+  funext i
+  exact Fin.cases rfl (fun _ => rfl) i
+
+private theorem payloadProgram_sparse : ¬ payloadProgram.targets 1 := by
+  rintro ((hit | hit) | ⟨i, hit⟩)
+  · have neq : (0 : Fin 2) ≠ 1 := by decide
+    exact neq hit
+  · exact hit
+  · revert hit
+    exact Fin.cases (fun h => h) (fun _ h => h) i
+
+/-- The sum binder's type is selected explicitly when assembling each entry
+witness. The untaken arm even cases on that sum a second time. -/
+private theorem taggedEntry_graph (tail spare other : Ty Empty) :
+    ∃ (he : taggedEntry.HasType [Flag] (List.ofFn (letFamily tail spare) ++ [U, U]))
+      (f : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M (List.ofFn (letFamily tail spare) ++ [U, U]))),
+      RegionDenotes J M he f := by
+  let S := Silmaril.coprod Flag other
+  have hl : (selectedArm.renameVars (Silmaril.DeBruijn.lift Nat.succ)).HasType
+      (Flag :: S :: [Flag]) (List.ofFn (letFamily tail spare) ++ [U, U]) :=
+    .case (.var rfl) (.br rfl (.inl (.var rfl))) (.br rfl (.var rfl))
+  have hr : unselectedArm.HasType (other :: S :: [Flag])
+      (List.ofFn (letFamily tail spare) ++ [U, U]) :=
+    .case (.var rfl) (.br rfl .unit) (.br rfl .unit)
+  have hp : pollPayload.term.HasType [Flag] Flag := .op .unit
+  exact ⟨_, _, RegionDenotes.let₁ (Denotes.inl (B := other) (denote_spec J M hp))
+    (RegionDenotes.case (.var rfl) (denoteRegion_spec J M hl) (denoteRegion_spec J M hr))⟩
+
+private theorem taggedCfg_graph (tail spare other : Ty Empty) :
+    ∃ f : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U]),
+      CfgDenotesAt J M (letFamily tail spare) taggedEntry taggedBlocks f := by
+  obtain ⟨he, fe, de⟩ := taggedEntry_graph J M tail spare other
+  have hb (i : Fin 2) : (taggedBlocks i).HasType (letFamily tail spare i :: [Flag])
+      (List.ofFn (letFamily tail spare) ++ [U, U]) :=
+    Fin.cases (.br rfl .unit) (fun _ => .br rfl .unit) i
+  obtain ⟨joint, dj⟩ := collectiveDenotes_exists_succ J M 1 [Flag]
+    (letFamily tail spare) [U, U] (fun i => denoteRegion J M (hb i))
+  exact ⟨_, he, hb, fe, _, joint, de, (fun i => denoteRegion_spec J M (hb i)), dj, rfl⟩
+
+example :
+    (∃ f : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U]),
+      CfgDenotesAt J M (letFamily .empty U) taggedEntry taggedBlocks f) ∧
+    (∃ g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U]),
+      CfgDenotesAt J M (letFamily U .empty) taggedEntry taggedBlocks g) :=
+  ⟨taggedCfg_graph J M .empty U U, taggedCfg_graph J M U .empty .empty⟩
+
+/-- From arbitrary exact witnesses, preserve the actual sparse CFG output.
+The single poll decides between local label 0 (then outward index 0) and
+outward index 1. No live transfer targets internal label 1. -/
+example (roll : IterationRolling C) :
+    (¬ payloadProgram.targets 1) ∧
+    ∀ {f g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U])},
+      CfgDenotesAt J M (letFamily .empty U) taggedEntry taggedBlocks f →
+      CfgDenotesAt J M (letFamily U .empty) taggedEntry taggedBlocks g → f = g := by
+  refine ⟨payloadProgram_sparse, ?_⟩
+  intro f g d e
+  have determined : TypeDetermined [Flag] pollPayload.term Flag :=
+    pollPayload.typeDetermined (Ren.id _)
+  obtain ⟨he, hb, _, _, _, de, db, dc, rfl⟩ := d
+  obtain ⟨he', hb', _, _, _, de', db', dc', rfl⟩ := e
+  exact payloadProgram.denotes_eq_let_inl_case_entry J M roll determined payloadProgram_region
+    (RegionDenotes.cfg he hb de db dc) (RegionDenotes.cfg he' hb' de' db' dc')
 
 end NativeLet
 
