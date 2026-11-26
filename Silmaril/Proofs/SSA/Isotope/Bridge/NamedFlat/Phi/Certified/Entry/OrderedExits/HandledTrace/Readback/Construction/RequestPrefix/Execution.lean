@@ -755,7 +755,7 @@ theorem compiled_seed {A : Type 1} {Events : Type → Type}
 namespace Computed
 
 open Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
-  (Operand Requests Scheduled Substitution Boundary Lifted scheduleCase scheduleCases substExpr renameExpr bindSubstitution hoist)
+  (Operand Requests Scheduled Substitution Boundary Lifted scheduleCase scheduleCases substExpr renameExpr bindSubstitution hoist scheduleJump)
 
 variable {Δ Θ : List PacketType}
 
@@ -1052,14 +1052,35 @@ private theorem hoist_run (instr : Primitive E F α) (env : Env α) (outer : F)
       | zero => rfl
       | succ i => exact older i
 
+private theorem schedule_jump_run (instr : Primitive E F α) (env : Env α) (label : Nat)
+    {ty : PacketType} (argument : Operand sig Γ ty) :
+    region instr env (.br label argument.written) = region instr env (scheduleJump label argument) := by
+  rw [scheduleJump, region_wrap]
+  calc
+    _ = bindRequests instr argument.schedule.requests env (fun final =>
+        pure (label, evalOperand (readSlots position final) argument.schedule.value)) := by
+      simpa only [region, Operand.schedule, Operand.scheduleAt] using
+        (schedule_run instr argument (fun slot => .var slot) env env (fun _ => rfl)
+          (fun packet => pure (label, packet))).symm
+    _ = _ := by
+      apply bind_scope_congr
+      intro final _
+      simp only [region, operand_tree instr position final (readSlots position final)
+        argument.schedule.value (fun _ => rfl), pure_bind]
+
 private theorem schedule_cases_run [DecidableEq F] (instr : Primitive E F α) (env : Env α)
-    (Γ : List PacketType) (written prepared : Region F)
-    (accepted : scheduleCases sig Γ written = some prepared) :
+    {labels : Nat} {types : Fin labels → PacketType} (Γ : List PacketType) (written prepared : Region F)
+    (accepted : scheduleCases sig types Γ written = some prepared) :
     region instr env written = region instr env prepared := by
   induction written generalizing Γ env prepared with
   | br label arg =>
-    cases accepted
-    rfl
+    simp only [scheduleCases] at accepted
+    split at accepted
+    · obtain ⟨⟨argument, sourceEq⟩, _, rfl⟩ := Option.map_eq_some_iff.mp accepted
+      change _ = region instr env (scheduleJump label argument)
+      rw [sourceEq]
+      exact schedule_jump_run instr env label argument
+    · cases accepted
   | let₁ value tail ih =>
     cases value
     case op op argument =>
@@ -1102,18 +1123,7 @@ private theorem boundary_run {labels : Nat} {types : Fin labels → PacketType}
   | request outer argument tail =>
     exact hoist_run instr env outer argument tail.erase
   | jump label argument =>
-    rw [Boundary.written, Boundary.lower, region_wrap]
-    calc
-      _ = bindRequests instr argument.schedule.requests env (fun final =>
-          pure (label.val, evalOperand (readSlots position final) argument.schedule.value)) := by
-        simpa only [region, Operand.schedule, Operand.scheduleAt] using
-          (schedule_run instr argument (fun slot => .var slot) env env (fun _ => rfl)
-            (fun packet => pure (label.val, packet))).symm
-      _ = _ := by
-        apply bind_scope_congr
-        intro final _
-        simp only [region, operand_tree instr position final (readSlots position final)
-          argument.schedule.value (fun _ => rfl), pure_bind]
+    exact schedule_jump_run instr env label.val argument
 
 theorem preserves_run (lifted : Lifted sig context packets outputs source)
     (instr : Primitive E F α) (env : Env α) :

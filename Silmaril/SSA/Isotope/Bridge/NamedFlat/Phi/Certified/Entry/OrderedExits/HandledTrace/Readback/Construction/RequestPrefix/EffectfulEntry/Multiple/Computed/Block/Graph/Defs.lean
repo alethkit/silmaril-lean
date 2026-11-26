@@ -38,7 +38,9 @@ inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
       (origin : written = transfer ∨ foldedTransfer written = some transfer)
   | outlined (count : Nat) (tree : EntryTree sig packets outputs [input] count)
       (origin : written = tree.written ∨
-        ∃ check : DecidableEq F, @scheduleCases F check sig [input] written = some tree.written)
+        ∃ check : DecidableEq F,
+          @scheduleCases F check sig (blocks + exits) (SSA.FiniteSum.append packets outputs) [input] written =
+            some tree.written)
   | unchanged (body : Code sig (Sum.elim packets outputs) [input])
       (accepted : elaborateRow (Sum.elim packets outputs) sig [input] written = some body)
 
@@ -66,7 +68,9 @@ Exact erasure ties the readback to that syntax. -/
 def readTreeAt [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) (written prepared : Region F)
     (origin : written = prepared ∨
-      ∃ check : DecidableEq F, @scheduleCases F check sig [input] written = some prepared) :
+      ∃ check : DecidableEq F,
+        @scheduleCases F check sig (blocks + exits) (SSA.FiniteSum.append packets outputs) [input] written =
+          some prepared) :
     Option (Row sig packets outputs input written) := do
   let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] prepared
   let exact ← commonRow (blocks + exits) prepared tree.written
@@ -77,7 +81,7 @@ def readTree [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks 
     (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) :
     Option (Row sig packets outputs input written) :=
   (readTreeAt sig packets outputs input written written (Or.inl rfl)).orElse fun _ =>
-    match accepted : scheduleCases sig [input] written with
+    match accepted : scheduleCases sig (SSA.FiniteSum.append packets outputs) [input] written with
     | some prepared => readTreeAt sig packets outputs input written prepared (Or.inr ⟨inferInstance, accepted⟩)
     | none => none
 
