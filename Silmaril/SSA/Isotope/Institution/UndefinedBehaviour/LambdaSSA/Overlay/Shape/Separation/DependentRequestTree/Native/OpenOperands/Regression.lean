@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Entry.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -680,6 +680,50 @@ example : ∃ prim : Syntax.Primitives Op 2,
       [] (⟨0, unitPayload⟩, ⟨0, unitPayload⟩) 0 [] := .start
   exact initialPath.refutes_exits (raw := (terminalTable 0).native) (raw' := (terminalTable 1).native)
     rfl rfl (by simp [InterpreterScript.Consistent]) rfl rfl (.inr (by decide))
+
+private def sharedCounterexample : EntryCounterexample Op Bit 1 where
+  input := right
+  initial := 0
+  script := [⟨⟨.test, right, 0⟩, .diverge⟩, ⟨⟨.flip, left, 0⟩, .diverge⟩,
+    ⟨⟨.flip, right, 0⟩, .fault 0⟩, ⟨⟨.test, left, 0⟩, .diverge⟩]
+
+-- The first shared packet is decoded identically at both ends. Only
+-- the later packet reveals that the right decoder always supplies left.
+example : readsCaller.compareEntries? readsCaller readsCaller.native readsCaller.native
+    callers id (fun _ => left) enumeration inventory inventory (stores 1) =
+      some (.counterexample sharedCounterexample) := rfl
+
+example : (sharedCounterexample.interpreter Op.flip right 0, sharedCounterexample.interpreter Op.flip left 0) =
+    (.fault 0, .diverge) := rfl
+
+example : ¬ Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+      (Syntax.model sharedCounterexample.interpreter (readsCaller.bindings right)) 0 ≤
+    Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+      (Syntax.model sharedCounterexample.interpreter (readsCaller.bindings left)) 0 :=
+  (Table.compareEntries_counterexample (g := readsCaller) (h := readsCaller)
+    (raw := readsCaller.native) (raw' := readsCaller.native) (callers := callers)
+    (decodeLeft := id) (decodeRight := fun _ => left) (replies := enumeration)
+    (left := inventory) (right := inventory) (stores := stores 1) (w := sharedCounterexample) rfl).2.2
+
+private def singletonInventory {A : Syntax.Ty} (domain : CallerEnumeration A) : ConfigurationEnumeration [A] :=
+  ⟨domain.packets.map fun v => ⟨0, v⟩, fun ⟨i, v⟩ => by
+    obtain rfl := Fin.eq_zero i
+    exact List.mem_map.mpr ⟨v, domain.complete v, rfl⟩⟩
+
+private def bitExit : Table sig [Bit] := ⟨0, fun _ => .exit 0, fun _ => false⟩
+
+-- The common bit packet decodes to a bit on the left and unit on the right.
+example : bitExit.compareEntries? (terminalTable 0) bitExit.native (terminalTable 0).native
+    callers id (fun _ => unitPayload) enumeration (singletonInventory callers)
+    (singletonInventory unitCaller) (stores 1) = some .refines := rfl
+
+example : (emptyTable 0).compareEntries? (terminalTable 1) (emptyTable 0).native (terminalTable 1).native
+    emptyCallers id (fun _ => unitPayload) enumeration (singletonInventory emptyCallers)
+    (singletonInventory unitCaller) (stores 1) = some .refines := rfl
+
+example : (emptyTable 0).compareEntries? (terminalTable 1) (emptyTable 1).native (terminalTable 1).native
+    emptyCallers id (fun _ => unitPayload) enumeration (singletonInventory emptyCallers)
+    (singletonInventory unitCaller) (stores 1) = none := rfl
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,
