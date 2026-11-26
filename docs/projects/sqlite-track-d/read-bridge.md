@@ -11,11 +11,12 @@ uses both the Machine read adapter and the Semantics statement executor.
   `26a59ab4f3131bde9cee45053d678fa5b961886f` from
   `4994778f84b9bee57c8624e37b2deb618567881c`.
   [Adapter contract](../sqlite-track-a/typed-read-adapter.md) · [Merge](https://github.com/hiloopai/silmaril-lean/commit/26a59ab4f3131bde9cee45053d678fa5b961886f)
-- Track D3's catalog executor from PR #3745 at
-  `2c710eda48f3eebf3bbed580f79fe2fa9fd8a40b`, checked in a local assembly
-  while that PR is open. It uses the statement executor from PR #3645,
-  merged at `fb129a1cab5eb2108bb24224943538885b87838a`, and D2 from PR #3688,
-  merged at `d99abfe5131eec3697fa32e41b7d1b0962bcaac9`. Track C's merged
+- Track D3's catalog executor from PR #3745, merged at
+  `86f7e9bb95c5412fe4bd9c9b2ae6684c3151dacd` from
+  `2c710eda48f3eebf3bbed580f79fe2fa9fd8a40b`. It uses the statement executor
+  from PR #3645, merged at `fb129a1cab5eb2108bb24224943538885b87838a`, and
+  D2 from PR #3688, merged at `d99abfe5131eec3697fa32e41b7d1b0962bcaac9`.
+  Track C's merged
   foundations are at `611702d27cc6e43cbb7f3ec74013246d39d322ef`.
   [Catalog executor](https://github.com/hiloopai/silmaril-lean/pull/3745) · [Statement executor](statement-executor.md) · [Catalog model](../sqlite-relational-d2.md) · [Relational foundations](../relational.md)
 
@@ -30,6 +31,30 @@ reads a full page at `(pgno - 1) * pageSize` through `sqlite3OsRead`, which
 calls the file's `xRead` method.
 [Architecture](https://sqlite.org/arch.html) · [Release archive](https://sqlite.org/2026/sqlite-amalgamation-3540100.zip) · [Seek source](../../../corpus/sqlite/upstream/sqlite-amalgamation-3540100/sqlite3.c#L101908) · [Pager source](../../../corpus/sqlite/upstream/sqlite-amalgamation-3540100/sqlite3.c#L62034) · [VFS source](../../../corpus/sqlite/upstream/sqlite-amalgamation-3540100/sqlite3.c#L27753)
 
+## Track A observations
+
+`Silmaril.Machine.SQLite.TrackA.Read.Adapter.Thms` provides
+`interpretations_agree` for one-call agreement between the handled Pager and
+handled VFS trees, `pagerTwice_agrees` for threading the actual file, cache
+and ordered history through both calls, and `pagerTwice_readOnly_cold_warm`
+for an admitted read-only repeat on the same leaf.
+`Silmaril.Machine.SQLite.TrackA.Read.Interaction.Thms` provides
+`vfsTree_corresponds`, which relates the staged read to its open VFS tree.
+[Adapter theorems](../../../Silmaril/Machine/SQLite/TrackA/Read/Adapter/Thms.lean) · [VFS tree theorem](../../../Silmaril/Machine/SQLite/TrackA/Read/Interaction/Thms.lean)
+
+`Adapter.Observes` means membership in the open tree's observations of a
+finite sequence of typed VFS request/reply pairs ending in
+`.returned (outcome.result, outcome.cache)`. The return type is
+`Read.Result × PageRead.Cache`. The handled poststate supplies the backing
+file and `Trace.Valid` validates the file transition under those exchanges.
+The observation hides administrative Pager and silent steps.
+`interpretations_agree` establishes membership for the trace selected by
+the supplied backing handler's actual replies. The claim leaves other
+observations of the open tree unconstrained. These Track A theorems describe the Lean read
+interfaces. The catalog-executor equality comes from D4 under the hypotheses
+below, and native refinement is outside scope.
+[Observation definition](../../../Silmaril/Machine/SQLite/TrackA/Read/Adapter/Defs.lean)
+
 ## Correspondence
 
 The input is a fresh D3 point-read invocation with normalized names and a
@@ -40,11 +65,11 @@ Track A's VM reads the second field of the designated packed rowid leaf.
 
 - `execute_corresponds` starts from D3's actual preparation and binding. The
   executor calls the composed Track A read, and A's one-call theorem relates
-  that run to the typed Pager tree and the handled and open VFS tree. The
-  bridge carries the plan label or typed run error, the input catalog and
-  session, and the actual returned backing and cache. The completed VFS
-  exchanges extend the input history in order. The theorem validates the
-  new suffix against the backing handler even on a read failure.
+  that run to the handled Pager and VFS trees and the selected open VFS
+  trace. The bridge carries the plan label or typed run error, the input
+  catalog and session, and the actual returned backing and cache. The
+  completed VFS exchanges extend the input history in order. The theorem
+  validates the new suffix against the backing handler even on a read failure.
 - `execute_cold_warm` requires `ColdLeaf` for snapshot identity, page geometry,
   a live handle, the read range, the vacant slot and successful leaf decoding.
   `Projected` compares the input leaf lookup with the checked catalog at the
@@ -52,9 +77,10 @@ Track A's VM reads the second field of the designated packed rowid leaf.
   miss requires absence in the catalog. A hit requires
   conversion of the projected field and a catalog row with that key and value.
   Both cases use D3's `Target.Matches` lookup contract.
-  Track A's cold/warm lookup and two-call adapter theorems give the two actual
-  Pager returns. D3's batch has the installed cache and the same catalog and
-  session in both poststates, with one completed page read after the original
+  D4 combines `Read.readOnly_cold_warm_lookup` and `Adapter.pagerTwice_agrees`
+  to account for both actual Pager returns. D3's batch has the installed
+  cache and the same catalog and session in both poststates, with one completed
+  page read after the original
   prefix. `CatalogExecutor.execute_eq` gives equality with the catalog-only
   executor on the result and final connection after `forgetStorage` erases
   the backing, cache and exchanges.
