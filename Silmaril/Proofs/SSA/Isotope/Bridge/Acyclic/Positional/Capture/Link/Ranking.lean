@@ -156,4 +156,22 @@ theorem check_proof (hp : p.check = true) (hq : q.check = true) : (table p q j a
       change rq k < n + 1 + L.length + m + 1
       omega
 
+namespace Open
+
+private theorem target_locals {N : Nat} {R : Fin N → τ} {X : LCtx τ} {A P : τ}
+    (t : Target R X A) : (target (P := P) t).locals = t.locals := by
+  cases t <;> rfl
+
+private theorem block_locals {N : Nat} {R : Fin N → τ} {X : LCtx τ} {A P : τ}
+    (b : Block Φ (β.snoc P) R X A) : (block b).locals = b.locals := by
+  cases b with
+  | jump a t => exact target_locals t
+  | case a l r => exact congrArg₂ List.append (target_locals l) (target_locals r)
+
+theorem carry_localTargets_proof {P : τ} (q : Table Φ (β.snoc P) K m) (i : Fin (m + 1)) :
+    (carry q).localTargets i = q.localTargets i :=
+  block_locals (q.block i)
+
+end Open
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Link

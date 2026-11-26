@@ -141,4 +141,76 @@ def operandClass {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {d : Nat}
   Quotient.map (fun producer => bind producer receiver)
     (fun {_ _} left => LetCase.LocallyNameless.Equiv.let₁ left (.refl receiver.2.toHasType))
 
+namespace Open
+
+variable {P B : τ} {e : Nat} {δ : BoundCtx τ e}
+
+/-- Local destinations receive the retained input and their original
+payload. An outward destination keeps its original payload type and index. -/
+def packetType (P : τ) : {A : τ} → Target R K A → τ
+  | _, .local i => product P (R i)
+  | X, .exit _ => X
+
+def target (t : Target R K A) : Target (fun i => product P (R i)) K (packetType P t) :=
+  match t with
+  | .local i => .local i
+  | .exit h => .exit h
+
+def packet (t : Target R K A) (capture : Operand Φ δ P) (value : Operand Φ δ A) :
+    Operand Φ δ (packetType P t) :=
+  match t with
+  | .local _ => ⟨.pair capture.1 value.1, .pair capture.2 value.2⟩
+  | .exit _ => value
+
+/-- The unpacked context has the old payload and retained input as its
+newest slots. The original ambient context skips the combined packet. -/
+def splitContext (β : BoundCtx τ d) (P A : τ) :=
+  (((β.snoc (product P A)).snoc P).snoc A)
+
+def readOriginal (a : Operand Φ ((β.snoc P).snoc A) B) :
+    Operand Φ (splitContext β P A) B :=
+  ⟨_, a.2.rename (((BoundCtx.Renaming.succ β (product P A)).up P).up A)⟩
+
+def unpack (body : Operand Φ (splitContext β P A) B) : Operand Φ (β.snoc (product P A)) B :=
+  ⟨.let₂ (.bv 0) body.1, .let₂ .bv body.2⟩
+
+/-- Compute the original scrutinee once, and attach the retained input
+only to the selected local destination. -/
+def casePacket {B D : τ} (a : Operand Φ ((β.snoc P).snoc A) (coprod B D))
+    (l : Target R K B) (r : Target R K D) :
+    Operand Φ (splitContext β P A) (coprod (packetType P l) (packetType P r)) :=
+  let l' := packet l (δ := (splitContext β P A).snoc B) ⟨.bv 2, .bv⟩ ⟨.bv 0, .bv⟩
+  let r' := packet r (δ := (splitContext β P A).snoc D) ⟨.bv 2, .bv⟩ ⟨.bv 0, .bv⟩
+  ⟨.case (readOriginal a).1 (.inl l'.1) (.inr r'.1),
+    .case (readOriginal a).2 (.inl l'.2) (.inr r'.2)⟩
+
+def block : Block Φ (β.snoc P) R K A →
+    Block Φ β (fun i => product P (R i)) K (product P A)
+  | .jump a t => .jump (unpack (packet t ⟨.bv 1, .bv⟩ (readOriginal a))) (target t)
+  | .case a l r => .case (unpack (casePacket a l r)) (target l) (target r)
+
+/-- Move the newest ambient capture into each local packet, preserving
+the original rows and position of every local and outward destination. -/
+def carry (q : Table Φ (β.snoc P) K m) : Table Φ β K m where
+  types i := product P (q.types i)
+  block i := block (q.block i)
+
+/-- Read the carried input and compute the original entry once. -/
+def carryEntry (a : Operand Φ (β.snoc P) A) : Operand Φ (β.snoc P) (product P A) :=
+  ⟨.pair (.bv 0) a.1, .pair .bv a.2⟩
+
+variable (p : Table Φ β L n) (q : Table Φ (β.snoc (packedExitType L)) K m)
+  (j : Fin (m + 1)) (receive : Operand Φ (β.snoc (packedExitType L)) (q.types j))
+
+/-- Serial link with an open consumer. Use the existing ordered handoff
+and disjoint row intervals after moving the capture into packets. -/
+def table : Table Φ β K (Link.size p (carry q)) :=
+  Link.table p (carry q) j (carryEntry receive)
+
+def start (i : Fin (n + 1)) (entry : Operand Φ β (p.types i)) :
+    Operand Φ β ((table p q j receive).types (Link.leftIndex p (carry q) i)) :=
+  Link.entry p (carry q) j (carryEntry receive) i entry
+
+end Open
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Link

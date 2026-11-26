@@ -4,16 +4,14 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Defs
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Reverse.Complete.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Ranking
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Trace
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.OpenTrace
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Link.Native
 
 /-! # Checked serial composition at written CFG endpoints
 
-The producer and consumer share the ambient context. The consumer receives
-the producer's packed result through a typed entry operand. Later consumer
-rows can use that result by carrying it in their packets. This interface is
-closed under plugging a receiver into a checked producer. A general open
-table with the intermediate result in its ambient context still needs a
-packet-carrying conversion before it can be plugged in here.
+The base linker passes the producer's ordered result to the consumer's
+entry. The open linker also supports consumers that retain that result
+in their ambient context, by threading it through each local packet.
 -/
 
 @[expose] public section
@@ -151,5 +149,84 @@ theorem checkedClass_identity (input : StructuralContext β) (h : L ≠ [])
   exact operandClass_identity_proof h (identity_check h) _
 
 end Finite
+
+namespace Open
+
+section Rank
+
+universe u v
+
+variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
+  {d n m : Nat} {β : BoundCtx τ d} {L K : LCtx τ}
+
+/-- Every converted row keeps its exact local successor list. -/
+theorem carry_localTargets {P : τ} (q : Table Φ (β.snoc P) K m) (i : Fin (m + 1)) :
+    (carry q).localTargets i = q.localTargets i :=
+  carry_localTargets_proof q i
+
+/-- The packet conversion preserves the global checker result, including
+for rows unreachable from the selected entry. -/
+theorem carry_check {P : τ} (q : Table Φ (β.snoc P) K m) :
+    (carry q).check = q.check :=
+  congrArg Rank.check (funext (carry_localTargets q))
+
+theorem check (p : Table Φ β L n) (q : Table Φ (β.snoc (packedExitType L)) K m)
+    (hp : p.check = true) (hq : q.check = true)
+    (j : Fin (m + 1)) (receive : Operand Φ (β.snoc (packedExitType L)) (q.types j)) :
+    (table p q j receive).check = true :=
+  Link.check p (carry q) hp ((carry_check q).trans hq) j (carryEntry receive)
+
+/-- Compose actual row-zero representatives at an open receiver interface. -/
+def checked (p : CheckedTable Φ β L) (q : CheckedTable Φ (β.snoc (packedExitType L)) K) :
+    CheckedTable Φ β K :=
+  Link.checked p (carry q.table) ((carry_check q.table).trans q.checked) 0 (carryEntry q.entry)
+
+end Rank
+
+section Finite
+
+variable {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {d n m : Nat}
+  {β : BoundCtx (Ty Empty) d} {L K : LCtx (Ty Empty)}
+  (p : Table Φ β L n) (q : Table Φ (β.snoc (packedExitType L)) K m)
+  (hp : p.check = true) (hq : q.check = true) (i : Fin (n + 1)) (j : Fin (m + 1))
+  (entry : Operand Φ β (p.types i)) (receive : Operand Φ (β.snoc (packedExitType L)) (q.types j))
+
+/-- The actual linked emitter preserves both original stages, including
+reads of the intermediate result after local transfers in the consumer. -/
+theorem serial_run (env : BoundEnv LetCase.Structural.Finite.Value β) :
+    run ((table p q j receive).toLetCase (check p q hp hq j receive)
+      (Link.leftIndex p (carry q) i) (start p q j receive i entry)).2 env =
+      run (bind (p.toLetCase hp i entry) (q.toLetCase hq j receive)).2 env :=
+  (Link.serial_run p (carry q) hp ((carry_check q).trans hq) i j entry (carryEntry receive) env).trans
+    (congrArg (fun k => run (p.toLetCase hp i entry).2 env >>= k)
+      (funext (continuation_carry_run_proof q hq ((carry_check q).trans hq) j receive env)))
+
+/-- Reflect the staged sequencing equation into native LetCase at the original
+input and ordered outward interface. -/
+theorem serial_equiv (input : StructuralContext β) :
+    Equiv false Γ₀ β
+      ((table p q j receive).toLetCase (check p q hp hq j receive)
+        (Link.leftIndex p (carry q) i) (start p q j receive i entry)).1
+      (bind (p.toLetCase hp i entry) (q.toLetCase hq j receive)).1 (packedExitType K) :=
+  (LetCase.Structural.Finite.equiv_iff_traceArrow_eq input _ _).mpr
+    ((LetCase.Structural.Reply.traceArrow_eq_iff_run _ _).mpr (serial_run p q hp hq i j entry receive))
+
+/-- The literal linked CFG and the checked realization of staged sequencing
+agree by native replay at the original packed endpoints. -/
+theorem serial_packed_replay (input : StructuralContext β) :
+    let seq := bind (p.toLetCase hp i entry) (q.toLetCase hq j receive)
+    let realized := CheckedTable.ofFiniteLetCase input seq
+    ReplayEqv false β.toList
+      ((table p q j receive).packedSSA (Link.leftIndex p (carry q) i) (start p q j receive i entry))
+      (realized.table.packedSSA 0 realized.entry) [packedExitType K] := by
+  let seq := bind (p.toLetCase hp i entry) (q.toLetCase hq j receive)
+  exact ((table p q j receive).toLetCase_reify (check p q hp hq j receive)
+    (Link.leftIndex p (carry q) i) (start p q j receive i entry)).trans
+    ((reify_equiv_finite _ seq.2 (serial_equiv p q hp hq i j entry receive input)).trans
+      (CheckedTable.ofLetCase_packed_replay (Reverse.exits_ne_nil_of_operand input seq) seq.2).symm)
+
+end Finite
+
+end Open
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Link
