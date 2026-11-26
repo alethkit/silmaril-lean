@@ -25,8 +25,8 @@ def original (g : AddPhi.Pair.Source inputs sigs) (x : InputWord inputs) :
     Program inputs sigs [word, word] :=
   ⟨x, g, spine⟩
 
-/-- The source compares the outer Add with the right Φ for doubling.
-The identity of the two Φ reads does not restrict this rotation. -/
+/-- The doubling guard at the outer add compares the inner Add with the
+right Φ. Both Φ operands may refer to the same node. -/
 def rewrite? (g : AddPhi.Pair.Source inputs sigs) (x : InputWord inputs) :
     Option (Program inputs sigs [word]) :=
   (AddPhi.Pair.rewriteWith? eligible g).map (Rotate.emit x)
