@@ -1,7 +1,9 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Diagnostic.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Reuse.Chain.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
@@ -216,5 +218,26 @@ private def newProbes (graph : Memory.Graph Args) (values : Tuple (Val 5) Args) 
 #guard reboundSnapshots prefixOnly.replay == newExpected.map (List.replicate 2)
 #guard newProbes prefixOnly.replay.retained secondAlias == newProbes entry secondAlias
 #guard newProbes withoutBoth secondAlias == [some 80, some 60, some 90, some 90, none]
+
+private def passed := Reuse.Chain.Diagnostic.lower success entry newInput
+private def explained := Reuse.Chain.Diagnostic.lower success entry secondAlias
+
+#guard passed.refusal.isNone && passed.checkedPrefix.replay.deleted == 2
+#guard reboundSnapshots passed.checkedPrefix.replay == newExpected.map (List.replicate 3)
+#guard explained.checkedPrefix.replay.deleted == 1 && explained.checkedPrefix.pending.length == 1
+#guard reboundBuffers explained.checkedPrefix.replay == reboundBuffers prefixOnly.replay
+#guard reboundSnapshots explained.checkedPrefix.replay == newExpected.map (List.replicate 2)
+
+#guard (explained.refusal.map fun report =>
+  let access := match report.conflict.site with
+    | .entry index => some index
+    | .arm _ _ => none
+  (report.stageIndex, report.version, report.store.index, access, report.conflict.port.index,
+    report.conflict.address.val)) == some (1, 1, 1, some 0, 3, 3)
+
+example : explained.checkedPrefix = prefixOnly := Reuse.Chain.Diagnostic.lower_prefix
+
+-- A stale original request is stopped by admission and never enters the recorded chain.
+#guard (Reuse.Chain.Diagnostic.lower stale entry input).refusal.isNone
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.MixedTail.Replay

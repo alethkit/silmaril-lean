@@ -473,6 +473,31 @@ second contract, retains the first optimized artifact, and exhibits the
 Load value the second cut would change.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
 
+### Diagnose a refused recorded cut
+
+`MixedTail.Reuse.Chain.Diagnostic.lower` returns the exact existing
+prefix recheck and an optional refusal. The refusal gives the
+zero-based stage index in the original admitted list and the one-based
+Store version in the preceding retained entry. The recheck supplies
+that exact typed entry and emitted CFG, along with the untouched
+pending stages starting at the refused stage.
+
+The diagnostic gives the two typed address ports and their common
+cell at the new input. It scans the refused stage's ordered entry
+suffix first, then each original Region occurrence and its recorded
+pre-overwrite readers. The reported index is zero-based within the
+entry suffix's accesses or the selected occurrence's reader list.
+Repeated predecessor IDs keep distinct occurrence indices.
+
+The original admission checks the cut shape and the overwrite and
+reader structure. At reuse, these are fixed. The new input can fail
+only a recorded separation obligation. A structural refusal during
+original admission stays in that replay's remaining requests. A
+complete reuse of the admitted stages has no diagnostic.
+[API and exactness theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Chain/Diagnostic/Thms.lean)
+[Two-cut fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
+[Occurrence reader fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Reuse/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
