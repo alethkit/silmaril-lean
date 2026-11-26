@@ -106,6 +106,17 @@ cell. `sat_iff_denote` gives the satisfaction equivalence directly for the
 reference relation, existentially hiding the final connection.
 [Adapter and laws](../../Silmaril/Logic/RelationalQuery/SQLite/Thms.lean) · [Existing point-read semantics](sqlite-relational-d2.md)
 
+`CatalogPointRead` in the same header indexes the projection by the SQLite
+`TableCatalog`. Its table name, column and admission checks use only resolved
+table declarations. `sentence` binds slot 1 to a signed 64-bit key and takes
+a Boolean test on the projected cell. For each snapshot with
+`snapshot.catalog.tables = catalog`, `queryModelOfSnapshot` supplies that
+snapshot's checked rows at the same signature. This requires equality of the
+table declarations and permits different rows and other catalog objects.
+`CatalogPointRead.eval_sentence` and `CatalogPointRead.sat_iff_denote` relate
+evaluation in each such model to its own checked point-read result.
+[Cross-snapshot check](../../Silmaril/Logic/RelationalQuery/SQLite/Checks.lean)
+
 With a constant-true test, a result cell of `some .null` satisfies the sentence,
 as does `some (.integer 0)`. A result cell of `none` means no row and makes the
 sentence false. A Lean test can explicitly recognize the `.null` constructor.
@@ -114,14 +125,24 @@ propagation and SQLite coercions, which this bridge does not interpret. It cover
 checked snapshots and single-row projections. Unbound or erroneous invocations,
 views, generated projections, hidden rowid, native file/VDBE execution and
 multi-row results are outside its coverage.
-[Checked SQLite examples](../../Silmaril/Logic/RelationalQuery/SQLite/Checks.lean)
+
+Import `Silmaril.Machine.SQLite.CommandProcessor.Query.Thms` to connect the
+catalog sentence to the modeled compiler and VM. `pointRead_sat_iff_execute`
+requires a compatible snapshot, a `Parser.Represents` witness for the text and
+the declared names, and `CodeGenerator.Represents` at the caller-supplied
+location of the resolved target. The VM table must match the checked rows in
+order, by signed rowid and by a present projected cell that transfers to the
+same `SqlValue`. Under these hypotheses, the sentence holds exactly when the
+compiled run with the same bound key returns a cell passing the test.
+[Modeled execution theorem](../../Silmaril/Machine/SQLite/CommandProcessor/Query/Thms.lean) · [Point-read compiler](sqlite-point-select.md)
 
 ## Verification
 
 ```sh
 set -- +Silmaril.Logic.RelationalQuery.Checks \
        +Silmaril.Logic.RelationalQuery.SQLite.Checks \
-       +Silmaril.Semantics.SQLite.Relational.Executor.Catalog.Checks
+       +Silmaril.Semantics.SQLite.Relational.Executor.Catalog.Checks \
+       +Silmaril.Machine.SQLite.CommandProcessor.Execute.Checks
 lake build --wfail "$@"
 make check CHECK_TARGETS="$*"
 ```
