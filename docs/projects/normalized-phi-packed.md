@@ -611,3 +611,24 @@ supplied values and their tags in the actual destination order. The
 constructed re-admissions retain the two ordered exits and the checked
 independence from the older slot values.
 [Swap checks](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### What remains of reverse acceptance after emission
+
+`GeneratedSplit.reverseChecked_iff_readback` identifies the remaining
+condition once the ordinary reverse lowerer has emitted an RTL table.
+Emission fixes the block count. Successful scoped readback implies packet
+closure because each block is elaborated with only its own parameter in
+scope. The readback must equal the generated split's flat table with the
+declared live-out reads attached. The ordered φ admission supplies the
+typed flat table and its profiles. Acceptance uses the supplied reverse
+allocation and checks the exact ordered live-out readback.
+[Reverse acceptance theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/ReverseAcceptance/Thms.lean)
+
+The swap fixture constructs the split's reverse certificate using only
+successful emission and its exact readback equation. It also checks two
+rejections. Reusing the original accepted allocation fails after the
+split. With the relocated allocation, exchanging the two numeric
+left-exit registers still emits a scoped, packet-closed RTL table that
+elaborates and typechecks at the generated profile. Its final flat block
+differs from the admitted one, so exact reverse acceptance rejects it.
+[Swap regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)

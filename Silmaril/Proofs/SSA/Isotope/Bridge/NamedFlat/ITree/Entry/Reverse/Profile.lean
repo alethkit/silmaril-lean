@@ -110,6 +110,38 @@ private theorem body_reads {n : Nat} {names : Names V n} {src : CFG.Body V K F} 
 
 end Readback
 
+section PacketClosure
+
+variable {V K : Type w} {F : Type v} [DecidableEq V] [DecidableEq K] {n blocks : Nat}
+
+theorem elaborateAt_packetClosed (graph : CFG V K F) (exits : List K) (names : Fin n → V)
+    (count : graph.blocks.length = blocks) {code : FiniteCFG F blocks exits.length n}
+    (readback : elaborateAt graph exits names blocks count = some code) :
+    RoundTrip.PacketClosed graph := by
+  let index := fun label => (labelIndex graph.blocks exits label).map
+    (Fin.cast (congrArg (· + exits.length) count))
+  let readBlock := fun i : Fin blocks =>
+    let block := graph.blocks[Fin.cast count.symm i].2
+    body index (blockNames (n := n) block.param) block.body
+  change (body index (first names) graph.entry).bind
+    (fun entry => (tabulate blocks readBlock).map fun rows => ⟨entry, rows⟩) = some code at readback
+  obtain ⟨_, _, table⟩ := Option.bind_eq_some_iff.mp readback
+  obtain ⟨rows, tabulated, _⟩ := Option.map_eq_some_iff.mp table
+  intro item member reg free
+  obtain ⟨i, hi, eq⟩ := List.getElem_of_mem member
+  let slot : Fin blocks := Fin.cast count ⟨i, hi⟩
+  have read := Silmaril.Isotope.Bridge.NamedFlat.tabulate_at tabulated slot
+  have block : graph.blocks[Fin.cast count.symm slot] = item := by simpa [slot] using eq
+  change body index (blockNames (n := n) graph.blocks[Fin.cast count.symm slot].2.param)
+    graph.blocks[Fin.cast count.symm slot].2.body = some (rows slot) at read
+  rw [block] at read
+  have bound := body_reads read reg ((region_mem_fv _ _).mpr free)
+  by_cases same : reg = item.2.param
+  · exact Finset.mem_singleton.mpr same
+  · simp [blockNames, bindName, same] at bound
+
+end PacketClosure
+
 variable {κ K : Type (u + 1)} [DecidableEq K]
   {n blocks : Nat} {P : FlatInstitution.Signature.{u, v} κ}
   {context : BoundCtx (Ty κ) n} {exits : List K} {external : Fin exits.length → Ty κ}
