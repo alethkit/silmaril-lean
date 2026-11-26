@@ -196,6 +196,26 @@ theorem returns_iff (compiled : Compiled mapping source origins) (input : WordTu
   · rintro ⟨slots, before, finish, after, route, realized, taken, rtl, cf⟩
     exact ⟨_, rtl⟩
 
+/-- For a fixed result word, a successful bounded CF run exists exactly
+when an independent, separately-bounded RTL run exists returning the
+same singleton with the initial memory preserved. Composes the
+fixed-value CF inversion (`from_entry`/`Exit.from_return_path`) with the
+actual RTL iff (`returns_iff`); neither direction treats a single
+insufficient budget as evidence of nonreturn. -/
+theorem cf_returns_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (value : Word) :
+    (∃ fuel, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) ↔
+    (∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) := by
+  constructor
+  · rintro ⟨fuel, observed⟩
+    obtain ⟨slots, finish, before, after, _, _, path, _, _, _⟩ := from_entry compiled input mem fuel value observed
+    obtain ⟨before', finish', after', _, _, _, _, rtl, _⟩ := Exit.from_return_path compiled input mem path
+    exact ⟨_, rtl⟩
+  · intro observed
+    obtain ⟨slots, before, finish, after, route, realized, taken, rtl, cf⟩ :=
+      (returns_iff compiled input mem value).mp observed
+    exact ⟨_, cf⟩
+
 /-- A bounded CF return exists for the typed input and initial memory
 exactly when the abstract native source has some finite return along an
 ordered dispatch route. This is the CF side of the existing RTL-oracle
