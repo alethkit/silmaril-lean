@@ -475,6 +475,113 @@ func checkScalarAbstraction() {
 	fmt.Println("PASS scalar abstraction observations, exact large numbers and stored alias identity")
 }
 
+type failingHashKey struct{ calls *int }
+
+func (failingHashKey) String() string       { return "failing_hash" }
+func (failingHashKey) Type() string         { return "failing_hash" }
+func (failingHashKey) Freeze()              {}
+func (failingHashKey) Truth() starlark.Bool { return starlark.True }
+func (k failingHashKey) Hash() (uint32, error) {
+	*k.calls++
+	return 0, fmt.Errorf("hash was reached")
+}
+
+func checkMutationGuards() {
+	var calls int
+	bad := failingHashKey{calls: &calls}
+	value := starlark.MakeInt(7)
+	var zero starlark.Dict
+	_, found, err := zero.Delete(bad)
+	require(!found && err == nil && calls == 0, "zero delete must miss before hashing")
+
+	iterator := zero.Iterate()
+	err = zero.SetKey(bad, value)
+	require(err != nil && err.Error() == "cannot insert into hash table during iteration" && calls == 0,
+		"iterator guard must precede initialization and hashing")
+	_, _, err = zero.Delete(bad)
+	require(err != nil && err.Error() == "cannot delete from hash table during iteration" && calls == 0,
+		"iterator guard must precede the zero-table delete miss")
+	iterator.Done()
+	_, found, err = zero.Delete(bad)
+	require(!found && err == nil && calls == 0, "rejected assignment allocated its table")
+
+	err = zero.SetKey(bad, value)
+	require(err != nil && err.Error() == "hash was reached" && calls == 1 && zero.Len() == 0,
+		"allowed zero assignment must hash and leave its rows empty on error")
+	_, found, err = zero.Delete(bad)
+	require(!found && err != nil && err.Error() == "hash was reached" && calls == 2,
+		"failed zero assignment must leave allocated storage")
+	_, found, err = starlark.NewDict(0).Delete(bad)
+	require(!found && err != nil && err.Error() == "hash was reached" && calls == 3,
+		"initialized empty delete must hash")
+
+	dict := starlark.NewDict(0)
+	existing := traceKey{id: 0, word: 3, hashCalls: &calls}
+	require(dict.SetKey(existing, value) == nil, "replacement guard setup failed")
+	n := calls
+	iterator = dict.Iterate()
+	err = dict.SetKey(existing, starlark.None)
+	require(err != nil && err.Error() == "cannot insert into hash table during iteration" && calls == n,
+		"iteration must reject replacement before hashing")
+	dict.Freeze()
+	err = dict.SetKey(existing, starlark.None)
+	require(err != nil && err.Error() == "cannot insert into frozen hash table" && calls == n,
+		"freeze must win over active iteration on assignment")
+	_, _, err = dict.Delete(bad)
+	require(err != nil && err.Error() == "cannot delete from frozen hash table" && calls == n,
+		"freeze must win over active iteration on deletion")
+	iterator.Done()
+	got, found, err := dict.Get(existing)
+	require(err == nil && found && got == value && dict.Len() == 1, "a rejected edit changed the dictionary")
+
+	var frozenZero starlark.Dict
+	frozenZero.Freeze()
+	n = calls
+	_, _, err = frozenZero.Delete(bad)
+	require(err != nil && err.Error() == "cannot delete from frozen hash table" && calls == n,
+		"freeze must win over the unallocated delete miss")
+	popitem, err := frozenZero.Attr("popitem")
+	require(err == nil, "missing popitem")
+	_, err = starlark.Call(&starlark.Thread{}, popitem, nil, nil)
+	require(err != nil && err.Error() == "popitem: empty dict", "popitem must check emptiness before deletion guards")
+	fmt.Println("PASS guard precedence, retained rows, zero-table initialization, and the popitem boundary")
+}
+
+func checkAssignmentOperandOrder() {
+	var trace []string
+	var hashes int
+	var keyError bool
+	frozen := starlark.NewDict(0)
+	frozen.Freeze()
+	note := func(name string, value starlark.Value) *starlark.Builtin {
+		return starlark.NewBuiltin(name, func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			trace = append(trace, name)
+			if name == "key" && keyError {
+				return nil, fmt.Errorf("key expression failed")
+			}
+			return value, nil
+		})
+	}
+	env := starlark.StringDict{
+		"rhs": note("rhs", starlark.MakeInt(7)), "receiver": note("receiver", frozen),
+		"key": note("key", failingHashKey{calls: &hashes}),
+	}
+	run := func(source, errorPart string, order []string) {
+		trace = nil
+		_, err := starlark.ExecFileOptions(&syntax.FileOptions{}, &starlark.Thread{}, "guards.star", source, env)
+		require(err != nil && strings.Contains(err.Error(), errorPart),
+			fmt.Sprintf("want %q, got %v", errorPart, err))
+		require(slices.Equal(trace, order) && hashes == 0,
+			fmt.Sprintf("want stages %v without hashing, got %v with %d hashes", order, trace, hashes))
+	}
+	run("receiver()[key()] = rhs()", "cannot insert into frozen hash table", []string{"rhs", "receiver", "key"})
+	keyError = true
+	run("receiver()[key()] = rhs()", "key expression failed", []string{"rhs", "receiver", "key"})
+	run("def missing():\n  d[key()] = rhs()\n  d = {}\nmissing()\n",
+		"referenced before assignment", []string{"rhs"})
+	fmt.Println("PASS assignment evaluates RHS, receiver and key before guarding the mutation")
+}
+
 func main() {
 	require(starlark.CompareLimit == 10, "pinned default comparison limit changed")
 	checkHashes()
@@ -486,4 +593,6 @@ func main() {
 	checkDeletionSlots()
 	checkDeletionErrors()
 	checkScalarAbstraction()
+	checkMutationGuards()
+	checkAssignmentOperandOrder()
 }
