@@ -80,7 +80,7 @@ theorem boundary_project_read {Ty : Type u} {F : Ty → Type w} {imports entry u
     cases origin with
     | output => simp [Boundary.project] at found
     | arg p =>
-      cases selected : source p with
+      cases selected : source.get p with
       | none => simp [Boundary.project, selected] at found
       | some q =>
         cases more : Boundary.project source rest with
