@@ -6,7 +6,8 @@ revision=4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 oracle=$(mktemp -d)
 trap 'rm -rf "$oracle"' EXIT
 
-lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
+  +Silmaril.Languages.Starlark.Frontend.Module.Checks
 lake env lean -DautoImplicit=false -DwarningAsError=true --run "$script_dir/Fixtures.lean" \
   "$oracle/fixtures.json"
 

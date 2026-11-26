@@ -27,7 +27,7 @@ inductive Feature where
   | compoundStatement | loadStatement | functionControl
   | inlineSuite | parameters | functionFile
   | augmentedAssignment
-  | tuple | collection | lambda | call | subscript | attribute | operator
+  | tuple | collection | lambda | call | callArguments | subscript | attribute | operator
   deriving DecidableEq, Repr
 
 inductive DiagnosticKind where
