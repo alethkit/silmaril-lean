@@ -28,4 +28,36 @@ theorem Get.eval_default_error (test : Get) (globals : String → Option ReadVal
     (failed : test.fallback.read globals = .error error) :
     test.eval globals resolve = .error error := by simp [Get.eval, readName, found, live, prepared, failed, bind, Except.bind]
 
+theorem Clear.prepare_zero (globals : String → Option ReadValue) (resolve : Object → Option (List Entry))
+    {receiver : String} {object : Object} {entries : List Entry}
+    (found : globals receiver = some (.object object)) (live : resolve object = some entries) :
+    (⟨receiver, []⟩ : Clear).prepare globals resolve = .ok object := by
+  simp [Clear.prepare, readName, found, live, bind, Except.bind, pure, Except.pure]
+
+theorem Clear.prepare_receiverError (call : Clear) (globals : String → Option ReadValue)
+    (resolve : Object → Option (List Entry)) {error : Failure}
+    (failed : readName globals call.receiver = .error error) : call.prepare globals resolve = .error error := by
+  simp [Clear.prepare, failed, bind, Except.bind]
+
+theorem Clear.prepare_argumentError (call : Clear) (globals : String → Option ReadValue)
+    (resolve : Object → Option (List Entry)) {object : Object} {entries : List Entry} {error : Failure}
+    (found : globals call.receiver = some (.object object)) (live : resolve object = some entries)
+    (failed : call.arguments.mapM (Argument.read globals) = .error error) :
+    call.prepare globals resolve = .error error := by
+  simp [Clear.prepare, readName, found, live, failed, bind, Except.bind]
+
+theorem Clear.prepare_wrongReceiver (call : Clear) (globals : String → Option ReadValue)
+    (resolve : Object → Option (List Entry)) {atom : Atom}
+    (found : globals call.receiver = some (.atom atom)) : call.prepare globals resolve = .error .unsupported := by
+  simp [Clear.prepare, readName, found, bind, Except.bind]
+  rfl
+
+theorem Clear.prepare_arity (call : Clear) (globals : String → Option ReadValue)
+    (resolve : Object → Option (List Entry)) {object : Object} {entries : List Entry} {first : ReadValue}
+    {rest : List ReadValue} (found : globals call.receiver = some (.object object))
+    (live : resolve object = some entries) (prepared : call.arguments.mapM (Argument.read globals) = .ok (first :: rest)) :
+    call.prepare globals resolve = .error (.clearArity (rest.length + 1)) := by
+  simp [Clear.prepare, readName, found, live, prepared, bind, Except.bind]
+  rfl
+
 end Silmaril.Languages.Python.Core.Module.Dictionary

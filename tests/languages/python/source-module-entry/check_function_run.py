@@ -21,6 +21,13 @@ d = {1: 9}
 observed = alias.get(1)
 kept = d.get(True)
 """, "normal", ".normal", 7, 9),
+    ("persistent_dictionary_clear", """d = {1: 7}
+alias = d
+other = {1: 9}
+result = d.clear()
+observed = alias.get(1, 0)
+kept = other.get(1)
+""", "normal", ".normal", 0, 9),
     ("none_literal_preserved", """observed = None
 assert observed == None
 assert observed != False

@@ -60,14 +60,14 @@ theorem ordinary_settlement {scope : Source.Scope} (table : CodeTable) (session 
         | .ok () => .ready outcome.reached rest
         | .error error => .finished outcome.reached error) := rfl
 
-theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace) (plan : Plan (Step scope)) :
-    (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins :=
-  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_reached_builtins space plan
+theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace) (plan : Plan (Step scope))
+    (heap : Core.Closure.Heap := .empty) : (Seeded.runExceptionalTry space plan heap).reached.builtins = space.builtins :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry.seeded_reached_builtins space plan heap
 
 theorem seeded_settlement {scope : Source.Scope} (space : Namespace) (context : Seeded.CallContext)
     (plan : Plan (Step scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
     Seeded.runInstructionsIn space context (.exceptionalTry plan :: rest) lists =
-      let outcome := Seeded.runExceptionalTry space plan
+      let outcome := Seeded.runExceptionalTry space plan context.heap
       match outcome.completion with
       | .ok () => Seeded.runInstructionsIn outcome.reached context rest lists
       | .error error => ⟨outcome.reached, .error error, [], context.heap, lists⟩ :=
@@ -88,7 +88,7 @@ theorem seeded_raise_stock {scope : Source.Scope} (space : Namespace) (call : Ra
     {message : Core.Text}
     (found : space.lookupGlobal call.name = some (.exceptionClass .exception))
     (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok (.one (some message))) :
-    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) := by
+    Seeded.exceptionalStep .empty space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) := by
   simp [Seeded.exceptionalStep, call.error_construct _ _ _ found read, Seeded.raiseValue,
     Functions.ExceptionalTry.RaiseValue.construct]
 
@@ -97,14 +97,14 @@ theorem seeded_raise_builtin {scope : Source.Scope} (space : Namespace) (call : 
     (absent : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = none)
     (stock : Core.Module.SeededCall.lookupBinding space.builtins call.name = some (.exceptionClass .exception))
     (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok (.one (some message))) :
-    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) :=
+    Seeded.exceptionalStep .empty space (.raiseCall call) = .error (.raised (.runtime (.explicitException message))) :=
   seeded_raise_stock space call ((Namespace.builtin_fallback space absent).trans stock) read
 
 theorem seeded_raise_masked {scope : Source.Scope} (space : Namespace) (call : RaiseCall scope)
     {arguments : RaiseArguments}
     (mask : Core.Module.SeededCall.lookupBinding space.moduleGlobals call.name = some .none)
     (read : call.evalArguments space.lookupGlobal Seeded.raiseText? = .ok arguments) :
-    Seeded.exceptionalStep space (.raiseCall call) = .error (.raised (.runtime .notCallable)) := by
+    Seeded.exceptionalStep .empty space (.raiseCall call) = .error (.raised (.runtime .notCallable)) := by
   simp [Seeded.exceptionalStep, call.error_construct _ _ _ (Namespace.module_precedes space mask) read,
     Seeded.raiseValue, Functions.ExceptionalTry.RaiseValue.construct]
 
@@ -116,7 +116,7 @@ theorem ordinary_raise_class {scope : Source.Scope} (session : Session) (operand
 theorem seeded_raise_class {scope : Source.Scope} (space : Namespace) (operand : RaiseName scope)
     {kind : Core.Closure.ExceptionClass}
     (found : space.lookupGlobal operand.name = some (.exceptionClass kind)) :
-    Seeded.exceptionalStep space (.raiseName operand) = .error (.raised (.runtime (.raisedInstance (.empty kind)))) := by
+    Seeded.exceptionalStep .empty space (.raiseName operand) = .error (.raised (.runtime (.raisedInstance (.empty kind)))) := by
   simp [Seeded.exceptionalStep, operand.error_found _ _ found, Seeded.raiseValue,
     Functions.ExceptionalTry.RaiseValue.normalize]
 

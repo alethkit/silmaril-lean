@@ -68,12 +68,10 @@ theorem Heap.materializeDictionary_keeps (heap : Heap) (display : List Core.Modu
 theorem Heap.materializeDictionary_entries (heap : Heap) (display : List Core.Module.Dictionary.Entry) :
     let (object, reached) := heap.materializeDictionary display
     reached.dictionaryEntries? object = some (Core.Module.Dictionary.build display) := by
-  let object : Core.Module.Dictionary.Object := ⟨heap.next, Core.Module.Dictionary.build display⟩
-  have found : (heap.allocate (.dictionary object)).2.lookup ⟨object.address⟩ = some (some (.dictionary object)) :=
-    Heap.lookup_allocate_new heap _
-  change (heap.allocate (.dictionary object)).2.dictionaryEntries? object = _
-  simp [Heap.dictionaryEntries?, found]
-  rfl
+  let data := Value.dictionaryData (Core.Module.Dictionary.build display)
+  have found : (heap.allocate data).2.lookup ⟨heap.next⟩ = some (some data) := Heap.lookup_allocate_new heap data
+  change (heap.allocate data).2.dictionaryEntries? ⟨heap.next⟩ = _
+  simp [Heap.dictionaryEntries?, found, data]
 
 theorem Heap.allocate_distinct (heap : Heap) (first second : Value) :
     ((heap.allocate first).2.allocate second).1 ≠ (heap.allocate first).1 := by
@@ -120,6 +118,19 @@ theorem Heap.write_spec {heap updated : Heap} {identity : CellId} {value : Value
     updated.next = heap.next ∧ updated.lookup identity = some (some value) ∧
       ∀ other, other ≠ identity → updated.lookup other = heap.lookup other :=
   Proofs.Languages.Python.Core.Closure.heap_write_spec write
+
+theorem clearDictionary_spec {heap updated : Heap} {call : Core.Module.Dictionary.Clear}
+    {globals : String → Option Core.Module.Dictionary.ReadValue} {object : Core.Module.Dictionary.Object}
+    (prepared : call.prepare globals heap.dictionaryEntries? = .ok object)
+    (cleared : clearDictionary heap globals call = .ok updated) :
+    updated.next = heap.next ∧ updated.dictionaryEntries? object = some [] ∧
+      ∀ other, other.address ≠ object.address → updated.lookup other = heap.lookup other :=
+  Proofs.Languages.Python.Core.Closure.clear_dictionary_spec prepared cleared
+
+theorem clearDictionary_prepareError {heap : Heap} {call : Core.Module.Dictionary.Clear}
+    {globals : String → Option Core.Module.Dictionary.ReadValue} {error : Core.Module.Dictionary.Failure}
+    (failed : call.prepare globals heap.dictionaryEntries? = .error error) :
+    clearDictionary heap globals call = .error error := by simp [clearDictionary, failed, bind, Except.bind]
 
 theorem Frame.fresh_owned_unbound (heap : Heap) {layout : Layout}
     (captures : Fin layout.captures → CellId) (index : Fin layout.owned) :

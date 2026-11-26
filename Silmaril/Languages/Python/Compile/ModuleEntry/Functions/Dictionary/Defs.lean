@@ -7,7 +7,7 @@ public import Silmaril.Languages.Python.Core.Module.Dictionary.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Dictionary
 
 open Source (ArgumentKind Expr Scope)
-open Core.Module.Dictionary (Atom Entry Get Argument)
+open Core.Module.Dictionary (Atom Entry Get Clear Argument)
 
 def atom? : Expr → Option Atom
   | .text points => (Core.Text.ofPoints? points).map .text
@@ -42,5 +42,21 @@ where
     let checkedKey ← argument? scope key
     let checkedFallback ← argument? scope fallback
     return ⟨receiver, checkedKey, checkedFallback⟩
+
+/-- Admit the direct call only. Flat excess positional arguments reach the
+stock arity error after their ordered preparation. -/
+def checkedClear? (scope : Scope) : Expr → Option Clear
+  | .call (.attribute (.name receiver) "clear") arguments =>
+    checkedArguments receiver (arguments.map (.positional, ·))
+  | .callWith (.attribute (.name receiver) "clear") arguments =>
+    checkedArguments receiver arguments
+  | _ => none
+where
+  checkedArguments (receiver : String) (arguments : List (ArgumentKind × Expr)) : Option Clear := do
+    let _ ← globalReference? scope receiver
+    let values ← arguments.mapM fun
+      | (.positional, source) => argument? scope source
+      | _ => none
+    return ⟨receiver, values⟩
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Dictionary

@@ -86,7 +86,7 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
   | .running source (.assert test next) stack =>
     some <| match test.evalIn globals source.heap.project source.frame with
     | .ok value =>
-      if value.truth then (none, .running source next stack)
+      if value.truth source.heap.project then (none, .running source next stack)
       else (none, .delivering source.heap stack (.error .assertionError))
     | .error error => fail source.heap stack error
   | .running source (.assertFreevars test next) stack =>

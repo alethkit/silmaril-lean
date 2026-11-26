@@ -77,7 +77,7 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
     (value : Core.Module.Value) (expected : Bool) (rest : List (Instruction scope)) :
     assertOperand session (.scalarResult value) expected rest =
       (if value.truth = expected then .ready session rest else .finished session .assertionError) := by
-  have truth : Core.Module.Functions.truth (embed value) = value.truth := by cases value <;> rfl
+  have truth : Core.Module.Functions.truth (embed value) session.heap = value.truth := by cases value <;> rfl
   by_cases holds : value.truth = expected <;>
     simp [assertOperand, checkAssertion, evaluate_scalarResult, Except.bind, truth, holds]
 
@@ -110,6 +110,28 @@ theorem advance_bindDictionary {scope : Source.Scope} (table : Core.Closure.Exec
     let (object, heap) := session.heap.materializeDictionary display
     advance table (.ready session (.bindDictionary name display :: rest)) =
       ([], .ready { session.bindGlobal name (.dictionary object) with heap } rest) := rfl
+
+theorem advance_clearDictionary_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {target : Option String} {call : Core.Module.Dictionary.Clear}
+    {heap : Core.Closure.Heap} (rest : List (Instruction scope))
+    (cleared : Core.Closure.clearDictionary session.heap
+      (fun name => (session.globals name).map Core.Closure.Value.dictionaryRead) call = .ok heap) :
+    let reached := { session with heap }
+    advance table (.ready session (.clearDictionary target call :: rest)) =
+      ([.complete (.ok .none)], .ready (target.elim reached fun name => reached.bindGlobal name .none) rest) := by
+  simp [advance, cleared]
+
+theorem advance_clearDictionary_error {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {target : Option String} {call : Core.Module.Dictionary.Clear}
+    {error : Core.Module.Dictionary.Failure} (rest : List (Instruction scope))
+    (failed : Core.Closure.clearDictionary session.heap
+      (fun name => (session.globals name).map Core.Closure.Value.dictionaryRead) call = .error error) :
+    let events : List Core.Closure.Executor.Event := match error with
+      | .clearArity actual => [.complete (.error (.positionalArity 0 actual))]
+      | _ => []
+    advance table (.ready session (.clearDictionary target call :: rest)) =
+      (events, .finished session (operandFailure (Core.Closure.dictionaryFailure error))) := by
+  cases error <;> simp [advance, failed]
 
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}

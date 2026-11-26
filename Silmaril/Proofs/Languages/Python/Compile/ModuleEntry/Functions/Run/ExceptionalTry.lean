@@ -34,7 +34,7 @@ theorem ordinary_scalar_trace {scope : Source.Scope} (table : CodeTable) (sessio
       | error failure =>
         exact ⟨session, failure, by simp [runPrefix, advance, scalarStep, checkAssertion, Except.bind, Except.map, evaluated], rfl, rfl⟩
       | ok value =>
-        by_cases holds : Core.Module.Functions.truth value = true
+        by_cases holds : Core.Module.Functions.truth value session.heap = true
         · obtain ⟨reached, completion, finished, heap, lists⟩ := tail session
           exact ⟨reached, completion, by simpa [runPrefix, advance, scalarStep, checkAssertion, Except.bind, Except.map, evaluated, holds] using finished,
             heap, lists⟩
@@ -62,7 +62,7 @@ theorem seeded_scalar_carriers {scope : Source.Scope} (space : Namespace) (conte
         simp [Seeded.runInstructionsIn, Seeded.effectWithLists, Seeded.effect, Seeded.scalarBinding, Seeded.assertOperand,
           evaluated, Except.bind, Except.map, Except.mapError]
       | ok value =>
-        by_cases holds : Seeded.truth value = true
+        by_cases holds : Seeded.truth value context.heap = true
         · simpa [Seeded.runInstructionsIn, Seeded.effectWithLists, Seeded.effect, Seeded.scalarBinding, Seeded.assertOperand,
             Seeded.assertTruthAs, evaluated, holds, Except.bind, Except.map, Except.mapError] using tail space
         · simp [Seeded.runInstructionsIn, Seeded.effectWithLists, Seeded.effect, Seeded.scalarBinding, Seeded.assertOperand,
@@ -147,16 +147,16 @@ theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
       exact kept
 
 theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
-    (plan : Plan (Step scope)) :
-    (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins := by
-  refine run_preserves Seeded.exceptionalStep Seeded.ModuleFailure.isPythonError Seeded.matchHandler
+    (plan : Plan (Step scope)) (heap : Core.Closure.Heap) :
+    (Seeded.runExceptionalTry space plan heap).reached.builtins = space.builtins := by
+  refine run_preserves (Seeded.exceptionalStep heap) Seeded.ModuleFailure.isPythonError Seeded.matchHandler
     (fun reached => reached.builtins = space.builtins) ?_ space plan rfl
   intro initial reached step done kept
   cases step with
   | raiseName _ | raiseCall _ | raiseInactive => simp [Seeded.exceptionalStep] at done
   | scalar action =>
-    change Seeded.scalarStep initial action = .ok reached at done
-    cases binding : Seeded.scalarBinding initial action with
+    change Seeded.scalarStep initial action heap = .ok reached at done
+    cases binding : Seeded.scalarBinding initial heap action with
     | error error => simp [Seeded.scalarStep, binding, Except.map] at done
     | ok update =>
       simp [Seeded.scalarStep, binding, Except.map] at done
@@ -170,19 +170,19 @@ theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
 theorem seeded_settlement {scope : Source.Scope} (space : Namespace) (context : Seeded.CallContext)
     (plan : Plan (Step scope)) (rest : List (Instruction scope)) (lists : ListHeap) :
     Seeded.runInstructionsIn space context (.exceptionalTry plan :: rest) lists =
-      let outcome := Seeded.runExceptionalTry space plan
+      let outcome := Seeded.runExceptionalTry space plan context.heap
       match outcome.completion with
       | .ok () => Seeded.runInstructionsIn outcome.reached context rest lists
       | .error error => ⟨outcome.reached, .error error, [], context.heap, lists⟩ := by
-  have reached : {space with moduleGlobals := (Seeded.runExceptionalTry space plan).reached.moduleGlobals} =
-      (Seeded.runExceptionalTry space plan).reached := by
-    have same := seeded_reached_builtins space plan
-    generalize (Seeded.runExceptionalTry space plan).reached = residual at same ⊢
+  have reached : {space with moduleGlobals := (Seeded.runExceptionalTry space plan context.heap).reached.moduleGlobals} =
+      (Seeded.runExceptionalTry space plan context.heap).reached := by
+    have same := seeded_reached_builtins space plan context.heap
+    generalize (Seeded.runExceptionalTry space plan context.heap).reached = residual at same ⊢
     cases space
     cases residual
     cases same
     rfl
-  cases finished : (Seeded.runExceptionalTry space plan).completion <;>
+  cases finished : (Seeded.runExceptionalTry space plan context.heap).completion <;>
     simp [Seeded.runInstructionsIn, Seeded.effectWithLists, Seeded.effect, Except.map, finished, reached]
 
 end Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry

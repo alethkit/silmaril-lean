@@ -34,7 +34,7 @@ def expandPositional : Value → Except PositionalInputFailure (List Value)
       | .scalar value => .ok (Value.ofScalar value)
       | .text _ => .error .unsupportedIterable
   | .none | .int _ | .bool _ | .float64 _ | .exceptionClass _ | .exceptionInstance _ | .function _ => .error .notIterable
-  | .text _ | .dictionary _ => .error .unsupportedIterable
+  | .text _ | .dictionary _ | .dictionaryData _ => .error .unsupportedIterable
 
 def PositionalOperand.evaluate {Operand State : Type} (read : ReadOperand Operand State)
     (part : PositionalOperand Operand) (state : State) :

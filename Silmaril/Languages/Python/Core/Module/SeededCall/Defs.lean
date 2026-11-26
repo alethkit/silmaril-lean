@@ -73,6 +73,7 @@ inductive Value where
   | returnedTuple (items : List Core.Module.TupleDispatch.Element)
   | tupleObject (object : Core.Module.TupleDispatch.Object)
   | dictionary (object : Core.Module.Dictionary.Object)
+  | dictionaryData (entries : List Core.Module.Dictionary.Entry)
   | exceptionClass (kind : ExceptionClass)
   | exceptionInstance (value : Core.Closure.ExceptionInstance)
   | helper (descriptor : Helper)
@@ -85,7 +86,7 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .bool value => some (.bool value)
   | .none => some .none
   | .float64 _ | .text _ | .exceptionClass _ | .exceptionInstance _ | .helper _ | .builtin _ | .function _ | .listObject _
-  | .returnedTuple _ | .tupleObject _ | .dictionary _ => Option.none
+  | .returnedTuple _ | .tupleObject _ | .dictionary _ | .dictionaryData _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -322,7 +323,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .tuple, [.returnedTuple items] => .copyTuple items
   | .builtin .tuple, [.tupleObject object] => .copyTupleObject object
   | .none, _ | .int _, _ | .bool _, _ | .float64 _, _ | .text _, _ | .listObject _, _ | .returnedTuple _, _
-  | .tupleObject _, _ | .exceptionInstance _, _ | .dictionary _, _ => .nonCallable
+  | .tupleObject _, _ | .exceptionInstance _, _ | .dictionary _, _ | .dictionaryData _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the
