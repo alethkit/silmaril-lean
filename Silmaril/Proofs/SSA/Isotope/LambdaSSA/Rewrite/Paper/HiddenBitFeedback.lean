@@ -204,6 +204,70 @@ theorem alternate_uniform_iff {A B : Q} (g : A ⟶ B ⨿ A) :
   rw [right, alternateRows, coprod.inl_desc, Category.assoc, coprod.map_desc,
     Category.comp_id, Category.id_comp]
 
+private theorem binary_fold_of_left_closed {A B : Q} (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (closed : coprod.inl ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A)) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g := by
+  let e := coprod.associator B A A
+  let d := f ≫ e.inv
+  have d_eq : d ≫ e.hom = f := by rw [Category.assoc, Iso.inv_hom_id, Category.comp_id]
+  have hd : (coprod.inr ≫ d) ≫ coprod.desc (𝟙 (B ⨿ A)) coprod.inr = g :=
+    ((rows_iff Seed d g).1 (d_eq.symm ▸ square)).2
+  have route : coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) ≫ e.inv = coprod.inl := by
+    apply (cancel_mono e.hom).1
+    rw [Category.assoc, Iso.inv_hom_id, Category.comp_id]
+    apply coprod.hom_ext <;> simp [e, coprod.associator]
+  have leftRow : coprod.inl ≫ d = g ≫ coprod.inl := by
+    dsimp only [d]
+    rw [← Category.assoc, closed, Category.assoc, route]
+  rw [← d_eq, iterate_iff_mixed Seed d g hd, leftRow,
+    Category.assoc, coprod.inl_desc, Category.comp_id]
+
+private noncomputable def swapModes (A : Q) : A ⨿ A ≅ A ⨿ A where
+  hom := coprod.desc coprod.inr coprod.inl
+  inv := coprod.desc coprod.inr coprod.inl
+  hom_inv_id := coprod.hom_ext (by simp) (by simp)
+  inv_hom_id := coprod.hom_ext (by simp) (by simp)
+
+private theorem binary_fold_of_right_closed {A B : Q} (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (closed : coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inr : A ⟶ A ⨿ A)) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g := by
+  let e := swapModes Seed A
+  let k : A ⨿ A ⟶ A := coprod.desc (𝟙 A) (𝟙 A)
+  let f' := e.hom ≫ f ≫ coprod.map (𝟙 B) e.inv
+  have swapFold : e.hom ≫ k = k := coprod.hom_ext (by simp [e, swapModes, k]) (by simp [e, swapModes, k])
+  have swapFoldInv : e.inv ≫ k = k := swapFold
+  have square' : f' ≫ coprod.map (𝟙 B) k = k ≫ g := by
+    dsimp only [f']
+    rw [Category.assoc, Category.assoc, coprod.map_map, Category.id_comp, swapFoldInv,
+      square, ← Category.assoc, swapFold]
+  have closed' : coprod.inl ≫ f' = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) := by
+    dsimp only [f']
+    rw [← Category.assoc, show coprod.inl ≫ e.hom = coprod.inr from coprod.inl_desc _ _,
+      ← Category.assoc, closed, Category.assoc, coprod.map_map, Category.id_comp,
+      show coprod.inr ≫ e.inv = coprod.inl from coprod.inr_desc _ _]
+  have comm : f' ≫ coprod.map (𝟙 B) e.hom = e.hom ≫ f := by
+    simp only [f', Category.assoc, coprod.map_map, Iso.inv_hom_id,
+      coprod.map_id_id, Category.comp_id]
+  have eq := (uniformity_of_iso Seed e f' f comm).symm.trans
+    (binary_fold_of_left_closed Seed f' g square' closed')
+  apply (cancel_epi e.hom).1
+  rwa [← Category.assoc, swapFold]
+
+theorem binary_fold_of_closed_mode {A B : Q}
+    (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (closed :
+      coprod.inl ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) ∨
+      coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inr : A ⟶ A ⨿ A)) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g :=
+  closed.elim (binary_fold_of_left_closed Seed f g square)
+    (binary_fold_of_right_closed Seed f g square)
+
 end TwoMode
 
 open Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseReturns.StructuralValues.HiddenBit
