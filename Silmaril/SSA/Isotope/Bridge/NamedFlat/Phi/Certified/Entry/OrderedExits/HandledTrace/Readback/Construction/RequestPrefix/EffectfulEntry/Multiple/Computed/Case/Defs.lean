@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Defs
 
-/-! # Schedule a case test before the branch-local continuation -/
+/-! # Schedule case tests and branch-local request arguments -/
 
 @[expose] public section
 
@@ -37,12 +37,15 @@ def productTypes (sig : PrimitiveSignature F) (Γ : List PacketType) (value : Tm
   let ⟨.product a b, _⟩ ← readOperand sig Γ value | none
   return (a, b)
 
-/-- Traverse written binders with the operand checker's types. Only case
-tests are hoisted here. The continuation checker still admits the resulting
-row and its exact branch-local syntax. -/
+/-- Traverse written binders with the operand checker's types. A request
+argument is scheduled inside its current arm, before the request and its
+reply continuation. The continuation checker verifies the resulting row. -/
 def scheduleCases [DecidableEq F] (sig : PrimitiveSignature F) :
     List PacketType → Region F → Option (Region F)
   | _, .br label arg => some (.br label arg)
+  | Γ, .let₁ (.op op argument) tail =>
+    (readArgument sig Γ (sig.argument op) argument).bind fun arg =>
+      (scheduleCases sig (sig.reply op :: Γ) tail).map (hoist op arg.val)
   | Γ, .let₁ value tail => (readOperand sig Γ value).bind fun found =>
     (scheduleCases sig (found.1 :: Γ) tail).map (.let₁ value)
   | Γ, .let₂ value tail => (productTypes sig Γ value).bind fun (a, b) =>
