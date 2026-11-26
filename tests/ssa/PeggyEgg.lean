@@ -3,10 +3,12 @@ module
 import Silmaril.SSA.PEG.Builder
 import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
-import Silmaril.SSA.Peggy.EPEG.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 
@@ -218,7 +220,7 @@ end Silmaril.SSA.Peggy.Tests
 
 namespace Silmaril.SSA.Peggy.EPEG.Tests
 
-open PEG
+open PEG Saturation
 open RVSDG (Tuple)
 
 private inductive Op : List (Ty Unit) → Ty Unit → Type where
@@ -316,20 +318,41 @@ private theorem thetaLaw : thetaRule.Holds streams := by
   | 1 => exact ⟨rfl, fun _ => HEq.rfl⟩
 
 private def discrete : Classes 10 := Classes.discrete
-private def afterZeros := discrete.merge 2 4
-private def afterThetas := afterZeros.merge 0 3
-private def afterPasses := afterThetas.merge 6 9
-private def classes := afterPasses.merge 7 8
+
+-- Eval and θ are initially blocked. Passing over them must keep them eligible.
+private def obligations : List (Obligation cyclicSource) :=
+  [.congruent evals, .guarded thetaRule, .congruent passes, .congruent zeros]
+
+private theorem contracts : ∀ o ∈ obligations, o.Holds streams := by
+  intro o mem
+  simp only [obligations, List.mem_cons, List.not_mem_nil, or_false] at mem
+  rcases mem with eq | eq | eq | eq
+  · subst o; trivial
+  · subst o; exact thetaLaw
+  · subst o; trivial
+  · subst o; trivial
+
+private def classes := saturate obligations discrete
+private def limited := run 2 obligations discrete
+private def reversed := saturate obligations.reverse discrete
 
 example : thetaRule.check discrete = false := by decide
-example : evals.checkOperands afterZeros = false := by decide
+example : evals.checkOperands (discrete.merge 2 4) = false := by decide
+example : limited 6 = limited 9 ∧ limited 7 ≠ limited 8 := by decide
+example : isClosed obligations limited = false := by decide
+example : isClosed obligations classes = true ∧ classes 7 = classes 8 := by decide
 
-private theorem classesValid : classes.Valid streams := by
-  have seeds : afterZeros.Valid streams := zeros.merge_sound sourceSolves
-    Classes.discrete_valid (by decide)
-  have feedback : afterThetas.Valid streams := thetaRule.merge_sound seeds thetaLaw (by decide)
-  have samples : afterPasses.Valid streams := passes.merge_sound sourceSolves feedback (by decide)
-  exact evals.merge_sound sourceSolves samples (by decide)
+#guard (List.finRange 10).all (fun a => (List.finRange 10).all fun b =>
+  (classes a == classes b) == (reversed a == reversed b))
+
+example (a b : Fin 10) : classes a = classes b ↔ reversed a = reversed b :=
+  saturate_perm (List.reverse_perm obligations).symm discrete a b
+
+example : limited.Valid streams :=
+  run_sound 2 obligations sourceSolves Classes.discrete_valid contracts
+
+private theorem classesValid : classes.Valid streams :=
+  run_sound obligations.length obligations (c := discrete) sourceSolves Classes.discrete_valid contracts
 
 private def cyclicTarget : Graph Op [] Result 10 1 :=
   cyclicSource.withRoots (counts (countRef 3 rfl) (countRef 8 rfl))
@@ -342,7 +365,8 @@ example (idx : Index 1) :
       cyclicTarget.observe arithmetic
         (cyclicTarget.denote arithmetic .nil
           (selection.demandWellFounded (classes := classes) (by decide))) idx :=
-  selection.observe_sound sourceWF classesValid (by decide) sourceSolves idx
+  run_selection_sound obligations.length obligations (c := discrete) (m := arithmetic) (env := .nil)
+    selection sourceWF Classes.discrete_valid contracts (by decide) sourceSolves idx
 
 /-- Putting θ in its own initial slot preserves wiring types but violates
 demand admission at index zero. -/
