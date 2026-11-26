@@ -318,3 +318,36 @@ arrival table from a newly live old slot with an incompatible type and
 derive the target closures for both packed swap traces.
 [Diagnostics](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Admission/Defs.lean)
 · [Fixtures](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+## Comparisons at a supplied typed entry record
+
+The [admitted named entry institution](https://github.com/hiloopai/silmaril-lean/pull/3717)
+can consume the actual checked elaboration retained by a normalized φ
+admission. The translation selects distinct version-zero names at the
+supplied record positions. The private `none` name, if selected, has
+unit type, as required by the φ input store. The sole external exit is
+the explicit return `none`, numbered zero, with a common payload type.
+
+`Admitted.observe_toSSA` and `Admitted.observe_toFlat` identify the weak
+trees at each supplied typed record. The source evaluates its φ rows
+independently. The target uses the admitted lexical table and existing
+entry packer. Both use the raw primitive trees of the same typed
+institution model, whose compatibility field relates those trees to the
+typed instruction interpretation. The comparison preserves and reflects
+satisfaction in the named room for a common named interface, and in the
+flat entry and packed rooms when the two sides use different register
+or label types but share the typed record and exit profile.
+[Translation and satisfaction](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Thms.lean)
+
+`Admitted.ofGenerated` reuses the generated target admission, including
+its transported arrival proof. It requires an empty list of extra
+capture slots, so renaming leaves the supplied record type fixed.
+`split_observe_eq` and `split_satisfies` give pointwise tree equality and
+both directions of the admitted comparison. Appending slots changes the
+entry context and record type, so those splits still use the
+different-record `Generated.packed_eq` route. The distinct-latch fixture
+uses the same supplied record to see `tick 2 5` followed by `tick 5 2`
+after a continuing reply, including in the packed institution's
+translated program.
+[Split corollaries](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/Split/Thms.lean)
+· [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
