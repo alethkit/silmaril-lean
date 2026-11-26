@@ -229,4 +229,129 @@ example (right : Bool) (n : Nat) (ambient : Env Runtime) :
     (entry_named_result right n)).trans
       (((recompiled.packed_tree model (input right n) ambient).trans (named_result right n)).symm)
 
+section TwoCaptures
+
+private abbrev twoPorts : Interface SortName Reg Label :=
+  numberedInterface (.snoc (.snoc .nil choice) num) [leftExit, rightExit] (fun _ => num)
+
+private def twoLabels (i : Fin 2) : Label := ⟨7 + i.val⟩
+private def twoFields (_ : Label) : List (Reg × Ty SortName) := [(⟨4⟩, num)]
+private def argumentType : Ty SortName := .product choice num
+
+private def twoFlat : FiniteCFG signature.Instr 2 twoPorts.exits.length twoPorts.slots where
+  entry := .br 0 (.pair (.bv 1) (.bv 0))
+  block := Fin.cases (.br 1 (.bv 0)) fun _ =>
+    .let₂ (.bv 0) (.case (.bv 1)
+      (.br 2 (.pair (.bv 0) (.pair (.bv 1) .unit)))
+      (.br 3 (.pair (.bv 0) (.pair (.bv 1) .unit))))
+
+private def twoLowered : Lowered twoPorts twoFields twoFlat :=
+  (lowerFresh twoLabels twoPorts.context twoPorts.exits twoPorts.external twoFields twoFlat).get (by decide)
+
+private theorem twoTyped : twoFlat.HasType twoPorts.context (fun _ => argumentType)
+    (LiveOut.exitInterface twoPorts twoFields).external :=
+  NamedFlat.check_sound twoFlat twoPorts.context (fun _ => argumentType) _ (by decide)
+
+-- Both internal targets use encounter order, which differs from slot order.
+private def twoSlots : List (Fin 2) := [1, 0]
+
+example : ∀ i, twoLowered.savedRegisters i = [⟨1⟩, ⟨0⟩] := by decide
+example : ∀ i, twoLowered.packetProfile (fun _ => argumentType) (by decide) i =
+    .product argumentType (.product choice (.product num .unit)) := by decide
+
+private def twoRecompiled : LiveOut.Admission signature twoPorts twoFields twoLowered.source :=
+  Straight.admitWithCaptures twoLowered (fun _ => argumentType) twoSlots
+    (by decide) (by decide) (by decide)
+
+private def twoInput (right : Bool) (n saved : Nat) :
+    Ty.denote (AtomValues.carrier (κ := SortName)) (Region.packedInputType twoPorts.context.toList) :=
+  (input right n, ⟨saved⟩)
+
+private def twoArg (right : Bool) (n saved : Nat) : Value Runtime := .pair (value right n) (atom saved)
+
+private def twoTransfer (i : Fin 2) (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
+  let σ := store twoPorts.names twoPorts.context (twoInput right n saved)
+  let arg := twoArg right n saved
+  (twoLabels i, arg, if i = 0 then σ else upd σ ⟨2⟩ arg)
+
+private theorem twoStep (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.step (treeModel model.raw) twoLowered.source.blocks (twoTransfer 0 right n saved) =
+      pure (.inr (twoTransfer 1 right n saved)) := by
+  cases right <;> rfl
+
+-- The store after the first block agrees at each supplied field. The two
+-- fields retain distinct tags and travel in the actual destination order.
+example (i : Fin 2) (right : Bool) (n saved : Nat) :
+    CFG.Cyclic.Versioning.encode (treeModel model.raw)
+        (withLiveOut (P := signature) twoFields twoLowered.source) (twoTransfer i right n saved) =
+      (twoLabels i, .pair (twoArg right n saved) (.pair (value right n) (.pair (atom saved) .unit))) := by
+  have route : ∀ j : Fin 2, CFG.Cyclic.Versioning.destinations
+      (withLiveOut (P := signature) twoFields twoLowered.source) (twoLabels j) = some [⟨1⟩, ⟨0⟩] :=
+    by decide
+  have agrees (j : Fin 2) (_ : j ∈ twoSlots) :
+      (twoTransfer i right n saved).2.2 ⟨j.val⟩ =
+        inputEnv twoPorts.context (twoInput right n saved) j.val := by
+    have initial := store_at twoPorts.names twoPorts.distinct twoPorts.context (twoInput right n saved) j
+    have different : (⟨j.val⟩ : Reg) ≠ ⟨2⟩ :=
+      fun eq => (Nat.ne_of_lt j.isLt) (congrArg ULift.down eq)
+    by_cases first : i = 0 <;> simpa [twoTransfer, first, upd, different] using initial
+  have packet := Straight.encode_captures twoLowered model twoSlots (twoInput right n saved)
+    (twoTransfer i right n saved) (route i) agrees
+  cases right <;> exact packet
+
+private def twoOutput (right : Bool) (n saved : Nat) : Transfer Runtime :=
+  let packet := (atom n).pair ((atom saved).pair .unit)
+  (0, if right then .inr (.inl packet) else .inl packet)
+
+set_option maxRecDepth 2048 in
+private theorem twoNamedResult (right : Bool) (n saved : Nat) :
+    LiveOut.observe (P := signature) model twoPorts twoFields twoLowered.source (twoInput right n saved) =
+      pure (twoOutput right n saved) := by
+  let m := treeModel model.raw
+  let step := CFG.Cyclic.step m twoLowered.source.blocks
+  let next := twoTransfer 1 right n saved
+  let σ := upd (upd (upd (upd next.2.2 ⟨2⟩ next.2.1) ⟨3⟩ (value right n)) ⟨4⟩ (atom saved)) ⟨5⟩ (atom n)
+  let done : CFG.Cyclic.Transfer Reg Label (Value Runtime) :=
+    (if right then rightExit else leftExit, atom n, σ)
+  have enter : CFG.Cyclic.run m twoLowered.source (store twoPorts.names twoPorts.context (twoInput right n saved)) =
+      iter step (twoTransfer 0 right n saved) := by cases right <;> rfl
+  let secondBlock : CFG.Block Reg Label signature.Instr :=
+    ⟨⟨2⟩, .let2 ⟨3⟩ ⟨4⟩ (.val (.var ⟨2⟩))
+      (.term (.case (.val (.var ⟨3⟩)) ⟨5⟩ (.br leftExit (.var ⟨5⟩))
+        ⟨5⟩ (.br rightExit (.var ⟨5⟩))))⟩
+  have firstStep : step (twoTransfer 0 right n saved) = pure (.inr next) := twoStep right n saved
+  have selectArm : step next = pure (.inr done) := by
+    change secondBlock.body.exec m
+      (fun label arg store => pure (Sum.inr (α := CFG.Cyclic.Transfer Reg Label (Value Runtime)) (label, arg, store)))
+      (upd next.2.2 secondBlock.param next.2.1) = _
+    cases right <;>
+      simp [secondBlock, next, twoTransfer, twoArg, done, σ, CFG.Body.exec, CFG.Term.exec,
+        Op.eval, Val.eval, m, treeModel, value, upd, pure_bind]
+  have exit : step done = pure (.inl done) := by cases right <;> rfl
+  change (CFG.Cyclic.run m twoLowered.source (store twoPorts.names twoPorts.context (twoInput right n saved)) >>= _) = _
+  rw [enter, congrFun (iterate_fixpoint step) (twoTransfer 0 right n saved), firstStep, pure_bind]
+  change (iter step next >>= _) = _
+  rw [congrFun (iterate_fixpoint step) next, selectArm, pure_bind]
+  change (iter step done >>= _) = _
+  rw [congrFun (iterate_fixpoint step) done, exit, pure_bind]
+  change (pure done >>= _) = _
+  rw [pure_bind]
+  cases right <;> rfl
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType twoPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) (Program.ofCFGEntry twoTyped).code =
+      region model.raw (extend ambient packed) twoRecompiled.program.code :=
+  twoLowered.packed_roundTrip model twoTyped twoRecompiled (twoInput right n saved) ambient
+
+example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
+    let packed := encodeValue (AtomValues.carrier (κ := SortName))
+      (Region.packedInputType twoPorts.context.toList) (twoInput right n saved)
+    region model.raw (extend ambient packed) twoRecompiled.program.code = pure (twoOutput right n saved) :=
+  (twoRecompiled.packed_tree model (twoInput right n saved) ambient).trans (twoNamedResult right n saved)
+
+end TwoCaptures
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Case

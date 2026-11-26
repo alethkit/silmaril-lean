@@ -16,13 +16,14 @@ open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
 universe u v
-variable {κ V K : Type (u + 1)} {P : FlatInstitution.Signature.{u, v} κ}
 
 /-- Field order is the supplied list order. The record is right nested and
 terminates in unit, as in the versioner's own store packets. -/
-def recordType : List (V × Ty κ) → Ty κ
+def recordType {V : Type u} {κ : Type v} : List (V × Ty κ) → Ty κ
   | [] => .unit
   | (_, A) :: rest => .product A (recordType rest)
+
+variable {κ V K : Type (u + 1)} {P : FlatInstitution.Signature.{u, v} κ}
 
 /-- The input context and exit order are the original ones. Each exit now
 returns its old argument and the typed record specified for that label. -/

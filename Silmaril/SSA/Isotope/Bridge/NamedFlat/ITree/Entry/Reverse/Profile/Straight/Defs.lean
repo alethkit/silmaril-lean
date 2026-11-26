@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Defs
 
-/-! # Local checks for reversion with empty saved records -/
+/-! # Source-local checks for reversion -/
 
 @[expose] public section
 
@@ -61,5 +61,13 @@ def keepsEntryCapture (slot : Fin n) : Bool :=
   let reg : Register := ⟨slot.val⟩
   decide (reg ∉ (attached).entry.toRegion.bound) &&
     (attached).blocks.all (fun block => decide (reg ∉ block.2.body.toRegion.bound))
+
+/-- The unchanged entry registers and their types in the saved packet order. -/
+def captureFields (ctx : BoundCtx (Ty κ) n) (slots : List (Fin n)) : List (Register.{u} × Ty κ) :=
+  slots.map fun i => (⟨i.val⟩, ctx.get i)
+
+/-- Check that the selected input slots are unassigned in all attached bodies. -/
+def keepsEntryCaptures (slots : List (Fin n)) : Bool :=
+  slots.all (keepsEntryCapture a)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight
