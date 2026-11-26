@@ -10,18 +10,37 @@ namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Rea
 
 open LambdaSSA (FiniteCFG Region Tm)
 open Silmaril.SSA.LambdaRTL (Val)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link (Label)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible
-  (Expr PacketType PrimitiveSignature Slot elaborateArg)
+  (Expr PacketType PrimitiveSignature Slot elaborateArg elaborateExpr readLabel)
 
 variable {F : Type} {exits blocks captures count : Nat} {Γ : List PacketType}
   {sig : PrimitiveSignature F} {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
 
+/-- A case leaf carries a structural packet at the exact type of its label. -/
+structure Jump (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
+    (Γ : List PacketType) where
+  label : Label blocks exits
+  packet : Expr Γ (Sum.elim packets outputs label)
+
+/-- The two arms bind their own payload types. One leaf targets the old
+table and the other targets the ordered exit interface. -/
+structure CaseTail (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
+    (Γ : List PacketType) where
+  leftType : PacketType
+  rightType : PacketType
+  test : Expr Γ (.coprod leftType rightType)
+  left : Jump packets outputs (leftType :: Γ)
+  right : Jump packets outputs (rightType :: Γ)
+  mixed : left.label.isLeft ≠ right.label.isLeft
+
 /-- Each request extends the scope with exactly its typed reply. The tail
-supplies a structural packet at an old block or a declared ordered exit. -/
+supplies a structural packet directly or selects between two typed jump leaves. -/
 inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) : List PacketType → Type
   | exit {Γ : List PacketType} (port : Fin exits) (value : Expr Γ (outputs port)) : Row sig packets outputs Γ
   | jump {Γ : List PacketType} (target : Fin blocks) (value : Expr Γ (packets target)) : Row sig packets outputs Γ
+  | branch {Γ : List PacketType} (tail : CaseTail packets outputs Γ) : Row sig packets outputs Γ
   | request {Γ : List PacketType} (op : F) (arg : Expr Γ (sig.argument op))
       (tail : Row sig packets outputs (sig.reply op :: Γ)) : Row sig packets outputs Γ
 
@@ -31,16 +50,42 @@ def position : {Γ : List PacketType} → {ty : PacketType} → Slot Γ ty → N
   | _, _, .here => 0
   | _, _, .there old => position old + 1
 
+/-- A case payload occupies slot zero and shifts every retained slot. -/
+def bindPosition {ty : PacketType} (layout : Positions Γ) : Positions (ty :: Γ) :=
+  fun {_} slot => match slot with
+    | .here => 0
+    | .there old => layout old + 1
+
 /-- Erase a structural expression in the supplied typed slot layout. -/
 def operand (atSlot : Positions Γ) : {ty : PacketType} → Expr Γ ty → Tm F
   | _, .var slot => .var (atSlot slot)
   | _, .unit => .unit
   | _, .pair x y => .pair (operand atSlot x) (operand atSlot y)
 
+def Jump.erase {newBlocks : Nat} (old : Fin blocks → Fin newBlocks)
+    (layout : Positions Γ) (leaf : Jump packets outputs Γ) : Region F :=
+  .br (Sum.elim (fun i => (old i).val) (fun port => newBlocks + port.val) leaf.label)
+    (operand layout leaf.packet)
+
+def CaseTail.erase {newBlocks : Nat} (old : Fin blocks → Fin newBlocks)
+    (layout : Positions Γ) (tail : CaseTail packets outputs Γ) : Region F :=
+  .case (operand layout tail.test) (tail.left.erase old (bindPosition layout))
+    (tail.right.erase old (bindPosition layout))
+
 def Row.erase : {Γ : List PacketType} → Row sig packets outputs Γ → Region F
   | _, .exit i value => .br (blocks + i.val) (operand position value)
   | _, .jump i value => .br i.val (operand position value)
+  | _, .branch tail => tail.erase id position
   | _, .request op arg tail => .let₁ (.op op (operand position arg)) tail.erase
+
+/-- Read only literal jumps at case leaves, with packet type determined by
+the existing positional label reader. -/
+def readJump (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType)
+    (Γ : List PacketType) : Region F → Option (Jump packets outputs Γ)
+  | .br index value => do
+    let label ← readLabel blocks exits index
+    return ⟨label, ← elaborateArg Γ (Sum.elim packets outputs label) value⟩
+  | _ => none
 
 /-- Read structural operands with the existing public expression elaborator. -/
 def readRow (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (outputs : Fin exits → PacketType) :
@@ -52,6 +97,13 @@ def readRow (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType) (
     else if h : label - blocks < exits then do
       let port : Fin exits := ⟨label - blocks, h⟩
       return .exit port (← elaborateArg Γ (outputs port) value)
+    else none
+  | Γ, .case test left right => do
+    let ⟨.coprod a b, discr⟩ ← elaborateExpr Γ test | none
+    let left ← readJump packets outputs (a :: Γ) left
+    let right ← readJump packets outputs (b :: Γ) right
+    if mixed : left.label.isLeft ≠ right.label.isLeft then
+      return .branch ⟨a, b, discr, left, right, mixed⟩
     else none
   | Γ, .let₁ (.op op arg) tail => do
     return .request op (← elaborateArg Γ (sig.argument op) arg)
@@ -85,7 +137,7 @@ def Frame.position : {Γ : List PacketType} → Frame Γ → Nat → Positions �
   | _, .push _ prev, _, _, .there slot => prev.position 1 slot
 
 def Row.requests : {Γ : List PacketType} → Row sig packets outputs Γ → Nat
-  | _, .exit .. | _, .jump .. => 0
+  | _, .exit .. | _, .jump .. | _, .branch .. => 0
   | _, .request _ _ tail => tail.requests + 1
 
 /-- Old labels stay at their indices. Fresh continuation labels occupy the
@@ -100,9 +152,9 @@ def chainLabel (start : Fin blocks) (count : Nat) : Fin (count + 1) → Fin (blo
 def moveExit (blocks count label : Nat) : Nat :=
   if label < blocks then label else blocks + count + (label - blocks)
 
-/-- Emit one public row per request and a final pure jump. A request
+/-- Emit one public row per request followed by the pure tail. A request
 forwards the entire frame paired with its reply to the next fresh row.
-The final jump uses the old label embedding or the relocated exit. -/
+Every tail leaf uses the old label embedding or the relocated exit. -/
 def Row.cells {newBlocks : Nat} (old : Fin blocks → Fin newBlocks) :
     {Γ : List PacketType} → (row : Row sig packets outputs Γ) →
     Frame Γ → (Fin (row.requests + 1) → Fin newBlocks) → Fin (row.requests + 1) → PacketType × Region F
@@ -110,6 +162,8 @@ def Row.cells {newBlocks : Nat} (old : Fin blocks → Fin newBlocks) :
     (frame.packet, frame.unpack 0 (.br (newBlocks + port.val) (operand (frame.position 0) value)))
   | _, .jump target value, frame, _, _ =>
     (frame.packet, frame.unpack 0 (.br (old target).val (operand (frame.position 0) value)))
+  | _, .branch tail, frame, _, _ =>
+    (frame.packet, frame.unpack 0 (tail.erase old (frame.position 0)))
   | _, .request op arg tail, frame, labels, i =>
     Fin.cases
       (frame.packet, frame.unpack 0 (.let₁ (.op op (operand (frame.position 0) arg))
@@ -194,7 +248,7 @@ section Execution
 
 open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (Primitive Transfer BlockInput)
-open Silmaril.Elgot.ITree (Tree)
+open Silmaril.Elgot.ITree (Tree diverge)
 
 universe u w
 variable {α : Type u} {E : Type w → Type w}
@@ -203,9 +257,9 @@ variable {α : Type u} {E : Type w → Type w}
 actual tree even for a raw primitive interpretation with untyped replies. -/
 abbrev Values (Γ : List PacketType) (α : Type u) := ∀ {ty}, Slot Γ ty → Value α
 
-def bindReply {ty : PacketType} (values : Values Γ α) (reply : Value α) : Values (ty :: Γ) α :=
+def bindReply {ty : PacketType} (values : Values Γ α) (value : Value α) : Values (ty :: Γ) α :=
   fun {_} slot => match slot with
-    | .here => reply
+    | .here => value
     | .there old => values old
 
 def readSlots (slots : Positions Γ) (env : Env α) : Values Γ α :=
@@ -226,12 +280,29 @@ def Frame.load : {Γ : List PacketType} → Frame Γ → Values Γ α → Env α
     let older : Values _ α := fun slot => values (.there slot)
     prev.load older (extend (extend env (prev.pack older)) (values .here))
 
+def Jump.transfer (leaf : Jump packets outputs Γ) (values : Values Γ α) :
+    Transfer α ⊕ BlockInput α blocks :=
+  let value := evalOperand values leaf.packet
+  match leaf.label with
+  | .inl target => .inr (target, value)
+  | .inr port => .inl (port.val, value)
+
+/-- Interpret the structural case on its actual payload. The raw evaluator
+can still diverge if supplied a malformed value for the sum. -/
+def CaseTail.run (tail : CaseTail packets outputs Γ) (values : Values Γ α) :
+    Tree E (Transfer α ⊕ BlockInput α blocks) :=
+  match evalOperand values tail.test with
+  | .inl value => pure (tail.left.transfer (bindReply values value))
+  | .inr value => pure (tail.right.transfer (bindReply values value))
+  | _ => diverge
+
 /-- The finite row semantics uses the same primitive trees as the flat
 evaluator. It returns either the relative ordered exit or an old block transfer. -/
 def Row.run (instr : Primitive E F α) :
     {Γ : List PacketType} → Row sig packets outputs Γ → Values Γ α → Tree E (Transfer α ⊕ BlockInput α blocks)
   | _, .exit port value, values => pure (.inl (port.val, evalOperand values value))
   | _, .jump target value, values => pure (.inr (target, evalOperand values value))
+  | _, .branch tail, values => tail.run values
   | _, .request op arg tail, values =>
     instr op (evalOperand values arg) >>= fun reply => tail.run instr (bindReply values reply)
 
