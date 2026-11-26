@@ -21,10 +21,15 @@ LAKE = os.environ.get("LAKE", "lake")
 _CAPTURE_AND_EXEC = """
 import json
 import os
+import signal
 import sys
 
 with open(sys.argv[1], "w", encoding="ascii") as snapshot:
     json.dump([os.getcwd(), dict(os.environ)], snapshot)
+# Match the signal defaults restored by subprocess for the later fixtures.
+for name in ("SIGPIPE", "SIGXFZ", "SIGXFSZ"):
+    if hasattr(signal, name):
+        signal.signal(getattr(signal, name), signal.SIG_DFL)
 os.execvp(sys.argv[2], sys.argv[2:])
 """
 _lean_context = None
