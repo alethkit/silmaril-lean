@@ -3,10 +3,10 @@ module
 public import Silmaril.Languages.Starlark.Defs
 public import Silmaril.Languages.Starlark.Frontend.Lexer.Defs
 
-/-! # Scalar Starlark module text
+/-! # Scalar Starlark source text
 
 See `docs/projects/starlark-frontend.md` for the admitted grammar and diagnostics.
-Exercising resolution or denotation is a separate step on `toSourceStmt`.
+Resolution and denotation operate on the lowered `SourceStmt`.
 -/
 
 public section
@@ -20,11 +20,23 @@ structure LocatedStmt where
 structure ParsedModule where
   statements : List LocatedStmt
 
-/-- Erase statement locations and compose the existing scalar AST in source order. -/
-def ParsedModule.toSourceStmt (parsed : ParsedModule) : SourceStmt :=
-  match parsed.statements.reverse with
+/-- A standalone scalar function whose body can be passed to `runFunctionBody`. -/
+structure ParsedFunction where
+  name : String
+  parameters : List String
+  span : Span
+  body : List LocatedStmt
+
+private def sequence (statements : List LocatedStmt) : SourceStmt :=
+  match statements.reverse with
   | [] => .pass
   | last :: preceding => preceding.foldl (fun rest first => .seq first.stmt rest) last.stmt
+
+/-- Erase statement locations and compose the existing scalar AST in source order. -/
+def ParsedModule.toSourceStmt (parsed : ParsedModule) : SourceStmt := sequence parsed.statements
+
+/-- Lower the body in its function context, with parameters bound by the caller. -/
+def ParsedFunction.toSourceStmt (parsed : ParsedFunction) : SourceStmt := sequence parsed.body
 
 private structure Stream where
   remaining : List Token
@@ -33,15 +45,17 @@ private structure Stream where
 private def Stream.peek (s : Stream) : Token :=
   s.remaining.headD ⟨.eof, ⟨s.lastEnd, s.lastEnd⟩⟩
 
-private def Stream.pop (s : Stream) : Stream := ⟨s.remaining.drop 1, s.peek.span.stop⟩
+private def Stream.pop (s : Stream) : Stream :=
+  let stop := match s.peek.kind with
+    | .newline | .indent | .outdent | .eof => s.lastEnd
+    | _ => s.peek.span.stop
+  ⟨s.remaining.drop 1, stop⟩
 
 private def failAt {α : Type} (kind : DiagnosticKind) (s : Stream) : Except Diagnostic α :=
   .error ⟨kind, s.peek.span⟩
 
 private def expect {α : Type} (description : String) (s : Stream) : Except Diagnostic α :=
-  match s.peek.kind with
-  | .outside .lineContinuation => failAt (.unsupported .lineContinuation) s
-  | _ => failAt (.expected description) s
+  failAt (.expected description) s
 
 private inductive Infix where
   | arithmetic (priority : Nat) (op : BinaryOp)
@@ -147,25 +161,33 @@ private def parseInfix : Nat → Nat → Bool → SourceExpr → Stream →
     | .symbol "." => failAt (.unsupported .attribute) s
     | .symbol "/" | .symbol "|" | .symbol "^" | .symbol "&" | .symbol "<<" | .symbol ">>" =>
       failAt (.unsupported .operator) s
-    | .outside .lineContinuation => failAt (.unsupported .lineContinuation) s
     | _ => return (left, s)
 
 end
 
-private def parseStmt (fuel : Nat) (s : Stream) : Except Diagnostic (SourceStmt × Stream) := do
+private def parseSmallStmt (exprFuel : Nat) (inFunction : Bool) (s : Stream) :
+    Except Diagnostic (SourceStmt × Stream) := do
   match s.peek.kind with
   | .indent => failAt .unexpectedIndent s
-  | .keyword "def" | .keyword "for" | .keyword "if" => failAt (.unsupported .compoundStatement) s
   | .keyword "load" => failAt (.unsupported .loadStatement) s
-  | .keyword "return" | .keyword "break" | .keyword "continue" => failAt (.unsupported .functionControl) s
+  | .keyword "break" | .keyword "continue" => failAt (.unsupported .functionControl) s
+  | .keyword "return" =>
+    unless inFunction do return ← failAt .topLevelReturn s
+    let next := s.pop
+    match next.peek.kind with
+    | .newline | .eof | .symbol ";" => return (.ret none, next)
+    | _ =>
+      let (value, rest) ← parseExpr exprFuel 0 next
+      if rest.peek.kind = .symbol "," then failAt (.unsupported .tuple) rest
+      else return (.ret (some value), rest)
   | .keyword "pass" => return (.pass, s.pop)
   | _ =>
-    let (left, rest) ← parseExpr fuel 0 s
+    let (left, rest) ← parseExpr exprFuel 0 s
     match rest.peek.kind with
     | .symbol "=" =>
       let .read name := left
         | .error ⟨.invalidAssignmentTarget, ⟨s.peek.span.start, rest.lastEnd⟩⟩
-      let (right, rest) ← parseExpr fuel 0 rest.pop
+      let (right, rest) ← parseExpr exprFuel 0 rest.pop
       if rest.peek.kind = .symbol "," then failAt (.unsupported .tuple) rest
       else return (.assign name right, rest)
     | .symbol "+=" | .symbol "-=" | .symbol "*=" | .symbol "/=" | .symbol "//=" | .symbol "%="
@@ -174,31 +196,122 @@ private def parseStmt (fuel : Nat) (s : Stream) : Except Diagnostic (SourceStmt 
     | .symbol "," => failAt (.unsupported .tuple) rest
     | _ => return (.eval left, rest)
 
-private def parseStmts (exprFuel : Nat) : Nat → Stream → List LocatedStmt →
-    Except Diagnostic ParsedModule
-  | 0, s, _ => failAt .exhausted s
-  | fuel + 1, s, statements => do
+private def consumeSymbol (symbol : String) (s : Stream) : Except Diagnostic Stream :=
+  if s.peek.kind = .symbol symbol then .ok s.pop else expect s!"'{symbol}'" s
+
+-- The block loop consumes one statement or newline per iteration. Each descent
+-- into a branch suite consumes the heading and its layout tokens.
+mutual
+
+private def parseBlock (exprFuel : Nat) (inFunction : Bool) :
+    Nat → Bool → Stream → List LocatedStmt → Except Diagnostic (List LocatedStmt × Stream)
+  | 0, _, s, _ => failAt .exhausted s
+  | fuel + 1, lineStart, s, statements => do
     match s.peek.kind with
-    | .eof => return ⟨statements.reverse⟩
-    | .newline => parseStmts exprFuel fuel s.pop statements
+    | .eof | .outdent => return (statements.reverse, s)
+    | .newline => parseBlock exprFuel inFunction fuel true s.pop statements
+    | .keyword "def" | .keyword "for" =>
+      if lineStart then failAt (.unsupported .compoundStatement) s
+      else expect "a simple statement" s
+    | .keyword "if" =>
+      unless lineStart do return ← expect "a simple statement" s
+      unless inFunction do return ← failAt .topLevelIf s
+      let (stmt, rest) ← parseBranch exprFuel fuel s
+      let located := ⟨⟨s.peek.span.start, rest.lastEnd⟩, stmt⟩
+      parseBlock exprFuel inFunction fuel true rest (located :: statements)
     | _ =>
-      let (stmt, rest) ← parseStmt exprFuel s
+      let (stmt, rest) ← parseSmallStmt exprFuel inFunction s
       let statements := ⟨⟨s.peek.span.start, rest.lastEnd⟩, stmt⟩ :: statements
       match rest.peek.kind with
-      | .eof => return ⟨statements.reverse⟩
-      | .newline | .symbol ";" => parseStmts exprFuel fuel rest.pop statements
+      | .eof => return (statements.reverse, rest)
+      | .newline => parseBlock exprFuel inFunction fuel true rest.pop statements
+      | .symbol ";" => parseBlock exprFuel inFunction fuel false rest.pop statements
       | _ => expect "a semicolon or end of line" rest
 
-private def parseTokens (tokens : List Token) : Except Diagnostic ParsedModule :=
-  let count := tokens.length
-  parseStmts (2 * count + 2) (count + 1) ⟨tokens, {}⟩ []
+private def parseSuite (exprFuel : Nat) :
+    Nat → Stream → Except Diagnostic (List LocatedStmt × Stream)
+  | 0, s => failAt .exhausted s
+  | fuel + 1, s => do
+    match s.peek.kind with
+    | .eof => failAt .expectedIndentedSuite s
+    | .newline =>
+      let next := s.pop
+      unless next.peek.kind = .indent do return ← failAt .expectedIndentedSuite next
+      let (body, rest) ← parseBlock exprFuel true fuel true next.pop []
+      if body.isEmpty then return ← failAt .expectedIndentedSuite rest
+      unless rest.peek.kind = .outdent do return ← expect "an outdent" rest
+      return (body, rest.pop)
+    | _ => failAt (.unsupported .inlineSuite) s
+
+private def parseBranch (exprFuel : Nat) : Nat → Stream → Except Diagnostic (SourceStmt × Stream)
+  | 0, s => failAt .exhausted s
+  | fuel + 1, s => do
+    let (test, afterTest) ← parseExpr exprFuel 0 s.pop
+    let (yes, rest) ← parseSuite exprFuel fuel (← consumeSymbol ":" afterTest)
+    let (no, rest) ← match rest.peek.kind with
+      | .keyword "elif" => parseBranch exprFuel fuel rest
+      | .keyword "else" => do
+        let (body, rest) ← parseSuite exprFuel fuel (← consumeSymbol ":" rest.pop)
+        pure (sequence body, rest)
+      | _ => pure (.pass, rest)
+    return (.branch test (sequence yes) no, rest)
+
+end
+
+private def parserFuel (tokens : List Token) : Nat := 2 * tokens.length + 2
+
+private def parseModuleTokens (tokens : List Token) : Except Diagnostic ParsedModule := do
+  let fuel := parserFuel tokens
+  let (statements, rest) ← parseBlock fuel false fuel true ⟨tokens, {}⟩ []
+  unless rest.peek.kind = .eof do return ← expect "end of file" rest
+  return ⟨statements⟩
 
 /-- Parse decoded scalar module text, retaining top-level statement spans. -/
 def parseModule (source : String) : Except Diagnostic ParsedModule := do
-  parseTokens (← lex source)
+  parseModuleTokens (← lex source)
 
 /-- Parse original UTF-8 file bytes with the same spans and grammar. -/
 def parseModuleUtf8 (source : ByteArray) : Except Diagnostic ParsedModule := do
-  parseTokens (← lexUtf8 source)
+  parseModuleTokens (← lexUtf8 source)
+
+private def parseName (s : Stream) : Except Diagnostic (String × Stream) :=
+  match s.peek.kind with
+  | .name name => .ok (name, s.pop)
+  | .outside .nonAsciiName => failAt (.unsupported .nonAsciiName) s
+  | _ => expect "a name" s
+
+private def parseParameters : Nat → Stream → List String → Except Diagnostic (List String × Stream)
+  | 0, s, _ => failAt .exhausted s
+  | fuel + 1, s, names => do
+    match s.peek.kind with
+    | .symbol ")" => return (names.reverse, s.pop)
+    | .symbol "*" | .symbol "**" => failAt (.unsupported .parameters) s
+    | _ =>
+      let (name, rest) ← parseName s
+      if names.contains name then return ← failAt (.duplicateParameter name) s
+      let names := name :: names
+      match rest.peek.kind with
+      | .symbol "," => parseParameters fuel rest.pop names
+      | .symbol ")" => return (names.reverse, rest.pop)
+      | .symbol "=" => failAt (.unsupported .parameters) rest
+      | _ => expect "',' or ')'" rest
+
+private def parseFunctionTokens (tokens : List Token) : Except Diagnostic ParsedFunction := do
+  let s : Stream := ⟨tokens, {}⟩
+  unless s.peek.kind = .keyword "def" do return ← expect "'def'" s
+  let (name, rest) ← parseName s.pop
+  let fuel := parserFuel tokens
+  let (parameters, rest) ← parseParameters fuel (← consumeSymbol "(" rest) []
+  let (body, rest) ← parseSuite fuel fuel (← consumeSymbol ":" rest)
+  unless rest.peek.kind = .eof do return ← failAt (.unsupported .functionFile) rest
+  return ⟨name, parameters, ⟨s.peek.span.start, rest.lastEnd⟩, body⟩
+
+/-- Parse a file containing one scalar function with an indented body. -/
+def parseFunction (source : String) : Except Diagnostic ParsedFunction := do
+  parseFunctionTokens (← lex source)
+
+/-- Parse a standalone function from original UTF-8 file bytes. -/
+def parseFunctionUtf8 (source : ByteArray) : Except Diagnostic ParsedFunction := do
+  parseFunctionTokens (← lexUtf8 source)
 
 end Silmaril.Languages.Starlark.Frontend
