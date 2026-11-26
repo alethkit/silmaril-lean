@@ -139,3 +139,30 @@ The visible regression starts with a tick under pure capture and uses its
 reply as the next tick operand. The atomic regression selects two distinct
 inputs in reversed positional order and returns them in source order.
 [Visible regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean) · [Atomic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Examples.lean)
+
+## Finite trace comparison
+
+Two independently admitted and purely closed graphs can be compared at
+matching typed interfaces. `InterfaceMatch` requires the same positional
+capture types and the same type at the sole external exit. `MatchedInputs`
+pairs the source stores and requires equal projected version-zero values at
+each slot. The comparison shares the event family and tagged runtime values.
+Each graph can use its own primitives, with the same implementation on its
+source and packed sides. The interface witness relates static slots and
+projected values. Any runtime typing invariant is a separate premise of a
+client that needs it. [Interface](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Defs.lean)
+
+`packed_pointwise_traceLE_iff` transports finite trace inclusion in both
+directions over any family of matched inputs. Source observations run the
+predecessor-indexed evaluator and use the same exit number and return tag
+as the packed dispatcher. Requests and their typed replies pass through
+unchanged. The proof uses the checked pure execution equality for each graph.
+The result compares executions with supplied primitive interpretations.
+[Transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Thms.lean)
+
+The regression certifies, admits and closes two graphs independently.
+Every seed gives inclusion from the partial tick graph to the total tick
+graph. At seed `4`, replies `2` and `0` each pass through the self-edge's φ
+operand to the next visit. Only the total graph requests `tick 0`, which
+witnesses strict inclusion for the packed executions.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Examples.lean)
