@@ -52,15 +52,16 @@ structure Invocation (block : LexicalBlock) where
   codes : List Lowering.Expr
   argumentReads : List Binding
   operands : Call.Arguments block arguments codes argumentReads
+  keywords : Named.Operands block := Named.Operands.empty
 
 @[expose] def Invocation.source {block : LexicalBlock} (call : Invocation block) : Statement :=
-  .assign call.destination (.call (.scalar (.read call.callee)) call.arguments [] none none)
+  .assign call.destination (.call (.scalar (.read call.callee)) call.arguments call.keywords.source none none)
 
 @[expose] def Invocation.code {block : LexicalBlock} (call : Invocation block) : Functions.Body :=
-  .assignExpr (fileSlot call.destination) (Call.expression call.callee call.codes)
+  .assignExpr (fileSlot call.destination) (Named.expression call.callee call.codes call.keywords.codes)
 
 @[expose] def Invocation.reads {block : LexicalBlock} (call : Invocation block) : List Binding :=
-  fileSlot call.callee :: call.argumentReads
+  fileSlot call.callee :: (call.argumentReads ++ call.keywords.reads)
 
 /-- Each child starts with an empty provenance map. Only reaching a
 local definition or copying a tracked local establishes a known callee. -/

@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.Defs
-import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Thms
 
@@ -35,8 +35,8 @@ theorem compiles {block : LexicalBlock} {locals : Locals block} {source : Statem
       site.body site.selects site.defaults same tracked _ _ child
     exact compileBody_plainSeq _ _ _ _ _ _ _ _ compiled rest
   | invoke call _ _ _ rest =>
-    have called := Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.resolves
-      call.calleeLegal call.calleeOwned call.operands
+    have called := Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.resolves
+      call.calleeLegal call.calleeOwned call.operands call.keywords
     exact compileBody_plainSeq _ _ _ _ _ _ _ _ (compileBody_plainAssign _ _ _ _ _ _ called) rest
 
 theorem collects {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
@@ -101,7 +101,9 @@ theorem selects {block : LexicalBlock} {locals : Locals block} {source : Stateme
     rcases List.mem_append.mp member with current | later
     · rcases List.mem_cons.mp current with rfl | argument
       · exact ⟨.owned, .owned call.calleeOwned⟩
-      · exact argument_origins call.operands binding argument
+      · exact (List.mem_append.mp argument).elim (argument_origins call.operands binding)
+          (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.argument_origins
+            call.keywords.related binding)
     · exact rest binding later
 
 /-- The full table minus the enclosing definition still contains this suite's emissions. -/

@@ -342,7 +342,7 @@ defaults, other argument forms, loads, and broader bodies are outside
 this proof. The Lean fixtures distinguish operand failures from
 surplus arity and exercise linked code, later unrelated definitions,
 and a copy of the live closure.
-[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Checks.lean) · [Pinned call semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-calls)
+[Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Checks.lean) · [Pinned call semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions)
 
 ### Wrapper returns and reached command prefixes
 
@@ -950,8 +950,8 @@ closure at the stored address, its saved defaults and its live
 capture cells.
 
 At invocation the proof reads that local and dispatches using its
-actual closure record. The ordered positional operands and
-existing binder run before activation. The callee suite starts
+actual closure record. Explicit positional and named operands run
+in source order and the binder runs before activation. The callee suite starts
 with its own empty map under the reduced available declaration
 set. `entry_guard` derives availability from stable table lookup
 at ordinary function entry. Each child's earlier-emitted IDs
@@ -968,14 +968,51 @@ intermediate alias overwritten. Calling the rebound name instead
 uses the replacement declaration and its required parameter.
 A reached operand error takes precedence over its binder. Lean
 also checks the earlier return, retained allocations and restored
-caller on both errors.
+caller on failure.
 
 Callable provenance from parameters, captures, module names, heap
 reads or returned values, calls through untracked values, other
-expression positions, keywords and spreads, general dispatch,
-loads, text parsing and module publication remain outside the
-profile.
+expression positions, spreads, variadic and keyword-only signatures,
+general dispatch, loads, text parsing and module publication remain
+outside the profile.
 [Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Explicit named arguments at tracked local calls
+
+The checked invocation accepts ordinary required and defaulted
+parameters with distinct explicit names in each call. Normalized
+source places all positional operands before the named operands.
+The independent rules read the reached local callee, evaluate those
+operands once in order and partition the resulting values by the
+resolved positional count and keyword names. The reached closure
+record supplies the declaration, saved values and live capture
+cells. Its body runs under the existing declaration guard.
+
+The independent binder checks surplus positional arguments, then
+delivers keyword values to formal slots in source order. An unknown
+name or a parameter already filled by another operand ends delivery.
+Saved defaults fill the remaining slots and the binder then reports
+missing required parameters in declaration order. Agreement with
+`bindArguments` is exact for ordinary signatures. Binding failure
+allocates no activation. A reached operand failure takes precedence
+over any binding failure and preserves earlier allocations.
+
+Repeated names in the explicit syntax fail validation even when an
+operand would fail at runtime. Supplying an ordinary parameter
+positionally and by name instead reaches the runtime conflict check
+after evaluating all operands. Lean and pinned Go cover mixed
+success with a saved default and a named override, the first unknown
+name or conflict, positional arity precedence and a stopped operand
+sequence. Lean also checks the exact allocation order, unassigned
+destination and restored caller.
+
+Pinned Go has a separate nullary diagnostic for supplied arguments.
+When a call supplies only keywords to a zero-parameter function,
+the Lean binder reports the unexpected name. Both reject before
+running the body. The Go comparison uses valid identifiers and
+stays within Go's per-kind explicit operand count limits. Spreads,
+arbitrary dispatch and module publication remain separate.
+[Named rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go validation](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512)
 
 ## Finite-manifest loader
 

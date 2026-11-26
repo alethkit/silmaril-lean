@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Defs
+public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.Defs
 
 public section
 
@@ -101,13 +101,14 @@ inductive Runs : LexicalBlock → State → Statement → Functions.Body → Out
 
   | invoke {block : LexicalBlock} {state : State} {rest : Statement} {tail : Functions.Body} {id : DeclarationId}
       {site : Site block} {callee destination : String} {arguments : List Expr} {codes : List Lowering.Expr}
+      {keywords : List (String × Expr)} {compiled : List (String × Lowering.Expr)}
       {result : Outcome Lists.Value} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
-      Call.RunsWith site bodyRuns block id callee arguments codes state result →
+      Named.RunsWith site bodyRuns block id callee arguments codes keywords compiled state result →
       (∀ active childOut, bodyRuns active childOut → Runs site.block active site.source site.body.code childOut) →
       (∀ value returned, result = .ok value returned →
         Runs block (returned.write (fileSlot destination) value) rest tail out) →
-      Runs block state (.seq (.assign destination (.call (.scalar (.read callee)) arguments [] none none)) rest)
-        (.seq (.assignExpr (fileSlot destination) (Call.expression callee codes)) tail)
+      Runs block state (.seq (.assign destination (.call (.scalar (.read callee)) arguments keywords none none)) rest)
+        (.seq (.assignExpr (fileSlot destination) (Named.expression callee codes compiled)) tail)
         (result.resume fun _ _ => out)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite

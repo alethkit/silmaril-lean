@@ -74,6 +74,81 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
+theorem runs_packed {parent block : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
+    (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site program available id bodyRuns)
+    {name : String} {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads)
+    (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr))
+    (ordered : positional ++ keywords.map Prod.snd = codes)
+    (collect : List Value → Actual) (binds : BindingRule)
+    (expands : ∀ state values, values.length = codes.length →
+      Lowering.Expands ((Lowering.argumentShape positional keywords none none).collect values)
+        state (.ok (collect values) state))
+    (total : ∀ defaults actual, ∃ result, binds defaults actual result)
+    (prepare : ∀ {reached : State} (closure : ClosureAt site id defining reached address) values result,
+      binds closure.defaults (collect values) result →
+      prepareExpanded program available (collect values) (.function address) reached =
+        match result with
+        | .error error => .error error reached
+        | .ok assigned => .ok (.closure ⟨id, permitted, site.declaration.body⟩)
+            (activate reached site.declaration closure.captures assigned)) :
+    let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords none none
+    ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds state out ∧
+      ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
+      Body.Keeps state.heap.size state (finishState out) := by
+  let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords none none
+  change ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds state out ∧
+    ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
+    Body.Keeps state.heap.size state (finishState out)
+  let calls := Lowering.coreClosureRuns program available
+  have read := Body.evaluates_with program available calls callee
+  obtain ⟨operands, ran, kept, length⟩ := arguments_total related state
+  have applyCall {actualState : State} {values : List Value} {out : Outcome Value}
+      (evaluated : Evaluates block state arguments codes (.ok values actualState))
+      (size : values.length = codes.length)
+      (dispatch : Lowering.DispatchesWith program available calls actualState (.function address) (collect values) out) :
+      Operational program available state code out := by
+    dsimp [code]
+    apply Lowering.EvaluatesWith.call
+    · simpa only [Lowering.sourceOperands, Option.toList_none, List.append_nil, ordered] using
+        Lowering.EvaluatesManyWith.cons read (evaluates_many program available calls evaluated)
+    · exact .expanded (expands actualState values size) dispatch
+  cases operands with
+  | error error residual =>
+    have native : Operational program available state code (.error error residual) := by
+      dsimp [code]
+      apply Lowering.EvaluatesWith.callError
+      simpa only [Lowering.sourceOperands, Option.toList_none, List.append_nil, ordered] using
+        Lowering.EvaluatesManyWith.tailError read (evaluates_many program available calls ran)
+    exact ⟨_, .operandError callee ran, (agreement native).1, (agreement native).2, kept⟩
+  | ok values actualState =>
+    let reached := keep_record record kept
+    obtain ⟨bound, binding⟩ := total reached.defaults (collect values)
+    have ready := prepare reached values bound binding
+    cases bound with
+    | error error =>
+      have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) (.reject ready))
+      exact ⟨_, .bindingError callee ran reached binding, native, meaning, kept⟩
+    | ok assigned =>
+      obtain ⟨out, bodyRun, executable, restored⟩ :=
+        enterBody actualState defining reached.captures reached.installed reached.live assigned
+      have dispatch : Lowering.DispatchesWith program available calls actualState (.function address)
+          (collect values) (Leaf.returnTo actualState out) := by
+        cases out with
+        | ok flow final => exact .returned ready executable
+        | error error final => exact .failed ready executable
+      have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) dispatch)
+      refine ⟨_, .invoked callee ran reached binding bodyRun, native, meaning, restored.1.trans kept.1, ?_⟩
+      intro address cell low found
+      exact restored.2 address cell (Array.getElem?_eq_some_iff.mp (kept.2 address cell low found)).choose
+        (kept.2 address cell low found)
+
 theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
     (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
@@ -91,54 +166,20 @@ theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)
       ExecExpr resolved.program available state (expression name codes) out ∧
       Lowering.denoteExpr resolved.program available (expression name codes) state = out ∧
       Body.Keeps state.heap.size state (finishState out) := by
-  let program := resolved.program
-  let calls := Lowering.coreClosureRuns program available
-  have read := Body.evaluates_with program available calls callee
-  obtain ⟨operands, ran, kept, length⟩ := arguments_total related state
-  have applyCall {actualState : State} {values : List Value} {out : Outcome Value}
-      (evaluated : Evaluates block state arguments codes (.ok values actualState))
-      (size : values.length = codes.length)
-      (dispatch : Lowering.DispatchesWith program available calls actualState (.function address) ⟨values, []⟩ out) :
-      Operational program available state (expression name codes) out := by
-    apply Lowering.EvaluatesWith.call
-    · simpa only [Lowering.sourceOperands, List.map_nil, Option.toList_none, List.append_nil] using
-        Lowering.EvaluatesManyWith.cons read (evaluates_many program available calls evaluated)
-    · exact .expanded (positioned actualState size) dispatch
-  cases operands with
-  | error error residual =>
-    have native : Operational program available state (expression name codes) (.error error residual) := by
-      apply Lowering.EvaluatesWith.callError
-      simpa only [Lowering.sourceOperands, List.map_nil, Option.toList_none, List.append_nil] using
-        Lowering.EvaluatesManyWith.tailError read (evaluates_many program available calls ran)
-    exact ⟨_, .operandError callee ran, (agreement native).1, (agreement native).2, kept⟩
-  | ok values actualState =>
-    let reached := keep_record record kept
-    obtain ⟨bound, binds⟩ :=
+  apply runs_packed site bodyRuns resolved.program id available permitted enterBody callee record related
+    codes [] (by simp) (fun values => ⟨values, []⟩)
+    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional)
+  · exact fun state _ length => positioned state length
+  · exact fun defaults actual =>
       Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.binds_total
-        (site.parameters.slots reached.defaults) values
+        (site.parameters.slots defaults) actual.positional
+  · intro reachedState reached actual result binding
+    -- The positional profile always collects an empty keyword list.
     have codeLength : (site.defaults.map PlainPositionalDefault.value).length = site.parameters.optional.length := by
       simpa using congrArg List.length (Lexical.translates site.lexical).1
-    have ready :=
-      Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.checked_prepare_positional
-        checked id available permitted site.parameters site.declaration _ found rfl codeLength actualState
-        address reached.frozen reached.captures reached.defaults values reached.length reached.recorded binds
-    cases bound with
-    | error error =>
-      have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) (.reject ready))
-      exact ⟨_, .bindingError callee ran reached binds, native, meaning, kept⟩
-    | ok assigned =>
-      obtain ⟨out, bodyRun, executable, restored⟩ :=
-        enterBody actualState defining reached.captures reached.installed reached.live assigned
-      have dispatch : Lowering.DispatchesWith program available calls actualState (.function address)
-          ⟨values, []⟩ (Leaf.returnTo actualState out) := by
-        cases out with
-        | ok flow final => exact .returned ready executable
-        | error error final => exact .failed ready executable
-      have ⟨native, meaning⟩ := agreement (applyCall ran (length _ _ rfl) dispatch)
-      refine ⟨_, .invoked callee ran reached binds bodyRun, native, meaning, restored.1.trans kept.1, ?_⟩
-      intro address cell low found
-      exact restored.2 address cell (Array.getElem?_eq_some_iff.mp (kept.2 address cell low found)).choose
-        (kept.2 address cell low found)
+    cases result <;> exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.checked_prepare_positional
+      checked id available permitted site.parameters site.declaration _ found rfl codeLength reachedState
+      address reached.frozen reached.captures reached.defaults actual reached.length reached.recorded binding
 
 private theorem recursive_entry {parent : LexicalBlock} (site : Site parent)
     {seed final : Program} {emissions : Emissions}

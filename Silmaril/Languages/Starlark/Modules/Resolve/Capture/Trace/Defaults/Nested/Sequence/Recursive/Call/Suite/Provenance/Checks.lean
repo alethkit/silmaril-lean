@@ -41,27 +41,68 @@ private theorem original_body (seed : Program) :
 private def replacement : Site block where
   name := "replacement"
   target := by decide
-  parameters := ⟨["required"], []⟩
-  source := .ret (some starlark%[required])
+  parameters := ⟨["required"], [("offset", starlark%[1]), ("saved", starlark%[values])]⟩
+  source := .ret (some starlark%[required[offset][saved[0]]])
   binders := []
   locals := []
   collects := .ret _
   localOrder := .nil
-  body := ⟨.returnExpr (readLocal "required"), [fileSlot "required"]⟩
+  body := ⟨.returnExpr (.index (.index (readLocal "required") (readLocal "offset"))
+    (.index (readLocal "saved") (.atom (.scalar (.int 0))))),
+    [fileSlot "required", fileSlot "offset", fileSlot "saved"]⟩
   free := []
-  selects := .owned (.owned (by decide)) .nil
-  defaults := []
-  lexical := .nil
+  selects := .owned (.owned (by decide)) (.owned (.owned (by decide)) (.owned (.owned (by decide)) .nil))
+  defaults := [⟨"offset", starlark%[1], .atom (.scalar (.int 1)), []⟩,
+    ⟨"saved", starlark%[values], readLocal "values", [fileSlot "values"]⟩]
+  lexical := .cons (.int 1) (.cons (.read (by decide) (.owned (by decide)) (.owned (by decide))) .nil)
 
 private theorem replacement_body (seed : Program) :
     Elaborates replacement.block empty replacement.source seed replacement.body seed [] :=
-  .plain (.straight (.ret (.read (by decide) (.owned (by decide)) (.owned (by decide)))))
+  .plain (.straight (.ret (.index
+    (.index (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+      (.read (by decide) (.owned (by decide)) (.owned (by decide))))
+    (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))))
 
 private def aliasCall : Invocation block :=
-  ⟨"copy", by decide, by decide, "firstValue", by decide, [], [], [], .nil⟩
+  ⟨"copy", by decide, by decide, "firstValue", by decide, [], [], [], .nil, .empty⟩
 
 private inductive Mode where
-  | success | arity | operand
+  | success | missing | unknown | conflict | operand | surplus
+
+private def keywordNames (mode : Mode) : List String :=
+  match mode with
+  | .success => ["offset"]
+  | .missing => []
+  | .surplus => ["other"]
+  | .unknown => ["other", "required"]
+  | .conflict => ["required", "other"]
+  | .operand => ["other", "offset", "later"]
+
+private def selectedKeywords (mode : Mode) : Call.Named.Operands block where
+  source := (keywordNames mode).zip (match mode with
+    | .success => [starlark%[values[0]]]
+    | .missing => []
+    | .surplus => [starlark%[[80]]]
+    | .unknown | .conflict => [starlark%[[80]], starlark%[[81]]]
+    | .operand => [starlark%[[80]], starlark%[[0][1]], starlark%[[77]]])
+  codes := (keywordNames mode).zip (match mode with
+    | .success => [.index (readLocal "values") (.atom (.scalar (.int 0)))]
+    | .missing => []
+    | .surplus => [listInt 80]
+    | .unknown | .conflict => [listInt 80, listInt 81]
+    | .operand => [listInt 80, .index (listInt 0) (.atom (.scalar (.int 1))), listInt 77])
+  reads := match mode with
+    | .success => [fileSlot "values"]
+    | _ => []
+  related := by
+    cases mode with
+    | success => exact .cons (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)) .nil
+    | surplus => exact .cons (.list (.int 80)) .nil
+    | missing => exact .nil
+    | unknown | conflict => exact .cons (.list (.int 80)) (.cons (.list (.int 81)) .nil)
+    | operand => exact .cons (.list (.int 80)) (.cons (.index (.list (.int 0)) (.int 1))
+        (.cons (.list (.int 77)) .nil))
+  distinct := by cases mode <;> decide
 
 private def selectedCall (mode : Mode) : Invocation block where
   callee := "first"
@@ -70,30 +111,33 @@ private def selectedCall (mode : Mode) : Invocation block where
   destination := "selected"
   destinationOwned := by decide
   arguments := match mode with
-    | .success => [starlark%[[firstValue]]]
-    | .arity => []
-    | .operand => [starlark%[[73]], starlark%[[0][1]], starlark%[[77]]]
+    | .success => [starlark%[[[firstValue]]]]
+    | .missing => []
+    | .surplus => [starlark%[[73]], starlark%[[74]], starlark%[[75]], starlark%[[76]]]
+    | _ => [starlark%[[73]]]
   codes := match mode with
-    | .success => [.list [readLocal "firstValue"]]
-    | .arity => []
-    | .operand => [listInt 73, .index (listInt 0) (.atom (.scalar (.int 1))), listInt 77]
+    | .success => [.list [.list [readLocal "firstValue"]]]
+    | .missing => []
+    | .surplus => [listInt 73, listInt 74, listInt 75, listInt 76]
+    | _ => [listInt 73]
   argumentReads := match mode with
     | .success => [fileSlot "firstValue"]
     | _ => []
   operands := by
     cases mode with
-    | success => exact .cons (.list (.read (by decide) (.owned (by decide)) (.owned (by decide)))) .nil
-    | arity => exact .nil
-    | operand =>
-      exact .cons (.list (.int 73))
-        (.cons (.index (.list (.int 0)) (.int 1)) (.cons (.list (.int 77)) .nil))
+    | success => exact .cons (.list (.list (.read (by decide) (.owned (by decide)) (.owned (by decide))))) .nil
+    | missing => exact .nil
+    | unknown | conflict | operand => exact .cons (.list (.int 73)) .nil
+    | surplus =>
+      exact .cons (.list (.int 73)) (.cons (.list (.int 74)) (.cons (.list (.int 75)) (.cons (.list (.int 76)) .nil)))
+  keywords := selectedKeywords mode
 
 private def tail : Body.Suite :=
-  .assign "after" starlark%[[99]] (.ret starlark%[selected[0]])
+  .assign "after" starlark%[[99]] (.ret starlark%[selected])
 
 private def tailCode : ResolvedBody :=
   ⟨.seq (.assignExpr (fileSlot "after") (listInt 99))
-    (.returnExpr (.index (readLocal "selected") (.atom (.scalar (.int 0))))), [fileSlot "selected"]⟩
+    (.returnExpr (readLocal "selected")), [fileSlot "selected"]⟩
 
 private def beforeReplacement := [("alias", starlark%[first]), ("marker", starlark%[[17]]), ("copy", .scalar (.read "alias"))]
 private def afterReplacement := [("first", starlark%[replacement]), ("alias", starlark%[0])]
@@ -120,7 +164,7 @@ private theorem profile (mode : Mode) (seed : Program) :
       [(seed.size, original.declaration), (seed.size + 1, replacement.declaration)] := by
   have ending : Body.Elaborates block tail tailCode.code tailCode.reads :=
     .assign (by decide) (.list (.int 99))
-      (.ret (.index (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.int 0)))
+      (.ret (.read (by decide) (.owned (by decide)) (.owned (by decide))))
   have assembled := Elaborates.define (locals := empty) original (original_body seed)
     (.assign (name := "alias") (by decide) (.read (by decide) (.owned original.target) (.owned original.target))
       (.copy original.target rfl)
@@ -159,7 +203,7 @@ example (mode : Mode) (seed : Program) {commands : List Command} {linked : Progr
   exact ⟨out, trace, exec, meaning⟩
 
 private def commands (mode : Mode) : List Command :=
-  [.assign "values" starlark%[[11,22]], .define "factory" (.required ["values", "index"]) (source mode),
+  [.assign "values" starlark%[[0,22]], .define "factory" (.required ["values", "index"]) (source mode),
    .assign "result" (.call starlark%[factory] [starlark%[values], starlark%[1]] [] none none),
    .assign "finished" starlark%[[91]]]
 
@@ -170,7 +214,7 @@ private def commands (mode : Mode) : List Command :=
     final.heap.any (fun cell => cell.contents == .list [.scalar (.int 99)])
   | _ => false
 
-private def fails (mode : Mode) (expected : Lists.Error) (operandAllocations : Bool) : Bool :=
+private def fails (mode : Mode) (expected : Lists.Error) (allocations : List Int) : Bool :=
   let source := commands mode
   let caller : Lists.State := { iterators := [123] }
   match resolve source, runModule source (fun _ => none) caller with
@@ -185,15 +229,35 @@ private def fails (mode : Mode) (expected : Lists.Error) (operandAllocations : B
         final.heap[address + 9]? == some ⟨.binding none, false⟩ &&
         final.heap[address + 10]? == some ⟨.binding none, false⟩
       | _ => false
-    reached == expected && hasList 17 && hasList 73 == operandAllocations &&
-    hasList 0 == operandAllocations && !hasList 77 && !hasList 99 && !hasList 91 && restoredLocals &&
+    let operandLists (cell : Lists.Cell) : Option Int := match cell.contents with
+      | .list [.scalar (.int n)] => if n == 17 then none else some n
+      | _ => none
+    reached == expected && hasList 17 && final.heap.toList.filterMap operandLists == allocations && restoredLocals &&
     moduleCell "result" == some ⟨.binding none, false⟩ && moduleCell "finished" == some ⟨.binding none, false⟩ &&
     (final.slots (globalSlot "factory")).isNone && final.iterators == [123]
   | _, _ => false
 
--- The rebound local selects the replacement's required parameter rather
--- than reusing the earlier closure's saved default.
-#guard fails .arity (.missingArguments ["required"]) false
-#guard fails .operand (.indexRange 1 1) true
+#guard fails .missing (.missingArguments ["required"]) []
+#guard fails .unknown (.unexpectedKeyword "other") [73, 80, 81]
+#guard fails .conflict (.multipleArgumentValues "required") [73, 80, 81]
+#guard fails .operand (.indexRange 1 1) [73, 80, 0]
+#guard fails .surplus (.arity 3 4) [73, 74, 75, 76, 80]
+
+-- The existing binder reports the unknown name on a keyword-only call
+-- to a nullary function. Pinned Go has a special nullary diagnostic.
+#guard
+  match Functions.bindArguments {} [] ⟨[], [("other", .scalar (.int 1))]⟩ with
+  | .error (.unexpectedKeyword "other") => true
+  | _ => false
+
+-- Raw normalized source can represent repeated names. Whole checked
+-- resolution rejects those before the first operand error is reached.
+#guard
+  let invalid : Command := .define "factory" (.required [])
+    (.ret (some (.call (.scalar (.read "factory")) []
+      [("offset", starlark%[[0][1]]), ("offset", starlark%[2])] none none)))
+  match resolve [invalid] with
+  | .error (.validation (.syntax (.duplicateExplicitKeyword "offset"))) => true
+  | _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
