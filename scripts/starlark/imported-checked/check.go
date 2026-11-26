@@ -166,6 +166,81 @@ result = held(17)
 		partial["result"] == cached["late"] && strings.Join(events, ",") == "44,31 52,44,41 52", partial)
 }
 
+func checkChain(preload string, bad bool) {
+	const middle = `load("prodé.star", loaded="escaped")
+def relay():
+    return loaded(17)
+before = relay()
+reexport = loaded
+`
+	opts := &syntax.FileOptions{}
+	thread := &starlark.Thread{}
+	var events []string
+	thread.Print = func(_ *starlark.Thread, message string) {
+		events = append(events, message)
+	}
+	files := map[string]string{"prodé.star": producer, "middle.star": middle}
+	cache := map[string]starlark.StringDict{}
+	initializations := map[string]int{}
+	hits := map[string]int{}
+	thread.Load = func(_ *starlark.Thread, name string) (starlark.StringDict, error) {
+		if value, found := cache[name]; found {
+			hits[name]++
+			return value, nil
+		}
+		source, exists := files[name]
+		require(exists, name)
+		initializations[name]++
+		value, err := starlark.ExecFileOptions(opts, thread, name, source, nil)
+		if err == nil {
+			cache[name] = value
+		}
+		return value, err
+	}
+	if preload != "" {
+		_, err := thread.Load(thread, preload)
+		require(err == nil, err)
+	}
+	mapping := `{"key": [72]}`
+	if bad {
+		mapping = `{"key": 8}`
+	}
+	source := fmt.Sprintf(`load("middle.star", transferred="reexport")
+held = transferred
+first = held(another=[71], *[17, 18])
+marker = [88]
+answer = held(another=[71], *[17, 18], **%s)
+after = [199]
+`, mapping)
+	_, program, err := starlark.SourceProgramOptions(opts, "final.star", source, func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := program.Init(thread, nil)
+	require(initializations["prodé.star"] == 1 && initializations["middle.star"] == 1, initializations)
+	require((hits["prodé.star"] == 1) == (preload == "prodé.star") &&
+		(hits["middle.star"] == 1) == (preload == "middle.star"), hits)
+	prod, mid := cache["prodé.star"], cache["middle.star"]
+	require(mid["relay"] != nil && mid["reexport"] == prod["escaped"] &&
+		partial["held"] == prod["escaped"] && mid["before"] == prod["late"] &&
+		partial["first"] == prod["late"] && partial["marker"].String() == "[88]", partial)
+	if bad {
+		require(err != nil && strings.Contains(err.Error(), "unhandled index operation"), err)
+		require(partial["answer"] == nil && partial["after"] == nil &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44,31 52,44", partial)
+	} else {
+		require(err == nil, err)
+		require(partial["answer"] == prod["late"] && partial["after"].String() == "[199]" &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44,31 52,44,72 52", partial)
+		require(partial["answer"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
+	}
+	// A later request imports the middle wrapper itself. This control
+	// observes resolved loading beyond the regular re-export theorem.
+	wrapped, err := starlark.ExecFileOptions(opts, thread, "wrapped.star", `load("middle.star", wrapped="relay")
+result = wrapped()
+`, nil)
+	require(err == nil, err)
+	require(wrapped["result"] == prod["late"] && initializations["middle.star"] == 1, wrapped)
+}
+
 func main() {
 	for _, warm := range []bool{false, true} {
 		check(warm, "factory", `{"extra": 9}`)
@@ -178,9 +253,14 @@ func main() {
 		checkDeclarationSuite(warm, true)
 		checkReturnedClosure(warm)
 	}
+	for _, preload := range []string{"", "prodé.star", "middle.star"} {
+		checkChain(preload, false)
+		checkChain(preload, true)
+	}
 	fmt.Println("PASS cold and cached importer suites retain callable returns, saved values and producer globals")
 	fmt.Println("PASS missing export stops the suite and a second-call error retains the factory and marker")
 	fmt.Println("PASS consumer-owned wrapper calls the imported closure on cold and cached loads; reached errors preserve prior effects")
 	fmt.Println("PASS interleaved importer declarations, alias calls, saved defaults, and skipped effects after the first error")
 	fmt.Println("PASS a consumer wrapper returns a fresh imported closure that remains callable")
+	fmt.Println("PASS three-module re-export with cold, root-preloaded and middle-preloaded histories")
 }

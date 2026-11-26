@@ -74,7 +74,7 @@ theorem writes_frame {importName globals} {state : State} (frame : Frame importN
 
 theorem initial_live {plan : Consumer} {producer program : Program} {state defining : State}
     {callee : Callable} {address : Nat} (frame : Frame plan.alias plan.globals state)
-    (record : ClosureAt callee.site callee.id defining state address) (linked : callee.Linked program) :
+    (record : ClosureAt callee.site callee.id defining state address) (linked : callee.Linked producer) :
     Live plan.alias producer program (initial (globals := plan.globals) plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
   intro name tracked found
   have hit : name = plan.alias := by
@@ -120,5 +120,51 @@ theorem writes_live {importName globals producer program} {env : Tracked importN
       exact same (by simpa [readSlot, globalSlot, fileSlot, apply_ite] using (congrArg Binding.name equal).symm)
     exact ⟨other, address, flag, defining, slots.symm ▸ read,
       (write_other frame.1 different read value).trans bindingCell, linked, write_slot_record (callee := callee.layout) closure owned cell value, slots.symm ▸ inherited⟩
+
+theorem closure_cells_of_contents {first next : State} (kept : KeepsContents first next) :
+    KeepsClosureCells first next :=
+  ⟨fun _ _ _ found => kept _ _ found, fun _ value _ found => ⟨value, kept _ _ found⟩⟩
+
+theorem closure_cells_of_keeps {first next : State} (kept : Body.Keeps first.heap.size first next) :
+    KeepsClosureCells first next :=
+  closure_cells_of_contents (fun _ cell found => ⟨cell.frozen, keep_cell kept found⟩)
+
+theorem closure_cells_trans {first middle last : State}
+    (one : KeepsClosureCells first middle) (two : KeepsClosureCells middle last) :
+    KeepsClosureCells first last := by
+  refine ⟨?_, ?_⟩
+  · intro address closure flag stored
+    obtain ⟨middleFlag, found⟩ := one.functions address closure flag stored
+    exact two.functions address closure middleFlag found
+  · intro address value flag stored
+    obtain ⟨middleValue, middleFlag, found⟩ := one.bindings address value flag stored
+    exact two.bindings address middleValue middleFlag found
+
+theorem write_closure_cells {state : State} {target : Binding} {slot : Nat}
+    {old : Option Lists.Value} {frozen : Bool}
+    (owned : state.slots target = some (.owned slot))
+    (stored : state.heap[slot]? = some ⟨.binding old, frozen⟩) (value : Lists.Value) :
+    KeepsClosureCells state (state.write target value) := by
+  refine ⟨?_, ?_⟩
+  · intro address closure flag found
+    have other : state.slots target ≠ some (.owned address) := by
+      intro same
+      have id : address = slot := by simpa [owned] using same.symm
+      subst address
+      rw [stored] at found
+      cases found
+    exact ⟨flag, (RootCall.write_other_cell state target value address other).trans found⟩
+  · intro address prior flag found
+    by_cases same : address = slot
+    · subst address
+      exact ⟨some value, frozen, written_cell value owned stored⟩
+    · exact ⟨prior, flag, (RootCall.write_other_cell state target value address
+        (by simpa [owned, eq_comm] using same)).trans found⟩
+
+theorem write_global_closure_cells {importName : String} {globals : List String} {state : State}
+    (frame : Frame importName globals state) {name : String} (member : name ∈ globals) (value : Lists.Value) :
+    KeepsClosureCells state (state.write (globalSlot name) value) := by
+  obtain ⟨_, _, _, owned, stored⟩ := frame.2 _ (List.mem_cons_of_mem _ (List.mem_map_of_mem member))
+  exact write_closure_cells owned stored value
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

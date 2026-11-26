@@ -83,7 +83,7 @@ private theorem consumer_agrees {commands : List Modules.Resolve.Command}
       exact ⟨_, .missing sourceDependency independent, native,
         (Modules.Loader.runs_iff_denote _ _ _ _ _ _).mp native⟩
     | some callee =>
-      obtain ⟨linked, address, defining, loaded, record, _⟩ := live plan.name callee tracked plan.publicName
+      obtain ⟨_, address, defining, loaded, record, _⟩ := live plan.name callee tracked plan.publicName
       obtain ⟨selected, sameEntry, admitted⟩ := covered.resolve_right (fun absent =>
         absent (declared _ _ loaded))
       have equal := Option.some.inj (tracked.symm.trans sameEntry)
@@ -91,7 +91,7 @@ private theorem consumer_agrees {commands : List Modules.Resolve.Command}
       have frame := dependency_frame (plan := plan) globals files slots kept
       let bound := reached.runtime.write (fileSlot plan.alias) (.function address)
       let session := {reached with runtime := bound}
-      have liveBinding := initial_live (producer := producer.program) frame record linked
+      have liveBinding := initial_live (producer := producer.program) (program := consumer.program) frame record (original callee tracked)
       have independent := BindsAlias.found (plan := plan) (state := reached.runtime) loaded
       have table : PreservesDeclarations (compileSuite producer.program plan.body).2 consumer.program :=
         same ▸ fun _ _ found => found
