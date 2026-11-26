@@ -1,0 +1,107 @@
+module
+
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Thms
+
+namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
+
+open Category.FiniteIteration
+open Category.FiniteIteration.CFG.Dependent (pack)
+open Category.FiniteIteration.CFG.Dependent.Native (withExitUB)
+open LambdaSSA.Region (packedExitType)
+open TwoRequest (Tag)
+
+private inductive Op where
+  | flip
+  | test
+  deriving DecidableEq
+
+private abbrev Bit : Syntax.Ty := .coprod .unit .unit
+
+private abbrev replies : Op → List Syntax.Ty
+  | .flip => [Bit]
+  | .test => [.unit]
+
+private instance : HasTy Op Syntax.Ty := ⟨fun _ => Bit, fun f => packedExitType (replies f)⟩
+
+private abbrev sig : RequestSignature Op := ⟨replies, fun _ => rfl⟩
+private abbrev Packets : List Syntax.Ty := [Bit, Bit, .unit]
+
+/-- The same reply position always goes to block one. The operand there
+can read either the new reply or the original caller packet. -/
+private def table (caller : Bool) (exit : Tag) : Table sig Packets where
+  entry := (0 : Fin 3)
+  row := Fin.cases (motive := fun i : Fin 3 => Row sig Packets [Packets.get i, Bit])
+    (.request .flip (Syntax.Expr.var (Γ := [Bit, Bit]) (0 : Fin 2)) (fun _ => (1 : Fin 3)) (fun (j : Fin 1) => by
+      obtain rfl := Fin.eq_zero j
+      rfl))
+    (Fin.cases (motive := fun i : Fin 2 => Row sig Packets [Packets.get i.succ, Bit])
+      (.request .test (if caller then Syntax.Expr.var (Γ := [Bit, Bit]) (1 : Fin 2) else Syntax.Expr.var (Γ := [Bit, Bit]) (0 : Fin 2))
+        (fun _ => (2 : Fin 3)) (fun (j : Fin 1) => by
+          obtain rfl := Fin.eq_zero j
+          rfl))
+      (fun _ => .exit exit))
+  selected i := i == (1 : Fin 2)
+
+private def left : Syntax.Payload Bit := ⟨.inl .unit, .inl .unit⟩
+private def right : Syntax.Payload Bit := ⟨.inr .unit, .inr .unit⟩
+private def unitPayload : Syntax.Payload (.unit : Syntax.Ty) := ⟨.unit, .unit⟩
+
+private def primitives : Syntax.Primitives Op 3 := fun f a s =>
+  match f with
+  | .flip =>
+    if s = 0 then
+      let flipped := match a.val with
+        | .inl _ => right
+        | _ => left
+      .ret (pack (L := replies .flip) ⟨(0 : Fin 1), flipped⟩) 1
+    else .diverge
+  | .test =>
+    if s = 1 then
+      match a.val with
+      | .inr _ => .ret (pack (L := replies .test) ⟨(0 : Fin 1), unitPayload⟩) 2
+      | _ => .fault 2
+    else .diverge
+
+private abbrev source := table false 0
+private abbrev marked := table false 1
+private abbrev readsCaller := table true 0
+
+example : source.extract? readsCaller.native left = none := rfl
+
+example : ((source.extract? source.native left).map fun t => t.execute primitives (0 : Fin 3)) =
+    some (.ret 0 2) := rfl
+
+example : ((source.extract? source.native right).map fun t => t.execute primitives (0 : Fin 3)) =
+    some (.fault 2) := rfl
+
+example : Shape.denote (withExitUB source.native source.selected)
+    (Syntax.model primitives (source.bindings left)) 0 =
+      WithTop.some {Outcome.ret (0 : Fin 2) Value.unit (2 : Fin 3)} :=
+  (source.observe (raw := source.native) rfl left primitives 0).symm
+
+example : Shape.denote (withExitUB readsCaller.native readsCaller.selected)
+    (Syntax.model primitives (readsCaller.bindings left)) 0 =
+      WithTop.some {Outcome.fault (2 : Fin 3)} :=
+  (readsCaller.observe (raw := readsCaller.native) rfl left primitives 0).symm
+
+example : Shape.denote (withExitUB marked.native marked.selected)
+    (Syntax.model primitives (marked.bindings left)) 0 = ⊤ :=
+  (marked.observe (raw := marked.native) rfl left primitives 0).symm
+
+example : Shape.denote (withExitUB marked.native marked.selected)
+    (Syntax.model primitives (marked.bindings right)) 0 =
+      WithTop.some {Outcome.fault (2 : Fin 3)} :=
+  (marked.observe (raw := marked.native) rfl right primitives 0).symm
+
+example : Shape.denote (withExitUB marked.native marked.selected)
+    (Syntax.model primitives (marked.bindings left)) (2 : Fin 3) =
+      WithTop.some {Outcome.diverge} :=
+  (marked.observe (raw := marked.native) rfl left primitives 2).symm
+
+/-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.observe_extract' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound] -/
+#guard_msgs in
+#print axioms Table.observe_extract
+
+end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
