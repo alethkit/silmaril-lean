@@ -4,7 +4,7 @@ import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.PackedTrace.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.InstructionMap.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Ordered.Flat.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Ordered.Flat.Institution.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -488,6 +488,15 @@ private theorem captured_cycle :
   rw [tick_loop, vis_bind]
   exact hasTrace_vis_request _ _
 
+private theorem reduct_comparisons :
+    reduct.Satisfies (Program.ofCFG silentTyped) (Program.ofCFG closed.property.1) ∧
+    ¬ reduct.Satisfies (Program.ofCFG closed.property.1) (Program.ofCFG silentTyped) := by
+  rw [satisfies_ofCFG_iff reduct silentTyped closed.property.1 ambient,
+    satisfies_ofCFG_iff reduct closed.property.1 silentTyped ambient, silent_tree]
+  refine ⟨traceLE_diverge _, fun h => ?_⟩
+  have pending := h cycleTrace captured_cycle
+  simp [cycleTrace, hasTrace_diverge_iff] at pending
+
 -- A silent self-loop refines the effectful cycle, strictly, after both
 -- tables have been relabelled and the mapped capture has been closed.
 example :
@@ -501,10 +510,37 @@ example :
     satisfies_ofCFG_map_iff model rename rename_types rename_bottom closed.property.1 silentTyped]
   change reduct.Satisfies (Program.ofCFG silentTyped) (Program.ofCFG closed.property.1) ∧
     ¬ reduct.Satisfies (Program.ofCFG closed.property.1) (Program.ofCFG silentTyped)
-  rw [satisfies_ofCFG_iff reduct silentTyped closed.property.1 ambient,
-    satisfies_ofCFG_iff reduct closed.property.1 silentTyped ambient, silent_tree]
-  refine ⟨traceLE_diverge _, fun h => ?_⟩
-  have pending := h cycleTrace captured_cycle
-  simp [cycleTrace, hasTrace_diverge_iff] at pending
+  exact reduct_comparisons
+
+/-! ## The same comparison as an institutional sentence -/
+
+open CategoryTheory
+
+private def signature : FlatInstitution.Signature.{0, 0} SortName where
+  Instr := Opcode
+
+private def relabel : signature ⟶ signature :=
+  ⟨rename, rename_types, rename_bottom⟩
+
+private def comparison : FlatInstitution.Sentence signature :=
+  ⟨1, fun _ => num, FlatInstitution.Table.ofTyped silentTyped,
+    FlatInstitution.Table.ofTyped closed.property.1⟩
+
+private def converse : FlatInstitution.Sentence signature :=
+  ⟨comparison.exits, comparison.external, comparison.right, comparison.left⟩
+
+private abbrev comparisonCorridor :=
+  (FlatInstitution.institution.{0, 0} Event SortName).I.map relabel
+
+-- Sentence translation agrees with the actual relabelled executable closure.
+example : (comparisonCorridor.sen comparison).right.code = closedMapped.val :=
+  closedMapped_eq.symm
+
+-- Test the bundled institution's satisfaction field in both directions.
+example :
+    (FlatInstitution.room Event signature).Sat (Discrete.mk model) (comparisonCorridor.sen comparison) ∧
+    ¬ (FlatInstitution.room Event signature).Sat (Discrete.mk model) (comparisonCorridor.sen converse) :=
+  ⟨(comparisonCorridor.sat (Discrete.mk model) comparison).mpr reduct_comparisons.1,
+    fun h => reduct_comparisons.2 ((comparisonCorridor.sat (Discrete.mk model) converse).mp h)⟩
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples

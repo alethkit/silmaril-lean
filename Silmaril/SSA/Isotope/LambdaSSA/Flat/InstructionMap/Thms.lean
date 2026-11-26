@@ -21,6 +21,22 @@ variable {Φ : Type u} {Ψ : Type v} {labels n blocks exits : Nat}
     (g.mapInstr f).erase = g.erase.mapInstr f := by
   simp [FiniteCFG.mapInstr, FiniteCFG.erase, Region.mapInstr]
 
+@[simp] theorem Flat.mapInstr_id (r : Flat Φ labels n) : r.mapInstr id = r :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Flat.mapInstr_id r
+
+theorem Flat.mapInstr_comp {Ω : Type u} (f : Φ → Ψ) (g : Ψ → Ω) (r : Flat Φ labels n) :
+    (r.mapInstr f).mapInstr g = r.mapInstr (g ∘ f) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Flat.mapInstr_comp f g r
+
+@[simp] theorem FiniteCFG.mapInstr_id (g : FiniteCFG Φ blocks exits n) :
+    g.mapInstr id = g := by
+  cases g
+  simp only [FiniteCFG.mapInstr, Flat.mapInstr_id]
+
+theorem FiniteCFG.mapInstr_comp {Ω : Type u} (f : Φ → Ψ) (g : Ψ → Ω)
+    (a : FiniteCFG Φ blocks exits n) : (a.mapInstr f).mapInstr g = a.mapInstr (g ∘ f) := by
+  simp only [FiniteCFG.mapInstr, Flat.mapInstr_comp]
+
 variable {τ : Type w} [TypeFormers τ] [HasTy Φ τ] [HasTy Ψ τ]
   {f : Φ → Ψ} (profiles : InstructionMap.PreservesTypes (τ := τ) f)
 include profiles
