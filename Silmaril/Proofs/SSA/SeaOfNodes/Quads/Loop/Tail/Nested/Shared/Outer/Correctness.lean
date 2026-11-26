@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Defs
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Prefix.Thms
 import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Segment.Thms
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Segment.Incoming.Thms
 
 public section
 

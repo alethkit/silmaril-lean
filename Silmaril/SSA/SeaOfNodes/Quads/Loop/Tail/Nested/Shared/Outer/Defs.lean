@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Prefix.Defs
+public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Segment.Incoming.Defs
 
 /-! # Opt-in outer reconvergence before the final join -/
 

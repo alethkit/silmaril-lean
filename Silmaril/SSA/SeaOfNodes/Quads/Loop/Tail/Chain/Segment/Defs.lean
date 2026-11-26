@@ -8,11 +8,10 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Chain
 
-open Diamond (ValueSort Signature Model)
-open Blocks (Bank)
+open Diamond (ValueSort Signature)
 open Join (Block)
 
-universe u v w
+universe u v
 
 variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
@@ -33,15 +32,6 @@ def Segment.blocks : {site : Fin size} → Segment src target site → List (Fin
 def Segment.predecessor : {site : Fin size} → Segment src target site → Fin size → Fin size
   | _, .empty, caller => caller
   | _, .jump site _ rest, _ => rest.predecessor site
-
-/-- The bank before the final predecessor executes. A direct arrival
-uses the input of its caller. -/
-def Segment.predecessorBank (m : Model.{u, v, w} Op) :
-    {site : Fin size} → Segment src target site →
-      Bank (regs := regs) m → Bank (regs := regs) m → Bank (regs := regs) m
-  | _, .empty, beforeCaller, _ => beforeCaller
-  | _, .jump site _ rest, _, current =>
-    rest.predecessorBank m current ((src site).body.eval m current)
 
 def Segment.quads : {site : Fin size} → Segment src target site → Block Op regs
   | _, .empty => []
