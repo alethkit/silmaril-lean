@@ -344,20 +344,23 @@ private theorem retainedPackedExitsAgree_of_injections (X S D : τ)
   exact packedTensor
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem exitDecoder_eq_of_packedExitIso (S D : τ) (exits : SumInjectionsAgree J M objIso D S) :
-    (packedExitIso J M objIso S D).inv ≫ J.map (exitSum M S D) ≫ (objIso (coprod D S)).hom =
+private theorem exitDecoder_eq_of_sumIso (S D : τ)
+    (out : J.obj (M.obj (coprod D S)) ≅ Obj (coprod D S))
+    (left : (objIso D).inv ≫ J.map (inlMap M D S) ≫ out.hom = (sumCofan (Seed) D S).inl)
+    (right : (objIso S).inv ≫ J.map (inrMap M D S) ≫ out.hom = (sumCofan (Seed) D S).inr) :
+    (packedExitIso J M objIso S D).inv ≫ J.map (exitSum M S D) ≫ out.hom =
       Lit (exitDecoder_typed S D) := by
   let tail := coprod D (Silmaril.empty : τ)
   apply BinaryCofan.IsColimit.hom_ext (sumCofanIsColimit (Seed) S tail)
   · trans (sumCofan (Seed) D S).inr
     · rw [packedExitIso, interpretedSumIso_inl_assoc, ← J.map_comp_assoc, exitSum_inl]
-      exact exits.2
+      exact right
     · simpa only [Functor.map_comp] using! (congrArg (F).map (exitDecoder_inl (Φ := Φ) S D)).symm
   · apply BinaryCofan.IsColimit.hom_ext (sumCofanIsColimit (Seed) D Silmaril.empty)
     · trans (sumCofan (Seed) D S).inl
       · rw [packedExitIso, interpretedSumIso_inr_assoc, interpretedSumIso_inl_assoc,
           ← J.map_comp_assoc, ← J.map_comp_assoc, Category.assoc, exitSum_inr_inl]
-        exact exits.1
+        exact left
       · simpa only [Functor.map_comp] using! (congrArg (F).map (exitDecoder_inr_inl (Φ := Φ) S D)).symm
     · exact (emptyIsInitial (Seed)).hom_ext _ _
 
@@ -371,7 +374,7 @@ theorem retainedExitDecoder_eq_of_packedExitIso (X S D : τ)
   have retained := reindexPackedWhiskerLeft_from_payload J M objIso (exitSum M S D)
     (packedExitIso J M objIso S D) packed target
   exact retained.trans (congrArg (whiskerLeft (Seed) (Obj X))
-    (exitDecoder_eq_of_packedExitIso J M objIso S D exits))
+    (exitDecoder_eq_of_sumIso J M objIso S D (objIso (coprod D S)) exits.1 exits.2))
 
 
 set_option backward.isDefEq.respectTransparency false in
@@ -388,62 +391,115 @@ theorem carriedRoute_eq_of_coordinates (X S D : τ)
     (retainedPackedExitsAgree_of_injections J M objIso X S D packedSum resultTag packedTensor)
 
 set_option backward.isDefEq.respectTransparency false in
-theorem carriedRoute_eq_of_packedExitIso (X S D : τ)
-    (exits : SumInjectionsAgree J M objIso D S)
+private theorem retainedValue_square {X A B : τ} (f : M.obj A ⟶ M.obj B)
+    (a : J.obj (M.obj A) ≅ Obj A) (b : J.obj (M.obj B) ≅ Obj B) :
+    (J.obj (M.obj X) ◁ J.map f) ≫ ((objIso X).hom ▷ J.obj (M.obj B)) ≫ (Obj X ◁ b.hom) =
+      ((objIso X).hom ▷ J.obj (M.obj A)) ≫ (Obj X ◁ a.hom) ≫
+        (Obj X ◁ (a.inv ≫ J.map f ≫ b.hom)) := by
+  have swap : (J.obj (M.obj X) ◁ J.map f) ≫ ((objIso X).hom ▷ J.obj (M.obj B)) =
+      ((objIso X).hom ▷ J.obj (M.obj A)) ≫ (Obj X ◁ J.map f) :=
+    ((FreydCategory.image_central J f).2 (objIso X).hom).symm
+  rw [← Category.assoc, swap, Category.assoc,
+    ← PremonoidalCategory.whiskerLeft_comp, ← PremonoidalCategory.whiskerLeft_comp, Iso.hom_inv_id_assoc]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem carriedRoute_eq_of_carrierTensor (X S D : τ)
     (tensorState : RetainedTensorAgrees J M objIso X S)
     (tensorResult : RetainedTensorAgrees J M objIso X D)
-    (tensorExits : RetainedTensorAgrees J M objIso X (coprod D S))
     (packed : RetainedPackedExitsAgree J M objIso X S D) :
     carriedRoute J M objIso X S D =
       Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom := by
+  let K := packedExitType [S, D]
+  let U := coprod D S
   let A := product X D
   let B := product X S
   let exactOut := sumIso (Seed) A B
   let modelOut := interpretedSumIso J M A B (objIso A) (objIso B)
   let output := (objIso (coprod A B)).symm ≪≫ modelOut ≪≫ exactOut
-  let split := (objIso (product X (coprod D S))).inv ≫
-    J.map (packedDistributor M X D S) ≫ modelOut.hom
+  let exitIso := interpretedSumIso J M D S (objIso D) (objIso S)
+  let mid := (PremonoidalCategory.whiskerRightIso (objIso X) (J.obj (M.obj U))) ≪≫
+    PremonoidalCategory.whiskerLeftIso (Obj X) exitIso
+  let T := packedTensorIso J M objIso
+  let distrib := J.map (packedDistributor M X D S)
+  let split := mid.inv ≫ (T X U).hom ≫ (objIso (product X U)).inv ≫ distrib ≫ modelOut.hom
+  have inl : (objIso D).inv ≫ J.map (inlMap M D S) ≫ exitIso.hom = (sumCofan (Seed) D S).inl := by
+    simpa only [exitIso, Category.assoc, Iso.inv_hom_id, Category.comp_id] using!
+      (congrArg (fun (f : Obj D ⟶ _) => f ≫ exitIso.hom)
+        (interpretedSumIso_inl J M D S (objIso D) (objIso S))).symm
+  have inr : (objIso S).inv ≫ J.map (inrMap M D S) ≫ exitIso.hom = (sumCofan (Seed) D S).inr := by
+    simpa only [exitIso, Category.assoc, Iso.inv_hom_id, Category.comp_id] using!
+      (congrArg (fun (f : Obj S ⟶ _) => f ≫ exitIso.hom)
+        (interpretedSumIso_inr J M D S (objIso D) (objIso S))).symm
+  have transport {C : τ} (f : M.obj C ⟶ M.obj U) (payload : J.obj (M.obj C) ≅ Obj C)
+      (source : (T X C).hom =
+        ((objIso X).hom ▷ J.obj (M.obj C)) ≫ (Obj X ◁ payload.hom)) :
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X C U f)) ≫ (T X U).inv ≫ mid.hom =
+        whiskerLeft (Seed) (Obj X) (payload.inv ≫ J.map f ≫ exitIso.hom) := by
+    have retain : retainLeft J (R := M.obj X) (J.map f) = J.map (M.obj X ◁ f) := by
+      simp [retainLeft, PremonoidalCategory.leftTensor, Functor.StrongPremonoidal.tensor_naturality_right]
+    have eq := reindexRetainLeft_tensorIso J M objIso (R := X) (J.map f)
+    simp only [retain, packedWhiskerLeft, J.map_comp] at eq ⊢
+    rw [eq, Category.assoc, Category.assoc, Iso.hom_inv_id_assoc]
+    apply (cancel_epi (T X C).hom).mp
+    rw [Iso.hom_inv_id_assoc, source]
+    simpa only [Category.assoc] using! retainedValue_square J M objIso f payload exitIso
+  have guardedDistributor : split = Lit (distributorRegion_typed X D S) := by
+    apply (Paper.RetainedCase.Chosen.projectedDistributor_eq_iff (Seed) X D S split).2
+    constructor
+    · change whiskerLeft (Seed) (Obj X) (sumCofan (Seed) D S).inl ≫ split = _
+      rw [← inl, ← transport (inlMap M D S) (objIso D) tensorResult]
+      simp only [split, reindexHom, Category.assoc, Iso.hom_inv_id_assoc, Iso.inv_hom_id_assoc,
+        distrib, ← J.map_comp_assoc]
+      have law : packedWhiskerLeft M X D U (inlMap M D S) ≫ packedDistributor M X D S = inlMap M A B := by
+        simpa only [packedWhiskerLeft, Category.assoc] using packedDistributor_inl M X D S
+      rw [law]
+      apply (cancel_mono modelOut.inv).mp
+      rw [Category.assoc, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+      exact (interpretedSumIso_inl J M A B (objIso A) (objIso B)).symm
+    · change whiskerLeft (Seed) (Obj X) (sumCofan (Seed) D S).inr ≫ split = _
+      rw [← inr, ← transport (inrMap M D S) (objIso S) tensorState]
+      simp only [split, reindexHom, Category.assoc, Iso.hom_inv_id_assoc, Iso.inv_hom_id_assoc,
+        distrib, ← J.map_comp_assoc]
+      have law : packedWhiskerLeft M X S U (inrMap M D S) ≫ packedDistributor M X D S = inrMap M A B := by
+        simpa only [packedWhiskerLeft, Category.assoc] using packedDistributor_inr M X D S
+      rw [law]
+      apply (cancel_mono modelOut.inv).mp
+      rw [Category.assoc, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+      exact (interpretedSumIso_inr J M A B (objIso A) (objIso B)).symm
+  have decoder :
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X K U (exitSum M S D))) ≫ (T X U).inv ≫ mid.hom =
+        whiskerLeft (Seed) (Obj X) (Lit (exitDecoder_typed S D)) := by
+    rw [transport (exitSum M S D) (packedExitIso J M objIso S D) packed,
+      exitDecoder_eq_of_sumIso J M objIso S D exitIso inl inr]
   have outputAgrees :
       J.map (M.coprodIso A B).inv ≫ (objIso (coprod A B)).hom ≫ output.hom =
         splitMapCoprod J (M.obj A) (M.obj B) ≫ coprod.map (objIso A).hom (objIso B).hom := by
     simp only [output, modelOut, interpretedSumIso, Iso.trans_hom, Iso.symm_hom,
       Category.assoc, Iso.hom_inv_id_assoc, Iso.inv_hom_id, Functor.mapIso_hom, ← J.map_comp_assoc,
       J.map_id, Category.id_comp, asIso_inv, coprod.mapIso_hom, splitMapCoprod, exactOut, Category.comp_id]
-  have guardedDistributor : split = Lit (distributorRegion_typed X D S) := by
-    apply (Paper.RetainedCase.Chosen.projectedDistributor_eq_iff (Seed) X D S split).2
-    constructor
-    · have whisker := (reindexPackedWhiskerLeft J M objIso (inlMap M D S) tensorResult tensorExits).trans
-        (congrArg (whiskerLeft (Seed) (Obj X)) exits.1)
-      refine (congrArg (· ≫ split) whisker.symm).trans ?_
-      simp only [split, reindexHom, Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc]
-      have law : packedWhiskerLeft M X D (coprod D S) (inlMap M D S) ≫ packedDistributor M X D S =
-          inlMap M A B := by
-        simpa only [packedWhiskerLeft, Category.assoc] using packedDistributor_inl M X D S
-      rw [law]
-      apply (cancel_mono modelOut.inv).mp
-      rw [Category.assoc, Category.assoc, Iso.hom_inv_id, Category.comp_id]
-      exact (interpretedSumIso_inl J M A B (objIso A) (objIso B)).symm
-    · have whisker := (reindexPackedWhiskerLeft J M objIso (inrMap M D S) tensorState tensorExits).trans
-        (congrArg (whiskerLeft (Seed) (Obj X)) exits.2)
-      refine (congrArg (· ≫ split) whisker.symm).trans ?_
-      simp only [split, reindexHom, Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc]
-      have law : packedWhiskerLeft M X S (coprod D S) (inrMap M D S) ≫ packedDistributor M X D S =
-          inrMap M A B := by
-        simpa only [packedWhiskerLeft, Category.assoc] using packedDistributor_inr M X D S
-      rw [law]
-      apply (cancel_mono modelOut.inv).mp
-      rw [Category.assoc, Category.assoc, Iso.hom_inv_id, Category.comp_id]
-      exact (interpretedSumIso_inr J M A B (objIso A) (objIso B)).symm
-  have suffix :
-      reindexHom J M objIso (J.map (packedDistributor M X D S)) ≫ output.hom =
-        Lit (distributorRegion_typed X D S) ≫ exactOut.hom := by
-    simpa only [split, reindexHom, output, Iso.trans_hom, Iso.symm_hom, Category.assoc,
-      Iso.hom_inv_id_assoc, A, B] using! congrArg (· ≫ exactOut.hom) guardedDistributor
-  refine (carriedRoute_factor J M objIso X S D output outputAgrees).trans ?_
-  refine (congrArg₂ (· ≫ ·) (retainedExitDecoder_eq_of_packedExitIso J M objIso X S D
-    exits tensorExits packed) suffix).trans ?_
+  rw [carriedRoute_factor J M objIso X S D output outputAgrees]
+  have paste :
+      (reindexHom J M objIso (J.map (packedWhiskerLeft M X K U (exitSum M S D))) ≫ (T X U).inv ≫ mid.hom) ≫
+        split ≫ exactOut.hom =
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X K U (exitSum M S D))) ≫
+        reindexHom J M objIso distrib ≫ output.hom := by
+    simp only [split, reindexHom, output, Iso.trans_hom, Iso.symm_hom, Category.assoc, Iso.hom_inv_id_assoc,
+      Iso.inv_hom_id_assoc, A, B]
+  rw [← paste, decoder, guardedDistributor]
   have h := congrArg (fun f => (F).map f ≫ exactOut.hom) (retagPacked_distributor (Φ := Φ) X S D)
   simpa only [Functor.map_comp, ← whiskerLeft_map, Category.assoc] using! h
+
+
+set_option backward.isDefEq.respectTransparency false in
+theorem carriedRoute_eq_of_packedExitIso (X S D : τ)
+    (_exits : SumInjectionsAgree J M objIso D S)
+    (tensorState : RetainedTensorAgrees J M objIso X S)
+    (tensorResult : RetainedTensorAgrees J M objIso X D)
+    (_tensorExits : RetainedTensorAgrees J M objIso X (coprod D S))
+    (packed : RetainedPackedExitsAgree J M objIso X S D) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom :=
+  carriedRoute_eq_of_carrierTensor J M objIso X S D tensorState tensorResult packed
 
 end Retained
 

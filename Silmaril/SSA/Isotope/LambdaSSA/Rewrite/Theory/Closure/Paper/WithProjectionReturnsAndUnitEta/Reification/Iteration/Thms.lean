@@ -165,6 +165,18 @@ theorem retainedExitDecoder_eq_of_packedExitIso (X S D : τ)
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.retainedExitDecoder_eq_of_packedExitIso
     J M objIso X S D exits target packed
 
+/-- Compare the actual route using the packed input and the two carried products.
+The intermediate exit sum and the chosen output coproduct are induced by their
+summands. -/
+theorem carriedRoute_eq_of_carrierTensor (X S D : τ)
+    (tensorState : RetainedTensorAgrees J M objIso X S)
+    (tensorResult : RetainedTensorAgrees J M objIso X D)
+    (packed : RetainedPackedExitsAgree J M objIso X S D) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedCarriedIteration.carriedRoute_eq_of_carrierTensor
+    J M objIso X S D tensorState tensorResult packed
+
 /-- Compare the actual route using the induced packed exit and chosen output sums. -/
 theorem carriedRoute_eq_of_packedExitIso (X S D : τ)
     (exits : SumInjectionsAgree J M objIso D S)
