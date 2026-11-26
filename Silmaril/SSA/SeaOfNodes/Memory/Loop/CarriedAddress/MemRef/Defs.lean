@@ -16,6 +16,7 @@ open Silmaril.MLIR.MemRef (Buffer)
 open Silmaril.MLIR.Pure (i1)
 open Loop.MLIR.MemRef (Activation lowerActivation)
 open Loop.MLIR.MemRef.CF (resultTypes)
+open Silmaril.MLIR.CF.Ordered (Cfg)
 
 abbrev headerTypes : List Width := [i1]
 
@@ -44,11 +45,13 @@ def evalBody (graph : Graph args) (input : Tuple (Val cells) args) :
     pure (.cons (values.get .here) (.cons 1 (.cons (values.get (.there .here)) .nil)))
   | _, _, .exit, env => pure env
 
+abbrev Program (cells : Nat) (args : List ValueSort) :=
+  Cfg (Body cells args) Label [] resultTypes
+
 /-- A real branch passes the entry occurrence to the header, and the
 conditional self edge passes the backedge occurrence. Both reuse the
 same typed MemRef activation and initialized buffer. -/
-def lower (cells : Nat) (graph : Graph args) :
-    Silmaril.MLIR.CF.Ordered.Cfg (Body cells args) Label [] resultTypes where
+def lower (cells : Nat) (graph : Graph args) : Program cells args where
   entry := ⟨.entry, .br ⟨.header, .cons .here .nil⟩⟩
   block
     | .header => ⟨.activation (lowerActivation cells graph.activation),
@@ -59,9 +62,14 @@ def lower (cells : Nat) (graph : Graph args) :
 /-- Observe the returned word and every buffer cell. The raw block fuel
 allows one step for entry and exit each, and one plus the allowed
 backedges for the header. -/
+def runProgram (program : Program cells args) (graph : Graph args) (input : Tuple (Val cells) args)
+    (budget : Nat) (initial : Buffer cells) : Option (Word × Buffer cells) :=
+  let (result, final) := program.run (evalBody graph input) (budget + 3) .nil initial
+  result.map fun values => (values.get .here, final)
+
+/-- Run the generated program from its root block and initialized buffer. -/
 def run (graph : Graph args) (input : Tuple (Val cells) args) (budget : Nat)
     (initial : Buffer cells) : Option (Word × Buffer cells) :=
-  let (result, final) := (lower cells graph).run (evalBody graph input) (budget + 3) .nil initial
-  result.map fun values => (values.get .here, final)
+  runProgram (lower cells graph) graph input budget initial
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.MemRef

@@ -467,6 +467,41 @@ globally true at three cells even though its source version is false.
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.RuntimeRoom.Thms
 ```
 
+#### Institution of generated address Phi MemRef equations
+
+`MemRefRoom.room` compares emitted ordered MemRef CFGs. At a model's
+cell count and typed valuation, each run starts at the root with
+`Env []`, the captured typed operands, and one initialized rank-one
+`Buffer cells`. The root branch supplies the entry occurrence. Addresses
+are `Fin cells`, and the buffer supplies a word for every cell.
+Satisfaction ranges over every such buffer. It compares the exact
+returned word and full final buffer, with `Part.none` representing
+absence of a finite return.
+[MemRef Room definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/MemRefRoom/Defs.lean)
+
+`MemRefRoom.comparison` is a comorphism from the native institution
+over the same typed entry signatures. Port maps re-emit the CFG
+forwards and pull scalar valuations back, preserving the cell count
+and initialized buffer. `all_models_map_iff` places global truth after
+reindexing over the image of that reduct. The regression checks the
+satisfaction condition after an address swap and the change in global
+truth caused by identifying two distinct address ports.
+[MemRef Room theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/MemRefRoom/Thms.lean) ·
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/MemRefRoom/Regression.lean)
+
+`observe_runtime` encodes the actual MemRef result as the full RVSDG
+result at the validated entry, preserving absence as well.
+`runtimeComparison` re-emits the sources retained by the generated
+RVSDG equations into the MemRef Room. `comparison_factors` identifies
+its composition with the native-to-RVSDG corridor, at each signature,
+with the native-to-MemRef corridor. These comparisons concern the
+generated profile. RVSDG and MemRef retain their own finite execution
+witnesses.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.MemRefRoom.Thms
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
