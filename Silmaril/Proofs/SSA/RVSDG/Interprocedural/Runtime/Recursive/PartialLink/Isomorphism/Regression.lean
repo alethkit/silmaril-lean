@@ -2217,6 +2217,115 @@ example : Executable.link actions 73 (finalClient false).toGraph
     .linked (.cons (.closure (.cons (allocatedClosure 74 0)
       (.cons (.global 73 0 (.data (12 : Nat))) .nil)) finalBody.toGraph) .nil) 29 := by cbv
 
+-- Each initializer and successful invocation effect appends a digit.
+-- Thus both link order and the order of the two imported calls are visible.
+private def joinActions : Actions machine Nat where
+  step
+    | .seed, .cons (.data n) .nil => fun store =>
+      let arg : Nat := n
+      some (number (arg + 7), store * 10 + arg)
+    | .gain, .cons (.data n) .nil => fun store =>
+      some (number ((show Nat from n) + 14), store * 10 + 4)
+    | .finish, .cons (.global _ _ (.data n)) (.cons (.data flag) .nil) => fun store =>
+      let payload : Nat := n
+      let operand : Nat := flag
+      if payload == 10 && operand == 9 then none
+      else some (number (payload + 1 + operand), store * 10 + (payload - 7))
+
+private def joinFirst (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 1) (number 1)
+    providerModuleL.toGraph providerModuleR.toGraph providerPlan (providerFn := branchFn) crossPort storeL storeR
+
+private def joinSecondBody : RecursiveCall.Code Op sameBodyInput [] [[num], [num]] [num] :=
+  .bind sameBodyStep (fun i => i.elim0) <|
+    .bind (RecursiveCall.simple (.primitive Op.gain) (.cons (.output (0 : Fin 1) .head) .nil)
+      (fun i => i.elim0)) (fun i => i.elim0) (.ret (.cons (.output (1 : Fin 2) .head) .nil))
+
+private def joinSecondGraph : (shifted : Bool) → AllocatingClient Op args branchFn (.data ()) shifted
+  | false => ⟨(seedDelta []).toGraph,
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (0 : Fin 1) .head) .nil, _, joinSecondBody⟩)⟩
+  | true => ⟨(seedDelta [[]]).toGraph,
+      (LambdaTerm.toGraph ⟨[global], .cons (.output (1 : Fin 2) .head) .nil, _, joinSecondBody⟩)⟩
+
+private def joinSecondPlan : GraphPlan (joinSecondGraph false).toGraph (joinSecondGraph true).toGraph :=
+  .skipR (.skipL (.skipR (.start (.lambda .done))))
+
+private def joinSecond (unitL unitR storeL storeR : Nat) :=
+  checkGraphProvider instructionKeys joinActions ids ordinaryOutputs unitL unitR (number 3) (number 3)
+    (joinSecondGraph false).toGraph (joinSecondGraph true).toGraph joinSecondPlan
+    (providerFn := branchFn) crossPort storeL storeR
+
+private abbrev joinImports : Ports T := [branchFn.port, branchFn.port, num]
+private abbrev joinCaptures : Ports T := [branchFn.port, branchFn.port, global]
+private abbrev joinEntry : Ports T := joinCaptures ++ branchFn.args
+
+private def joinCallInputs {past : List (Ports T)} (callee : Port joinEntry branchFn.port)
+    (flag : Origin joinEntry past num) : Wires joinEntry past (branchFn.port :: branchFn.args) :=
+  .cons (.arg callee) (.cons flag
+    (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
+
+private def joinBody : RecursiveCall.Code Op joinEntry [] [[num], [num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (joinCallInputs .head (.arg (.tail (.tail (.tail .head))))) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (joinCallInputs (.tail .head) (.output (0 : Fin 1) .head)) (fun i => i.elim0)) (fun i => i.elim0) <|
+  .bind (RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg (.tail (.tail .head))) (.cons (.output (1 : Fin 2) .head) .nil)) (fun i => i.elim0))
+    (fun i => i.elim0) (.ret (.cons (.output (2 : Fin 3) .head) .nil))
+
+private def joinClient : (shifted : Bool) → AllocatingClient Op joinImports branchFn (.data ()) shifted
+  | false => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail .head))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨joinCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.output (0 : Fin 1) .head) .nil)), _, joinBody⟩)⟩
+  | true => ⟨(DeltaTerm.toGraph ⟨[num], .cons (.arg (.tail (.tail .head))) .nil, _, seedTerm⟩),
+      (LambdaTerm.toGraph ⟨joinCaptures, .cons (.arg .head) (.cons (.arg (.tail .head))
+        (.cons (.output (1 : Fin 2) .head) .nil)), _, joinBody⟩)⟩
+
+private def joinRun (callee : machine.Val branchFn.port) (store vertex : Nat) : Bool :=
+  let paused := Continuation.Partial.Executable.run joinActions 11 (.call callee (branchArgs 1)) store
+  let blocked := Continuation.Partial.Executable.run joinActions 60 (.call callee (branchArgs 0)) store
+  let resumed := match paused with
+    | .suspended config =>
+      match config.control, (runFor joinActions 60 config).result with
+      | .eval (.call _ _) stack, some (.cons (.data n) .nil, stopped) =>
+        let result : Nat := n
+        savedVertices stack == [1] && config.store == 21351 && result == 48 && stopped == 21351345
+      | _, _ => false
+    | _ => false
+  let attempted := match crossAttempt blocked with
+    | some (frames, .cons g (.cons flag .nil), attemptedStore) =>
+      let expected : machine.Val global := .global 74 vertex (.data (10 : Nat))
+      frames == [0, 1] && attemptedStore == 21351 &&
+        (exactFirstOrder g expected).isSome && (exactFirstOrder flag ((number 9).get .head)).isSome
+    | none => false
+  store == 2135 && resumed && attempted
+
+private def checkJoin (secondUnitL clientUnitR : Nat) (ordered := true) (stale := false) : Option Bool := do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinSecond secondUnitL 74 (if ordered then first.checked.storeL else 2) first.checked.storeR
+  let first := first.allocationChain
+  let second := second.allocationChain
+  let joined ← first.join second ordinaryOutputs
+  let left := .cons (first.checked.valuesL.get crossPort) (.cons (second.checked.valuesL.get crossPort) (number 5))
+  let rightA := if stale then second.checked.valuesR.get crossPort else first.checked.valuesR.get crossPort
+  let right := .cons rightA (.cons (second.checked.valuesR.get crossPort) (number 5))
+  let result ← joined.extend ordinaryOutputs exactLambdas 75 clientUnitR left right (joinClient false) (joinClient true)
+  pure (joinRun (result.checked.valuesL.get .head) result.checked.storeL 0 &&
+    joinRun (result.checked.valuesR.get .head) result.checked.storeR 1)
+
+#guard (checkJoin 74 75).getD false
+#guard (checkJoin 73 75).isNone
+#guard (checkJoin 74 74).isNone
+#guard (checkJoin 74 75 (ordered := false)).isNone
+#guard (checkJoin 74 75 (stale := true)).isNone
+
+-- Disjoint units and correctly threaded stores still need separate dispatch.
+#guard ((do
+  let first ← joinFirst 73 73 2 2
+  let second ← joinFirst 74 74 first.checked.storeL first.checked.storeR
+  pure ((first.allocationChain.join second.allocationChain ordinaryOutputs).isNone)) : Option Bool).getD false
+
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
 private def outerSeedCounts (profile : Option (GroupProfile Unit Unit instructionKeys.Key)) : Option (List Nat) :=
