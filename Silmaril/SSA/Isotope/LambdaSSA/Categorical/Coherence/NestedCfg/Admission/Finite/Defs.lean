@@ -45,6 +45,15 @@ structure Plan (Φ : Type v) (m n : Nat) where
   commonEntry : Region Φ
   commonRows : Fin m → Region Φ
 
+/-- The common inner table read from the accepted entry and rows. -/
+def Plan.commonInner {m n : Nat} (p : Plan Φ m n) : Region Φ :=
+  .cfg p.commonEntry m p.commonRows
+
+/-- Restore the original selected table's inner label indices. -/
+def Plan.selectedInner {m n : Nat} (p : Plan Φ m n) (keep : Fin m ↪ Fin n) : Region Φ :=
+  .cfg (p.entry.renameLabels (retainLabelIndex keep)) n
+    (fun i => (p.rows i).renameLabels (retainLabelIndex keep))
+
 /-- Check a supplied retained interface and candidate payload types against
 the written CFG. Synthesize the type of the outer left initializer and
 check all written inner label targets. The entry and retained rows must
