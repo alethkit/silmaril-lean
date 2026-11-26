@@ -7,7 +7,7 @@ public import Silmaril.Languages.Starlark.Lists.Defs
 namespace Silmaril.Languages.Starlark.Lists.Comparison
 
 /-- A scan returns the first decisive Boolean or error. Exhaustion returns the
-opposite Boolean. Sequence equality and membership differ only in what stops them. -/
+opposite Boolean. -/
 def scan {α : Type} (test : α → Except Error Bool) (decisive : Bool) :
     List α → Except Error Bool
   | [] => .ok (!decisive)
@@ -44,6 +44,7 @@ inductive Pair where
   | scalars (left right : Starlark.Value)
   | strings (left right : String)
   | sequences (kind : SequenceKind) (left right : Address)
+  | dictionaries (left right : Address)
   | different
   | unsupported
 
@@ -52,12 +53,17 @@ def Pair.ofValues : Value → Value → Pair
   | .string a, .string b => .strings a b
   | .tuple a, .tuple b => .sequences .tuple a b
   | .list a, .list b => .sequences .list a b
+  | .dict a, .dict b => .dictionaries a b
   | .scalar _, .string _ | .string _, .scalar _
   | .scalar _, .tuple _ | .tuple _, .scalar _
   | .string _, .tuple _ | .tuple _, .string _ => .different
   | .list _, .scalar _ | .scalar _, .list _
   | .list _, .string _ | .string _, .list _
   | .list _, .tuple _ | .tuple _, .list _ => .different
+  | .dict _, .scalar _ | .scalar _, .dict _
+  | .dict _, .string _ | .string _, .dict _
+  | .dict _, .list _ | .list _, .dict _
+  | .dict _, .tuple _ | .tuple _, .dict _ => .different
   | _, _ => .unsupported
 
 /-- The Boolean read by scalar `==`, including exact mixed numeric comparison. -/
@@ -65,6 +71,25 @@ def scalarEqual (left right : Starlark.Value) : Bool :=
   match left.orderedCompare right with
   | some order => order == .eq
   | none => left.isNone && right.isNone
+
+/-- Read a live dictionary's entries in insertion order. -/
+def dictionaryEntries (heap : Heap) (address : Address) : Except Error (List Entry) :=
+  match heap[address]? with
+  | none => .error (.danglingAddress address)
+  | some ⟨.dict entries, _⟩ => .ok entries
+  | some _ => .error (.wrongCellKind address)
+
+/-- Each canonical key code names at most one entry of a dictionary table. -/
+def UniqueKeyCodes (entries : List Entry) : Prop :=
+  entries.Pairwise fun left right => left.keyCode ≠ right.keyCode
+
+/-- Select by the established cached key encoding, then compare the reached
+values. An absent key is decisive without evaluating a value pair. -/
+def compareEntry (equal : Value → Value → Except Error Bool) (right : List Entry)
+    (left : Entry) : Except Error Bool :=
+  match findEntry left.keyCode right with
+  | none => .ok false
+  | some entry => equal left.value entry.value
 
 /-- Both cells are read left to right, even for an address compared with
 itself. Length mismatch skips the fields. Budget exhaustion terminates any
@@ -82,6 +107,12 @@ def equalAt (heap : Heap) : Nat → Value → Value → Except Error Bool
       let ys ← kind.elements heap b
       if xs.length = ys.length then
         scan (fun pair => equalAt heap depth pair.1 pair.2) false (xs.zip ys)
+      else pure false
+    | .dictionaries a b => do
+      let xs ← dictionaryEntries heap a
+      let ys ← dictionaryEntries heap b
+      if xs.length = ys.length then
+        scan (compareEntry (equalAt heap depth) ys) false xs
       else pure false
 
 /-- Test a sequence's elements in order, using each element as the left operand. -/

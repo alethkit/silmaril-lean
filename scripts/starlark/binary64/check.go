@@ -231,7 +231,7 @@ func checkConversionOverflow() {
 	fmt.Println("PASS Go rejects conversion overflow and admits explicit or arithmetic infinity")
 }
 
-type sequenceCase struct {
+type comparisonCase struct {
 	name        string
 	op          syntax.Token
 	left, right starlark.Value
@@ -239,7 +239,7 @@ type sequenceCase struct {
 	depthError  bool
 }
 
-func checkSequenceCases(cases []sequenceCase) {
+func checkComparisonCases(cases []comparisonCase) {
 	for _, tc := range cases {
 		var got bool
 		var err error
@@ -284,7 +284,7 @@ func checkTupleComparison() {
 	nine, nineFloat := wrap(9, zero), wrap(9, negZero)
 	ten, tenFloat := starlark.Tuple{nine}, starlark.Tuple{nineFloat}
 	list := starlark.NewList([]starlark.Value{one})
-	checkSequenceCases([]sequenceCase{
+	checkComparisonCases([]comparisonCase{
 		{"nested numeric aliases", syntax.EQL, left, right, true, false},
 		{"int around 2^53", syntax.NEQ, left, larger, true, false},
 		{"mixed numeric membership", syntax.IN, left, starlark.Tuple{larger, right}, true, false},
@@ -331,7 +331,7 @@ func checkListComparison() {
 	}
 	nine, nineFloat := wrap(zero), wrap(negZero)
 	ten, tenFloat := starlark.Tuple{nine}, starlark.Tuple{nineFloat}
-	checkSequenceCases([]sequenceCase{
+	checkComparisonCases([]comparisonCase{
 		{"numeric aliases through list and tuple", syntax.EQL, left, right, true, false},
 		{"mixed nested list membership", syntax.IN, left, list(list(), right), true, false},
 		{"list and tuple have different types", syntax.NEQ, left, starlark.Tuple{starlark.Tuple{ints}}, true, false},
@@ -353,12 +353,82 @@ func checkListComparison() {
 	})
 
 	actual, expected := list(one), list(one, two)
-	checkSequenceCases([]sequenceCase{{"before mutation", syntax.EQL, actual, expected, false, false}})
+	checkComparisonCases([]comparisonCase{{"before mutation", syntax.EQL, actual, expected, false, false}})
 	value, err := starlark.Eval(&starlark.Thread{}, "list-comparison.star",
 		`actual == (actual.append(2), expected)[1]`, starlark.StringDict{"actual": actual, "expected": expected})
 	require(err == nil && value == starlark.True && actual.Len() == 2 && actual.Index(1) == two,
 		fmt.Sprintf("comparison after right operand mutation: %v (%v)", value, err))
 	fmt.Println("PASS list equality and membership, mixed nesting, live mutation, and cycle depth including aliases")
+}
+
+func checkDictionaryComparison() {
+	dict := func(fields ...starlark.Value) *starlark.Dict {
+		x := starlark.NewDict(len(fields) / 2)
+		for i := 0; i < len(fields); i += 2 {
+			require(x.SetKey(fields[i], fields[i+1]) == nil, "dictionary fixture insertion failed")
+		}
+		return x
+	}
+	zero, one, two, three := starlark.MakeInt(0), starlark.MakeInt(1), starlark.MakeInt(2), starlark.MakeInt(3)
+	negZero := fromBits(0x8000000000000000)
+	boundary, floatBoundary := starlark.MakeInt64(1<<53), fromBits(0x4340000000000000)
+	n, guard, cycle, missing, self := starlark.String("n"), starlark.String("guard"), starlark.String("cycle"),
+		starlark.String("missing"), starlark.String("self")
+	leftValue := starlark.Tuple{starlark.NewList([]starlark.Value{dict(n, zero), three})}
+	rightValue := starlark.Tuple{starlark.NewList([]starlark.Value{dict(n, negZero), starlark.Float(3)})}
+	left, right := dict(boundary, leftValue, starlark.False, one), dict(starlark.False, one, floatBoundary, rightValue)
+	checkComparisonCases([]comparisonCase{{"numeric keys across insertion orders", syntax.EQL, left, right, true, false}})
+	require(left.SetKey(floatBoundary, starlark.MakeInt(7)) == nil, "numeric replacement failed")
+	checkComparisonCases([]comparisonCase{{"compare after replacement", syntax.NEQ, left, right, true, false}})
+
+	cycleLeft, cycleRight := dict(), dict()
+	require(cycleLeft.SetKey(self, cycleLeft) == nil && cycleRight.SetKey(self, cycleRight) == nil,
+		"dictionary cycle construction failed")
+	guardFirst, cycleFirst := dict(guard, zero, cycle, cycleLeft), dict(cycle, cycleRight, guard, one)
+	missingFirst := dict(missing, zero, cycle, cycleLeft)
+	wrap := func(depth int, leaf starlark.Value) starlark.Value {
+		for range depth {
+			leaf = dict(n, leaf)
+		}
+		return leaf
+	}
+	nine, nineFloat := wrap(9, zero), wrap(9, negZero)
+	checkComparisonCases([]comparisonCase{
+		{"size mismatch skips value", syntax.EQL, cycleLeft, dict(), false, false},
+		{"self-cycle has no identity shortcut", syntax.EQL, cycleLeft, cycleLeft, false, true},
+		{"early mismatch masks later cycle", syntax.EQL, guardFirst, cycleFirst, false, false},
+		{"left insertion order reaches cycle first", syntax.EQL, cycleFirst, guardFirst, false, true},
+		{"early key miss masks cycle", syntax.EQL, missingFirst, cycleFirst, false, false},
+		{"cycle before a later missing key", syntax.NEQ, cycleFirst, missingFirst, false, true},
+		{"dict nesting at limit", syntax.EQL, nine, nineFloat, true, false},
+		{"dict nesting exceeds limit", syntax.EQL, dict(n, nine), dict(n, nineFloat), false, true},
+	})
+
+	var key, floatKey starlark.Value = zero, negZero
+	for range starlark.CompareLimit {
+		key, floatKey = starlark.Tuple{key}, starlark.Tuple{floatKey}
+	}
+	deepLeft, deepRight := dict(key, one), dict(floatKey, one)
+	_, found, err := deepRight.Get(key)
+	require(!found && err != nil && strings.Contains(err.Error(), "comparison exceeded maximum recursion depth"),
+		fmt.Sprintf("want key lookup depth error, got %v", err))
+	checkComparisonCases([]comparisonCase{
+		{"Go treats deep-key lookup error as a miss", syntax.EQL, deepLeft, deepRight, false, false},
+	})
+	// SetKey would itself compare the deep key if the entry already existed.
+	deepLeft, deepRight = dict(key, cycleLeft), dict(floatKey, cycleRight)
+	checkComparisonCases([]comparisonCase{
+		{"Go's key error masks the cyclic value", syntax.EQL, deepLeft, deepRight, false, false},
+	})
+
+	events := starlark.NewList([]starlark.Value{one})
+	actual, expected := dict(n, events), dict(n, starlark.NewList([]starlark.Value{one, two}))
+	checkComparisonCases([]comparisonCase{{"before operand mutation", syntax.EQL, actual, expected, false, false}})
+	value, err := starlark.Eval(&starlark.Thread{}, "dict-comparison.star",
+		`actual == (actual["n"].append(2), expected)[1]`, starlark.StringDict{"actual": actual, "expected": expected})
+	require(err == nil && value == starlark.True && events.Len() == 2 && events.Index(1) == two,
+		fmt.Sprintf("dictionary comparison after operand mutation: %v (%v)", value, err))
+	fmt.Println("PASS dictionary equality, numeric key correspondence, live values, left-order cycle masking, and Go deep-key misses")
 }
 
 func main() {
@@ -368,5 +438,6 @@ func main() {
 	checkScalarComparison()
 	checkTupleComparison()
 	checkListComparison()
+	checkDictionaryComparison()
 	checkConversionOverflow()
 }
