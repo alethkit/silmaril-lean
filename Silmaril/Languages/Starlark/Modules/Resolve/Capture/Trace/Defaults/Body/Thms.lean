@@ -19,6 +19,26 @@ theorem compile_suite {block : LexicalBlock} {source : Suite} {code : Functions.
     compileBody ⟨block.context, .local⟩ source.source program = .ok (⟨code, reads⟩, program) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_suite related program
 
+/-- Each tracked operand read has a declarative lexical origin. -/
+theorem operand_origins {block : LexicalBlock} {source : Lowering.Resolve.SourceExpr}
+    {code : Lowering.Expr} {reads : List Binding} (related : Operand block source code reads) :
+    ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.operand_origins related
+
+/-- The checked child body and resolved defaults fix the emitted declaration. -/
+theorem compile_nested {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing) (defaults : List PlainPositionalDefault)
+    (same : defaults.map (fun item => (item.name, item.source)) = definition.parameters.optional)
+    (tracked : ∀ item ∈ defaults, Lowering.Resolve.resolveTracked ⟨enclosing, globals⟩ item.source =
+      .ok (item.value, item.reads))
+    (program : Program) :
+    compileBody ⟨⟨enclosing, globals⟩, .local⟩
+        (.define definition.name definition.parameters.source definition.body.source) program =
+      .ok (⟨.define (fileSlot definition.name) program.size,
+          defaults.flatMap PlainPositionalDefault.reads ++ plan.free.map FreeName.source⟩,
+        program.push (plan.declaration (defaults.map PlainPositionalDefault.value))) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.compile_nested plan defaults same tracked program
+
 /-- An open assignment sequence compiles around an already checked continuation. -/
 theorem compile_prefix {block : LexicalBlock} {source : List (String × Lowering.Resolve.SourceExpr)}
     {code : List (String × Lowering.Expr)} {reads : List Binding}
@@ -58,6 +78,13 @@ theorem plan_in_scope (globals : List String) (definition : Definition) (locals 
     (related : Elaborates ⟨definition.parameters.names ++ locals, enclosing, globals⟩ definition.body code reads) :
     Nonempty (Plan globals definition enclosing) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.plan_of_suite globals definition locals enclosing binders related
+
+/-- The emitted signature and locals allocate exactly the lexical owned slots. -/
+theorem declaration_slots {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing) (codes : List Lowering.Expr)
+    (length : codes.length = definition.parameters.optional.length) :
+    (plan.declaration codes).signature.slots ++ (plan.declaration codes).locals = plan.block.owned.map fileSlot :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.declaration_slots plan codes length
 
 /-- A scoped activation allocates fresh owned cells and retains the
 addresses of selected, live captures. -/
