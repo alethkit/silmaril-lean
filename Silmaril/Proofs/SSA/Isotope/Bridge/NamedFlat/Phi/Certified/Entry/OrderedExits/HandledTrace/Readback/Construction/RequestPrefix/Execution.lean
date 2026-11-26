@@ -76,6 +76,57 @@ private theorem local_transfer (label : Fin blocks) (value : Value α) :
     splitTransfer blocks (label.val, value) = .inr (label, value) := by
   simp [splitTransfer, label.isLt]
 
+private theorem bind_agrees {ty : PacketType} (layout : Positions Γ) (env : Env α) (values : Values Γ α)
+    (agree : ∀ {τ} (slot : Slot Γ τ), env (layout slot) = values slot)
+    (payload : Value α) {τ : PacketType} (slot : Slot (ty :: Γ) τ) :
+    extend env payload (bindPosition layout slot) = bindReply values payload slot := by
+  cases slot with
+  | here => rfl
+  | there old => exact agree old
+
+private theorem jump_tree {newBlocks : Nat} {β : Type u}
+    (instr : Primitive E F α) (old : Fin blocks → Fin newBlocks) (layout : Positions Γ)
+    (env : Env α) (values : Values Γ α)
+    (agree : ∀ {τ} (slot : Slot Γ τ), env (layout slot) = values slot)
+    (leaf : Jump packets outputs Γ) (finish : (Transfer α ⊕ BlockInput α newBlocks) → Tree E β) :
+    (region instr env (leaf.erase old layout) >>= fun out => finish (splitTransfer newBlocks out)) =
+      finish (Sum.map id (fun state => (old state.1, state.2)) (leaf.transfer values)) := by
+  unfold Jump.erase
+  rw [region, bind_assoc, operand_tree instr layout env values leaf.packet agree, pure_bind]
+  rcases leaf with ⟨label, packet⟩
+  cases label with
+  | inl target => simp only [Sum.elim_inl, pure_bind, local_transfer, Jump.transfer, Sum.map_inr]
+  | inr port => simp only [Sum.elim_inr, pure_bind, exit_transfer, Jump.transfer, Sum.map_inl, id_eq]
+
+/-- The scrutinee is pure in each layout. Whichever arm runs receives the
+same payload in slot zero, with every other operand shifted by one. -/
+private theorem case_tree {newBlocks : Nat} {β : Type u}
+    (instr : Primitive E F α) (old : Fin blocks → Fin newBlocks) (layout : Positions Γ)
+    (env : Env α) (values : Values Γ α)
+    (agree : ∀ {τ} (slot : Slot Γ τ), env (layout slot) = values slot)
+    (tail : CaseTail packets outputs Γ) (finish : (Transfer α ⊕ BlockInput α newBlocks) → Tree E β) :
+    (region instr env (tail.erase old layout) >>= fun out => finish (splitTransfer newBlocks out)) =
+      (tail.run values >>= fun out => finish (Sum.map id (fun state => (old state.1, state.2)) out)) := by
+  simp only [CaseTail.erase, region, operand_tree instr layout env values tail.test agree, pure_bind, CaseTail.run]
+  cases evalOperand values tail.test with
+  | inl payload =>
+    simpa only [pure_bind] using
+      jump_tree instr old (bindPosition layout) _ _ (bind_agrees layout env values agree payload) tail.left finish
+  | inr payload =>
+    simpa only [pure_bind] using
+      jump_tree instr old (bindPosition layout) _ _ (bind_agrees layout env values agree payload) tail.right finish
+  | atom _ | unit | pair _ _ => simp only [diverge_bind]
+
+private theorem finish_old {newBlocks : Nat} (inner : BlockInput α newBlocks → Bool)
+    (old : Fin blocks → Fin newBlocks) (outside : ∀ i packet, inner (old i, packet) = false)
+    (run : BlockInput α newBlocks → Tree E (Transfer α ⊕ BlockInput α newBlocks))
+    (out : Transfer α ⊕ BlockInput α blocks) :
+    Sum.elim pure run (partitionTransfer inner (Sum.map id (fun state => (old state.1, state.2)) out)) =
+      pure (Sum.map id (fun state => (old state.1, state.2)) out) := by
+  rcases out with result | ⟨label, packet⟩
+  · rfl
+  · simp only [Sum.map_inr, partitionTransfer, outside, Bool.false_eq_true, ite_false, Sum.elim_inl]
+
 private theorem unsplit_step (instr : Primitive E F α) (row : Row sig packets outputs Γ)
     (env : Env α) (values : Values Γ α)
     (agree : ∀ {τ} (slot : Slot Γ τ), env (position slot) = values slot) :
@@ -88,6 +139,12 @@ private theorem unsplit_step (instr : Primitive E F α) (row : Row sig packets o
   | jump target value =>
     simp only [Row.erase, region, operand_tree instr position env values value agree, pure_bind,
       local_transfer, Row.run]
+  | branch tail =>
+    change (region instr env (tail.erase id position) >>= fun out => pure (splitTransfer blocks out)) = _
+    rw [case_tree instr id position env values agree tail pure]
+    have identity (out : Transfer α ⊕ BlockInput α blocks) :
+        Sum.map id (fun state => (id state.1, state.2)) out = out := by cases out <;> rfl
+    simp only [Row.run, identity, bind_pure]
   | request op arg tail ih =>
     simp only [Row.erase, region, term, operand_tree instr position env values arg agree, pure_bind,
       bind_assoc, Row.run]
@@ -130,6 +187,14 @@ private theorem follow {newBlocks : Nat}
     simp only [region, operand_tree instr _ _ values value (load_slot frame values (extend env (frame.pack values)) 0 rfl),
       pure_bind, local_transfer, partitionTransfer, oldOutside, Bool.false_eq_true, ite_false, Sum.elim_inl,
       Row.run, Sum.map_inr]
+  | branch tail =>
+    rw [congrFun (iterate_fixpoint (partitionStepByTarget (step instr env graph) inner)) (labels 0, frame.pack values)]
+    simp only [partitionStepByTarget, step, rows 0, Row.cells, map_eq_pure_bind, bind_assoc, pure_bind]
+    rw [unpack_tree instr frame values _ 0 _ rfl,
+      case_tree instr old (frame.position 0) _ values (load_slot frame values (extend env (frame.pack values)) 0 rfl) tail
+        (fun out => Sum.elim pure (iter (partitionStepByTarget (step instr env graph) inner))
+          (partitionTransfer inner out))]
+    simp only [Row.run, finish_old inner old oldOutside]
   | request op arg tail ih =>
     rw [congrFun (iterate_fixpoint (partitionStepByTarget (step instr env graph) inner)) (labels 0, frame.pack values)]
     simp only [partitionStepByTarget, step, rows 0, Row.cells, Fin.cases_zero, map_eq_pure_bind, bind_assoc, pure_bind]
@@ -275,11 +340,7 @@ private theorem step_square (instr : Primitive E F α) (env : Env α) (p : Block
       map_eq_pure_bind, bind_assoc, pure_bind]
     apply bind_congr
     intro out
-    cases out with
-    | inl value => rfl
-    | inr next =>
-      rcases next with ⟨label, payload⟩
-      simp only [Sum.map_inr, partitionTransfer, old_outside, Bool.false_eq_true, ite_false, Sum.elim_inl]
+    exact (finish_old (inFresh blocks) (oldLabel s.row.requests) (old_outside s.row.requests) _ out).symm
 
 private theorem old_run (instr : Primitive E F α) (env : Env α) (p : BlockInput α blocks) :
     iter (step instr env source) p = iter (step instr env emitted.code) (embed s.row.requests p) := by
