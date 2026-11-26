@@ -6,7 +6,8 @@ table with a fixed loop frame. The table may contain graph cycles, since
 well-foundedness is on requests (vertex and full iteration vector).
 For ranked loop-free graphs, the [Egg bridge](peggy-egg.md) instead
 replays sorted term explanations and relates their results to the same
-native observations.
+native observations. [Finite saturation](peggy-saturation.md) executes
+a supplied list of these ground reasons to closure.
 
 ## Class equality and merges
 
@@ -71,9 +72,10 @@ and uses native solution uniqueness to prove equality of the complete
 ordered output tuple at every index. A finite rank or root class check
 alone supplies no satisfaction proof.
 
-A future extractor can produce the candidate, the representative
-assignment, and certificates for its equations, and reuse this
-theorem. Reversion to control flow requires its own scope and
+For same-label rewiring, the [structural row check](peggy-saturation.md)
+derives the equations from class-labelled operand checks. A future
+extractor can produce the candidate, the representative assignment
+and these row witnesses or independent proofs of its equations. Reversion to control flow requires its own scope and
 observation theorem. Selection search and cost guarantees are outside
 the certificate kernel. The observation retains partial values in
 order and has the same failure and effect boundaries as Figure 11.
