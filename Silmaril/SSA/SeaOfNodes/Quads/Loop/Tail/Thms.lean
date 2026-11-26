@@ -9,7 +9,9 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail
 
-open Diamond (Model ValueSort sortValue)
+open Diamond (Model Ty ValueSort dataPorts sortValue)
+open RVSDG (Wires)
+open Join (Block)
 open Blocks (Bank)
 open SeaOfNodes.Loop (Incoming)
 
@@ -34,6 +36,14 @@ in the context of the preceding header's producers. -/
 theorem Program.feedback_column (p : Program Op regs out) :
     p.lower.phiInputs .backedge = p.feedbackColumn :=
   Proofs.feedback_column p
+
+/-- Cutting an ordered block at an unconditional edge gives the same outgoing
+wires, with the same producer numbering, as compiling the concatenation. -/
+theorem compile_append_outgoing {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (first second : Block Op regs) (current : Wires args past (dataPorts regs)) :
+    HEq (CFG.compileBlock (first ++ second) current).outgoing
+      (CFG.compileBlock second (CFG.compileBlock first current).outgoing).outgoing :=
+  Proofs.append_outgoing first second current
 
 variable (m : Model.{u, v, w} Op) (input : Bank (regs := regs) m)
 
