@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Closure.Dispatch.Defs
+public import Silmaril.Languages.Python.Core.Text.Slice.Defs
 
 /-! # Stepping fixed positional Python closure bodies -/
 
@@ -42,6 +43,7 @@ inductive Operand (layout : Layout) where
   | eqInt (left : NameRead layout) (right : Int)
   | binaryInt (op : IntegerOp) (left right : Operand layout)
   | tuple (items : List (TupleItem layout))
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout)
 
 abbrev Operand.addInt {layout : Layout} := @Operand.binaryInt layout .add
@@ -230,6 +232,8 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .mixedAdd integer floating => Closure.mixedAdd integer floating
   | .eqInt left right => (left.evalIn globals heap frame).bind (·.equalInt right)
   | .tuple items => evalTupleIn globals heap frame items
+  | .textSlice receiver bounds =>
+    (receiver.slice? bounds).elim (.error (.defined .zeroSliceStep)) (fun result => .ok (.text result))
   | .binaryInt op left right =>
     (left.evalIn globals heap frame).bind fun lhs =>
       (right.evalIn globals heap frame).bind (Value.binaryInt op lhs)
@@ -370,6 +374,9 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
       EvaluatesIn globals heap frame (.binaryInt op left right) (Value.binaryInt op lhs rhs)
   | tuple (items : List (TupleItem layout)) :
       EvaluatesIn globals heap frame (.tuple items) (evalTupleIn globals heap frame items)
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds) :
+      EvaluatesIn globals heap frame (.textSlice receiver bounds)
+        ((receiver.slice? bounds).elim (.error (.defined .zeroSliceStep)) (fun result => .ok (.text result)))
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout) :
       EvaluatesIn globals heap frame (.closure code select) (.ok (.function (frame.closure code select)))
 

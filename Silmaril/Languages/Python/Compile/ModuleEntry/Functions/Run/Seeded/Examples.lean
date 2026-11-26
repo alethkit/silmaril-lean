@@ -93,4 +93,23 @@ private def textSliceEvidence (placement : SeedPlacement) (zero : Bool) : Bool :
 #guard textSliceEvidence .preamble true
 #guard (Core.Module.SeededCall.Raised.runtime .zeroSliceStep).classify == .valueError
 
+private def textSliceOperandEvidence (placement : SeedPlacement) (zero : Bool) : Bool := Id.run do
+  let points := [65, 233, 128512, 769, 55296]
+  let step := if zero then Source.Expr.integer 0 else .unary .negative (.integer 2)
+  let first := Source.Expr.slice (.text points) none none (some step)
+  let second := if zero then Source.Expr.name "missing" else .text [55296, 128512, 65]
+  let call := Source.Stmt.expression (.call (.name "___assertEqual") [first, second])
+  let source : Source.Module := ⟨[call]⟩
+  let .ok compiled := Run.compile source | return false
+  let space := legacySeed placement
+  let result := run space compiled
+  let completion := if zero then .error (.raised (.runtime .zeroSliceStep)) else .ok ()
+  let receipts := if zero then [] else [("___assertEqual", .ok .none, none)]
+  return result.completion == completion && result.residual.moduleGlobals == space.moduleGlobals &&
+    result.residual.builtins == space.builtins && result.heap.next == 0 && result.lists.objects.isEmpty &&
+    result.calls.map (fun call => (call.callee, call.observation.result, call.observation.caught)) == receipts
+
+#guard textSliceOperandEvidence .builtin false
+#guard textSliceOperandEvidence .preamble true
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

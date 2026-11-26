@@ -158,6 +158,7 @@ inductive CallValue (scope : Scope) where
   | float64 (value : F64.Finite)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
+  | textSlice (receiver : Core.Text) (bounds : Core.SliceBounds)
 
 /-- Recognize a decimal token with at most one source unary sign. -/
 def decimalCallLiteral? : Source.Expr → Option (Bool × Nat × Int)
@@ -197,6 +198,10 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
       CallValueTranslation scope (.tuple elements) (.tuple items)
   | text {points value} (checked : Core.Text.ofPoints? points = some value) :
       CallValueTranslation scope (.text points) (.text value)
+  | textSlice {points start stop step receiver bounds}
+      (text : Core.Text.ofPoints? points = some receiver)
+      (bounded : TextSlice.bounds? start stop step = some bounds) :
+      CallValueTranslation scope (.slice (.text points) start stop step) (.textSlice receiver bounds)
 
 def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
     Except Error {value // CallValueTranslation scope source value} :=
@@ -222,6 +227,13 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩
     | none => .error (.scalar .expressionProfile)
+  | .slice (.text points) start stop step =>
+    match text : Core.Text.ofPoints? points with
+    | none => .error (.scalar .expressionProfile)
+    | some receiver =>
+      match bounded : TextSlice.bounds? start stop step with
+      | some bounds => .ok ⟨.textSlice receiver bounds, .textSlice text bounded⟩
+      | none => .error (.scalar .expressionProfile)
   | source =>
     match lowerDecimalCallLiteral? source with
     | some literal => .ok ⟨.float64 literal.val, .float64 literal.property⟩
