@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.PackedTrace.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -182,9 +183,14 @@ private theorem closed_tree :
 example : region instr ambient (packedExecutionRegion closed.property.1) =
     vis .capture (fun capture => CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store capture) >>=
       fun p => pure (packedTreeOutput (treeExitNumber [exitLabel] p))) := by
-  simpa only [captureProducer, vis_bind, pure_bind] using
-    (packed_run_tree instr source [exitLabel] names (fun reply : Atom => store reply.down)
-      admitted.property.1 (fun _ _ => rfl) closed.property.1 closed.property.2 capture_packet)
+  let named : Tree Event (Transfer Runtime) := captureProducer >>= fun reply =>
+    CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store reply.down) >>=
+      fun p => pure (packedTreeOutput (treeExitNumber [exitLabel] p))
+  have h := (packed_run_tree_eq_iff_traceLE instr source [exitLabel] names
+    (fun reply : Atom => store reply.down) admitted.property.1 (fun _ _ => rfl)
+    closed.property.1 closed.property.2 capture_packet named).mpr
+      ⟨TraceLE.refl named, TraceLE.refl named⟩
+  simpa only [named, captureProducer, vis_bind, pure_bind] using h
 
 private theorem tick_loop (capture argument : Nat) :
     iter (openStep capture) (0, packet argument) =
@@ -288,10 +294,13 @@ private def zeroSeedExit : Trace Event (Transfer Runtime) :=
 
 -- Both trees issue capture and seed. The specification returns the encoded
 -- exit after capture reply 7 and seed reply 0, where the dispatcher goes silent.
-example : TraceLE packed packedSpec ∧ ¬ TraceLE packedSpec packed := by
-  refine ⟨packed_run_tree_traceLE partialInstr source [exitLabel] names
+example :
+    letI := Tree.tracePartialOrder (E := Event) (A := Transfer Runtime)
+    packed < packedSpec := by
+  let _ : PartialOrder (Tree Event (Transfer Runtime)) := Tree.tracePartialOrder
+  refine lt_of_le_not_ge (packed_run_tree_traceLE partialInstr source [exitLabel] names
     (fun reply : Atom => store reply.down) admitted.property.1 (fun _ _ => rfl)
-    closed.property.1 closed.property.2 partial_capture_packet named_refines_spec, ?_⟩
+    closed.property.1 closed.property.2 partial_capture_packet named_refines_spec) ?_
   have hspec : HasTrace packedSpec zeroSeedExit := by
     simp only [packedSpec, captureProducer, spec, zeroSeedExit, vis_bind, pure_bind,
       hasTrace_vis_exchange_iff, ite_true]
@@ -303,5 +312,51 @@ example : TraceLE packed packedSpec ∧ ¬ TraceLE packedSpec packed := by
     simp only [captureProducer, partial_named, zeroSeedExit, vis_bind, pure_bind,
       hasTrace_vis_exchange_iff, ite_true, diverge_bind, hasTrace_diverge_iff, reduceCtorEq, not_false_eq_true]
   exact fun h => hpacked (h zeroSeedExit hspec)
+
+/-! ## Refinement of the actual packed feedback block -/
+
+private def partialTick : Primitive Event Opcode Runtime
+  | .tick, .atom arg => vis (.call .tick arg.2.down) fun reply =>
+      if reply = 0 then diverge else pure (atom reply)
+  | op, value => instr op value
+
+private theorem tick_refines (value : Value Runtime) :
+    TraceLE (partialTick .tick value) (instr .tick value) := by
+  cases value with
+  | atom arg =>
+    apply TraceLE.vis
+    intro reply
+    by_cases h : reply = 0
+    · simpa only [h, ite_true] using traceLE_diverge (pure (atom reply) : Tree Event (Value Runtime))
+    · simpa only [h, ite_false] using TraceLE.refl (pure (atom reply) : Tree Event (Value Runtime))
+  | _ => exact TraceLE.refl _
+
+-- The capture and seed entry are common. Only the back-edge block can
+-- acquire additional behavior after a tick reply.
+example : TraceLE (region partialTick ambient (packedExecutionRegion closed.property.1))
+    (region instr ambient (packedExecutionRegion closed.property.1)) := by
+  apply LambdaSSA.FiniteCFG.packedExecution_traceLE _ _ _ _ closed.property.1 closed.property.1
+  · exact TraceLE.refl _
+  · intro i input
+    have block : ∀ j : Fin 2, TraceLE
+        (region partialTick (extend ambient input) (closed.val.block j).erase)
+        (region instr (extend ambient input) (closed.val.block j).erase) := by
+      intro j
+      refine Fin.cases ?_ (Fin.cases ?_ (fun k => Fin.elim0 k)) j
+      · exact TraceLE.refl _
+      · change TraceLE (region partialTick (extend ambient input) (closed.val.block backIndex).erase)
+          (region instr (extend ambient input) (closed.val.block backIndex).erase)
+        rw [closed.property.2.block backIndex]
+        change TraceLE
+          (region partialTick (extend ambient input)
+            (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit)))))
+          (region instr (extend ambient input)
+            (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit)))))
+        simp only [region, LambdaSSA.Semantics.Interaction.term, pure_bind,
+          LambdaSSA.Semantics.extend_zero, LambdaSSA.Semantics.extend_succ]
+        cases input with
+        | pair arg _ => exact (tick_refines arg).bind_left _
+        | _ => exact TraceLE.refl _
+    exact block i
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples

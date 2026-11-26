@@ -337,12 +337,86 @@ trace, and its observations are included in the specification's.
 [Packed refinement theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
 · [Directed capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
 
+On deterministic weak trees, `eq_iff_traceLE` equates mutual finite
+inclusion with weak tree equality. A terminal observation fixes the return
+value, a pending request fixes the indexed event even without replies, and
+each exchange gives mutual inclusion after that actual reply. Induction on
+observation depth then determines the tree. `Tree.tracePartialOrder` exposes
+this order on the existing weak-tree type, where equality already identifies
+the weakly equal representatives. `packed_run_tree_eq_iff_traceLE` compares
+a packed specification with the whole named run after capture and exit
+retagging. The visible capture fixture checks the equivalence and uses the
+partial order for its strict comparison.
+[Weak tree partial order](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Packed comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Capture regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
 Silent divergence contributes only an empty prefix at the point where it
 occurs. Inclusion can replace it with further events or a return, so it
 does not preserve may-divergence as a positive observation. The relation
 compares attainable finite progress and returns. It does not assert
-must-termination, fairness, or an infinite-path witness.
+must-termination, fairness, or an infinite-path witness. The equality result
+concerns deterministic weak-tree denotations.
 [Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+
+### Ordered sequencing and feedback
+
+`TraceLE.bind_left` follows the same typed requests through refined
+producers and passes the same returned value to a common continuation.
+Together with `bind_right`, this gives monotonicity in both arguments.
+`out_resume_runs_iff` describes observation of the actual weak Elgot
+iterator's resumed body by a finite normalizer run. Recursive returns
+continue at the same feedback state in both trees. A final return or
+request is preserved, and replies are compared by induction on the
+remaining finite trace. This gives pointwise body monotonicity
+`TraceLE.iter` for the existing iterator.
+[Ordered weak ITree laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+
+`packedExecution_traceLE` lifts entry and block comparisons to the actual
+packed CFG executions at a common positional interface. Each block
+comparison uses the same incoming packet, and the conclusion applies the
+same outward tagging to the result. The primitive interpreters and
+ambient environments can differ. The captured back-edge fixture compares
+two interpretations that share the capture and seed requests and differ
+after tick reply `0`.
+[Packed CFG refinement](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/PackedTrace/Thms.lean)
+· [Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+These laws use finite observations of deterministic weak trees. They give
+no arbitrary suprema, preservation of may-divergence, or completeness for
+syntactic rewrites.
+
+### Ordered Kleisli semantics and primitive reduct
+
+`WeakKleisli` is the existing Type–Kleisli category of weak deterministic
+ITrees with pointwise `TraceLE` on arrows. Composition is monotone in both
+arguments, and the categorical iterator is monotone using its existing
+coproduct comparison and weak-tree implementation.
+[Ordered Kleisli category](../../Silmaril/Semantics/ITree/Kleisli/Thms.lean)
+
+`Program.ofCFG` uses the literal typed singleton representative of packed
+execution. Its existing typed denotation agrees with the actual guarded
+packed arrow. For two such programs at a common exit interface,
+`satisfies_ofCFG_iff` identifies the typed hom order with the comparison of
+their erased packed trees. The reflection uses injective pure result
+encoding in the same event family.
+[Packed semantics and satisfaction](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+
+`Model.reduct` accepts the existing primitive `SignatureMap` with identity
+type component and a bottom-preserving Boolean effect component. The value
+carriers and indexed event family are shared. The source and target profile
+equations transport typed primitive arguments and results, and the effect
+map transports purity witnesses. The erased interpreter precomposes with
+the instruction map. `satisfies_map_iff` compares typed satisfaction after
+relabelling the already packed representative with satisfaction in the
+reduct. The regression identifies two opcodes through a non-injective map
+and checks a strict comparison between a silent and a visible packed
+program.
+[Reduct definition](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+· [Packed relabelling regression](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Regression.lean)
+
+This comparison uses a shared event family. Type-changing maps and
+reflection along event renaming are outside the checked law.
 
 ### Edge arguments for a normalized φ port
 

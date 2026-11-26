@@ -40,21 +40,39 @@ def blocks (s : Loop Φ A B K D) : Fin 2 → Region Φ :=
 def region (s : Loop Φ A B K D) : Region Φ :=
   .cfg (.br 0 (.var 0)) 2 (blocks s)
 
-theorem outerTyping (s : Loop Φ A B K D) : Region.HasType [A,A] (outerBlock s) [A,B,D] :=
+theorem outerTypingWithTail (s : Loop Φ A B K D) (extra : List τ) :
+    Region.HasType [A,A] (outerBlock s) (A :: B :: D :: extra) :=
   .br rfl (s.enter.typing [A])
 
-theorem innerTyping (s : Loop Φ A B K D) : Region.HasType [B,A] (innerBlock s) [A,B,D] :=
+theorem innerTypingWithTail (s : Loop Φ A B K D) (extra : List τ) :
+    Region.HasType [B,A] (innerBlock s) (A :: B :: D :: extra) :=
   .case (s.inner.typing [A])
     (.case (s.finish.typing [B,A]) (.br rfl (.var rfl)) (.br rfl (.var rfl)))
     (.br rfl (.var rfl))
 
+theorem blockTypingWithTail (s : Loop Φ A B K D) (i : Fin 2) (extra : List τ) :
+    Region.HasType (localTypes A B i :: [A]) (blocks s i) (A :: B :: D :: extra) :=
+  Fin.cases (motive := fun j =>
+    Region.HasType (localTypes A B j :: [A]) (blocks s j) (A :: B :: D :: extra))
+    (outerTypingWithTail s extra) (fun _ => innerTypingWithTail s extra) i
+
+theorem outerTyping (s : Loop Φ A B K D) : Region.HasType [A,A] (outerBlock s) [A,B,D] :=
+  outerTypingWithTail s []
+
+theorem innerTyping (s : Loop Φ A B K D) : Region.HasType [B,A] (innerBlock s) [A,B,D] :=
+  innerTypingWithTail s []
+
 theorem blockTyping (s : Loop Φ A B K D) (i : Fin 2) :
     Region.HasType (localTypes A B i :: [A]) (blocks s i) [A,B,D] :=
-  Fin.cases (motive := fun j => Region.HasType (localTypes A B j :: [A]) (blocks s j) [A,B,D])
-    (outerTyping s) (fun _ => innerTyping s) i
+  blockTypingWithTail s i []
+
+/-- Keep the actual branch indices when extending the external label context. -/
+theorem regionTypingWithTail (s : Loop Φ A B K D) (extra : List τ) :
+    Region.HasType [A] (region s) (D :: extra) :=
+  .cfg (localTypes A B) (.br rfl (.var rfl)) (fun i => blockTypingWithTail s i extra)
 
 theorem regionTyping (s : Loop Φ A B K D) : Region.HasType [A] (region s) [D] :=
-  .cfg (localTypes A B) (.br rfl (.var rfl)) (blockTyping s)
+  regionTypingWithTail s []
 
 abbrev Carrier (X Y : τ) : τ := Silmaril.coprod Y X
 

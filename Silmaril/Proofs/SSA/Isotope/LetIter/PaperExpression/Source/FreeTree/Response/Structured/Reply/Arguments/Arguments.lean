@@ -27,7 +27,7 @@ theorem leaf_subst (h : ConstructorLeaf a) {σ : Nat → Expr Φ}
   | inl _ ih => exact .inl ih
   | inr _ ih => exact .inr ih
 
-private theorem leaf_wk (h : ConstructorLeaf a) (ρ : Nat → Nat) : ConstructorLeaf (a.wk ρ) := by
+theorem leaf_wk (h : ConstructorLeaf a) (ρ : Nat → Nat) : ConstructorLeaf (a.wk ρ) := by
   rw [Expr.wk_eq_subst]
   exact leaf_subst h (fun i => .var (ρ i))
 
@@ -51,7 +51,7 @@ theorem sequenced_wf (h : Sequenced e Γ A a) : Wf Γ a A e := by
   | leaf typed _ => exact typed.weakenEffect bot_le
   | call _ bound typed _ _ ih => exact .let₁ (.op bound (typed.weakenEffect bot_le)) ih
 
-private theorem sequenced_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
+theorem sequenced_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
     (ht : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
     (hs : ∀ i, ConstructorLeaf (σ i)) : Sequenced e Δ A (a.subst σ) := by
   induction h generalizing Δ σ with
@@ -90,7 +90,7 @@ theorem subst0_leaf (h : ConstructorLeaf a) :
   | 0 => h
   | i + 1 => .var i
 
-private theorem sequenced_subst0 {v : Expr Φ} (ht : Wf Γ v A ⊥) (hl : ConstructorLeaf v)
+theorem sequenced_subst0 {v : Expr Φ} (ht : Wf Γ v A ⊥) (hl : ConstructorLeaf v)
     (h : Sequenced e ((A, ⊥) :: Γ) B k) : Sequenced e Γ B (k.subst v.subst0) :=
   sequenced_subst h (subst0_typed ht) (subst0_leaf hl)
 
@@ -153,7 +153,7 @@ theorem shape_subst_leaf {n : Nat} {sorts : Fin n → α} {R : Ty α}
   | 0 => ReplyReflection.shape_constructor shape _
   | _ + 1 => .var _
 
-theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
+private theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
     (ht : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
     (hs : ∀ i, ConstructorLeaf (σ i)) : ReplyReflection.Written A e Δ (a.subst σ) := by
   induction h generalizing Δ σ with

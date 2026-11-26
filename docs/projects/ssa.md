@@ -165,6 +165,37 @@ reads its free inputs from the incoming packet, even across back edges.
 With a store-reading continuation, a single discarded assignment suffices
 to [distinguish equal classes](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Regression.lean).
 
+[Executable cyclic linking](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Thms.lean)
+uses finite input and output ports carrying one value of the common carrier.
+Every private address names a packet-closed block. Linking allocates disjoint
+private ranges and a forwarding block per intermediate port. The right stage
+can loop within its own range and can exit through its public ports. Running
+the resulting ordinary named CFG agrees with staged exit plugging.
+Observational classes of these graphs form a category with the wire identity
+and linker composition, which is monotone for terminating-result inclusion.
+
+[The named refinement interpretation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Institution/Thms.lean)
+widens private addresses to naturals and keeps public ports tagged. It maps
+each packet arrow to one named program class per input port, with the packet
+in the designated register. Refinement of the arrow agrees with named
+refinement at every port. Primitive renaming commutes with the executable
+linker and wire identity and acts by monotone functors on classes. The named
+interpretations commute with this action. Versioning and deversioning
+compare the images on classes. The ordinary versioner wraps internal
+transfers in a carry tuple, including version-zero live-in slots at entry,
+so the resulting syntax can have a wider entry interface than a single wire.
+
+[Syntactic packet CFG simulation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Simulation/Thms.lean)
+checks a finite map on private labels and preserves public exits. A source
+block either matches a target block after relabelling or forwards its packet
+unchanged to the same mapped address. These rules preserve every terminating
+result, and the executable linker combines the certificates, including at
+handoff blocks. Direct wiring is complete when a common model exists.
+A [one-block register copy](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Link/Simulation/Regression.lean)
+has the same observation as a wire but falls outside the certificate rules.
+The same regression checks strict refinement from a cyclic forwarding loop
+to a returning wire.
+
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
 `Region.alphaEq_ofDB_toDB`, `Region.evalSSA_eq_of_alphaEq`, `Region.close_toLN`
@@ -506,6 +537,41 @@ The continuation cannot jump back to its own label.
   [Native encoding](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Categorical/Thms.lean) ·
   [Two-exit satisfaction and signature squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Institution/Thms.lean) ·
   [Joined guarded comparison](https://github.com/hiloopai/silmaril-lean/pull/3532)
+- The native structured fragment extends to every finite ordered label list.
+  Its branches select an index, case trees share the outward interface, and
+  single-entry joins bind one local payload with a continuation that cannot
+  jump back to that label. Encoding uses the existing right-associated sum
+  ending in the empty type. At nonempty interfaces, the acyclic decoder
+  dispatches to the original labels and uses an abort expression only on
+  the impossible empty summand. Both round trips preserve the corresponding
+  arrows in coherent models with central unit. The empty interface is
+  uninhabited by this structured syntax because every path must have an
+  outward branch. The binary embedding retains the exact native regions
+  and their arrows. The three-label probe retains all positions when their
+  types collapse and checks composite signature change.
+  The finite-exit institution evaluates its sentences using native
+  positional denotation and compares to validated LetCase by a
+  comorphism. This construction covers the stated structured region
+  forms at arbitrary finite interfaces.
+  [Finite-exit typing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Thms.lean) ·
+  [Categorical round trips](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Categorical/Thms.lean) ·
+  [Native institution](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Institution/Thms.lean)
+- A forward-numbered positional table uses the existing typed jump and
+  case blocks and an executable check of their target lists. All local
+  edges increase in the supplied order, including in unreachable blocks.
+  Every block reads its own payload, and the entry can evaluate an
+  arbitrary exact operand in its surrounding context. The lowering
+  unfolds later blocks into the finite-exit fragment and preserves the
+  actual native positional arrow at the original ordered exits. The
+  LetCase theorem applies the existing context comparison and exit
+  decoder. In the four-block diamond both arms target one shared
+  classifier, and the categorical equation runs only the selected arm
+  before the shared classifier and its two distinct exits. Unfolding can
+  duplicate shared block code. This checker expects a supplied forward
+  order and covers one CFG table of payload-only blocks.
+  [Checker and lowering](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Defs.lean) ·
+  [Denotation](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Categorical/Thms.lean) ·
+  [Diamond regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

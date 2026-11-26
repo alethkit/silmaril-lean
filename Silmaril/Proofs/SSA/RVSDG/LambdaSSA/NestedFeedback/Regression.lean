@@ -1,8 +1,12 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 meta import Silmaril.SSA.Isotope.Types.Defs
 meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
 
@@ -43,11 +47,13 @@ local instance : TypeModel Ty where
   emptyEquiv := ⟨PEmpty.elim, Empty.elim, fun x => PEmpty.elim x, fun x => Empty.elim x⟩
   coe := coerceValue
 
-private inductive Op | enter | inner | finish
+private inductive Op | enter | inner | finish | tailHeader | tailBody
+  deriving DecidableEq
 
 local instance : HasTy Op Ty :=
-  ⟨fun | .enter | .finish => number | .inner => innerPayload,
-   fun | .enter => innerPayload | .inner => .coprod number innerPayload | .finish => .coprod number number⟩
+  ⟨fun | .inner => innerPayload | _ => number,
+   fun | .enter => innerPayload | .inner => .coprod number innerPayload
+       | .finish | .tailHeader => .coprod number number | .tailBody => number⟩
 
 local instance : HasEff Op Bool := ⟨fun _ => true⟩
 
@@ -59,6 +65,9 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
       10 * token + 2)
   | .finish, n => StateT.mk fun token =>
     Part.some (if (show Nat from n) = 0 then .inr (1 : Nat) else .inl token, 10 * token + 3)
+  | .tailHeader, n => StateT.mk fun token =>
+    Part.some (.inl ((show Nat from n) + token), 10 * token + 4)
+  | .tailBody, n => pure n
 
 local instance : InstructionModel Op Ty Bool Runtime where
   denote := instruction
@@ -185,17 +194,248 @@ private theorem noReturn : (iter roundAction (99 : Nat)).run 0 = Part.none := by
   cases h with
   | done h | more h _ => rw [noStep] at h; exact Part.notMem_none _ h
 
-example (coherent : Coherent) :
+private theorem graph_returns (coherent : Coherent) :
     returns (ε := Bool) lowered.1 (0 : Nat) 0 (1223122 : Nat) 12231223 := by
   apply (lowered.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (1223122 : Nat) 0 12231223).mpr
   rw [show lowered.2.typing = regionTyping program from rfl,
     denote_rounds program coherent (PUnit.unit, (0 : Nat)), StateT.run_bind, returning]
   simp only [StateT.run_pure, Part.bind_eq_bind, Part.bind_some, Part.pure_eq_some]
 
-example (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 0 = Part.none := by
+private theorem graph_undefined (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 0 = Part.none := by
   apply (lowered.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr
   rw [show lowered.2.typing = regionTyping program from rfl,
     denote_rounds program coherent (PUnit.unit, (99 : Nat)), StateT.run_bind, noReturn]
   exact Part.bind_none _
+
+private def recovered : Reverse.Fibre lowered.1 :=
+  (Reverse.recover lowered.1).get (by
+    change (Reverse.recover (graph program)).isSome = true
+    rw [Reverse.recover_generated]
+    rfl)
+
+example : recovered.source = region program := by
+  unfold recovered
+  have h : Reverse.recover lowered.1 =
+      some ⟨innerPayload, number, region program, lowered.2⟩ := Reverse.recover_generated program
+  exact congrArg Reverse.Fibre.source (Option.get_of_eq_some _ h)
+
+example (coherent : Coherent) :
+    ((Region.denote (ε := Bool) (m := Runtime) recovered.witness.typing (PUnit.unit, (0 : Nat))).run 0) =
+      Part.some (.inl (1223122 : Nat),12231223) :=
+  (Reverse.fibre_returns_iff recovered coherent (PUnit.unit, (0 : Nat)) (1223122 : Nat) 0 12231223).mp
+    (graph_returns coherent)
+
+example (coherent : Coherent) :
+    ((Region.denote (ε := Bool) (m := Runtime) recovered.witness.typing (PUnit.unit, (99 : Nat))).run 0) =
+      Part.none :=
+  (Reverse.fibre_undefined_iff recovered coherent (PUnit.unit, (99 : Nat)) 0).mp (graph_undefined coherent)
+
+open OrderedTheta (carried)
+open OrderedRuntime.Structured (Threaded runtime runtimePort)
+
+private abbrev Boundary := Threaded (carried (Carrier number number))
+private abbrev BodyResult := Threaded (OrderedTheta.results (Carrier number number))
+
+private def useEntryToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty} (wire : Origin Boundary past t) : Origin Boundary past t :=
+  if token : runtime = t then token ▸ (.arg (.tail .head) : Origin Boundary past runtime) else wire
+
+/-- Leave the payload wire from the inner θ in place and substitute the outer
+activation's entry token for the token returned by the inner θ. -/
+private def staleBody :
+    NestedTheta.Term (NestedFeedback.Op Op) Boundary [] (Wiring.BodySigs number innerPayload number number)
+      BodyResult :=
+  match (Wiring.outerBody program).1 with
+  | .bind enter entries (.bind inner children (.bind finish leaf rest)) =>
+    let inputs := finish.inputs.map (fun _ wire => useEntryToken wire)
+    .bind enter entries (.bind inner children (.bind {finish with inputs} leaf rest))
+
+private def stale : Graph Op number number :=
+  let term : NestedTheta.Term (NestedFeedback.Op Op) Boundary [] [Boundary] Boundary :=
+    .bind (NestedTheta.ExplicitRuntime.thetaNode (ins := carried (Carrier number number))
+      (.arg (runtimePort (carried (Carrier number number)))) (.cons (.arg .head) .nil)
+      (Wiring.BodySigs number innerPayload number number)) (fun _ => staleBody)
+      (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))
+  term.toGraph
+
+private theorem staleParses : Reverse.candidate stale = some ⟨innerPayload, number, program⟩ := by
+  have reads : Reverse.read stale = Reverse.read (graph program) := by
+    simp only [Reverse.read, stale, graph, NestedTheta.Term.toTerm_toGraph]
+    rfl
+  unfold Reverse.candidate
+  rw [reads]
+  exact Reverse.candidate_generated program
+
+private def finishAddresses (g : Graph Op number number) : List Address :=
+  match g.toTerm with
+  | .bind outer body (.ret _) =>
+    (Reverse.readTheta outer.kind body (fun child => match child with
+      | .bind _ _ (.bind _ _ (.bind finish _ _)) => some finish.inputs.addresses
+      | _ => none)).getD []
+
+private theorem staleDifferent : graph program ≠ stale := by
+  intro same
+  have addresses := congrArg finishAddresses same
+  have correct : finishAddresses (graph program) = [Address.output 1 0, Address.output 1 1] := rfl
+  have wrong : finishAddresses stale = [Address.output 1 0, Address.arg 1] := rfl
+  rw [correct, wrong] at addresses
+  cases addresses
+
+example : Reverse.recognize stale = none :=
+  Reverse.reject_wiring ⟨innerPayload, number, program⟩ staleParses staleDifferent
+
+#eval show IO Unit from do
+  unless (Reverse.recover lowered.1).isSome do
+    throw (IO.userError "could not reverse the nested feedback graph")
+  unless (Reverse.candidate stale).isSome && (Reverse.recover stale).isNone do
+    throw (IO.userError "the nested feedback recognizer accepted a stale token")
+
+section Composition
+
+open Acyclic.Theta
+open Acyclic.Theta.StructuredCFG
+open Acyclic.Theta.Sequential
+
+private def tailLoop : Acyclic.Theta.Loop Op number number number number number :=
+  ⟨op .tailHeader, .instruction (op .tailBody), op .finish⟩
+
+private def tailNormal : StructuredCFG.Reverse.Normal Op number number number number number number
+    [Flat.Serial.WirePorts number number number] := .loop tailLoop
+
+private def composed :=
+  WithNestedFeedback.Syntax.link (.nested program) (.structured tailNormal.toSyntax)
+
+private def mixed := WithNestedFeedback.lower composed
+
+private theorem tailReturns :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) tailLoop) (1223122 : Nat)).run 12231223 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  have header : callCase (ε := Bool) (m := Runtime) tailLoop.header (1223122 : Nat) =
+      instruction .tailHeader (1223122 : Nat) := by
+    unfold callCase
+    refine (congrArg (fun (x : Runtime (Value (.coprod number number))) => x >>= pure) ?_).trans
+      (bind_pure _)
+    exact call_eq .tailHeader _
+  simp [Elgot.StateT.body, Elgot.StateT.distribute, ExplicitRuntime.round, header, instruction]
+
+private theorem composedReturns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (0 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, returning]
+  simp only [StateT.run_pure, Part.bind_eq_bind, Part.pure_eq_some, Part.bind_some]
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact tailReturns
+
+private theorem composedUndefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (99 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, noReturn]
+  simp only [Part.bind_eq_bind, Part.bind_none]
+
+private theorem mixedReturn (coherent : Coherent) :
+    Flat.Serial.returns (ε := Bool) mixed.1 (0 : Nat) 0 (.inl (13454345 : Nat)) 122312234 :=
+  (mixed.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (.inl (13454345 : Nat)) 0 122312234).mpr
+    (composedReturns coherent)
+
+private theorem mixedUndefined (coherent : Coherent) :
+    Flat.Serial.observe (ε := Bool) mixed.1 (99 : Nat) 0 = Part.none :=
+  (mixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr (composedUndefined coherent)
+
+private theorem tailSupported : StructuredCFG.Reverse.Supported tailNormal :=
+  .instruction (op .tailBody)
+
+private theorem cutAccepted :
+    WithNestedFeedback.Reverse.recover mixed.1 = some ⟨composed.source.region, mixed.2⟩ :=
+  WithNestedFeedback.Reverse.recover_generated program tailNormal tailSupported
+
+private def recoveredMixed : WithNestedFeedback.Fibre mixed.1 :=
+  (WithNestedFeedback.Reverse.recover mixed.1).get (by rw [cutAccepted]; rfl)
+
+private theorem recoveredAccepted : WithNestedFeedback.Reverse.recover mixed.1 = some recoveredMixed :=
+  (Option.some_get _).symm
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) :=
+  (WithNestedFeedback.Reverse.recover_returns_iff recoveredAccepted
+    coherent (PUnit.unit, (0 : Nat)) _ 0 122312234).mp (mixedReturn coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none :=
+  (WithNestedFeedback.Reverse.recover_undefined_iff recoveredAccepted
+    coherent (PUnit.unit, (99 : Nat)) 0).mp (mixedUndefined coherent)
+
+private abbrev MixedGraph := Flat.Serial.Graph Op number number number number number number
+  (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+    [Flat.Serial.WirePorts number number number])
+
+private def staleLinkToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty}
+    (wire : Origin (Flat.Serial.WirePorts number number number) past t) :
+    Origin (Flat.Serial.WirePorts number number number) past t :=
+  if token : runtime = t then token ▸ (.arg (.tail .head) :
+    Origin (Flat.Serial.WirePorts number number number) past runtime) else wire
+
+private abbrev MixedTerm :=
+  NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number number number) []
+    (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+      [Flat.Serial.WirePorts number number number]) (Flat.Serial.WirePorts number number number)
+
+-- Retain the exit adapter's payload. Read the original input token at the
+-- connector instead of the token returned by that adapter.
+private def staleMixedTerm (term : MixedTerm) : MixedTerm :=
+  match term with
+  | .bind enter entries (.bind nested body (.bind exit exits (.bind cut children rest))) =>
+    let inputs := cut.inputs.map (fun _ wire => staleLinkToken wire)
+    .bind enter entries (.bind nested body (.bind exit exits (.bind {cut with inputs} children rest)))
+
+private def staleMixed : MixedGraph := (staleMixedTerm mixed.1.toTerm).toGraph
+
+private theorem staleRead (term : MixedTerm) :
+    WithNestedFeedback.Reverse.readTerm (staleMixedTerm term) = WithNestedFeedback.Reverse.readTerm term := by
+  cases term with
+  | bind _ _ term =>
+    cases term with
+    | bind _ _ term =>
+      cases term with
+      | bind _ _ term =>
+        cases term with
+        | bind cut _ _ => cases cut; rfl
+
+private theorem staleMixedParses : WithNestedFeedback.Reverse.candidate staleMixed = some composed := by
+  have same : WithNestedFeedback.Reverse.read staleMixed = WithNestedFeedback.Reverse.read mixed.1 := by
+    simp only [WithNestedFeedback.Reverse.read, staleMixed, NestedTheta.Term.toTerm_toGraph, staleRead]
+  unfold WithNestedFeedback.Reverse.candidate
+  rw [same]
+  exact WithNestedFeedback.Reverse.candidate_generated program tailNormal tailSupported
+
+private def cutAddresses (g : MixedGraph) : List Address :=
+  match g.toTerm with
+  | .bind _ _ (.bind _ _ (.bind _ _ (.bind cut _ _))) => cut.inputs.addresses
+
+example : WithNestedFeedback.Reverse.recover staleMixed = none := by
+  apply WithNestedFeedback.Reverse.reject_wiring composed staleMixedParses
+  intro eq
+  have addresses := congrArg cutAddresses eq
+  change [Address.output 2 0, Address.output 2 1] = [Address.output 2 0, Address.arg 1] at addresses
+  cases addresses
+
+#eval show IO Unit from do
+  unless (WithNestedFeedback.Reverse.recover mixed.1).isSome do
+    throw (IO.userError "could not recover the mixed serial graph without supplied views")
+  unless (WithNestedFeedback.Reverse.candidate staleMixed).isSome &&
+      (WithNestedFeedback.Reverse.recover staleMixed).isNone do
+    throw (IO.userError "the mixed serial recognizer failed to certify the cross-cut token")
+
+end Composition
 
 end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression

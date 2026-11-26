@@ -92,3 +92,77 @@ becomes the next request's operand through the φ node. Either tick can
 return through the packed exit. The equation is in weak ITrees. The finite
 and infinite atomic results above are stated in `Part`.
 [Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
+
+## Checked admission and closure
+
+`Certified.admit` runs the global SSA checker and the typed elaborator in
+sequence. The source witness establishes normalization, definition uniqueness
+and use availability. The target witness supplies its exact elaboration and
+typing at the given capture, block and return profiles. An admitted result can
+run `admitted.close` with a closed expression of the packed capture type.
+Successful closure supplies the closed graph's typing and its erasure relation
+to that same admitted graph. [Checked results](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Defs.lean)
+
+The end-to-end theorems consume the result of closure. They recover the
+lowering, elaboration, typing and closure premises from the returned evidence.
+The positional capture environment is derived from the source store and
+the selected version-zero names. The remaining semantic premise is that the
+capture expression produces exactly this record. In weak ITrees it runs the
+supplied producer, then packs the source store for each reply. In the atomic
+`Part` theorems it returns the record with unchanged state. In each case both
+sides use the same primitive implementation.
+[End-to-end theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Thms.lean)
+
+The visible backedge regression uses these checked outputs directly. A wrong
+Isotope return type rejects the same graph with its valid source certificate.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
+
+## Canonical pure capture
+
+`Certified.PureCapture.close` takes the existing admission and synthesizes
+its closed packet expression. The target signature adds an input read for
+each finite capture slot, with the slot's type from the admitted profile.
+The generated expression supplies unit to each read and assembles the same
+newest-on-the-right product as `packedInputType`. The original graph's
+operations retain their signatures and interpretations. [Generator](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Defs.lean)
+
+The slot interpreter reads the existing version-zero projection of the
+source store. The packet proofs yield exactly `Capture.packEnv` of that
+projection, with no visible event and unchanged atomic state. This is an
+agreement about the supplied tagged values. Static slot typing comes from
+the profile. The execution theorems take the successful pure closure,
+the source store and the shared primitives, and cover weak trees, finite
+atomic returns and atomic infinite paths. Custom effectful producers use the
+explicit packet contract above. [Pure endpoint](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Thms.lean)
+
+The visible regression starts with a tick under pure capture and uses its
+reply as the next tick operand. The atomic regression selects two distinct
+inputs in reversed positional order and returns them in source order.
+[Visible regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean) · [Atomic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Examples.lean)
+
+## Finite trace comparison
+
+Two independently admitted and purely closed graphs can be compared at
+matching typed interfaces. `InterfaceMatch` requires the same positional
+capture types and the same type at the sole external exit. `MatchedInputs`
+pairs the source stores and requires equal projected version-zero values at
+each slot. The comparison shares the event family and tagged runtime values.
+Each graph can use its own primitives, with the same implementation on its
+source and packed sides. The interface witness relates static slots and
+projected values. Any runtime typing invariant is a separate premise of a
+client that needs it. [Interface](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Defs.lean)
+
+`packed_pointwise_traceLE_iff` transports finite trace inclusion in both
+directions over any family of matched inputs. Source observations run the
+predecessor-indexed evaluator and use the same exit number and return tag
+as the packed dispatcher. Requests and their typed replies pass through
+unchanged. The proof uses the checked pure execution equality for each graph.
+The result compares executions with supplied primitive interpretations.
+[Transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Thms.lean)
+
+The regression certifies, admits and closes two graphs independently.
+Every seed gives inclusion from the partial tick graph to the total tick
+graph. At seed `4`, replies `2` and `0` each pass through the self-edge's φ
+operand to the next visit. Only the total graph requests `tick 0`, which
+witnesses strict inclusion for the packed executions.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Examples.lean)

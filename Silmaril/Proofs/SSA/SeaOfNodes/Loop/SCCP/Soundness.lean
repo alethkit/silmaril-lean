@@ -46,7 +46,7 @@ private theorem entryFacts_cover (hentry : TupleCovers input entry) :
   intro t p
   exact bankCovers_of_tuple (readWires_cover (g.phiInputs .entry) hentry stores) p
 
-private theorem headerFacts_cover (hentry : TupleCovers input entry)
+theorem headerFacts_cover (hentry : TupleCovers input entry)
     {latch : BankFacts m.value (dataPorts carried)} {old : Tuple (Val m.value) (dataPorts carried)}
     (hold : BankCovers latch old) :
     let args := appendTuple old entry
@@ -72,6 +72,27 @@ private theorem successors_cover {fact : Flat (ULift.{w} Bool)} {test : ULift.{w
     cases test with | up value => cases value <;> simp [successors]
   | overdefined =>
     cases test with | up value => cases value <;> simp [successors]
+
+/-- A lockstep simulation along original arrivals preserves every observation budget. -/
+theorem evalBackedges_eq_of_steps {targetEntry targetHeader : List (List (Ty Data))}
+    (target : Graph Op inputs carried targetEntry targetHeader out)
+    (initial : target.initial m entry = g.initial m entry)
+    (steps : ∀ {via count old}, Arrives m g entry via count old → target.step m entry old = g.step m entry old)
+    (budget : Nat) :
+    target.evalBackedges m budget entry = g.evalBackedges m budget entry := by
+  suffices fromArrival : ∀ budget {via count old}, Arrives m g entry via count old →
+      target.evalFrom m entry budget old = g.evalFrom m entry budget old by
+    unfold Graph.evalBackedges
+    rw [initial]
+    exact fromArrival budget .entry
+  intro budget via count old arrived
+  induction budget generalizing via count old with
+  | zero => simp only [Graph.evalFrom, steps arrived]
+  | succ _ ih =>
+    simp only [Graph.evalFrom, steps arrived]
+    cases taken : g.step m entry old with
+    | inl _ => rfl
+    | inr _ => exact ih (.backedge arrived taken)
 
 variable [BankDecidableEq m.value (dataPorts carried)] {state : State m.value carried out}
 

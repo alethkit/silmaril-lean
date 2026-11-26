@@ -5,6 +5,7 @@ import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.TypeChange.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Expansion.Institution.Quotient.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.TwoExit.Institution.Thms
+import Silmaril.SSA.Isotope.Bridge.Acyclic.FiniteExit.Institution.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Pullback.Witness.Lift.Thms
 import Silmaril.Semantics.Calco2019.Maybe.Types.Thms
 
@@ -17,7 +18,7 @@ open Silmaril.Calco2019
 open Silmaril.SSA.LambdaRTL.Quotient (semSetoid)
 open LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open LambdaSSA.Semantics.Categorical
-open LambdaSSA.Acyclic (Code TwoExit)
+open LambdaSSA.Acyclic (Code TwoExit FiniteExit)
 open Morphism (SignatureMap)
 
 private inductive Op | flip
@@ -198,6 +199,75 @@ example (K : ValidatedCaseAlgebra J target) :
         (K.expand.pullbackOfWitness collapse (regionWitnessPullback collapse K.expand))
           twoBranches).symm)
 
+section FiniteExits
+
+open LambdaSSA.Region (packedExitType)
+
+example : IsEmpty (FiniteExit source.Instr ([] : List (Ty Bool)) ctx) :=
+  inferInstance
+
+example : ¬ LambdaSSA.Region.HasType [(empty : Ty Bool)]
+    (.br 0 (.abort (.var 0)) : LambdaSSA.Region source.Instr) [] := by
+  intro h
+  cases h with
+  | br label _ => simp [LambdaSSA.At] at label
+
+-- The packed empty type still belongs to ordinary single-exit code.
+example : Code source.Instr (.snoc .nil (empty : Ty Bool)) (packedExitType ([] : List (Ty Bool))) :=
+  .br ⟨.bv 0, .bv⟩
+
+private def singleton : FiniteExit source.Instr [A] (.snoc .nil A) :=
+  .br (i := 0) rfl ⟨.bv 0, .bv⟩
+
+example : LambdaSSA.Region.HasType [A] singleton.toSSA [A] :=
+  singleton.toSSA_hasType
+
+example : singleton.encode.toSSA 0 = .br 0 (.inl (.var 0)) := rfl
+
+example : (FiniteExit.decode singleton.exits_ne_nil singleton.encode).toSSA =
+    .cfg (singleton.encode.toSSA 0) 1
+      (fun _ => .case (.var 0) (.br 1 (.var 0)) (.br 1 (.abort (.var 0)))) := rfl
+
+example : twoBranches.toFinite.toSSA = twoBranches.toSSA :=
+  twoBranches.toSSA_toFinite
+
+private abbrev threeCtx : BoundCtx (Ty Bool) 1 := .snoc .nil (coprod A (coprod B A))
+
+private def threeBranches : FiniteExit source.Instr [A, B, A] threeCtx :=
+  .case ⟨.bv 0, .bv⟩ (.br (i := 0) rfl ⟨.bv 0, .bv⟩)
+    (.case ⟨.bv 0, .bv⟩ (.br (i := 1) rfl ⟨.bv 0, .bv⟩) (.br (i := 2) rfl ⟨.bv 0, .bv⟩))
+
+-- The three payload types become equal, but neither relabelling nor packing
+-- confuses the label positions.
+example : (threeBranches.mapSignature collapse).toSSA =
+    .case (.var 0) (.br 0 (.var 0))
+      (.case (.var 0) (.br 1 (.var 0)) (.br 2 (.var 0))) := rfl
+
+example : (threeBranches.mapSignature collapse).encode.toSSA 0 =
+    .case (.var 0) (.br 0 (.inl (.var 0)))
+      (.case (.var 0) (.br 0 (.inr (.inl (.var 0)))) (.br 0 (.inr (.inr (.inl (.var 0)))))) := rfl
+
+private def threeEquation : FiniteExitEquation source :=
+  ⟨⟨1, threeCtx, [A, B, A]⟩, threeBranches,
+    FiniteExit.decode threeBranches.exits_ne_nil threeBranches.encode⟩
+
+example : compileFiniteExit (mapFiniteExit collapse threeEquation) =
+    mapCaseSignature collapse (compileFiniteExit threeEquation) :=
+  compileFiniteExit_map collapse threeEquation
+
+private theorem three_sat (K : (finiteExitRoom J source).Mod) :
+    (finiteExitRoom J source).Sat K threeEquation := by
+  let M := K.fromShrinkHoms.as
+  let _ := M.instructions
+  let _ := M.coherent
+  exact (FiniteExit.denote_decode_encode J M.types threeBranches).symm
+
+example (K : (finiteExitRoom J target).Mod) :
+    (finiteExitRoom J target).Sat K (mapFiniteExit collapse threeEquation) :=
+  ((finiteExitCorridor collapse).sat K threeEquation).mpr (three_sat _)
+
+end FiniteExits
+
 section Composite
 
 private abbrev Wide : Ty Nat := .base 7
@@ -277,6 +347,10 @@ private abbrev q : TypeSignature := ⟨Ty Unit, Unit, target⟩
 private abbrev s : TypeSignature := ⟨Ty Nat, Bool, widened⟩
 private def f : p ⟶ q := ⟨collapse⟩
 private def g : q ⟶ s := ⟨widen⟩
+
+example : ((finiteExitInst J).map (f ≫ g)).sen threeEquation =
+    ((finiteExitInst J).map g).sen (((finiteExitInst J).map f).sen threeEquation) :=
+  mapFiniteExit_comp collapse widen threeEquation
 
 private def equation : SSAEquation source :=
   ⟨⟨1, ctx, A⟩, diamond,

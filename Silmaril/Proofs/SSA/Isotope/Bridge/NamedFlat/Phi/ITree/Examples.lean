@@ -1,7 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.ITree.Thms
-import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.WellFormed.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Pure.Thms
 import Silmaril.Semantics.ITree.Thms
 
 /-! A visible request supplies the operand of the next visit to a φ header. -/
@@ -64,37 +63,35 @@ private def graph : Graph Reg Key Opcode :=
     [(header, ⟨[⟨phiName, [(none, .var seedName), (some header, .var backName)]⟩],
       .term (.case (.app .tick (.var phiName)) doneName (ret (.var doneName)) backName (br header))⟩)]⟩
 
-private abbrev mutable := CFG.Cyclic.Phi.lower graph
-private abbrev lexical := CFG.Cyclic.Versioning.compile mutable
-
-private theorem certified :
-    CFG.Cyclic.Phi.GlobalSSA.compile graph [seedName] [(header, [])] = some lexical := rfl
-
-private theorem lowered : CFG.Cyclic.Phi.compile graph = some lexical :=
-  (CFG.Cyclic.Phi.GlobalSSA.compile_sound certified).2
-
+private def certificate : CFG.Cyclic.Phi.GlobalSSA.Certificate Reg Key := [(header, [])]
 private def names : Fin 1 → Option Reg := fun _ => some seedName
 
-private def admitted := (NamedFlat.compileTyped mutable [none] names captureTypes
+private def admitted := (Certified.admit graph [seedName] certificate names captureTypes
   (fun _ => headerType) (fun _ => num)).get (by decide)
+
+-- The same graph and valid SSA certificate still need a matching target profile.
+example : (Certified.admit graph [seedName] certificate names captureTypes
+    (fun _ => headerType) (fun _ => .unit)).isNone := by decide
+
+example : (Certified.admit graph [] certificate names captureTypes
+    (fun _ => headerType) (fun _ => num)).isNone := by decide
 
 private def packetRead : Tm Empty Opcode 0 := .op .readCaptures .unit
 
-private def closed := (Capture.close captureTypes (fun _ => headerType) (fun _ => num)
-  admitted.val admitted.property.2 packetRead
+private def closed := (admitted.close packetRead
   (show HasType Opcode .nil .nil packetRead captureType from .op .unit)).get (by decide)
 
 private def sourceStore (seed : Nat) : Reg → Value Atom := fun _ => atom seed
-private def captured (seed : Atom) : Env Atom := fun _ => atom seed.down
 private def ambient : Env Atom := fun _ => .unit
 private def produce : Tree Event Atom := vis .capture (fun answer => pure ⟨answer⟩)
 
 private theorem capture_packet :
     LambdaSSA.Semantics.Interaction.term instr ambient (Morphism.CaseSSA.erase packetRead) =
-      (produce >>= fun reply => pure (Capture.packEnv 1 (captured reply))) := by
+      (produce >>= fun reply => pure (Capture.packEnv 1 (Certified.captureEnv names (sourceStore reply.down)))) := by
   change LambdaSSA.Semantics.Interaction.term instr ambient (.op .readCaptures .unit) = _
   simp only [LambdaSSA.Semantics.Interaction.term, instr, pure_bind, produce, vis_bind,
-    Capture.packEnv, captured]
+    Capture.packEnv]
+  rfl
 
 private def pending (back : Bool) (store : Reg → Value Atom) : Pending Reg Key (Value Atom) :=
   (.jump (if back then some header else none) header, store)
@@ -157,33 +154,45 @@ private theorem from_entry (seed : Nat) :
   rfl
 
 private theorem packed_fixture :
-    region instr ambient (packedExecutionRegion closed.property.1) =
+    region instr ambient (packedExecutionRegion closed.typed) =
       vis .capture (fun seed => resume (pending false (sourceStore seed))) := by
-  have compared := NamedFlat.Phi.packed_run_tree instr names (original := captured) (produce := produce)
-    (fun seed : Atom => sourceStore seed.down)
-    lowered admitted.property.1 (fun _ _ => rfl) closed.property.1 closed.property.2 capture_packet
+  have compared := Certified.packed_run_tree closed instr produce
+    (fun seed => sourceStore seed.down) ambient capture_packet
   simp only [produce, vis_bind, pure_bind, from_entry] at compared
   exact compared
 
--- The first continuing reply is the next visible argument. Either request can
+-- The first continuing reply is the next visible argument. Either tick can
 -- return, and the dispatcher tags only that final result.
-example : region instr ambient (packedExecutionRegion closed.property.1) =
-    vis .capture (fun seed =>
-      vis (.tick seed) (fun
-        | .inl result => pure (0, .inl (atom result))
-        | .inr first =>
-            vis (.tick first) (fun
-              | .inl result => pure (0, .inl (atom result))
-              | .inr second =>
-                  resume (pending true (afterBack (afterBack (sourceStore seed) seed first) first second))))) := by
-  rw [packed_fixture]
-  congr 1
-  funext seed
-  rw [resume_tick false (sourceStore seed) seed rfl]
+private noncomputable def twoTicks (seed : Nat) : Tree Event (Transfer Atom) :=
+  vis (.tick seed) (fun
+    | .inl result => pure (0, .inl (atom result))
+    | .inr first =>
+        vis (.tick first) (fun
+          | .inl result => pure (0, .inl (atom result))
+          | .inr second =>
+              resume (pending true (afterBack (afterBack (sourceStore seed) seed first) first second))))
+
+private theorem resume_two_ticks (seed : Nat) :
+    resume (pending false (sourceStore seed)) = twoTicks seed := by
+  rw [twoTicks, resume_tick false (sourceStore seed) seed rfl]
   congr 1
   funext first
   cases first with
   | inl result => rfl
   | inr reply => exact resume_tick true _ reply (by simp [afterBack, upd])
+
+example : region instr ambient (packedExecutionRegion closed.typed) = vis .capture twoTicks := by
+  rw [packed_fixture]
+  exact congrArg (vis .capture) (funext resume_two_ticks)
+
+private def pureClosed := (Certified.PureCapture.close admitted).get (by decide)
+
+-- The same admitted graph begins with tick under pure capture. The source
+-- store supplies the first argument, and a reply supplies the second.
+example (seed : Nat) :
+    region (Certified.PureCapture.treePrimitives instr (Certified.captureEnv names (sourceStore seed)))
+      (fun _ => .unit) (packedExecutionRegion pureClosed.typed) = twoTicks seed :=
+  (Certified.PureCapture.packed_run_tree pureClosed instr (sourceStore seed)).trans
+    ((from_entry seed).trans (resume_two_ticks seed))
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Interaction.Examples

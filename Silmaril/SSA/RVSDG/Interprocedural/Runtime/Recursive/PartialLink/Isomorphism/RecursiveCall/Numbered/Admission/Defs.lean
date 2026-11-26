@@ -115,6 +115,58 @@ def capturedGroup : {ports : Ports (Ty V S)} → (values : Tuple m.Val ports) �
       (exportGroup value).map fun found => ⟨found.members, found.group, memberSlot value, .member found.known plain⟩
     else none
 
+/-- An isomorphism invariant used only to rule out mixed dispatch. The
+last field counts vertices in the actual outer body region. -/
+abbrev LambdaKey (V S : Type u) := Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × Nat
+
+def lambdaKey {port : Ty V S} : m.Val port → Option (LambdaKey V S)
+  | .closure (params := params) (results := results) (context := context) (sigs := sigs) _ _ =>
+    some (params, results, context, sigs.length)
+  | _ => none
+
+/-- The ordered checker may skip an empty γ even when the other body has
+no partner for that row. Keep the two observed vertex counts separately. -/
+structure LambdaKeys (V S : Type u) where
+  left : List (LambdaKey V S)
+  right : List (LambdaKey V S)
+
+/-- A checked finite prefix, with a conservative bound on the λ keys
+present on each side. A fixed φ table needs no λ key. -/
+structure LinkedFamily (primitives : Primitives m σ) (ids : GlobalRel) (left right : Family m)
+    (keys : LambdaKeys V S) : Prop where
+  checked : CheckedFamily primitives ids left right
+  ordinaryL : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → left value
+  ordinaryR : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → right value
+  keysL : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaKey V S},
+    left value → lambdaKey value = some key → key ∈ keys.left
+  keysR : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaKey V S},
+    right value → lambdaKey value = some key → key ∈ keys.right
+
+variable {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+
+/-- Evidence offered for the actual value of a typed origin in a link
+prefix. An unchecked origin has no membership certificate. -/
+abbrev Available (family : Family m) (entry : Tuple m.Val imports) (locals : Locals m.Val past) :=
+  ∀ {port : Ty V S} (origin : Origin imports past port),
+    Option (PLift (family ((Wires.read (.cons origin .nil) entry locals).get .head)))
+
+/-- Read the definition's real capture wires and collect the exact
+membership evidence from the already checked binding positions. -/
+def checkWires {family : Family m} {entry : Tuple m.Val imports} {locals : Locals m.Val past}
+    (available : Available family entry locals) :
+    {ports : Ports (Ty V S)} → (wires : Wires imports past ports) →
+    Option (PLift (TupleIn family (wires.read entry locals)))
+  | _, .nil => some ⟨trivial⟩
+  | _, .cons origin rest => do
+    let head ← available origin
+    let tail ← checkWires available rest
+    pure ⟨⟨head.down, tail.down⟩⟩
+
+/-- The exact closure returned by linking a λ binding. -/
+abbrev linkedLambda {fn : Function V S} (definition : Lambda Op imports past fn)
+    (entry : Tuple m.Val imports) (locals : Locals m.Val past) : m.Val fn.port :=
+  (lambdaValue m entry locals definition).get .head
+
 variable [DecidableEq (Ty V S)]
 
 /-- Check all slots, including members that are reachable by recursion but

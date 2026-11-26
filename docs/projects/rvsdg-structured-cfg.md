@@ -149,18 +149,81 @@ including the exact final token. The undefinedness theorem compares
 absence of a finite return. The fixture follows an inner restart in each
 outer activation and an outer restart, then reads the token into the
 returned payload. A second input stays in the inner loop and has no
-finite derivation. The entry point covers this one nested shape. The
-structured reverse recognizer and arbitrary flat CFG recovery are
-outside its scope.
+finite derivation.
 [Nested feedback API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Thms.lean)
+
+`NestedFeedback.Reverse.recover` takes the typed numbered graph and
+its dialect. It reads both θ regions, infers `B` and `K` from the
+opcode roles, and checks the three instruction types against the
+signature. It reconstructs the source and accepts only if re-emission
+matches the actual graph recursively, including every typed port,
+operand, child and result address. Success returns a flat region with
+a relation witness indexed by that input graph. Every canonical
+emission recovers its original region and both internal types.
+
+The recovered CFG has the same finite observations and exact final
+token in the coherent partial-state model. The regression reuses both
+nested-feedback cases and checks a mutation that replaces the inner
+θ's returned token at the decision with the outer entry token. The
+mutation leaves the payload and both θ shapes intact. Parsing succeeds
+and full certification rejects the differing token address. This
+recognizer accepts precisely the literal numbered images of the
+two-header shape. It uses the graph's outer boundary types and infers
+the inner types. Other loop layouts, arbitrary renumbering, and
+general CFG structuring are outside this API.
+[Nested feedback reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Reverse/Thms.lean)
+
+## Use nested feedback as a structured leaf
+
+`WithNestedFeedback.Syntax` adds the two-header loop at the
+homogeneous join interface used by the structured compiler. Its flat
+block table keeps the original local edges and exit index. The wider
+type has a second external label of the same payload type. The
+`Leaf.source_rounds` theorem shows every return uses the first label.
+
+The leaf is the original checked nested θ with an entry and exit
+carrier conversion. The conversions preserve the token, and the exit
+conversion injects the returned payload at label zero. Links and forks
+reuse the existing flat relocation, checked splice and denotation laws.
+The observation theorems cover both finite returns with their exact
+final token and absence of a finite return in coherent `StateT σ Part`
+models.
+
+`recoverLink` reads a supplied standalone nested graph and an existing
+structured consumer graph with their local recognizers. It compares
+their re-emission against the actual joint graph before returning a
+typed flat CFG and relation witness.
+
+`WithNestedFeedback.Reverse.recover` instead takes the joint graph
+alone. It recognizes the entry conversion, nested θ, exit conversion
+and connector prefix, taking the join and continuation carrier types
+from the typed opcodes and the suffix signature from the numbered
+term. It reads the structured continuation in its relocated scope.
+The local decoders reconstruct both views, and one full joint
+comparison checks every operand and token origin. Every nested leaf
+followed by a canonical structured tail is accepted. Local sequencing
+may recover in the existing right-associated form. For a tail already
+in that form, recovery returns the original flat CFG. Mixed forks
+and other placements of nested leaves are outside graph-only recovery.
+[Mixed serial reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Thms.lean)
+
+The regression links the nested loop to an acyclic-body loop. The
+consumer reads both the returned payload 1223122 and token 12231223,
+then returns payload 13454345 and token 122312234. Input 99 has no
+finite return and never reaches the consumer. The same observations
+are checked for the CFG recovered from the joint graph alone. A
+type-correct mutation keeps the exit conversion's payload but reads
+the original input token at the connector. It yields the same parsed
+candidate, and exact joint certification rejects it.
+[Mixed structured API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Thms.lean)
 
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
 ```
 
 ## Sources

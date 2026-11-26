@@ -67,16 +67,37 @@ theorem case_eqv_bind [Preorder ε] [OrderBot ε] {C : Ty α} {s l r : Expr Φ}
     Eqv Γ C e (.case s l r) (.let₁ s (.case (.var 0) l.wk1 r.wk1)) :=
   Proofs.case_eqv_bind hs hl hr
 
-/-- Normalize branching raw syntax to the recursive reply recognizer.
-Sequencing exposes the scrutinee calls in order. After each reply
-specialization, a sum-valued constructor leaf selects its typed arm. -/
+/-- Continue with the result of the selected arm. Under each arm, the
+continuation retains its result slot and skips the arm's payload slot. -/
+theorem let_case_eqv [Preorder ε] [OrderBot ε] {C D : Ty α} {s l r : Expr Φ}
+    (hs : Wf Γ s (.coprod A B) e)
+    (hl : Wf ((A, ⊥) :: Γ) l C e) (hr : Wf ((B, ⊥) :: Γ) r C e)
+    (hk : Wf ((C, ⊥) :: Γ) k D e) :
+    Eqv Γ D e (.let₁ (.case s l r) k) (.case s (.let₁ l k.wk1) (.let₁ r k.wk1)) :=
+  Proofs.let_case_eqv hs hl hr hk
+
+/-- Evaluate a product once, then destructure the result under its new slot. -/
+theorem let2_bind_eqv [Preorder ε] [OrderBot ε] {C : Ty α}
+    (ha : Wf Γ a (.product A B) e) (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) :
+    Eqv Γ C e (.let₂ a k) (.let₁ a (.let₂ (.var 0) k.wk2)) :=
+  Proofs.let2_bind_eqv ha hk
+
+/-- A pair destructures by evaluating the left field before the right field. -/
+theorem let2_pair_eqv [Preorder ε] [OrderBot ε] {C : Ty α}
+    (ha : Wf Γ a A e) (hb : Wf Γ b B e) (hk : Wf ((B, ⊥) :: (A, ⊥) :: Γ) k C e) :
+    Eqv Γ C e (.let₂ (.pair a b) k) (.let₁ a (.let₁ b.wk0 k)) :=
+  Proofs.let2_pair_eqv ha hb hk
+
+/-- Normalize finite branching syntax to the recursive reply recognizer.
+Pairs evaluate their left operand before their right operand. Reply
+specialization supplies the constructor fields for product destructuring. -/
 theorem CaseRaw.written [PartialOrder ε] [OrderBot ε] (profile : Profile (α := α) Φ ε)
     (atomic : ∀ i : Fin Γ.length, ∃ x, (Γ.get i).1 = Ty.base x) (h : CaseRaw e Γ A a) :
     ReplyReflection.Written A e Γ a :=
   Proofs.case_raw_written profile atomic h
 
-/-- Original-bound reflection for cases on a straight-line computed sum,
-with recursively branching arms. Each endpoint is recognized independently. -/
+/-- Original-bound reflection for finite cases, lets, ordered pairs, and visible calls.
+Each endpoint is recognized independently. -/
 theorem case_reflection [DecidableEq α] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
     (profile : Profile (α := α) Φ ε) (hΓ : Γ.Pure)
     {slots : Fin Γ.length → α} (hs : ∀ i, (Γ.get i).1 = .base (slots i))

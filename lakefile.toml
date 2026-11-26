@@ -527,6 +527,11 @@ globs = ["tests.ssa.PEGCanonicalWhile"]
 name = "PeggyFieldHeapTests"
 globs = ["tests.ssa.PeggyFieldHeap"]
 
+# Check replay-validated optimization through emitted SIMPLE execution.
+[[lean_lib]]
+name = "PeggySimpleValidationTests"
+globs = ["tests.ssa.PeggySimpleValidation"]
+
 # Check straight-line heap-token reversion and rejection of forked effects.
 [[lean_lib]]
 name = "PeggyFieldHeapLinearizeTests"

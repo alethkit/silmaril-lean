@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Institution.Operational.MemoryWrite.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
 import Silmaril.Proofs.Wasm.Institution.Operational.MemoryWrite.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.MemoryWrite.V1
+import Silmaril.Proofs.Wasm.Institution.Operational.MemoryWrite.V1Context
 import Silmaril.Proofs.Wasm.Institution.Operational.MemoryWrite.Lime1
 import Silmaril.Proofs.Wasm.Institution.Operational.MemoryWrite.Transport
 
@@ -58,6 +59,65 @@ theorem v1_run_iff (lookup : Wasm.V1.Execution.frameMemory s f = some (addr, mem
   v1_run_iff_at MemoryQuery.arg lookup guard
 
 end V1
+
+section V1Context
+
+open Wasm.V1.Execution
+open Execution.Runtime (Value)
+
+/-- Reflect a leading full-width load in the current frame, retaining the value prefix and tail. -/
+theorem v1_context_load_step_iff_at {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {a : MemAddr} {m : MemInst} {immediate : Wasm.V1.MemArg} {address : BitVec 32}
+    {saved : List Value} {tail : List Admin} {dst : Config H}
+    (lookup : frameMemory s f = some (a, m)) :
+    Step host ⟨s, f, values saved ++ MemoryQuery.v1CodeAt immediate (.load address) ++ tail⟩ dst ↔
+      ∃ out, MemoryQuery.EdgeAt m.data immediate.offset.val (.load address) out ∧
+        dst = ⟨s, f, values saved ++ MemoryQuery.v1CodeAt immediate out ++ tail⟩ :=
+  Proofs.V1Context.load_step_iff lookup
+
+/-- Reflect a leading full-width store in the current frame, with the exact store update or trap. -/
+theorem v1_context_store_step_iff_at {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {a : MemAddr} {m : MemInst} {immediate : Wasm.V1.MemArg} {address word : BitVec 32}
+    {saved : List Value} {tail : List Admin} {dst : Config H}
+    (lookup : frameMemory s f = some (a, m)) :
+    Step host ⟨s, f, values saved ++ (v1ConfigAt immediate s f a m (.store address word)).code ++ tail⟩ dst ↔
+      ∃ out, EdgeAt m.data immediate.offset.val (.store address word) out ∧
+        let next := v1ConfigAt immediate s f a m out
+        dst = ⟨next.store, next.frame, values saved ++ next.code ++ tail⟩ :=
+  Proofs.V1Context.store_step_iff lookup
+
+/-- An entered scalar function label and frame preserve both continuations on a load step. -/
+theorem v1_activation_load_step_iff_at {H : Type} {host : HostSemantics H} {s : Store H}
+    {caller callee : Frame} {result : Option NumType} {callerSaved saved : List Value}
+    {callerTail tail : List Admin} {a : MemAddr} {m : MemInst} {immediate : Wasm.V1.MemArg}
+    {address : BitVec 32} {dst : Config H} (lookup : frameMemory s callee = some (a, m)) :
+    Step host ⟨s, caller, v1ActivationCode result callee callerSaved callerTail
+      (values saved ++ MemoryQuery.v1CodeAt immediate (.load address) ++ tail)⟩ dst ↔
+      ∃ out, MemoryQuery.EdgeAt m.data immediate.offset.val (.load address) out ∧
+        dst = ⟨s, caller, v1ActivationCode result callee callerSaved callerTail
+          (values saved ++ MemoryQuery.v1CodeAt immediate out ++ tail)⟩ :=
+  Proofs.V1Context.load_activation_iff lookup
+
+/-- An entered scalar function reads its own slot zero. The selected memory update reaches the caller's shared store. -/
+theorem v1_activation_store_step_iff_at {H : Type} {host : HostSemantics H} {s : Store H}
+    {caller callee : Frame} {result : Option NumType} {callerSaved saved : List Value}
+    {callerTail tail : List Admin} {a : MemAddr} {m : MemInst} {immediate : Wasm.V1.MemArg}
+    {address word : BitVec 32} {dst : Config H} (lookup : frameMemory s callee = some (a, m)) :
+    Step host ⟨s, caller, v1ActivationCode result callee callerSaved callerTail
+      (values saved ++ (v1ConfigAt immediate s callee a m (.store address word)).code ++ tail)⟩ dst ↔
+      ∃ out, EdgeAt m.data immediate.offset.val (.store address word) out ∧
+        let next := v1ConfigAt immediate s callee a m out
+        dst = ⟨next.store, caller, v1ActivationCode result next.frame callerSaved callerTail
+          (values saved ++ next.code ++ tail)⟩ :=
+  Proofs.V1Context.store_activation_iff lookup
+
+/-- Every frame whose slot zero resolves to the written instance sees the new bytes. -/
+theorem v1_frameMemory_setBytes {H : Type} {s : Store H} {f : Frame} {a : MemAddr} {m : MemInst}
+    (lookup : frameMemory s f = some (a, m)) (bytes : ByteArray) :
+    frameMemory (setMemory s a { m with data := bytes }) f = some (a, { m with data := bytes }) :=
+  Proofs.V1Context.frameMemory_setBytes lookup bytes
+
+end V1Context
 
 section Lime1
 variable {H : Type} {host : Wasm.Lime1.Execution.HostSemantics H} {s : Wasm.Lime1.Execution.Store H}

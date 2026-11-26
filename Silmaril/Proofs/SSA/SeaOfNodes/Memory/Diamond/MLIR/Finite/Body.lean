@@ -9,17 +9,49 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Proofs
 open RVSDG (Locals Origin Port Tuple)
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.Pure (Code i1)
+open Silmaril.MLIR.SCF.For (weakenVar)
 
 variable {p : Profile} {args : List ValueSort} {past : List (List ValueSort)}
-variable {Γ Δ : List Width} {version : Nat}
+variable {Γ Δ : List Width} {w : Width} {version : Nat}
 
-@[expose] def Matches (route : Routing p args past Γ) (env : Env Γ)
-    (input : Tuple (Val p.cells) args) (locals : Locals (Val p.cells) past) : Prop :=
-  ∀ {sort} (wire : Origin args past sort),
-    env.get (route wire) = encodeValue p (readValue wire input locals)
+theorem get_appendVar (ref : Var Γ w) (arguments : Env Γ) (suffix : Env Δ) :
+    (arguments.append suffix).get (appendVar Δ ref) = arguments.get ref := by
+  induction ref with
+  | here => cases arguments; rfl
+  | there _ ih => cases arguments with | cons _ tail => exact ih tail
 
-@[expose] def HeapAgrees (refs : HeapRefs p.cells Γ) (env : Env Γ) (heap : Heap p.cells) : Prop :=
-  ∀ index, env.get (refs index) = heap index
+theorem get_weakenVar (arguments : Env Δ) (input : Env Γ) (ref : Var Γ w) :
+    (arguments.append input).get (weakenVar ref Δ) = input.get ref := by
+  induction arguments with
+  | nil => rfl
+  | cons _ _ ih => exact ih
+
+theorem get_encodeHeap_cellVar {cells : Nat} (heap : Heap cells) (index : Address cells) :
+    (encodeHeap heap).get (cellVar index) = heap index := by
+  induction cells with
+  | zero => exact index.elim0
+  | succ cells ih =>
+    exact Fin.cases rfl (fun i => ih (fun j => heap j.succ) i) index
+
+theorem eval_heapOperands {cells : Nat} (refs : HeapRefs cells Γ) (env : Env Γ)
+    (heap : Heap cells) (ok : ∀ index, env.get (refs index) = heap index) :
+    (heapOperands refs).eval env = encodeHeap heap := by
+  induction cells with
+  | zero => rfl
+  | succ cells ih =>
+    exact congrArg₂ (Env.cons (w := i64)) (ok 0)
+      (ih (fun j => refs j.succ) (fun j => heap j.succ) (fun j => ok j.succ))
+
+theorem eval_resultOperands (word : Var Γ i64) (refs : HeapRefs p.cells Γ) (env : Env Γ)
+    (heap : Heap p.cells) (ok : HeapAgrees refs env heap) :
+    (resultOperands (p := p) word refs).eval env = encodeResult p (env.get word) heap :=
+  congrArg (Env.cons (env.get word)) (eval_heapOperands refs env heap ok)
+
+theorem get_encodeScalars_argVar (input : Tuple (Val p.cells) args) {sort : ValueSort} (port : Port args sort) :
+    (encodeScalars p input).get (argVar port) = encodeValue p (input.get port) := by
+  induction port with
+  | head => cases input; rfl
+  | tail _ ih => cases input with | cons _ rest => exact ih rest
 
 private def Preserves (widen : Rename Γ Δ) (env : Env Γ) (next : Env Δ) : Prop :=
   ∀ {w} (ref : Var Γ w), next.get (widen ref) = env.get ref

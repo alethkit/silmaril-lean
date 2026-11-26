@@ -14,7 +14,10 @@ closes a supplied table of ground obligations and checks a cyclic
 selection with structural row evidence. The
 [bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
 generates and checks single-result PEG candidates, and selects by an
-explicit static metric.
+explicit static metric. The
+[contextual optimizer](peggy-contextual-optimizer.md) rewrites shared
+internal rows across ordered outputs and counts distinct reachable
+application vertices.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -161,6 +164,14 @@ bottom unselected arm and a dominating shared value, and exercises rejected
 speculation, scope, duplicate-binding and rank certificates. It also checks
 automatic admission and runs the synthesized syntax.
 
+## Checked SIMPLE optimization
+
+The executable SIMPLE pipeline combines frontend lowering, contextual
+discovery and replay, and automatic reversion. It preserves successful
+SIMPLE returns under rule laws over partial values. The worked example
+optimizes a shared computation inside a φ arm and executes the emitted
+SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
+
 ## Follow-up roadmap
 
 1. **PEG invariants and rule schemas**. Extend the
@@ -195,7 +206,10 @@ automatic admission and runs the synthesized syntax.
    order independence for a fixed table of ground reasons. It derives
    candidate equations for same-label rewiring. The
    [root optimizer](peggy-optimizer.md) adds rows and finds typed
-   instances in a bounded loop-free search. Extend matching and node
+   instances in a bounded loop-free search. The
+   [cyclic optimizer](peggy-cyclic-optimizer.md) discovers guarded θ
+   self-feedback and checks the compacted candidate on a one-loop profile.
+   Extend matching and node
    generation to more general contexts, and prove reversion. The
    [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
    node-generating form of §4 remains a separate proof obligation. Use an independent graph and
@@ -219,7 +233,7 @@ automatic admission and runs the synthesized syntax.
    signature direction needs sentences backward and models forward.
    A one-way compiler theorem supplies simulation or refinement. Exact
    satisfaction and consequence reflection require separate proofs,
-   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg-mlir-regionless.md) ·
+   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg/mlir/rvsdg-mlir-regionless.md) ·
    [SSA and machine boundaries](ssa.md)
 6. **Paper view and Java profile**. Add a leaf under
    `Silmaril.Papers.TateSteppTatlockLerner2011` once the reusable theorems

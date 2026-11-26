@@ -16,46 +16,7 @@ open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Cfg Frame Terminator)
 open Silmaril.MLIR.SCF.For (weakenVar)
 
-variable {p : Profile} {args : List ValueSort} {Γ Δ : List Width} {w : Width}
-
-private theorem get_appendVar (ref : Var Γ w) (arguments : Env Γ) (suffix : Env Δ) :
-    (arguments.append suffix).get (appendVar Δ ref) = arguments.get ref := by
-  induction ref with
-  | here => cases arguments; rfl
-  | there _ ih => cases arguments with | cons _ tail => exact ih tail
-
-private theorem get_weakenVar (arguments : Env Δ) (input : Env Γ) (ref : Var Γ w) :
-    (arguments.append input).get (weakenVar ref Δ) = input.get ref := by
-  induction arguments with
-  | nil => rfl
-  | cons _ _ ih => exact ih
-
-private theorem encodeHeap_get {cells : Nat} (heap : Heap cells) (index : Address cells) :
-    (encodeHeap heap).get (cellVar index) = heap index := by
-  induction cells with
-  | zero => exact index.elim0
-  | succ cells ih =>
-    exact Fin.cases rfl (fun i => ih (fun j => heap j.succ) i) index
-
-private theorem eval_heapOperands {cells : Nat} (refs : HeapRefs cells Γ) (env : Env Γ)
-    (heap : Heap cells) (ok : ∀ index, env.get (refs index) = heap index) :
-    (heapOperands refs).eval env = encodeHeap heap := by
-  induction cells with
-  | zero => rfl
-  | succ cells ih =>
-    exact congrArg₂ (Env.cons (w := i64)) (ok 0)
-      (ih (fun j => refs j.succ) (fun j => heap j.succ) (fun j => ok j.succ))
-
-private theorem pack_operands (word : Var Γ i64) (refs : HeapRefs p.cells Γ) (env : Env Γ)
-    (heap : Heap p.cells) (ok : HeapAgrees refs env heap) :
-    (resultOperands (p := p) word refs).eval env = encodeResult p (env.get word) heap :=
-  congrArg (Env.cons (env.get word)) (eval_heapOperands refs env heap ok)
-
-private theorem arg_match (input : Tuple (Val p.cells) args) {sort : ValueSort} (port : Port args sort) :
-    (encodeScalars p input).get (argVar port) = encodeValue p (input.get port) := by
-  induction port with
-  | head => cases input; rfl
-  | tail _ ih => cases input with | cons _ rest => exact ih rest
+variable {p : Profile} {args : List ValueSort}
 
 private theorem entry_match (guard : Bool) (input : Tuple (Val p.cells) args) (heap : Heap p.cells) :
     Matches (entryRoute p args) (encodeEntry p guard input heap) input PUnit.unit := by
@@ -63,13 +24,13 @@ private theorem entry_match (guard : Bool) (input : Tuple (Val p.cells) args) (h
   cases wire with
   | arg port =>
     exact (get_weakenVar (encodeHeap heap) (encodeScalars p input) (argVar port)).trans
-      (arg_match input port)
+      (get_encodeScalars_argVar input port)
   | output index _ => exact index.elim0
 
 private theorem entry_heap (guard : Bool) (input : Tuple (Val p.cells) args) (heap : Heap p.cells) :
     HeapAgrees (p := p) (entryHeap p args) (encodeEntry p guard input heap) heap :=
   fun index => (get_appendVar (cellVar index) (encodeHeap heap) (encodeScalars p input)).trans
-    (encodeHeap_get heap index)
+    (get_encodeHeap_cellVar heap index)
 
 private theorem join_match (guard : Bool) (input : Tuple (Val p.cells) args)
     (initial final : Heap p.cells) (word : Word) :
@@ -90,7 +51,7 @@ private theorem join_heap (guard : Bool) (input : Tuple (Val p.cells) args)
     HeapAgrees (p := p) (joinHeap p args)
       ((encodeResult p word final).append (encodeEntry p guard input initial)) final :=
   fun index => (get_appendVar (.there (cellVar index)) (encodeResult p word final)
-    (encodeEntry p guard input initial)).trans (encodeHeap_get final index)
+    (encodeEntry p guard input initial)).trans (get_encodeHeap_cellVar final index)
 
 private def joinFrame (p : Profile) (word : Word) (heap : Heap p.cells) : Frame (Label p) :=
   ⟨.join, encodeResult p word heap⟩
@@ -109,7 +70,7 @@ private theorem arm_eval (graph : Graph args) (slot : Slot) (guard : Bool)
     (entry_match guard input initial) (entry_heap guard input initial)
   intro Δ word refs env heap ok
   exact congrArg (fun values => Sum.inl (Frame.mk (Label.join (p := p)) values))
-    (pack_operands word refs env heap ok)
+    (eval_resultOperands word refs env heap ok)
 
 private theorem join_eval (graph : Graph args) (guard : Bool) (input : Tuple (Val p.cells) args)
     (initial : Heap p.cells) (word : Word) (heap : Heap p.cells) :
@@ -122,7 +83,7 @@ private theorem join_eval (graph : Graph args) (guard : Bool) (input : Tuple (Va
     (joinRoute p args) (joinHeap p args) _ (.cons word input) PUnit.unit heap
     (join_match guard input initial heap word) (join_heap guard input initial heap word)
   intro Δ result refs env final ok
-  exact congrArg Sum.inr (pack_operands result refs env final ok)
+  exact congrArg Sum.inr (eval_resultOperands result refs env final ok)
 
 private theorem entry_eval (graph : Graph args) (guard : Bool) (input : Tuple (Val p.cells) args)
     (initial : Heap p.cells) :
@@ -185,7 +146,7 @@ theorem encodeResult_injective (p : Profile) :
   funext index
   have cell := congrArg (fun env : Env (resultTypes p) => env.get (.there (cellVar index))) equal
   change (encodeHeap lhs.2).get (cellVar index) = (encodeHeap rhs.2).get (cellVar index) at cell
-  rwa [encodeHeap_get, encodeHeap_get] at cell
+  rwa [get_encodeHeap_cellVar, get_encodeHeap_cellVar] at cell
 
 theorem returns_iff (p : Profile) (graph : Graph args) (guard : Bool) (input : Tuple (Val p.cells) args)
     (initial : Heap p.cells) (word : Word) (final : Heap p.cells) :

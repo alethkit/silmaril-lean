@@ -43,6 +43,38 @@ theorem bankTuple_tupleFacts {value : Data → Type w} {ports : List (Ty Data)}
     (facts : Tuple (Fact value) ports) : bankTuple (tupleFacts facts) = facts :=
   Proofs.bankTuple_tupleFacts facts
 
+/-- The abstract guard covers the native guard read on the same old bank. -/
+theorem headerGuard_cover {m : Model.{u, v, w} Op}
+    (g : Graph Op inputs carried entrySigs headerSigs out)
+    {input : Tuple (Fact m.value) (dataPorts inputs)} {entry : Tuple (Val m.value) (dataPorts inputs)}
+    (covered : TupleCovers input entry) {bank : BankFacts m.value (dataPorts carried)}
+    {old : Tuple (Val m.value) (dataPorts carried)} (hold : BankCovers bank old) :
+    let args := appendTuple old entry
+    (headerFacts m g input bank).guard.Covers (Diamond.read m g.predicate args (g.header.eval m args PUnit.unit)) :=
+  (Proofs.headerFacts_cover (g := g) covered hold).1
+
+/-- The abstract feedback column covers the native column read on the
+same old bank. This is the producer-table coverage used by the solver. -/
+theorem headerFeedback_cover {m : Model.{u, v, w} Op}
+    (g : Graph Op inputs carried entrySigs headerSigs out)
+    {input : Tuple (Fact m.value) (dataPorts inputs)} {entry : Tuple (Val m.value) (dataPorts inputs)}
+    (covered : TupleCovers input entry) {bank : BankFacts m.value (dataPorts carried)}
+    {old : Tuple (Val m.value) (dataPorts carried)} (hold : BankCovers bank old) :
+    let args := appendTuple old entry
+    BankCovers (headerFacts m g input bank).feedback (g.latch m .backedge args (g.header.eval m args PUnit.unit)) :=
+  (Proofs.headerFacts_cover (g := g) covered hold).2.1
+
+/-- Equal initial latches and steps on original arrivals give equal bounded observations. -/
+theorem evalBackedges_eq_of_steps {m : Model.{u, v, w} Op}
+    {g : Graph Op inputs carried entrySigs headerSigs out}
+    {targetEntry targetHeader : List (List (Ty Data))}
+    (target : Graph Op inputs carried targetEntry targetHeader out)
+    {entry : Tuple (Val m.value) (dataPorts inputs)} (initial : target.initial m entry = g.initial m entry)
+    (steps : ∀ {via count old}, Arrives m g entry via count old → target.step m entry old = g.step m entry old)
+    (budget : Nat) :
+    target.evalBackedges m budget entry = g.evalBackedges m budget entry :=
+  Proofs.evalBackedges_eq_of_steps target initial steps budget
+
 /-- Three control insertions and two strict increases at each carried or exit port suffice. -/
 def height (value : Data → Type w) (carried : List (ValueSort Data)) (out : ValueSort Data) :
     HeightBound (State value carried out) :=

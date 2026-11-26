@@ -37,7 +37,7 @@ CHECK_TARGETS ?= sqlite_file_format_compatibility sqlite_lean sqlite_image_lean 
 CHECK_TARGETS += +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms LetIterPackingImportTests LetIterWeakTreeSoundnessTests PEGCoreTests
 CHECK_TARGETS += PEGIRBridgeTests PEGForwardCFGTests
 CHECK_TARGETS += PeggyDialectTests
-CHECK_TARGETS += PeggyEggTests
+CHECK_TARGETS += PeggyEggTests PeggySimpleValidationTests
 CHECK_TARGETS += PeggyFieldHeapTests PeggyFieldHeapLinearizeTests
 
 CHECK_TARGETS += PeggyInstitutionTests

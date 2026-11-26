@@ -34,6 +34,12 @@ theorem step_size {result : Rewrite Op args past sigs} (accepted : step? flow = 
     result.sigs'.length + 1 = sigs.length :=
   Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.step_size accepted
 
+/-- A single deletion preserves the value of each original routed wire. -/
+theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    Routing.Agrees result.route m entry (flow.eval m entry locals) (result.flow.eval m entry locals) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.step_sound m entry locals accepted
+
 /-- Every original wire keeps its value under the composed routing, for any
 assignment to arguments and the initial scope in a pure total model. -/
 theorem run_sound (fuel : Nat) (flow : Dataflow Op args past sigs)

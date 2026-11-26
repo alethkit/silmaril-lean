@@ -9,13 +9,46 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks.Prune
 
-open Diamond (Model ValueSort sortValue)
+open Diamond (Dataflow Model Ty Val ValueSort dataPorts sortValue)
+open RVSDG (Locals Port Tuple Wires)
 open SeaOfNodes.Loop (appendTuple)
 
 universe u v w
 
 variable {Data : Type u} {Op : Diamond.Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out : ValueSort Data}
+section Projection
+
+variable (mask : Mask regs) {past sigs : List (List (Ty Data))}
+
+theorem Mask.project_get {F : Ty Data → Type w} (bank : Tuple F (dataPorts regs))
+    {t : Ty Data} (port : Port (dataPorts regs) t) (kept : Port (dataPorts mask.kept) t)
+    (h : mask.rename port = some kept) : (mask.project bank).get kept = bank.get port :=
+  Proofs.project_get mask bank port kept h
+
+variable (m : Model.{u, v, w} Op)
+
+theorem Mask.project_read {args : List (Ty Data)} (entry : Tuple (Val m.value) args)
+    (locals : Locals (Val m.value) past) (wires : Wires args past (dataPorts regs)) :
+    Wires.read (mask.project wires) entry locals = mask.project (wires.read entry locals) :=
+  Proofs.project_read mask m entry locals wires
+
+theorem Mask.projected_flow (bank : Tuple (Val m.value) (dataPorts regs))
+    (locals : Locals (Val m.value) past) (flow : Dataflow Op (dataPorts regs) past sigs)
+    (mapped : Dataflow Op (dataPorts mask.kept) past sigs)
+    (h : renameFlow mask.rename flow = some mapped) :
+    mapped.eval m (mask.project bank) locals = flow.eval m bank locals :=
+  Proofs.projected_flow mask m bank locals flow mapped h
+
+theorem Mask.projected_wires (bank : Tuple (Val m.value) (dataPorts regs))
+    (locals : Locals (Val m.value) past) {outs : List (Ty Data)}
+    (wires : Wires (dataPorts regs) past outs) (mapped : Wires (dataPorts mask.kept) past outs)
+    (h : renameWires mask.rename wires = some mapped) :
+    mapped.read (mask.project bank) locals = wires.read bank locals :=
+  Proofs.projected_wires mask m bank locals wires mapped h
+
+end Projection
+
 variable (p : Program Op regs out) (mask : Mask regs) {g : PrunedGraph p mask}
 variable (accepted : pruneWith p mask = some g)
 include accepted

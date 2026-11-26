@@ -15,11 +15,11 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
 variable {member : Option (MemberSummaries V S)}
 
-private theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
-    DemandLE (resultDemand pc low) (resultDemand pc high) :=
+theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
+    ∀ p, resultDemand pc low p = true → resultDemand pc high p = true :=
   fun _ live => List.contains_iff_mem.2 (le (List.contains_iff_mem.1 live))
 
-private theorem applyReads_mono {context params : Ports (Ty V S)} {low high : List Address}
+theorem applyReads_mono {context params : Ports (Ty V S)} {low high : List Address}
     (le : low ⊆ high) (captures : Wires entry [] context) (arguments : Wires entry past params) :
     applyReads low captures arguments ⊆ applyReads high captures arguments := by
   intro a h
@@ -30,7 +30,7 @@ private theorem applyReads_mono {context params : Ports (Ty V S)} {low high : Li
     (fun present => selectWires_mono arguments
       (fun _ _ h => List.contains_iff_mem.2 (le (List.contains_iff_mem.1 h))) present)
 
-private theorem prepend_mono {pc : Nat} {less more : List Address} {low high : DemandPlan}
+theorem prepend_mono {pc : Nat} {less more : List Address} {low high : DemandPlan}
     (next : low.live ⊆ high.live) (reads : less ⊆ more) :
     (low.prepend pc less).live ⊆ (high.prepend pc more).live := by
   intro a h

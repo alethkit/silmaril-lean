@@ -10,12 +10,32 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond
 
-open SeaOfNodes.Diamond (Model ValueSort sortValue)
-open Join (Block model)
+open SeaOfNodes.Diamond (Model Ty Val ValueSort dataPorts sortValue)
+open RVSDG (Dialect PortType Tuple Locals Wires extend)
+open RVSDG.NestedTheta (Term iterate)
+open Join (Block Opcode model)
 open Join.Finite (Plan Stage Table)
 open Blocks (Bank)
 
 universe u v w
+
+section Prefix
+
+variable {V S : Type u} {Φ : Dialect.{u, v} V S}
+variable {args bank outs : List (PortType V S)} {past frontSigs suffix : List (List (PortType V S))}
+
+/-- Evaluate an emitted base prefix with a continuation determined by
+the values of its actual result wires. -/
+theorem thenBase_eval (m : RVSDG.Model.{u, v, w} Φ) (fuel : Nat)
+    (t : RVSDG.Term Φ args past frontSigs bank)
+    (next : Wires args (extend past frontSigs) bank → Term Φ args (extend past frontSigs) suffix outs)
+    (entry : Tuple m.Val args) (locals : Locals m.Val past)
+    (observe : Tuple m.Val bank → Option (Tuple m.Val outs))
+    (agrees : ∀ wires locals', (next wires).eval m fuel entry locals' = observe (wires.read entry locals')) :
+    (thenBase t next).eval m fuel entry locals = observe (t.eval m entry locals) :=
+  Proofs.thenBase_eval m fuel t next entry locals observe agrees
+
+end Prefix
 
 variable {Data : Type u} {Op : SeaOfNodes.Diamond.Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
@@ -41,11 +61,34 @@ theorem Program.merge_run (bank : Bank (regs := regs) m) :
   rw [Plan.lower_run]
   exact congrArg (fun block : Block Op regs => block.eval m bank) (p.arm_body _)
 
+theorem Program.afterHeader_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend (extend past p.plan.producers) p.tail.producers) (dataPorts regs) →
+      Term (Opcode Op) args (extend (extend past p.plan.producers) p.tail.producers) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (observe : Bank (regs := regs) m → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (p.afterHeader current finish).eval (model m) fuel input locals =
+      observe (p.tail.eval m (p.stage.eval m (current.read input locals))) :=
+  Proofs.afterHeader_eval p m current finish fuel input locals observe agrees
+
+theorem Program.latch_model (bank : Bank (regs := regs) m) :
+    (model m).run (.route (.test p.again (.take 1) (.take 0))) bank =
+      RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank :=
+  Proofs.latch_model p m bank
+
 /-- After the merge and latch, θ sees the exact updated bank and source test. -/
 theorem Program.activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
     p.thetaBody.run (model m) fuel old =
       some (RVSDG.Theta.bodyResult (model m) ((p.nextBank m old).get p.again).down (p.nextBank m old)) :=
   Proofs.body_run p m fuel old
+
+theorem Program.lower_iterate (fuel : Nat) (input : Bank (regs := regs) m) :
+    p.lower.run (model m) fuel input =
+      (iterate (p.thetaBody.run (model m) fuel) (fun tag => tag.down.val == 1)
+        fuel ((src entry).body.eval m input)).map (fun bank => .cons (bank.get p.result) .nil) :=
+  Proofs.lower_iterate p m fuel input
 
 /-- Match a native budget with one entry visit and the sum of the selected
 activation costs, even if the bounded native run exhausts. -/
