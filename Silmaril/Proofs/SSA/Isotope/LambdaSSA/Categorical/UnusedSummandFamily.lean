@@ -55,6 +55,13 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
       | let₁ hv hb =>
           cases operand_type ren value _ hv
           exact ih (ren.lift _) hit hb
+  | let₂ value body ih =>
+      change (Region.let₂ (value.term.rename ρ)
+        (body.region tag (Silmaril.DeBruijn.liftN 2 ρ))).HasType Δ (List.ofFn S ++ L) at typed
+      cases typed with
+      | let₂ hv hb =>
+          obtain ⟨rfl, rfl⟩ := Ty.product.inj (operand_type ren value _ hv)
+          exact ih ((ren.lift _).lift _) hit hb
   | case arg left right ihl ihr =>
       change (Region.case (arg.term.rename ρ)
         (left.region tag (Silmaril.DeBruijn.lift ρ))
