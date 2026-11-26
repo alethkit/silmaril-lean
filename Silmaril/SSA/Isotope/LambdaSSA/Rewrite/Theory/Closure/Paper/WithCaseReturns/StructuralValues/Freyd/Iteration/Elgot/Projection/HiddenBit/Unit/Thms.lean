@@ -20,6 +20,25 @@ local notation "Seed" => Paper.WithCaseReturns.JoinedStep (τ := τ) (Φ := Φ) 
 local notation "Comp" => Paper.WithCaseReturns.TypeCategory (τ := τ) (Φ := Φ) pe
 local notation "U" => ofType Seed (Silmaril.unit : τ)
 
+/-- Unit η identifies recursive tag erasure after projection with native
+constructor discard before projection. -/
+theorem project_unit_row_comp_fold
+    (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (includeUnit : ∀ {Γ : VCtx τ} {r s : Region Φ} {L : LCtx τ},
+      Paper.WithUnitEta.Step Γ r s L → S Γ r s L)
+    {B : Paper.TypeCategory (τ := τ) Φ}
+    (row : Paper.TypeCategory.ofType (Silmaril.unit : τ) ⟶
+      B ⨿ Paper.TypeCategory.ofType (Silmaril.coprod (Silmaril.unit : τ) Silmaril.unit)) :
+    let X := ofType S (Silmaril.unit : τ)
+    let P := Extension.Singleton.projection S
+    let bit := Paper.TypeCategory.ofType (Silmaril.coprod (Silmaril.unit : τ) Silmaril.unit)
+    (P.map row ≫ (PreservesColimitPair.iso P B bit).inv ≫
+        coprod.map (𝟙 (P.obj B)) (Extension.Singleton.sumIso S Silmaril.unit Silmaril.unit).hom) ≫
+      coprod.map (𝟙 (P.obj B)) (coprod.desc (𝟙 X) (𝟙 X)) =
+        projectStep S (row ≫ coprod.map (𝟙 B) (Paper.TypeCategory.discardArrow _)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitFoldUniformity.project_unit_row_comp_fold
+    S includeUnit row
+
 /-- Independently written native rows can be replayed when constructor
 discard gives the same erased row. Unit η identifies the projected discard
 with the fold, including when both rows have mixed recursive routing. -/
