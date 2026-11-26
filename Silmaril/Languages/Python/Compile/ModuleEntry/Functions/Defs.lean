@@ -230,10 +230,80 @@ def sequenceLengthTest? (scope : Scope) : (statement : Source.Stmt) →
     else none
   | _ => none
 
+inductive ListConstructorArgument where
+  | omitted
+  | literal (sequence : ClosedSequence)
+
+inductive ListConstructorArguments : List (Source.ArgumentKind × Source.Expr) → ListConstructorArgument → Prop where
+  | omitted : ListConstructorArguments [] .omitted
+  | tuple {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .tuple elements)] (.literal ⟨.tuple, values⟩)
+  | list {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ListConstructorArguments [(.positional, .list_ elements)] (.literal ⟨.list, values⟩)
+
+def listConstructorArguments? : (arguments : List (Source.ArgumentKind × Source.Expr)) →
+    Option {argument // ListConstructorArguments arguments argument}
+  | [] => some ⟨.omitted, .omitted⟩
+  | [(.positional, .tuple elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.tuple, values⟩, .tuple checked⟩
+    | none => none
+  | [(.positional, .list_ elements)] =>
+    match checked : elements.mapM scalarLiteral? with
+    | some values => some ⟨.literal ⟨.list, values⟩, .list checked⟩
+    | none => none
+  | _ => none
+
+inductive ListTestOrder where
+  | constructorFirst
+  | literalFirst
+
+structure ListConstructionTest (scope : Scope) where
+  reference : GlobalReference scope "list"
+  argument : ListConstructorArgument
+  literal : List Core.Module.Value
+  order : ListTestOrder
+
+/-- Both operands are fully checked. Only the stock constructor is dynamic. -/
+inductive ListConstructionTranslation (scope : Scope) : Source.Stmt → ListConstructionTest scope → Prop where
+  | constructorFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison call [(.eq, .list_ elements)]) none)
+        ⟨reference, argument, literal, .constructorFirst⟩
+  | literalFirst {call arguments argument elements literal reference}
+      (site : CallExpression call "list" arguments)
+      (checked : ListConstructorArguments arguments argument)
+      (values : elements.mapM scalarLiteral? = some literal) :
+      ListConstructionTranslation scope (.assert_ (.comparison (.list_ elements) [(.eq, call)]) none)
+        ⟨reference, argument, literal, .literalFirst⟩
+
+def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
+    Option {test // ListConstructionTranslation scope statement test}
+  | .assert_ (.comparison left [(.eq, .list_ elements)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? left | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .constructorFirst⟩,
+        .constructorFirst site argument.property values⟩
+    | none => none
+  | .assert_ (.comparison (.list_ elements) [(.eq, right)]) none => do
+    let ⟨("list", arguments), site⟩ ← callExpression? right | none
+    let argument ← listConstructorArguments? arguments
+    let reference ← globalReference? scope "list"
+    match values : elements.mapM scalarLiteral? with
+    | some literal => some ⟨⟨reference, argument.val, literal, .literalFirst⟩,
+        .literalFirst site argument.property values⟩
+    | none => none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
   | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -258,6 +328,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : SequenceLengthTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertSequenceLength test :: tail)
+  | assertListConstruction {index statement test rest tail}
+      (checked : ListConstructionTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertListConstruction test :: tail)
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -351,6 +425,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     if let some test := sequenceLengthTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertSequenceLength test.val :: tail.val, .assertSequenceLength test.property tail.property⟩
+    else if let some test := listConstructionTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertListConstruction test.val :: tail.val, .assertListConstruction test.property tail.property⟩
     else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
       unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
       let path := tree.scope.context.path ++ [index]

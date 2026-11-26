@@ -37,6 +37,12 @@ theorem sequenceLengthTest_tagged {scope : Source.Scope} {source right : Source.
     global_reference reference, operand_complete expected, Except.toOption, bind, Option.bind, scalar, dite_true]
   split <;> simp_all
 
+theorem listConstructorArguments_complete {arguments : List (Source.ArgumentKind × Source.Expr)}
+    {argument : ListConstructorArgument} (checked : ListConstructorArguments arguments argument) :
+    (listConstructorArguments? arguments).map Subtype.val = some argument := by
+  cases checked <;> simp [listConstructorArguments?]
+  all_goals split <;> simp_all
+
 /-- A checked literal branch contributes the selected actions in order at
 the current lexical child index, ahead of the rest of the module. -/
 theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}
