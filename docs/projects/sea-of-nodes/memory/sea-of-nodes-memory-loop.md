@@ -694,6 +694,52 @@ import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Thms
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Regression
 ```
 
+#### Native and generated MemRef institutions for two addresses
+
+`TwoAddress.Institution.inst` and `MemRefRoom.inst` use the existing
+category of typed capture-port maps. A map from `P` to `Q` renames
+captures in the ordered body and the entry and feedback operands. The
+two old header lanes retain their positions under the lifted map.
+Models pull back from `Q` to `P` by reading the renamed ports at the same
+cell count. The native and generated corridors obey identity and
+composition.
+[Typed reindexing](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Reindex/Thms.lean)
+
+`MemRefRoom.comparison` is the native-to-generated `Inst.CoHom`. Its
+sentence action stores the emitted CFG family and the source needed
+for re-emission. Its model action is the identity at each signature.
+The generated room executes the stored CFG at the model's cell count
+and valuation. Equations compare the returned word and every final
+cell at every initialized buffer. Termination requires a finite
+return for each such buffer.
+[Comorphism and satisfaction](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/MemRefRoom/Thms.lean)
+
+`Sentence.numbered` uses the same source to translate into the existing
+numbered runtime room. `GeneratedProgram.returns_iff_numbered` compares
+whole results at the same entry valuation with independent finite
+witnesses. `Sentence.numbered_satisfaction_at_model` compares the two
+sentence forms at that valuation. The room-level
+`Sentence.numbered_satisfaction` ranges over all valuations at a cell
+count in the canonical runtime. After re-emission,
+`Sentence.numbered_satisfaction_map` ranges over the reduct image of
+those valuations. The comparison uses the fixed ordered runtime opcode
+alphabet and its canonical model.
+
+The regression uses a typed port identification. At a distinct-address
+valuation, two generated programs return the same word and disagree
+on cell 1. After re-emission identifies the two captured ports, the
+equation holds in the generated room and its numbered translation
+holds at the canonical model.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/MemRefRoom/Regression.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.MemRefRoom.Thms
+```
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.MemRefRoom.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
