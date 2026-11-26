@@ -10,7 +10,7 @@ public import Silmaril.SSA.RVSDG.Isomorphism.Defs
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
 
-open Silmaril.Machine.Lir (Word ofBool)
+open Silmaril.Machine.Lir (Binop Word ofBool)
 open Silmaril.Machine.RTL.SSA (Block Func Prog)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp emitOpsWith model word)
@@ -100,45 +100,160 @@ def counterPort (payloads : Nat) :
     Port (wordPorts (payloads + 1) ++ wordPorts (payloads + 1)) wordPort :=
   suffixPort (wordPorts (payloads + 1)) .head
 
-def BankRoutes.graph {payloads : Nat} (r : BankRoutes payloads) :
-    Graph WordOp (wordSorts (payloads + 1)) (wordSorts (payloads + 1)) [] headerSigs word where
+/-- The computed route adds one total word instruction to the countdown
+header. Its operands and destination refer to payload slots, with slot zero
+of the whole carried tuple still reserved for the counter. -/
+inductive FeedbackOp
+  | add
+  | sub
+
+def FeedbackOp.source : FeedbackOp → WordOp [word, word] word
+  | .add => .add
+  | .sub => .sub
+
+def FeedbackOp.target : FeedbackOp → Binop
+  | .add => .add
+  | .sub => .sub
+
+def FeedbackOp.eval : FeedbackOp → Word → Word → Word
+  | .add => BitVec.add
+  | .sub => BitVec.sub
+
+structure FeedbackSpec where
+  operation : FeedbackOp
+  destination : Nat
+  left : Nat
+  right : Nat
+
+structure FeedbackUpdate (payloads : Nat) where
+  operation : FeedbackOp
+  destination : Fin payloads
+  left : Fin payloads
+  right : Fin payloads
+
+def FeedbackSpec.check (spec : FeedbackSpec) (payloads : Nat) : Option (FeedbackUpdate payloads) :=
+  if dest : spec.destination < payloads then
+    if left : spec.left < payloads then
+      if right : spec.right < payloads then
+        some ⟨spec.operation, ⟨spec.destination, dest⟩, ⟨spec.left, left⟩, ⟨spec.right, right⟩⟩
+      else none
+    else none
+  else none
+
+def payloadPort (payloads : Nat) (p : Fin payloads) :
+    Port (wordPorts (payloads + 1)) wordPort :=
+  .tail (argumentPort payloads p)
+
+def oldPayloadPort (payloads : Nat) (p : Fin payloads) :
+    Port (wordPorts (payloads + 1) ++ wordPorts (payloads + 1)) wordPort :=
+  suffixPort (wordPorts (payloads + 1)) (payloadPort payloads p)
+
+def FeedbackUpdate.eval {payloads : Nat} (update : FeedbackUpdate payloads)
+    (old : WordTuple (payloads + 1)) : Word :=
+  update.operation.eval (old.get (payloadPort payloads update.left))
+    (old.get (payloadPort payloads update.right))
+
+def extraSigs {payloads : Nat} : Option (FeedbackUpdate payloads) → List (List PortTy)
+  | none => []
+  | some _ => [[wordPort]]
+
+abbrev headerSigsWith {payloads : Nat} (update : Option (FeedbackUpdate payloads)) :=
+  headerSigs ++ extraSigs update
+
+def headerSuffix {payloads : Nat} (update : Option (FeedbackUpdate payloads)) :
+    Dataflow WordOp (wordPorts (payloads + 1) ++ wordPorts (payloads + 1))
+      headerSigs (extraSigs update) :=
+  match update with
+  | none => .nil
+  | some u =>
+    .cons u.operation.source
+      (.cons (.arg (oldPayloadPort payloads u.left))
+        (.cons (.arg (oldPayloadPort payloads u.right)) .nil)) .nil
+
+def replaceWire {args users : List PortTy} {past : List (List PortTy)} {t : PortTy}
+    (value : Origin args past t) (wires : Wires args past users) (slot : Port users t) :
+    Wires args past users :=
+  match slot, wires with
+  | .head, .cons _ rest => .cons value rest
+  | .tail slot, .cons w rest => .cons w (replaceWire value rest slot)
+
+def BankRoutes.feedbackWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) :
+    Wires (wordPorts (payloads + 1) ++ wordPorts (payloads + 1))
+      (extend [] (headerSigsWith update)) (wordPorts (payloads + 1)) :=
+  match update with
+  | none => .cons (.output (1 : Fin 4) .head) (extendArguments _ r.feedback)
+  | some u => .cons (.output (1 : Fin 5) .head)
+      (replaceWire (.output (4 : Fin 5) .head) (extendArguments _ r.feedback)
+        (argumentPort payloads u.destination))
+
+def BankRoutes.graphWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) :
+    Graph WordOp (wordSorts (payloads + 1)) (wordSorts (payloads + 1)) []
+      (headerSigsWith update) word where
   preheader := .nil
   header :=
     .cons (.const 1) .nil
       (.cons .sub (.cons (.arg (counterPort payloads)) (.cons (.output (0 : Fin 1) .head) .nil))
         (.cons (.const 0) .nil
-          (.cons .ne (.cons (.arg (counterPort payloads)) (.cons (.output (2 : Fin 3) .head) .nil)) .nil)))
+          (.cons .ne (.cons (.arg (counterPort payloads)) (.cons (.output (2 : Fin 3) .head) .nil))
+            (headerSuffix update))))
   phiInputs
     | .entry => .cons (.arg .head) r.entry
-    | .backedge => .cons (.output (1 : Fin 4) .head) (extendArguments (extend [] headerSigs) r.feedback)
-  predicate := .output (3 : Fin 4) .head
+    | .backedge => r.feedbackWith update
+  predicate := match update with
+    | none => .output (3 : Fin 4) .head
+    | some _ => .output (3 : Fin 5) .head
   result := .arg (suffixPort (wordPorts (payloads + 1)) r.resultPort)
 
-def BankRoutes.incomingRegisters {payloads : Nat} (r : BankRoutes payloads) : Incoming → List Reg
-  | .entry => emitColumn (arity := payloads + 1) (r.graph.phiInputs .entry)
-  | .backedge => emitColumn (arity := payloads + 1) (r.graph.phiInputs .backedge)
+def BankRoutes.incomingWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) : Incoming → List Reg
+  | .entry => emitColumn (arity := payloads + 1) ((r.graphWith update).phiInputs .entry)
+  | .backedge => emitColumn (arity := payloads + 1) ((r.graphWith update).phiInputs .backedge)
 
 def paramRegs (base arity : Nat) : List Reg := (List.range' base arity).map Reg.arg
 
-def BankRoutes.preheader {payloads : Nat} (r : BankRoutes payloads) : Block Reg :=
-  ⟨paramRegs 0 (payloads + 1), [], .jump 1 (r.incomingRegisters .entry)⟩
+def BankRoutes.preheaderWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) : Block Reg :=
+  ⟨paramRegs 0 (payloads + 1), [], .jump 1 (r.incomingWith update .entry)⟩
 
-def BankRoutes.header {payloads : Nat} (r : BankRoutes payloads) : Block Reg :=
-  ⟨paramRegs (payloads + 1) (payloads + 1), emitOpsWith (fun p => .arg p.index) r.graph.header,
-    .cond (register r.graph.predicate.address) 1 (r.incomingRegisters .backedge)
-      2 [register r.graph.result.address]⟩
+def BankRoutes.headerWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) : Block Reg :=
+  let graph := r.graphWith update
+  ⟨paramRegs (payloads + 1) (payloads + 1), emitOpsWith (fun p => .arg p.index) graph.header,
+    .cond (register graph.predicate.address) 1 (r.incomingWith update .backedge)
+      2 [register graph.result.address]⟩
 
 def exitBlock : Block Reg := ⟨[.phi], [], .ret [.phi]⟩
 
-def BankRoutes.lowerFunc {payloads : Nat} (r : BankRoutes payloads) : Func Reg :=
-  ⟨⟨payloads + 1, 1⟩, 0, [r.preheader, r.header, exitBlock]⟩
+def BankRoutes.lowerFuncWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) : Func Reg :=
+  ⟨⟨payloads + 1, 1⟩, 0, [r.preheaderWith update, r.headerWith update, exitBlock]⟩
 
-def BankRoutes.lower {payloads : Nat} (r : BankRoutes payloads) : Prog Reg := ⟨[r.lowerFunc]⟩
+def BankRoutes.lowerWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) : Prog Reg :=
+  ⟨[r.lowerFuncWith update]⟩
+
+abbrev BankRoutes.graph {payloads : Nat} (r : BankRoutes payloads) := r.graphWith none
+abbrev BankRoutes.incomingRegisters {payloads : Nat} (r : BankRoutes payloads) := r.incomingWith none
+abbrev BankRoutes.preheader {payloads : Nat} (r : BankRoutes payloads) := r.preheaderWith none
+abbrev BankRoutes.header {payloads : Nat} (r : BankRoutes payloads) := r.headerWith none
+abbrev BankRoutes.lowerFunc {payloads : Nat} (r : BankRoutes payloads) := r.lowerFuncWith none
+abbrev BankRoutes.lower {payloads : Nat} (r : BankRoutes payloads) := r.lowerWith none
 
 /-- A zero-payload bank is rejected because it has no payload return port. -/
 def lowerBankChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat) : Option (Prog Reg) :=
   (checkBankRoutes payloads entry feedback result).bind fun routes =>
     if routes.lowerFunc.WellFormed then some routes.lower else none
+
+/-- Start from a checked copy plan, override one feedback destination with
+the computed word, and check the emitted machine function. -/
+def lowerComputedChecked (payloads : Nat) (entry feedback : List Nat) (result : Nat)
+    (spec : FeedbackSpec) : Option (Prog Reg) :=
+  (spec.check payloads).bind fun update =>
+    (checkBankRoutes payloads entry feedback result).bind fun routes =>
+      if (routes.lowerFuncWith (some update)).WellFormed then some (routes.lowerWith (some update))
+      else none
 
 def counter {payloads : Nat} (values : WordTuple (payloads + 1)) : Word := values.get .head
 
@@ -154,13 +269,23 @@ def testWord {payloads : Nat} (old : WordTuple (payloads + 1)) : Word := ofBool 
 def headerFrame {payloads : Nat} (fr : Frame Reg) (old : WordTuple (payloads + 1)) : Frame Reg :=
   (((fr.set (.node 0) 1).set (.node 1) (counter old - 1)).set (.node 2) 0).set (.node 3) (testWord old)
 
+def headerFrameWith {payloads : Nat} (update : Option (FeedbackUpdate payloads))
+    (fr : Frame Reg) (old : WordTuple (payloads + 1)) : Frame Reg :=
+  match update with
+  | none => headerFrame fr old
+  | some u => (headerFrame fr old).set (.node 4) (u.eval old)
+
 def ArgsMatch {args : List PortTy} (fr : Frame Reg) (input : Tuple (Val model.value) args) : Prop :=
   ∀ p : Port args wordPort, fr.get (.arg p.index) = some (input.get p)
 
-def BankRoutes.nextBank {payloads : Nat} (r : BankRoutes payloads)
-    (input old : WordTuple (payloads + 1)) : WordTuple (payloads + 1) :=
+def BankRoutes.nextBankWith {payloads : Nat} (r : BankRoutes payloads)
+    (update : Option (FeedbackUpdate payloads)) (input old : WordTuple (payloads + 1)) :
+    WordTuple (payloads + 1) :=
   let args := appendTuple old input
-  r.graph.latch model .backedge args (r.graph.header.eval model args PUnit.unit)
+  let graph := r.graphWith update
+  graph.latch model .backedge args (graph.header.eval model args PUnit.unit)
+
+abbrev BankRoutes.nextBank {payloads : Nat} (r : BankRoutes payloads) := r.nextBankWith none
 
 def BankRoutes.returnWord {payloads : Nat} (r : BankRoutes payloads) (old : WordTuple (payloads + 1)) : Word :=
   old.get r.resultPort

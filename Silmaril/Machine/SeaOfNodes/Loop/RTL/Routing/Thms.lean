@@ -63,7 +63,7 @@ theorem lowerChecked_eq_some_iff (entry feedback : List Nat) (target : Prog Reg)
 theorem checked_wellFormed {entry feedback : List Nat} {target : Prog Reg}
     (ok : lowerChecked entry feedback = some target) : target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerChecked_eq_some_iff entry feedback target).mp ok
-  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower] using wf
+  simpa [Prog.WellFormed, Routes.lower, BankRoutes.lower, BankRoutes.lowerWith] using wf
 
 /-- Checked positions are preserved in the actual operands and return port. -/
 theorem checkBankRoutes_registers {payloads : Nat} {entry feedback : List Nat} {result : Nat}
@@ -87,7 +87,58 @@ theorem bank_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {re
     {target : Prog Reg} (ok : lowerBankChecked payloads entry feedback result = some target) :
     target.WellFormed := by
   obtain ⟨r, _, wf, rfl⟩ := (lowerBankChecked_eq_some_iff payloads entry feedback result target).mp ok
-  simpa [Prog.WellFormed, BankRoutes.lower] using wf
+  simpa [Prog.WellFormed, BankRoutes.lower, BankRoutes.lowerWith] using wf
+
+/-- Admission recovers the checked update, copy routes, and the machine's
+SSA well-formedness proof. -/
+theorem lowerComputedChecked_eq_some_iff (payloads : Nat) (entry feedback : List Nat)
+    (result : Nat) (spec : FeedbackSpec) (target : Prog Reg) :
+    lowerComputedChecked payloads entry feedback result spec = some target ↔
+      ∃ update, spec.check payloads = some update ∧
+        ∃ r, checkBankRoutes payloads entry feedback result = some r ∧
+          (r.lowerFuncWith (some update)).WellFormed ∧ target = r.lowerWith (some update) :=
+  Proofs.lowerComputedChecked_eq_some_iff payloads entry feedback result spec target
+
+theorem computed_checked_wellFormed {payloads : Nat} {entry feedback : List Nat} {result : Nat}
+    {spec : FeedbackSpec} {target : Prog Reg}
+    (ok : lowerComputedChecked payloads entry feedback result spec = some target) :
+    target.WellFormed := by
+  obtain ⟨u, _, r, _, wf, rfl⟩ :=
+    (lowerComputedChecked_eq_some_iff payloads entry feedback result spec target).mp ok
+  simpa [Prog.WellFormed, BankRoutes.lowerWith] using wf
+
+section ComputedFeedback
+
+variable {payloads : Nat} (r : BankRoutes payloads) (u : FeedbackUpdate payloads)
+
+/-- The actual taken branch reads both the computed result and all copies
+from the same producer frame before writing any payload register. -/
+theorem computed_step_feedback (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (stk : List (Activation Reg)) (mem : Memory) (agree : ArgsMatch fr (appendTuple old input))
+    (taken : counter old ≠ 0) :
+    let after := headerFrameWith (some u) fr old
+    step (r.lowerWith (some u)) ⟨⟨0, 1, (r.headerWith (some u)).ops.length⟩, after, stk, mem⟩ =
+      .running ⟨⟨0, 1, 0⟩, bindBank after (r.nextBankWith (some u) input old), stk, mem⟩ :=
+  Proofs.bank_step_feedback_with r (some u) input old fr stk mem agree taken
+
+/-- An actual machine header activation computes the word from the old
+bank, then takes the branch selected by the independent native step. -/
+theorem computed_header_agrees (input old : WordTuple (payloads + 1)) (fr : Frame Reg)
+    (mem : Memory) (agree : ArgsMatch fr (appendTuple old input)) :
+    Steps (r.lowerWith (some u)) ⟨⟨0, 1, 0⟩, fr, [], mem⟩
+      (match (r.graphWith (some u)).step model input old with
+      | .inl value => ⟨⟨0, 2, 0⟩, (headerFrameWith (some u) fr old).set .phi value, [], mem⟩
+      | .inr next => ⟨⟨0, 1, 0⟩, bindBank (headerFrameWith (some u) fr old) next, [], mem⟩) :=
+  Proofs.bank_header_agrees_with r (some u) input old fr mem agree
+
+theorem computed_returns_iff (input : WordTuple (payloads + 1)) (initial final : Memory)
+    (returned : List Word) :
+    (r.lowerWith (some u)).oracle 0 (words input) initial returned final ↔
+      ∃ value : Word, (r.graphWith (some u)).Returns model input value ∧
+        returned = [value] ∧ final = initial :=
+  Proofs.bank_returns_with_iff r (some u) input initial final returned
+
+end ComputedFeedback
 
 section ArbitraryArity
 
