@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Executable.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Routed.Reverse.Thms
@@ -1081,6 +1083,82 @@ example (coherent : Coherent) :
     throw (IO.userError "the public translation interface did not round trip both layouts")
   unless (Translation.recover .routed staleRoute).isNone do
     throw (IO.userError "the public translation interface accepted a stale routing token")
+
+open OrderedRuntime.Structured (Instruction Values)
+
+private def decideBindDomain {A B : Type} (first : Part A) (rest : A → Part B)
+    (domain : Decidable first.Dom) (next : ∀ a, Decidable (rest a).Dom) :
+    Decidable (first.bind rest).Dom :=
+  match domain with
+  | .isFalse absent => .isFalse (fun h => absent h.of_bind)
+  | .isTrue present => (present.bind rest).symm ▸ next (first.get present)
+
+private def instructionDomain (op : Op) (input : Value (instrSrc op)) (store : Nat) :
+    Decidable ((instruction op input).run store).Dom := by
+  cases op <;> simp only [instruction, StateT.run]
+  all_goals first | exact .isTrue True.intro | split <;> first | exact .isTrue True.intro | exact .isFalse id
+
+private def wireStepDomain {ins outs : Ports (OrderedRuntime.Structured.Ty Ty)}
+    (op : Instruction (TwoBlock.TwoExit.Pure Ty) (Wires.Effect Op) ins outs)
+    (input : Tuple (Values (TyDen (τ := Ty))) ins) (store : Nat) :
+    Decidable (((Wires.model (Φ := Op) (ε := Bool) (σ := Nat)).step op input).run store).Dom := by
+  cases op with
+  | pure op => exact .isTrue True.intro
+  | effect op =>
+    cases op
+    case' loop op =>
+      cases op
+      case' acyclic op => cases op
+    case' nested op => cases op
+    all_goals
+      cases input
+      rename_i value tail
+      cases tail
+      simp only [OrderedRuntime.Structured.Model.step, Wires.model, ExplicitRuntime.orderedModel, NestedFeedback.orderedModel,
+        TwoBlock.TwoExit.orderedModel, ExplicitRuntime.readRoute, TwoBlock.call, callCase, StateT.run_bind]
+      repeat' first
+        | exact .isTrue True.intro
+        | exact .isFalse id
+        | exact instructionDomain _ _ _
+        | (rw [StateT.run_bind])
+        | apply decideBindDomain
+        | (intro value)
+        | (split)
+
+private def wireDomain {ins outs : Ports (OrderedRuntime.Structured.Ty Ty)}
+    (op : Wires.Op Op ins outs) (input : Tuple (OrderedRuntime.Structured.RuntimeValues (TyDen (τ := Ty)) Nat) ins) :
+    Decidable ((Wires.wireModel (ε := Bool)).primitive op input).Dom := by
+  cases op with
+  | ordered _ _ instr =>
+    change Decidable (let (data, token) := OrderedRuntime.Structured.encode input
+      (((Wires.model (Φ := Op) (ε := Bool) (σ := Nat)).step instr data).run token).Dom)
+    cases OrderedRuntime.Structured.encode input with
+    | mk data token => exact wireStepDomain instr data token
+
+private def runnerActions : Translation.Actions (τ := Ty) (ε := Bool) (σ := Nat) Op :=
+  NestedTheta.Partial.Executable.Actions.ofDecidable (Wires.wireModel (ε := Bool)) wireDomain
+
+private def operationalSource := Translation.Source.routed routed
+private def operationalGraph := Translation.compile operationalSource
+
+example (coherent : Coherent) :
+    ∃ fuel, Translation.run runnerActions operationalGraph fuel (1 : Nat) 0 =
+      some (ExplicitRuntime.exitTuple (A := number) ((.inr (.inl (9 : Nat)) : RoutedExit), 93)) :=
+  (operationalSource.compile_run_iff runnerActions coherent (PUnit.unit,(1 : Nat)) _ 0 93).mpr
+    (routedConsumerReturns coherent)
+
+#eval show IO Unit from do
+  unless (Translation.run runnerActions operationalGraph 1 (1 : Nat) 0).isNone do
+    throw (IO.userError "the routed program skipped producer feedback")
+  unless (Translation.run runnerActions operationalGraph 2 (99 : Nat) 0).isNone do
+    throw (IO.userError "the selected undefined consumer action returned")
+  let output := (Translation.run runnerActions operationalGraph 2 (1 : Nat) 0).map fun result =>
+    ((show (PUnit ⊕ Nat) ⊕ Nat from result.get .head), (show Nat from result.get (.tail .head)))
+  match output with
+  | some (.inl (.inr payload), store) =>
+    unless payload == 9 && store == 93 do
+      throw (IO.userError "the consumer returned the wrong payload or store")
+  | _ => throw (IO.userError "the numbered program did not return at the consumer exit")
 
 end Composition
 
