@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
-import Silmaril.SSA.Peggy.Bridge.Theta.Thms
+import Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
@@ -286,7 +286,7 @@ private theorem renamedReturns : renamed.Returns values (entry 2 10 1) (entry 0 
     (RVSDG.Theta.Iterate.again renamedSecond (RVSDG.Theta.Iterate.stop renamedStop))
 
 -- The model distinguishes the two sides before identifying the opcodes.
-example : ¬ equation.Holds markedModel := by
+private theorem markedEquationFalse : ¬ equation.Holds markedModel := by
   intro holds
   let idx : Index 1 := fun _ => 0
   have old := observedTuple idx
@@ -378,6 +378,60 @@ set_option interpreter.prefer_native false in
 /-- info: (true, none, some (0, 11, 12), some (0, 10, 1)) -/
 #guard_msgs in
 #eval (nativeHeaderShape, runPacket 2 2 10 1, runPacket 3 2 10 1, runPacket 1 0 10 1)
+
+open Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA
+
+private abbrev nativeSide := Peggy.Bridge.Theta.LambdaSSA.Side.ofBundle (S := markedSignature) bundle rfl
+
+private def nativeEquation : CheckedEquation markedSignature :=
+  ⟨carried, nativeSide, nativeSide.map rename⟩
+
+-- The opcode map identifies add and addAlt. Its square preserves both
+-- compiled sides with their exact packet signature and CFG constructor tree.
+example :
+    ((peggyToNative Unit).ρ.app markedSignature).sen (nativeEquation.map rename) =
+      (((peggyToNative Unit).ρ.app markedSignature).sen nativeEquation).map rename := by
+  rw [peggyToNative_sentence, peggyToNative_sentence]
+  rfl
+
+private theorem relabelledNativeReturn :
+    (nativeEquation.map rename).native.lhs.Returns markedModel (store 2 10 1) (store 0 12 14) := by
+  let mapped := Relabel.bundle (opMap rename) bundle
+  change Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
+    ((Region.LambdaSSA.lower bundle).mapInstr (Native.opcode rename)) () 0 (packet 0 12 14) ()
+  have ran : Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
+      (Region.LambdaSSA.lower mapped) () 0 (packet 0 12 14) () :=
+    .cfg (.br .var) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 2 10 1) (entry 1 1 12) true renamedFirst ()) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 1 1 12) (entry 0 12 14) true renamedSecond ()) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 0 12 14) (entry 0 12 14) false renamedStop ())
+        (.exit (Nat.le_refl 1))
+  exact (Region.LambdaSSA.lower_map (opMap rename) bundle) ▸ ran
+
+example : ((peggyToNative Unit).ρ.app markedSignature).mod.obj (Discrete.mk markedModel) =
+    Discrete.mk markedModel :=
+  peggyToNative_model markedModel
+
+-- The old code returns the renamed result in the contravariant reduct.
+example : nativeEquation.native.lhs.Returns (Peggy.Bridge.Theta.reduct rename markedModel)
+    (store 2 10 1) (store 0 12 14) :=
+  (nativeEquation.native.lhs.returns_map rename markedModel _ _).mp relabelledNativeReturn
+
+example : ¬ nativeEquation.native.Holds markedModel := by
+  intro same
+  exact markedEquationFalse ((nativeEquation.satisfaction markedModel).mp same)
+
+example : (nativeEquation.map rename).native.Holds markedModel := by
+  intro input output
+  have collapsed : (nativeEquation.map rename).native.lhs = (nativeEquation.map rename).native.rhs := by
+    apply Subtype.ext
+    rfl
+  rw [collapsed]
+
+example : (nativeEquation.map rename).native.Holds markedModel ↔
+    (nativeEquation.map rename).peg.Holds markedModel :=
+  Silmaril.Logic.Institution.Inst.CoHom.satisfaction (peggyToNative Unit) markedSignature
+    (Discrete.mk markedModel) (nativeEquation.map rename)
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 

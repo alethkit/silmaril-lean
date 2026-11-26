@@ -33,12 +33,12 @@ private theorem code_comp (f : S ⟶ T) (g : T ⟶ U) (c : Lowered S carried) :
     cases op <;> rfl
   simp only [mapCode, RVSDG.Theta.Institution.relabel, compOp, RVSDG.Institution.mapGraph_comp]
 
-private theorem side_id (s : Side S carried) : s.map (𝟙 S) = s := by
+theorem side_id (s : Side S carried) : s.map (𝟙 S) = s := by
   apply Subtype.ext
   exact congrArg₂ (SideData.mk s.val.nodes)
     ((mapOps_eq _ s.val.peg).symm.trans s.val.peg.mapOps_id) (code_id s.val.code)
 
-private theorem side_comp (f : S ⟶ T) (g : T ⟶ U) (s : Side S carried) :
+theorem side_comp (f : S ⟶ T) (g : T ⟶ U) (s : Side S carried) :
     s.map (f ≫ g) = (s.map f).map g := by
   apply Subtype.ext
   refine congrArg₂ (SideData.mk s.val.nodes) ?_ (code_comp f g s.val.code)
