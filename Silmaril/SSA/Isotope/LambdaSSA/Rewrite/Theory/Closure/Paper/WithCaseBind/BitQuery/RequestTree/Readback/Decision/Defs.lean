@@ -77,10 +77,14 @@ def caseOperand (a : Tm signature.Instr) : Tm signature.Instr :=
 /-- The local missing beta comparison after focusing the operand's input.
 The payload is the actual unit constructor payload in that branch.
 Both endpoints perform the one request and have the same continuations. -/
-def CaseOperandBeta : Prop :=
+def CaseOperandBetaIn
+    (relation : VCtx (Ty Empty) → Region signature.Instr → Region signature.Instr → LCtx (Ty Empty) → Prop) :
+    Prop :=
   ∀ {Γ L : List (Ty Empty)} (label b : Bool) {l r : Region signature.Instr},
     ValueBranches (Bit :: Ty.unit :: Γ) l L → ValueBranches (Bit :: Ty.unit :: Γ) r L →
-      Paper.Eqv (Ty.unit :: Γ) (.case (.op (.ask label) (caseOperand (constructorBit b (.var 0)))) l r)
+      relation (Ty.unit :: Γ) (.case (.op (.ask label) (caseOperand (constructorBit b (.var 0)))) l r)
         (requestRegion label b l r) L
+
+def CaseOperandBeta : Prop := CaseOperandBetaIn Paper.Eqv
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.BitQuery.RequestTree.Readback
