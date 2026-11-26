@@ -688,6 +688,27 @@ theorem observesFlat_eq_of_paper {Γ L : List (Ty Empty)} {r s : Region Instruct
     observesFlat env r out ↔ observesFlat env s out :=
   iff_of_eq (congrFun (paper_observe h env he) _)
 
+theorem discardedRecurringRequest_ne :
+    let B := Silmaril.coprod U U
+    let θ : Nat → Tm Instruction := Tm.singleSubst .unit ∘ Silmaril.DeBruijn.lift Nat.succ
+    ¬ Paper.Eqv [B] (movedRecurringRequest.substVars θ) (flatRecurringRequest.substVars θ) [B] := by
+  intro B θ eq
+  let env : Semantics.Env Empty := fun _ => .inl .unit
+  have he : EnvTyped [B] env := by
+    intro i A h
+    cases i with
+    | zero => cases Option.some.inj h; exact .inl .unit
+    | succ i => simp [At] at h
+  let x : Exit := ⟨0, .inr .unit, true, false⟩
+  let y : Exit := ⟨0, .inr .unit, true, true⟩
+  have hx : observe env (movedRecurringRequest.substVars θ) x :=
+    execute_sound 4 _ env rfl
+  have hy : observe env (flatRecurringRequest.substVars θ) y :=
+    execute_sound 4 _ env rfl
+  have hx' : observe env (flatRecurringRequest.substVars θ) x :=
+    (observesFlat_eq_of_paper eq env he ⟨x.label, x.value, x.effect, x.marked⟩).1 hx
+  exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env hx' hy))
+
 private theorem unitEnv_typed : EnvTyped [U] unitEnv := by
   intro i A hi
   cases i with
