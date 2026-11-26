@@ -876,6 +876,29 @@ The continuation cannot jump back to its own label.
   [Renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Thms.lean) ·
   [Institutions over renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Category/Thms.lean) ·
   [Three models and a renaming](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Regression.lean)
+- The handled-trace reading is compared with the existing categorical
+  model class on the same structural signatures. That class has objects
+  in `Type 1` and homs in `Type`. The free request tree monad sends
+  `Type 1` to `Type 1`, so its Kleisli category meets every condition of
+  the class with objects in `Type 2` and homs in `Type 1`. The validity
+  class is therefore also stated at chosen universes. The native equations
+  are sound in it at every universe, and the Kleisli category of a lawful
+  Elgot monad is a member one universe above the monad. Over a structural
+  older context, captured operands are equal in every model of the class
+  one universe up exactly when they are natively equal, with the free
+  request tree model as the separating model. The same holds in the
+  existing class, with the ordered trace model as the separating model.
+  The ordered trace model is a model of the existing ranked room, and
+  there the original ordered-exit arrows of two written graphs agree
+  exactly when their emitted operands are natively equal. A handled-trace
+  model that replays every history satisfies the same captured and ranked
+  sentences as these categorical models. A model with one fixed policy
+  can satisfy a sentence that is not valid in the class. The free tree
+  model is not made a model of the existing rooms, which fix the smaller
+  universes.
+  [Validity at chosen universes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Defs.lean) ·
+  [Kleisli adapter and comparisons](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Thms.lean) ·
+  [Composites in the categorical class](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/CategoricalRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
