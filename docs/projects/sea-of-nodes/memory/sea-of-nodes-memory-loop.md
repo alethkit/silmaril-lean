@@ -1326,6 +1326,44 @@ unrestricted source room rejects it. Insertion alone has a retraction.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Regression
 ```
 
+##### Checking typed reduct coverage
+
+`ReductImage.liftInput? h input` builds a target valuation at the
+source cell count. Source ports sent to the same target port must
+agree. Unused target ports receive zero of their own sort, when
+that value exists. `liftInput?_sound` checks the returned tuple's
+reduct, and `liftInput?_isSome_iff` characterizes membership in the
+typed reduct image. [Executable lift and proof](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Thms.lean)
+
+`checkCoverage h cells` decides whether every source tuple lifts
+at that count. With at least two cells it checks injectivity within
+both sorts. At one cell, all addresses are equal, so only word
+identifications can exclude a tuple. At zero cells a signature with
+an address port has no valuation. Coverage is vacuous when the
+source has no valuation, and an unused target address can block a
+lift from an inhabited source.
+
+`checkExpansive h` combines the zero-cell and two-cell checks.
+`corridor_modelExpansive_iff_check` supplies model expansiveness for
+each generated triple backend from a successful check, so callers
+can use `Corridor.entails_map_iff` without a port retraction. For
+failed checks, the existing all-target satisfaction law remains
+relative to the reduct image. [Generated corridor API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Thms
+```
+
+The regression inserts a spare word port, lifts the original
+valuation, and runs the re-emitted MemRef triple with the lift.
+Identifying its store ports rejects the source values `11` and
+`22`, while equal values lift. It also checks the empty and
+singleton address cases. [Runnable coverage regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
