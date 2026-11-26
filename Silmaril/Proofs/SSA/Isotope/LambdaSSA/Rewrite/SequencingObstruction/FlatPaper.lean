@@ -6,7 +6,10 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.EntryLet.Thm
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.EntryLet.Obstruction.Destructure.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Defs
 
 /-! # Paper soundness for the flat CFG diagnostic -/
 
@@ -154,10 +157,10 @@ private theorem under_liftLabels (n : Nat) (σ : Nat → Region Instruction)
       exact ⟨_, ⟨z, hz, rfl⟩, rfl⟩
 
 omit [MarkArity] in
-private theorem observe_withTerm_post {env : Env} {a : Tm Instruction}
+private theorem observe_withTerm_post {keepEffect : Bool} {env : Env} {a : Tm Instruction}
     {f g : Val → Exit → Prop} {k : Nat → Val → Exit → Prop}
     (hg : ∀ v y, g v y ↔ ∃ x, f v x ∧ Post k x y) (out : Exit) :
-    withTerm env a g out ↔ ∃ x, withTerm env a f x ∧ Post k x out := by
+    withTerm keepEffect env a g out ↔ ∃ x, withTerm keepEffect env a f x ∧ Post k x out := by
   constructor
   · rintro ⟨v, e, hv, y, hy, rfl⟩
     obtain ⟨x, hx, z, hz, rfl⟩ := (hg v y).mp hy
@@ -220,15 +223,16 @@ end
 
 section Flat
 
-private local instance : MarkArity where
-  enabled n := decide (2 ≤ n)
+set_option linter.concreteInstances false
+variable [profile : MarkArity] [Fact (profile.enabled 1 = false)]
 
 private abbrev One (f : Val → Exit → Prop) (start out : Exit) : Prop :=
   ∃ count, Follow (fun (_ : Fin 1) => f) start count out
 
 private theorem no_one_mark (x : Exit) (count : Nat) : markAt 1 x count = x.marked := by
-  cases h : x.marked <;> simp [markAt, MarkArity.enabled, h]
+  simp [markAt, Fact.out (p := profile.enabled 1 = false)]
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem one_exit {f : Val → Exit → Prop} {x y : Exit} (h : 1 ≤ x.label) :
     One f x y ↔ y = x.relabel (· - 1) := by
   simp [One, follow_outward h]
@@ -278,6 +282,7 @@ private theorem one_prefix {f : Val → Exit → Prop} (x out : Exit) (e m : Boo
   · rintro ⟨y, ⟨j, hy⟩, eq⟩
     exact ⟨j, (unary_prefix x out e m j).2 ⟨y, hy, eq⟩⟩
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem reentry_observe (env : Env) (b : Region Instruction) (i : Nat) (v : Val) (y : Exit) :
     observe (extend env v) (CfgEta.reentry b i) y ↔
       One (fun w => observe (extend env w) b) (Exit.branch i v false) y := by
@@ -410,12 +415,15 @@ private theorem codiagonal_observe {e p : Region Instruction} (env : Env) :
 private def MapLocal (m : Val → Val) (x : Exit) : Exit :=
   if x.label = 0 then { x with value := m x.value } else x
 
+omit profile in
 @[simp] private theorem mapLocal_label (m : Val → Val) (x : Exit) :
     (MapLocal m x).label = x.label := by simp [MapLocal, apply_ite]
 
+omit profile in
 @[simp] private theorem mapLocal_effect (m : Val → Val) (x : Exit) :
     (MapLocal m x).effect = x.effect := by simp [MapLocal, apply_ite]
 
+omit profile in
 @[simp] private theorem mapLocal_marked (m : Val → Val) (x : Exit) :
     (MapLocal m x).marked = x.marked := by simp [MapLocal, apply_ite]
 
@@ -460,12 +468,14 @@ private theorem unary_map_backward {f g : Val → Exit → Prop} {good : Val →
 private def localValue (a : Tm Instruction) (env : Env) (v : Val) : Val :=
   ((term (extend env v) a).map Prod.fst).getD .unit
 
+omit profile in
 private theorem local_value_spec {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Instruction}
     (ha : Tm.BranchValue (A :: Γ) a D) (env : Env) (v : Val) :
     term (extend env v) a = some (localValue a env v, false) := by
   obtain ⟨w, hw⟩ := value_term ha (extend env v)
   simp [localValue, hw]
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem post_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Instruction}
     (ha : Tm.BranchValue (A :: Γ) a D) (env : Env) (x z : Exit) :
     Post (fun i v => observe (extend env v) (CfgEta.Uniformity.localMap a i)) x z ↔
@@ -480,6 +490,7 @@ private theorem post_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm In
       simp [Post, MapLocal, CfgEta.Uniformity.localMap,
         observe_br (env := extend env v) (a := .var 0) rfl, Exit.branch, Exit.prepend]
 
+omit profile in
 private theorem local_good {A : Ty Empty} {L : LCtx (Ty Empty)} {x : Exit}
     (h : x.WellTyped (A :: L)) (hz : x.label = 0) : Typed x.value A := by
   obtain ⟨T, ht, hv⟩ := h
@@ -528,6 +539,7 @@ private theorem uniform_observe {Γ L : List (Ty Empty)} {A D : Ty Empty}
     have ready : x.label = 0 → Typed x.value A := local_good (observe_typed he.hasType henv hx)
     exact ⟨x, count, hx, unary_map_forward stable comm ready run⟩
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem preserves_post {Γ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
     {r s : Region Instruction} {σ : Nat → Region Instruction}
     (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) (h : Preserves Γ r s) :
@@ -557,6 +569,7 @@ private theorem cfgEta_observe {Γ L : List (Ty Empty)} {r s : Region Instructio
         (fun _ => hb.renameVars ((Ren.wk Γ T).lift A)))
     exact preserves_post hl hr (one_eta he)
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem preserves_value_subst {Γ Δ : VCtx (Ty Empty)} {L : LCtx (Ty Empty)}
     {r s : Region Instruction} {θ : Nat → Tm Instruction}
     (hr : HasType Γ r L) (hs : HasType Γ s L)
@@ -589,10 +602,12 @@ private theorem preserves_value_subst {Γ Δ : VCtx (Ty Empty)} {L : LCtx (Ty Em
     Paper.SingletonReification.SingleCfg.region_subst_eq hs agree, observe_subst _ run, observe_subst _ run]
   exact h env' env'_typed
 
+omit profile in
 private theorem term_pair {env : Env} {a b : Tm Instruction} {v w : Val}
     (hv : term env a = some (v, false)) (hw : term env b = some (w, false)) :
     term env (.pair a b) = some (.pair v w, false) := by simp [term, hv, hw]
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem productBeta_observe {Γ L : List (Ty Empty)} {r s : Region Instruction}
     (h : ProductBeta.Step Γ r s L) : Preserves Γ r s := by
   cases h with
@@ -600,7 +615,7 @@ private theorem productBeta_observe {Γ L : List (Ty Empty)} {r s : Region Instr
     intro env _
     obtain ⟨v, hv⟩ := value_term ha env
     obtain ⟨w, hw⟩ := value_term hb env
-    change withTerm env (.pair _ _) _ = _
+    change withTerm true env (.pair _ _) _ = _
     rw [withTerm_value (term_pair hv hw)]
     apply Eq.symm
     apply observe_subst
@@ -609,6 +624,7 @@ private theorem productBeta_observe {Γ L : List (Ty Empty)} {r s : Region Instr
     | zero => exact hw
     | succ i => exact single_realizes hv i
 
+omit [Fact (profile.enabled 1 = false)] in
 private theorem productEta_observe {Γ L : List (Ty Empty)} {r s : Region Instruction}
     (h : ProductEta.Step Γ r s L) : Preserves Γ r s := by
   cases h with
@@ -617,7 +633,7 @@ private theorem productEta_observe {Γ L : List (Ty Empty)} {r s : Region Instru
       have typed := he hi
       cases hv : env i with
       | pair v w =>
-          change withTerm env (.var i) _ = _
+          change withTerm true env (.var i) _ = _
           rw [withTerm_value (env := env) (a := .var i) (show term env (.var i) = some (.pair v w, false) from
             congrArg (fun v => some (v, false)) hv)]
           calc
@@ -675,6 +691,91 @@ private theorem paper_observe {Γ L : List (Ty Empty)} {r s : Region Instruction
       exact hp.lsubst (fun i _ hi => .br (ℓ := i.pred) (CfgEta.Codiagonal.mergeLabels A L hi) (.var rfl))
     exact preserves_post hl hr (fun env _ => codiagonal_observe env)
   | uniform he hp hq ha _ ih => exact uniform_observe he hp ha ih
+
+omit [Fact (profile.enabled 1 = false)] in
+private theorem entryLet_step_observe (quiet : profile.keepUnaryEffect = false)
+    {Γ L : List (Ty Empty)} {r s : Region Instruction}
+    (h : Paper.WithEntryLet.Step Γ r s L) : Preserves Γ r s := by
+  cases h with
+  | @seq n Γ L S a d blocks R ha hd hb =>
+    intro env _
+    have rows (v w : Val) (i : Fin n) :
+        observe (extend (extend env v) w)
+          ((blocks i).renameVars (Silmaril.DeBruijn.lift Nat.succ)) =
+        observe (extend env w) (blocks i) := by
+      rw [renameVars_eq_substVars]
+      exact observe_subst _ (fun j => by cases j <;> rfl)
+    funext out
+    apply propext
+    simp only [observe, quiet, withTerm, Bool.false_and, prepend_false, rows]
+    constructor
+    · rintro ⟨first, count, ⟨v, e, he, _, hd, rfl⟩, follow⟩
+      exact ⟨v, e, he, out, ⟨_, count, hd, follow⟩, rfl⟩
+    · rintro ⟨v, e, he, _, ⟨first, count, hd, follow⟩, rfl⟩
+      exact ⟨first, count, ⟨v, e, he, first, hd, rfl⟩, follow⟩
+
+/-- When unary bind and case effects do not contribute a prefix mark, the
+diagnostic also respects the full contextual entry-let extension. -/
+private theorem entryLet_observe (quiet : profile.keepUnaryEffect = false)
+    {Γ L : List (Ty Empty)} {r s : Region Instruction}
+    (h : Paper.WithEntryLet.Eqv Γ r s L) : Preserves Γ r s := by
+  induction h with
+  | paper h => exact paper_observe h
+  | extra _ _ h => exact entryLet_step_observe quiet h
+  | symm _ ih => exact fun env he => (ih env he).symm
+  | trans _ _ il ir => exact fun env he => (il env he).trans (ir env he)
+  | let₁ ha _ ih => exact preserves_let₁ ha ih
+  | let₂ ha _ ih => exact preserves_let₂ ha ih
+  | case ha _ _ il ir => exact preserves_case ha il ir
+  | cfg R he hb ie ib =>
+    exact preserves_cfg R he.typed.1 he.typed.2
+      (fun i => (hb i).typed.1) (fun i => (hb i).typed.2) ie ib
+  | @lsubstCongr Γ p L K σ υ hp _ ih =>
+    intro env he
+    funext out
+    apply propext
+    rw [observe_lsubst hp, observe_lsubst hp]
+    apply exists_congr
+    intro x
+    by_cases hx : observe env p x
+    · have ⟨A, hi, hv⟩ := observe_typed hp.hasType he hx
+      simp only [Post, ih hi (extend env x.value) (he.extend hv)]
+    · simp [hx]
+  | lsubstPost _ hr hs _ ih => exact preserves_post hr hs ih
+  | substVars h hθ ih => exact preserves_value_subst h.typed.1 h.typed.2 hθ ih
+  | renameLabels _ _ ih =>
+    intro env he
+    funext out
+    apply propext
+    rw [observe_renameLabels, observe_renameLabels, ih env he]
+
+end Flat
+
+section Destructure
+
+private local instance : MarkArity where
+  enabled n := decide (2 ≤ n)
+  keepUnaryEffect := false
+
+private local instance : Fact (MarkArity.enabled 1 = false) := ⟨rfl⟩
+
+open Paper.EntryLetObstruction.Destructure
+
+theorem destructure_reentry_ne : ¬ Paper.WithEntryLet.Eqv [] original reentered [U] := by
+  intro eq
+  let env : Env := fun _ => .unit
+  have he : EnvTyped [] env := by intro i A hi; simp [At] at hi
+  have before : observe env original ⟨0, .unit, true, true⟩ := execute_sound 4 _ env rfl
+  have after : observe env reentered ⟨0, .unit, true, false⟩ := execute_sound 4 _ env rfl
+  have same := entryLet_observe rfl eq env he
+  exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env (same ▸ before) after))
+
+end Destructure
+
+private local instance : MarkArity where
+  enabled n := decide (2 ≤ n)
+
+private local instance : Fact (MarkArity.enabled 1 = false) := ⟨rfl⟩
 
 open Paper.EntryLetObstruction
 
@@ -776,6 +877,5 @@ theorem unary_under_flat_marked :
   ⟨h, (observesFlat_eq_of_paper unary_under_flat unitEnv unitEnv_typed (finish true)).mp h⟩
 
 
-end Flat
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Sequencing
