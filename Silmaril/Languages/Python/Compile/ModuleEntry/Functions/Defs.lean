@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
 
 /-! # Lower module function bindings and positional call sites
 
@@ -304,6 +305,7 @@ inductive Action (scope : Scope) where
   | assertNot (condition : Operand scope)
   | assertSequenceLength (test : SequenceLengthTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
+  | assertTupleChain (test : TupleChainTest scope)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -332,6 +334,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : ListConstructionTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertListConstruction test :: tail)
+  | assertTupleChain {index statement test rest tail}
+      (checked : TupleChainTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
@@ -428,6 +434,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some test := listConstructionTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertListConstruction test.val :: tail.val, .assertListConstruction test.property tail.property⟩
+    else if let some test := tupleChainTest? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
     else if let some ⟨(name, .lambda declaration body), binding⟩ := Compile.Closure.Body.assignment? statement then
       unless declaration.all Compile.Closure.Body.fixed do throw (.functionBody .parameterProfile)
       let path := tree.scope.context.path ++ [index]

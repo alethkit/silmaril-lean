@@ -110,6 +110,21 @@ theorem advance_assertListConstruction {scope : Source.Scope} (table : Core.Clos
         | some (.function _) => .scalarProfile
         | some _ => .raised .notCallable)) := rfl
 
+theorem lowerInstructions_assertTupleChain {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)
+    (test : TupleChainTest scope) (rest : List (Functions.Action scope)) :
+    lowerInstructions tree key (.assertTupleChain test :: rest) =
+      (lowerInstructions tree key rest).map fun (instructions, rows) =>
+        (.assertTupleChain test :: instructions, rows) := by
+  rw [lowerInstructions]
+  cases lowerInstructions tree key rest with | error _ => rfl | ok result => cases result; rfl
+
+theorem advance_assertTupleChain {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : TupleChainTest scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.assertTupleChain test :: rest)) =
+      ([], match checkTupleChain session test with
+        | .ok () => .ready session rest
+        | .error error => .finished session error) := rfl
+
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)
     (remaining : List (Instruction scope)) :

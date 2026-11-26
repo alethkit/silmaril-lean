@@ -84,6 +84,32 @@ and cell heap on a missing name or noncallable mask.
 Run the unchanged pin and CPython 3.13.5 identity and error-order controls
 with `python3.13 -I scripts/check-python-list-construction.py --upstream /path/to/pinned/rigorous`.
 
+A checked tuple equality assertion can contain bound `__add__` on an
+exact flat tuple literal or unbound `tuple.__add__` with two such positional
+literals. The other operands are exact flat tuple literals or the addition
+of two such literals. Every link must be equality and the checker validates the
+whole chain. The runner evaluates reached operands from left to right
+and carries the middle object into the next link. A false link or error
+ends evaluation before the next operand.
+
+The unbound path resolves the live module-first `tuple` binding and its
+exact stock descriptor before preparing arguments. The separate
+`legacyTupleSeed` supplies this type. The runners raise the defined missing
+name and stop outside the profile for other bindings. The tuple evaluator
+records the absent method on a `None` mask before preparing arguments.
+The typed dispatch model returns the nonempty input when adding an
+empty tuple, uses the empty singleton for two empty operands, and records
+a fresh result for two nonempty inputs. Direct `__eq__` on an exact tuple
+with a list returns `NotImplemented`, while operator equality returns
+false. The source checker admits the exact `__add__` calls as tuple
+operands. The evaluator's literal representatives and reached operands
+are local to the assertion, and its equality compares scalar contents. The
+existing caller namespaces, closure heap, list heap and generic call
+receipts keep their separate observation rules.
+
+Run the unchanged pin and CPython 3.13.5 dispatch and sequencing controls
+with `python3.13 -I scripts/check-python-tuple-chain.py --upstream /path/to/pinned/rigorous`.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

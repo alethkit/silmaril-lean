@@ -59,6 +59,7 @@ inductive Builtin where
   | callable
   | len
   | list
+  | tuple
   | isinstance
   deriving DecidableEq, Repr
 

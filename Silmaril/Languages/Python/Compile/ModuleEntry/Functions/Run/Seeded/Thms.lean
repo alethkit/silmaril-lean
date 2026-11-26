@@ -290,6 +290,32 @@ theorem run_assertListConstruction {scope : Source.Scope} (space : Namespace) (c
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.ListConstruction.run_assertListConstruction
     space context lists test rest
 
+theorem tupleBinding_shadow (space : Namespace) (value : Value)
+    (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "tuple" = some value) :
+    tupleBinding space = tupleBinding { space with builtins := [] } := by
+  simp [tupleBinding, Core.Module.SeededCall.Namespace.lookupGlobal, found]
+
+theorem checkTupleChain_corresponds {scope : Source.Scope} (space : Namespace)
+    (session : Core.Module.Functions.Session) (test : TupleChainTest scope)
+    (binding : tupleBinding space = Run.tupleBinding session) :
+    checkTupleChain space test = (Run.checkTupleChain session test).mapError (fun
+      | .assertionError => .raised (.assertionError .empty)
+      | .raised error => .raised (.runtime error)
+      | _ => .unsupported) := by
+  simp only [checkTupleChain, binding, Run.checkTupleChain]
+  cases (TupleChain.evaluate (fun _ => Run.tupleBinding session) test).result with
+  | ok value => cases value <;> rfl
+  | error failure => cases failure <;> rfl
+
+theorem run_assertTupleChain {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (lists : ListHeap) (test : TupleChainTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertTupleChain test :: rest) lists =
+      match checkTupleChain space test with
+      | .error error => ⟨space, .error (.ofCall error), [], context.heap, lists⟩
+      | .ok () => runInstructionsIn space context rest lists := by
+  simp only [runInstructionsIn, effectWithLists, effect]
+  cases checkTupleChain space test with | error _ => rfl | ok value => cases value; rfl
+
 /-- Settle one direct discard call from the actual executor state. A
 finished call emits one receipt before its tail, and a failed call skips the tail. -/
 theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}

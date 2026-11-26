@@ -66,6 +66,11 @@ def legacyListSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
   { seed with builtins := ("list", .builtin .list) :: seed.builtins }
 
+/-- Stock tuple methods use an independent opt-in type binding. -/
+def legacyTupleSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  { seed with builtins := ("tuple", .builtin .tuple) :: seed.builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)
@@ -534,6 +539,18 @@ def ListConstructionOutcome.receipt (outcome : ListConstructionOutcome) : CallEv
 def ListConstructionOutcome.effect (outcome : ListConstructionOutcome) : Effect :=
   ⟨(outcome.checked.map fun _ => none).mapError ModuleFailure.ofCall, [outcome.receipt]⟩
 
+def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBinding :=
+  (space.lookupGlobal "tuple").map fun
+    | .builtin .tuple => .stockTuple
+    | .none => .noneValue
+    | _ => .outsideProfile
+
+def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
+  let compared := (TupleChain.evaluate (fun _ => tupleBinding space) test).result
+  let checked := compared.mapError fun error =>
+    (TupleChain.runtimeError? error).elim Failure.unsupported (Failure.raised ∘ .runtime)
+  checked.bind fun value => assertTruth (.bool value)
+
 /-- Resolve once in the live seeded namespace. A masking module value
 remains the receiver even when its type is outside the ordinary profile. -/
 def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
@@ -555,6 +572,8 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
   | .assertNot operand => (assertOperand space operand false, context.heap)
   | .assertSequenceLength test => (assertSequenceLength space test, context.heap)
   | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
+  | .assertTupleChain test =>
+    (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
   | .assertVarNames receiver needle =>
     (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
   | .publish name function =>
