@@ -6,6 +6,7 @@ import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Product.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Case.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
 
@@ -82,6 +83,8 @@ noncomputable def evalResidual {Γ : VCtx (Ty κ)} (r : Row (Φ := Φ) R L Γ)
       J.map (targetInject M written R ⟨i, hits i rfl⟩ ≫ coprod.inr)
   | .let₁ value body =>
       bind J (denote J M (operand_base value)) (evalResidual body hits)
+  | .let₂ value body =>
+      bindProduct J M (denote J M (operand_base value)) (evalResidual body hits)
   | .exit i h a => denote J M (operand_base a) ≫ J.map (labelInject M i h ≫ coprod.inl)
   | .case a l r => caseWithContext J
       (denote J M (operand_base a) ≫ J.map (M.coprodIso _ _).hom)
@@ -142,6 +145,14 @@ private theorem row_build {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren �
       refine ⟨_, _, .let₁ (operand_type ren value) (operand_determined ren value) determined,
         RegionDenotes.let₁ dv db, ?_⟩
       simpa only [evalResidual] using bind_transfer J p (denote J M (operand_base value)) body_eq
+  | @let₂ Γ A B value body ih =>
+      have dv := (denote_spec J M (operand_base value)).rename J M ren reads
+      obtain ⟨_, _, determined, db, body_eq⟩ :=
+        ih ((ren.lift A).lift B) ((p ▷ M.obj A) ▷ M.obj B)
+          (lookup_liftRename M (ren.lift A) (lookup_liftRename M ren reads A) B) hits
+      refine ⟨_, _, .let₂ (operand_type ren value) (operand_determined ren value) determined,
+        RegionDenotes.let₂ dv db, ?_⟩
+      simpa only [evalResidual, bindProduct, ctxObj] using bindProduct_transfer J M p (denote J M (operand_base value)) body_eq
   | @case Γ A B a l r ihl ihr =>
       have da := (denote_spec J M (operand_base a)).rename J M ren reads
       obtain ⟨_, _, ld, dl, left⟩ := ihl (ren.lift A) (p ▷ M.obj A)
@@ -182,6 +193,10 @@ theorem residual_exits (notarget : IsEmpty (Subtype written))
       obtain ⟨out, eq⟩ := ih hits
       exact ⟨bind J (denote J M (operand_base value)) out, by
         simp only [evalResidual, eq, Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, Category.assoc]⟩
+  | let₂ value body ih =>
+      obtain ⟨out, eq⟩ := ih hits
+      exact ⟨bindProduct J M (denote J M (operand_base value)) out, by
+        simp only [evalResidual, eq, bindProduct_postcomp]⟩
   | case arg left right ihl ihr =>
       obtain ⟨outl, eql⟩ := ihl (fun i h => hits i (.inl h))
       obtain ⟨outr, eqr⟩ := ihr (fun i h => hits i (.inr h))

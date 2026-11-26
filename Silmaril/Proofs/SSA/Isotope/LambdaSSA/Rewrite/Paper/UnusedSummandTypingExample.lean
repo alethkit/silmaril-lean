@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnaryLet.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.ProductLet.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.StructuralValues.Freyd.Iteration.Coherence.Thms
@@ -533,6 +534,116 @@ example {f g : J.obj (ctxObj M [Flag]) ⟶ J.obj (labelObj M [U, U])}
     · exact .br rfl (.var rfl)
     · exact .br rfl (.var rfl)
   exact (DeterminedRegion.let₁ fixed (pollPayload.determined (Ren.id _)) determined).denotes_eq J M d' e'
+
+private abbrev LeftOut : Ty Empty := Silmaril.product U Flag
+private abbrev RightOut : Ty Empty := Silmaril.product Flag U
+
+private def productInitializer : Operand (Φ := Op) [Flag, U] (Silmaril.product Flag U) :=
+  .pair (.op Op.poll .unit) (.op Op.tick (.var 1 rfl))
+
+private def productTerm : Operand (Φ := Op) [Flag, U] (Silmaril.product Flag U) :=
+  .let₂ productInitializer (.pair (.var 1 rfl) (.var 0 rfl))
+
+/-- Term witnesses agree even when the product initializer is effectful. -/
+example {t : productTerm.term.HasType [Flag, U] (Silmaril.product Flag U)}
+    {f g : J.obj (ctxObj M [Flag, U]) ⟶ J.obj (M.obj (Silmaril.product Flag U))}
+    (d : Denotes J M t f) (e : Denotes J M t g) : f = g :=
+  (productTerm.determined (Ren.id _)).denotes_eq J M d e
+
+private def productRow : Row (Φ := Op) payloads [LeftOut, RightOut] [Flag, U] :=
+  .let₂ productInitializer (.case (.var 1 rfl)
+    (.exit 0 rfl (.let₂ (.pair (.var 1 rfl) (.var 3 rfl)) (.pair (.var 1 rfl) (.var 0 rfl))))
+    (.exit 1 rfl (.pair (.var 3 rfl) (.var 1 rfl))))
+
+private def productProgram : Program (Φ := Op) payloads [LeftOut, RightOut] [Flag, U] where
+  entry := .jump 0 .unit
+  blocks := Fin.cases productRow (fun _ => .exit 0 rfl (.pair (.var 1 rfl) (.var 0 rfl)))
+
+private def productEntry : Region Op := .br 0 (.inl .unit)
+
+private def productInput : Tm Op := .pair (.op Op.poll .unit) (.op Op.tick (.var 2))
+
+private def productBody : Region Op :=
+  .case (.var 1)
+    (.br 2 (.let₂ (.pair (.var 1) (.var 4)) (.pair (.var 1) (.var 0))))
+    (.br 3 (.pair (.var 4) (.var 1)))
+
+private def productBlock : Region Op := .let₂ productInput productBody
+
+private def productBlocks : Fin 2 → Region Op :=
+  Fin.cases productBlock (fun _ => .br 2 (.pair (.var 2) (.var 1)))
+
+private theorem productProgram_region :
+    productProgram.region true = .cfg productEntry 2 productBlocks := by
+  unfold Program.region productProgram productBlocks
+  congr 1
+  funext i
+  exact Fin.cases rfl (fun _ => rfl) i
+
+private theorem productProgram_sparse : ¬ productProgram.targets 1 := by
+  rintro (hit | ⟨i, hit⟩)
+  · have neq : (0 : Fin 2) ≠ 1 := by decide
+    exact neq hit
+  · revert hit
+    refine Fin.cases ?_ (fun _ h => h) i
+    rintro (h | h) <;> exact h
+
+private theorem productEntry_typed (tail spare : Ty Empty) :
+    productEntry.HasType [Flag, U] (List.ofFn (letFamily tail spare) ++ [LeftOut, RightOut]) :=
+  .br rfl (.inl .unit)
+
+private theorem productBlocks_typed (tail spare : Ty Empty) (i : Fin 2) :
+    (productBlocks i).HasType (letFamily tail spare i :: [Flag, U])
+      (List.ofFn (letFamily tail spare) ++ [LeftOut, RightOut]) := by
+  refine Fin.cases ?_ (fun _ => .br rfl (.pair (.var rfl) (.var rfl))) i
+  exact .let₂ (.pair (.op .unit) (.op (.var rfl))) (.case (.var rfl)
+    (.br rfl (.let₂ (.pair (.var rfl) (.var rfl)) (.pair (.var rfl) (.var rfl))))
+    (.br rfl (.pair (.var rfl) (.var rfl))))
+
+/-- The two concrete exact graph typings make independent choices for
+the target tail and for the untargeted block parameter. -/
+example :
+    (∃ f : J.obj (ctxObj M [Flag, U]) ⟶ J.obj (labelObj M [LeftOut, RightOut]),
+      CfgDenotesAt J M (letFamily .empty U) productEntry productBlocks f) ∧
+    (∃ g : J.obj (ctxObj M [Flag, U]) ⟶ J.obj (labelObj M [LeftOut, RightOut]),
+      CfgDenotesAt J M (letFamily U .empty) productEntry productBlocks g) :=
+  ⟨CfgDenotesAt.exists_of_typing J M _ (productEntry_typed .empty U) (productBlocks_typed .empty U),
+   CfgDenotesAt.exists_of_typing J M _ (productEntry_typed U .empty) (productBlocks_typed U .empty)⟩
+
+/-- Exact witnesses for block zero recover the left flag and the right
+unit in the native newest-first order, under the original CFG binder. -/
+example (tail spare : Ty Empty) {f}
+    (d : RegionDenotes J M (productBlocks_typed tail spare 0) f) :
+    ∃ (hv : productInput.HasType (letFamily tail spare 0 :: [Flag, U]) (Silmaril.product Flag U))
+      (hb : productBody.HasType (U :: Flag :: letFamily tail spare 0 :: [Flag, U])
+        (List.ofFn (letFamily tail spare) ++ [LeftOut, RightOut]))
+      (v : J.obj (ctxObj M (letFamily tail spare 0 :: [Flag, U])) ⟶
+        J.obj (M.obj (Silmaril.product Flag U)))
+      (body : J.obj (ctxObj M (U :: Flag :: letFamily tail spare 0 :: [Flag, U])) ⟶
+        J.obj (labelObj M (List.ofFn (letFamily tail spare) ++ [LeftOut, RightOut]))),
+      Denotes J M hv v ∧ RegionDenotes J M hb body ∧ f = bindProduct J M v body :=
+  d.let₂_readback_at J M (productInitializer.typeDetermined (Ren.wk _ _))
+
+/-- The poll and tick form the initializer in that order. Both arms use
+the right field and an older flag, and the left field selects two
+differently typed outward indices. Compare arbitrary original witnesses. -/
+example (roll : IterationRolling C) :
+    (¬ productProgram.targets 1) ∧
+    ∀ {f g : J.obj (ctxObj M [Flag, U]) ⟶ J.obj (labelObj M [LeftOut, RightOut])},
+      CfgDenotesAt J M (letFamily .empty U) productEntry productBlocks f →
+      CfgDenotesAt J M (letFamily U .empty) productEntry productBlocks g → f = g := by
+  refine ⟨productProgram_sparse, ?_⟩
+  intro f g d e
+  have asRendered {S : Fin 2 → Ty Empty}
+      {x : J.obj (ctxObj M [Flag, U]) ⟶ J.obj (labelObj M [LeftOut, RightOut])}
+      (w : CfgDenotesAt J M S productEntry productBlocks x) :
+      ∃ t : (productProgram.region true).HasType [Flag, U] [LeftOut, RightOut], RegionDenotes J M t x := by
+    rw [productProgram_region]
+    obtain ⟨he, hb, _, _, _, de, db, dc, rfl⟩ := w
+    exact ⟨_, RegionDenotes.cfg he hb de db dc⟩
+  obtain ⟨_, left⟩ := asRendered d
+  obtain ⟨_, right⟩ := asRendered e
+  exact productProgram.denotes_eq_trimmed J M roll left right
 
 end NativeLet
 

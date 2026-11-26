@@ -9,6 +9,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Product.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Case.Thms
 
@@ -151,6 +152,7 @@ private noncomputable def eval {Γ : VCtx (Ty κ)} :
   | .jump i arg => denote J M (operand_base arg) ≫
       J.map (labelInject M i (local_label R i) ≫ coprod.inr)
   | .let₁ value body => bind J (denote J M (operand_base value)) (eval body)
+  | .let₂ value body => bindProduct J M (denote J M (operand_base value)) (eval body)
   | .exit i hit arg => denote J M (operand_base arg) ≫ J.map (labelInject M i hit ≫ coprod.inl)
   | .case arg left right => caseWithContext J
       (denote J M (operand_base arg) ≫ J.map (M.coprodIso _ _).hom)
@@ -190,6 +192,12 @@ private theorem row_eval {Γ Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ
       obtain ⟨_, db, body_eq⟩ := ih (ren.lift A) (p ▷ M.obj A) (lookup_liftRename M ren reads A)
       refine ⟨_, RegionDenotes.let₁ dv db, ?_⟩
       simpa only [eval] using bind_transfer J p (denote J M (operand_base value)) body_eq
+  | @let₂ Γ A B value body ih =>
+      have dv := (denote_spec J M (operand_base value)).rename J M ren reads
+      obtain ⟨_, db, body_eq⟩ := ih ((ren.lift A).lift B) ((p ▷ M.obj A) ▷ M.obj B)
+        (lookup_liftRename M (ren.lift A) (lookup_liftRename M ren reads A) B)
+      refine ⟨_, RegionDenotes.let₂ dv db, ?_⟩
+      simpa only [eval, bindProduct, ctxObj] using bindProduct_transfer J M p (denote J M (operand_base value)) body_eq
   | @case Γ A B a l r ihl ihr =>
       have da := (denote_spec J M (operand_base a)).rename J M ren reads
       obtain ⟨fl, dl, left⟩ := ihl (ren.lift A) (p ▷ M.obj A) (lookup_liftRename M ren reads A)

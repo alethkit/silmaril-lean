@@ -20,6 +20,7 @@ def Row.targets (i : Fin n) : {Δ : VCtx (Ty κ)} → Row (Φ := Φ) R L Δ → 
   | _, .jump j _ => j = i
   | _, .exit .. => False
   | _, .let₁ _ body => body.targets i
+  | _, .let₂ _ body => body.targets i
   | _, .case _ left right => left.targets i ∨ right.targets i
 
 /-- The label has an incoming jump in the written entry or a written row. -/
