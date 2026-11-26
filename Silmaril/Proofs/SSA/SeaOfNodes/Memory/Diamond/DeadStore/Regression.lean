@@ -267,4 +267,45 @@ example : Entry.lowerSelected (entryEditDiamond .onFalse) entryWithSideStore 2 (
     (Discovery.MemRef.CF.lowerDiamond 4 (entryEditDiamond .onFalse) (some entryWithSideStore))
     (input headCell) false 3 ⟨initial⟩).map readback) == some [99, 33, 11, 3, 55]
 
+private def repeatedEntry : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend entryWithSideStore
+
+private def lowerRepeatedEntry (rightAddress : Address 4) : Entry.Repeated 4 args :=
+  Entry.lowerRepeated (entryEditDiamond .onFalse) repeatedEntry (input rightAddress)
+
+example : (lowerRepeatedEntry rightCell).entry = entryWithoutSelected := rfl
+example : (lowerRepeatedEntry rightCell).deleted = 2 := rfl
+
+-- The second deletion sees versions 2 and 3 after the first deletion's
+-- renumbering. Those Stores had versions 3 and 4 in the original table.
+example : Memory.DeadStore.Search.Selection.Readers.rewrite repeatedEntry input =
+    some ⟨⟨1, 2⟩, ⟨leftPort, []⟩, entryWithSideStore⟩ := rfl
+example : (Memory.DeadStore.Search.Selection.Readers.rewrite entryWithSideStore input).map
+    (fun step => (step.candidate.removeVersion, step.candidate.overwriteVersion)) = some (2, 3) := rfl
+
+private def runRepeatedEntry (rightAddress : Address 4) (guard : Bool) (fuel : Nat) :
+    Nat × Option (Word × Word × List Word × List Word) :=
+  let result := lowerRepeatedEntry rightAddress
+  (result.deleted, runEntryPrograms result.programs guard fuel)
+
+/-- info: (2, some (3#64, 3#64, [3#64, 33#64, 11#64, 33#64, 55#64], [3#64, 33#64, 11#64, 33#64, 55#64])) -/
+#guard_msgs in
+#eval runRepeatedEntry rightCell false 3
+
+#guard runRepeatedEntry rightCell true 3 == (2, some (3, 3, [3, 11, 11, 3, 55], [3, 11, 11, 3, 55]))
+#guard runRepeatedEntry rightCell false 2 == (2, none)
+
+-- The side deletion is committed. The aliased Load protects the later
+-- candidate and both emitted CFGs still return the observed 99.
+example : (lowerRepeatedEntry headCell).entry = entryWithSideStore := rfl
+example : (lowerRepeatedEntry headCell).deleted = 1 := rfl
+example : Memory.DeadStore.Search.Selection.Readers.rewrite (lowerRepeatedEntry headCell).entry
+    (input headCell) = none := rfl
+#guard runRepeatedEntry headCell false 3 == (1, some (99, 99, [99, 33, 11, 3, 55], [99, 33, 11, 3, 55]))
+
+-- Starting at the already exhausted entry emits a zero-deletion pair.
+example : Entry.lowerRepeated (entryEditDiamond .onFalse) entryWithSideStore (input headCell) =
+    ⟨entryWithSideStore, 0, Entry.lowerPair (entryEditDiamond .onFalse)
+      entryWithSideStore entryWithSideStore (input headCell)⟩ := rfl
+
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

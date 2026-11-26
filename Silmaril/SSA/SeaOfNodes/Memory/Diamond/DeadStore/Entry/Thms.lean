@@ -1,7 +1,6 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
-public import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Defs
 import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Correctness
 
@@ -13,7 +12,8 @@ open RVSDG (Tuple)
 open Silmaril.MLIR.MemRef (Buffer)
 open Memory.DeadStore.Search.Selection (Result storeVersions)
 open Memory.DeadStore.Search.Selection.Readers renaming discover → discoverReaders
-open Memory.DeadStore.Search.Selection.Readers.Repeat (DeletesStores operations checked_operations)
+open Memory.DeadStore.Search.Selection.Readers.Repeat
+  (DeletesStores operations checked_operations rewrite_operations rewrite_exhausted)
 open Discovery.MemRef.CF (Programs entryTransition run)
 
 variable {args : List ValueSort} {cells : Nat}
@@ -89,5 +89,35 @@ theorem lowerSelected_runs {graph : Graph args} {programs : Programs cells args}
     run programs.original programs.input guard fuel initial = expected ∧
       run programs.optimized programs.input guard fuel initial = expected :=
   Proofs.lowerSelected_runs input emitted guard fuel initial
+
+/-- The emitted edit has the native pass's exact deletion count and order. -/
+theorem lowerRepeated_operations (graph : Graph args) (entry : Memory.Graph args) (input : Tuple (Val cells) args) :
+    let result := lowerRepeated graph entry input
+    DeletesStores result.deleted (operations entry) (operations result.entry) :=
+  rewrite_operations entry input
+
+/-- The native selector finds no further checked deletion in the emitted entry. -/
+theorem lowerRepeated_exhausted (graph : Graph args) (entry : Memory.Graph args) (input : Tuple (Val cells) args) :
+    Memory.DeadStore.Search.Selection.Readers.rewrite (lowerRepeated graph entry input).entry input = none :=
+  rewrite_exhausted entry input
+
+/-- Both emitted entry blocks select the same frame with the same full buffer. -/
+theorem lowerRepeated_entryTransition_eq (graph : Graph args) (entry : Memory.Graph args)
+    (input : Tuple (Val cells) args) (guard : Bool) (initial : Buffer cells) :
+    let programs := (lowerRepeated graph entry input).programs
+    entryTransition programs.optimized programs.input guard initial =
+      entryTransition programs.original programs.input guard initial :=
+  Proofs.lowerRepeated_entryTransition_eq graph entry input guard initial
+
+/-- Both CFGs give the same return observation for every CF budget.
+Three block steps suffice for either predicate. -/
+theorem lowerRepeated_runs (graph : Graph args) (entry : Memory.Graph args)
+    (input : Tuple (Val cells) args) (guard : Bool) (fuel : Nat) (initial : Buffer cells) :
+    let programs := (lowerRepeated graph entry input).programs
+    let result := graph.denote guard input (entry.denote input initial.cell).2
+    let expected := if fuel < 3 then none else some (result.1, Buffer.mk result.2)
+    run programs.original programs.input guard fuel initial = expected ∧
+      run programs.optimized programs.input guard fuel initial = expected :=
+  Proofs.lowerRepeated_runs graph entry input guard fuel initial
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry
