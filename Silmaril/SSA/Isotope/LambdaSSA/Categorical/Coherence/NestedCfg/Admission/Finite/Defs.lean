@@ -27,14 +27,19 @@ def branchesTo (target : Nat) : Region Φ → Bool
   | .case _ l r => branchesTo target l || branchesTo target r
   | _ => false
 
+/-- Saturate written type anchors for a bounded number of transfer steps. -/
+def anchorWorklist {m : Nat} (seed : Fin m → Bool) (edge : Fin m → Fin m → Bool) :
+    Nat → List (Fin m)
+  | 0 => (List.finRange m).filter seed
+  | d + 1 =>
+      let known := anchorWorklist seed edge d
+      (List.finRange m).filter fun i => seed i || known.any fun j => edge j i
+
 /-- Retained slots with a written synthesizing path from the entry, counting
 the number of row edges after the entry edge. This tracks typing constraints;
 it does not assert that all written cases are taken at runtime. -/
-def anchored {m : Nat} (entry : Region Φ) (rows : Fin m → Region Φ) : Nat → List (Fin m)
-  | 0 => (List.finRange m).filter fun i => branchesTo i entry
-  | d + 1 =>
-      let known := anchored entry rows d
-      (List.finRange m).filter fun i => branchesTo i entry || known.any fun j => branchesTo i (rows j)
+def anchored {m : Nat} (entry : Region Φ) (rows : Fin m → Region Φ) : Nat → List (Fin m) :=
+  anchorWorklist (fun i => branchesTo i entry) (fun j i => branchesTo i (rows j))
 
 structure Plan (Φ : Type v) (m n : Nat) where
   initializer : Tm Φ
