@@ -68,7 +68,7 @@ a defined later sample from being observed.
 | --- | --- | --- |
 | §4, Fig. 10 and (4.1)–(4.4); §5.2; §8.2 | **Implemented** sorted Egg explanation replay for ranked acyclic graphs and a guarded cyclic E-PEG certificate kernel. **Proved** `checkOutputs_figure11_sound` in `Peggy.Bridge.Figure11.Thms`, `observe_sound_of_rows` in `Peggy.EPEG.Selection.Thms`, and `saturate_least`, `saturate_perm`, `run_denote_sound` in `Peggy.EPEG.Saturation.Thms`. Saturation closes the partition on a fixed finite node table and supplied ground obligations. Semantic rule hypotheses or checked structural evidence justify the corresponding equalities. [#3256](https://github.com/hiloopai/silmaril-lean/pull/3256) · [#3284](https://github.com/hiloopai/silmaril-lean/pull/3284) · [#3313](https://github.com/hiloopai/silmaril-lean/pull/3313) | Open: (4.1)–(4.4) for general node-generating monotone analyses, and the correspondence of a Rete engine and its bounded worklist with that semantics. |
 | §8.3, search and `SelectBest` | **Implemented** bounded single-root discovery and contextual ranked loop-free search. **Proved** `Candidate.sound` in `Peggy.Optimizer.Thms`, `optimize_min` and `compareOutputs_sound` in `Peggy.Optimizer.Contextual.Thms`. The contextual measure is the count of distinct reachable primitive and φ vertices, minimized among the explored, replay-checked candidates. `Result.sound` in `Peggy.Optimizer.Cyclic.Thms` covers elimination of a literal θ self-feedback row with a leaf initializer under a single-loop admission check excluding eval/pass. `SimpleValidation.Cyclic` reuses the checked replay with eval/pass demand ranks, then infers a single-loop SIMPLE schedule and proves defined-return agreement with the original PEG. `SimpleValidation.Cyclic.Source` compiles a top-level SIMPLE while and checks the redirected boundary, including eliminated invariant slots, to preserve successful source returns under target schedule totality and negation. [#3924](https://github.com/hiloopai/silmaril-lean/pull/3924) · [#3626](https://github.com/hiloopai/silmaril-lean/pull/3626) · [#3346](https://github.com/hiloopai/silmaril-lean/pull/3346) · [#3372](https://github.com/hiloopai/silmaril-lean/pull/3372) · [#3413](https://github.com/hiloopai/silmaril-lean/pull/3413) | Open: general cyclic discovery and extraction across eval/pass boundaries, and the paper's pseudo-Boolean costs, constraints, solver integration and optimality claim. |
-| §7.1–7.5, Fig. 19 | **Proved** `Certificate.revert_returns` and `Certificate.revert_run` in `PEG.Simple.Revert.Thms` for a checked, supplied single-output loop-free schedule. **Implemented** partial automatic ranking/scheduling in `PEG.Simple.Revert.Automatic`; `checkRanked_accepts_straightLine` proves acceptance for a narrower straight-line class. **Implemented** exact-recompilation extraction of a canonical seven-row scalar loop in `PEG.Simple.Revert.While`, with `Certificate.compile_eq` and source-return-to-observation `Certificate.observe_of_returns`. The ten-row pair extractor in `PEG.Simple.Revert.While.Pair` uses simultaneous updates from the old store. Its `Certificate.returns_of_defined` and the scalar counterpart recover source returns from defined PEG observations under guard and complete-step totality and the negation law. The pair fuel runner also has `Certificate.runFuel_of_defined`. **Implemented and proved** `PEG.Simple.Revert.While.Region.Automatic.extract` infers a typed boundary, demand rank and schedules for a restricted parentless single loop without compiler row numbering. `Certificate.returns_iff_observe` relates the emitted SIMPLE return to the original Figure 11 observation under guard and full-update totality and the negation law. `Certificate.exitWitness_of_defined` gives the finite first pass and the eval prefix. **Implemented and proved** `PEG.Simple.Revert.While.Nested.Automatic` infers a two-level form from the designated eval, parent table and scoped wires and validates it against the existing structured compiler table. Its `Accepted.returns_iff_observe` covers one scoped inner invocation per outer step. `Nested.Reindexed.Automatic` infers the form and both bijections, checks the full mapped table, and proves defined-return agreement at the input index. `Nested.Projected` composes that reverter with checked removal of rows outside the loop-bundle operand closure. [#3866](https://github.com/hiloopai/silmaril-lean/pull/3866) · [#3794](https://github.com/hiloopai/silmaril-lean/pull/3794) · [#3760](https://github.com/hiloopai/silmaril-lean/pull/3760) · [#3725](https://github.com/hiloopai/silmaril-lean/pull/3725) · [#3703](https://github.com/hiloopai/silmaril-lean/pull/3703) · [#3348](https://github.com/hiloopai/silmaril-lean/pull/3348) · [#3388](https://github.com/hiloopai/silmaril-lean/pull/3388) · [#3389](https://github.com/hiloopai/silmaril-lean/pull/3389) · [#3441](https://github.com/hiloopai/silmaril-lean/pull/3441) | Open: general Figure 19 recognition, a proof that structured compilation produces that class, and general loop/branch extraction and sequencing. Structural `WellFormed` alone does not supply a reversion schedule. The graph-only single-loop checker requires one θ per initializer port and the eval/pass phase layout. |
+| §7.1–7.5, Fig. 19 | **Implemented and proved** `PEG.Figure19` defines the row typing rules with separate printed and inward eval premises. Bounded checking yields a derivation for the designated roots. The structured bridge checks a nested, branching compiler fixture with an independent demand rank. **Proved** `Certificate.revert_returns` and `Certificate.revert_run` in `PEG.Simple.Revert.Thms` for a checked, supplied single-output loop-free schedule. **Implemented** partial automatic ranking/scheduling in `PEG.Simple.Revert.Automatic`; `checkRanked_accepts_straightLine` proves acceptance for a narrower straight-line class. **Implemented** exact-recompilation extraction of a canonical seven-row scalar loop in `PEG.Simple.Revert.While`, with `Certificate.compile_eq` and source-return-to-observation `Certificate.observe_of_returns`. The ten-row pair extractor in `PEG.Simple.Revert.While.Pair` uses simultaneous updates from the old store. Its `Certificate.returns_of_defined` and the scalar counterpart recover source returns from defined PEG observations under guard and complete-step totality and the negation law. The pair fuel runner also has `Certificate.runFuel_of_defined`. **Implemented and proved** `PEG.Simple.Revert.While.Region.Automatic.extract` infers a typed boundary, demand rank and schedules for a restricted parentless single loop without compiler row numbering. `Certificate.returns_iff_observe` relates the emitted SIMPLE return to the original Figure 11 observation under guard and full-update totality and the negation law. `Certificate.exitWitness_of_defined` gives the finite first pass and the eval prefix. **Implemented and proved** `PEG.Simple.Revert.While.Nested.Automatic` infers a two-level form from the designated eval, parent table and scoped wires and validates it against the existing structured compiler table. Its `Accepted.returns_iff_observe` covers one scoped inner invocation per outer step. `Nested.Reindexed.Automatic` infers the form and both bijections, checks the full mapped table, and proves defined-return agreement at the input index. `Nested.Projected` composes that reverter with checked removal of rows outside the loop-bundle operand closure. [#3866](https://github.com/hiloopai/silmaril-lean/pull/3866) · [#3794](https://github.com/hiloopai/silmaril-lean/pull/3794) · [#3760](https://github.com/hiloopai/silmaril-lean/pull/3760) · [#3725](https://github.com/hiloopai/silmaril-lean/pull/3725) · [#3703](https://github.com/hiloopai/silmaril-lean/pull/3703) · [#3348](https://github.com/hiloopai/silmaril-lean/pull/3348) · [#3388](https://github.com/hiloopai/silmaril-lean/pull/3388) · [#3389](https://github.com/hiloopai/silmaril-lean/pull/3389) · [#3441](https://github.com/hiloopai/silmaril-lean/pull/3441) | Open: completeness of Figure 19 recognition, general structured compiler admission, and general loop/branch extraction and sequencing. Structural `WellFormed` alone does not supply a reversion schedule. The graph-only single-loop checker requires one θ per initializer port and the eval/pass phase layout. |
 | §7.6–7.9, optimized reversion | **Implemented** restricted sharing-aware placement with rejection in the loop-free scheduler, and simultaneous old-store updates with shared primitive bindings in the checked single-loop region. [#3388](https://github.com/hiloopai/silmaril-lean/pull/3388) · [#3441](https://github.com/hiloopai/silmaril-lean/pull/3441) | Open: simultaneous-copy scheduling across general control flow, loop and branch fusion, redundancy hoisting, MustEval and LICM. |
 | §8.1 and Appendix A, Java | **Implemented and proved** resolved integer-field loads/stores in `Peggy.FieldHeap.Thms`, including guarded forwarding and disjoint-field laws. Observations include exact heap, sticky first fault and optional read values; a completed faulting read (`some none`) differs from PEG bottom (`none`). `run_eq_observe` in `Peggy.FieldHeap.Linearize.Thms` proves exact ordered observation for an accepted straight-line single-token chain. [#3391](https://github.com/hiloopai/silmaril-lean/pull/3391) · [#3421](https://github.com/hiloopai/silmaril-lean/pull/3421) | Open: Java bytecode conversion, full object/array/allocation/call and exception semantics, and general heap linearization. The linearizer rejects token forks. |
 | §8.4, separate eval and pass | **Implemented and proved** the split in `PEG.Semantics.Thms`. The structured frontend shares one pass across the evals of the carried values for each loop. [Paper](https://arxiv.org/pdf/1012.1802v3#page=65) · [#3253](https://github.com/hiloopai/silmaril-lean/pull/3253) · [#3375](https://github.com/hiloopai/silmaril-lean/pull/3375) | The split is part of the denotation. General optimization and reversion across these nodes remain open. |
@@ -192,15 +192,62 @@ that retains a child θ but drops its capture is rejected.
 [Projected two-level reverter](../../Silmaril/SSA/PEG/Simple/Revert/While/Nested/Projected/Thms.lean) ·
 [Regression fixture](../../tests/ssa/PEGCanonicalWhile.lean)
 
-Two printed details need explicit treatment in a full formalization.
-Figure 19's Type-Eval-Pass premise is `ℓ = ℓ′ + 1`, with `ℓ` the
-surrounding depth and `ℓ′` the sampled loop's depth. Sampling an immediate
-child from its parent calls for `ℓ′ = ℓ + 1`. Section 8.3's displayed
-cycle constraints exclude cycles without a θ node. A θ whose initializer
-selects itself still passes that test, although Definition 5.1(1) requires
-a feedback edge on the cycle. A general CFG-like checker and a legality
-proof for selection must account for both details.
-[Fig. 19](https://arxiv.org/pdf/1012.1802v3#page=41) ·
+### Figure 19 typing and the semantic gate
+
+`PEG.Figure19.Derives` represents the judgment on a typed row at a
+numeric depth with an assumption list. The return sort comes from the
+row. The graph fixes the typed input ports corresponding to Γ, and
+its ordered roots stand for the context's output bindings.
+
+| Paper clause | Lean correspondence |
+| --- | --- |
+| Type-PEG-Context | `CFGContext` requires the judgment for every ordered designated root. |
+| Type-PEG | Each root starts at depth zero with an empty assumption list. |
+| Type-Param | A `param` label carries its typed port of Γ. |
+| Type-Op | The opcode carries its ordered profile. `Derives.op` requires a derivation for each operand at the current depth and assumptions. |
+| Type-Phi | The flag is Boolean and both alternatives have the result sort. Each of the three operands is checked in the same context. |
+| Type-Theta | The initial operand is checked one depth above the θ in the nesting tree. The feedback operand is checked at the θ depth with the exact row and depth added to the assumptions. |
+| Type-Eval-Pass | Eval's index argument must name a pass with the same loop key. Both the sampled value and the pass predicate are typed at the sampled depth. Every retained assumption must be strictly shallower. |
+| Type-Reduce | The conclusion can raise the allowed depth and extend the assumption list. The premise can therefore lower the bound and discard assumptions. |
+| Type-Assume | A previously assumed θ row may close a derivation at its declared depth. Row identity and sort are retained. |
+
+The printed eval premise has `surrounding = sampled + 1`.
+`EvalDirection.printed` keeps that premise, and
+`CFGContext.printed_no_root_eval` proves that it rules out a directly
+designated eval even with Type-Reduce. The structured compiler bridge
+uses `EvalDirection.inward`, with `sampled = surrounding + 1`, to
+observe an immediate child from its parent. Checking the same loop key
+refines the paper's depth-only spelling for numbered sibling loops.
+The executable checker also validates the depth assignment against the
+loop parent table.
+
+The checker is a bounded search that returns derivation evidence.
+It tries a θ assumption before expanding feedback and uses one specific
+Type-Reduce choice at eval, retaining the assumptions strictly above
+the sampled loop. Only dependencies needed for the designated roots
+are typed. General search completeness and a theorem that every
+structured compilation admits a derivation remain open.
+
+`checkGuarded` separately validates a rank against the entire graph,
+ordering all Figure 11 demands, including every index that pass and
+eval may sample. First exit existence and prefix definedness remain
+properties of the denotation. Implications from the typing judgment to
+that demand guard or to Definition 5.1 remain open. The regression derives
+admission for a compiled outer while whose inner while updates
+through a φ, and the compiler bridge supplies its successful-return
+observation using the checked rank. A same-depth, wrong-key pass
+retains a valid demand rank and violates the typing judgment.
+General lexical scope consequences, extraction and its scheduling
+proof remain open.
+[Figure 19](https://arxiv.org/pdf/1012.1802v3#page=41) ·
+[Typing and checker](../../Silmaril/SSA/PEG/Figure19/Defs.lean) ·
+[Structured compiler bridge](../../Silmaril/SSA/PEG/Figure19/Structured/Thms.lean) ·
+[Regressions](../../tests/ssa/PEG.lean)
+
+Section 8.3's displayed cycle constraints exclude cycles without a θ
+node. A θ whose initializer selects itself still passes that test,
+although Definition 5.1(1) requires a feedback edge on the cycle.
+Legality of that selection formulation remains open.
 [§8.3 constraints](https://arxiv.org/pdf/1012.1802v3#page=64)
 
 ## Dialects, institutions and IR bridges
@@ -260,8 +307,8 @@ writers is rejected with `Rejection.reversion`.
 ## Remaining work in priority order
 
 1. **Close the cyclic path from structured frontend through reversion.**
-   Formalize Figure 19 admission and its relation to the repaired guard.
-   Prove source-to-CFG-like admission and implement checked placement and
+   Prove general structured source-to-Figure 19 admission and relate the
+   typing rules to the repaired guard. Implement checked placement and
    extraction for nested loops, branches and shared state. Carry first-exit
    and prefix obligations through selection and reversion. The exact scalar
    and pair extractors, the checked single-loop region, and the inferred
