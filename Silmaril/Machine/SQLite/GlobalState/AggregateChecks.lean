@@ -30,12 +30,13 @@ example : objects.lookup vfs.tagged = some ⟨.vfs, .live, fields⟩ := by
 
 example : roots.defaultVfs.map Subtype.val = some vfs.tagged := rfl
 
-private def emptyHistory : History TaggedId LocalFields := History.empty
+private abbrev FixtureFields := Handle.Payload TaggedId Unit LocalFields
+private def emptyHistory : History TaggedId FixtureFields := History.empty
 private theorem freshVfs : emptyHistory.Fresh vfs.tagged := History.lookup_empty vfs.tagged
 
 private def history := emptyHistory.allocate vfs.tagged .vfs fields freshVfs
 
-private abbrev AllocationFixture := Allocator.State TaggedId TaggedId LocalFields Unit Unit
+private abbrev AllocationFixture := Allocator.State TaggedId TaggedId FixtureFields Unit Unit
 private def scope : Allocator.Scope Unit Unit := ⟨(), (), 64, by decide⟩
 private def block := scope.block 64 128 (by decide) (by decide)
 private def before : AllocationFixture := ⟨history, ∅⟩
@@ -52,15 +53,46 @@ private theorem present : combined.objectHistory.lookup vfs.tagged =
     some (.present ⟨.vfs, .live, fields⟩) :=
   emptyHistory.lookup_allocate_self vfs.tagged .vfs fields freshVfs
 
+private def registry := roots.registered.map Subtype.val
+
+private theorem registered : Handle.Registered registry combined.objectHistory := by
+  refine ⟨by simp [registry, roots], ?_⟩
+  intro id member
+  have same : id = vfs.tagged := by simpa [registry, roots, registration] using member
+  subst id
+  exact ⟨fields, present⟩
+
+private def handles : Semantics.Resource.Contract AllocationFixture
+    (Handle.Call TaggedId) (Handle.Reply TaggedId) (StoreId TaggedId TaggedId) :=
+  Handle.contract () registry
+
+private theorem borrowed :
+    handles.step .findDefaultVfs combined (.borrowedVfs (some vfs.tagged)) combined :=
+  ⟨.findDefaultVfs registered, rfl⟩
+
+private def mallocThenBorrow := alloc.seq handles fun _ _ => .findDefaultVfs
+
+private theorem composed :
+    mallocThenBorrow.step (.malloc 64) before
+      (.pointer (some vfs.tagged), .borrowedVfs (some vfs.tagged)) combined :=
+  ⟨combined, allocated, borrowed⟩
+
 -- Malloc issues a raw token whose value coincides with the already visible VFS.
 example : combined.lookup (.allocation vfs.tagged) = some (.allocation (.live block)) := by
   change (combined.lookupAllocation vfs.tagged).map StoreEntry.allocation = _
   rw [combined, Allocator.lookup_write_self]
   rfl
 
+-- Both contracts use the tagged observation, so the borrow still sees the
+-- live object even though the same value was written to the raw lane.
 example : combined.lookup (.object vfs.tagged) = before.lookup (.object vfs.tagged) := by
-  have frames : alloc.Frames AllocatorStore.lookup := Allocator.frames
-  exact frames allocated (.object vfs.tagged) (by decide)
+  have frames : mallocThenBorrow.Frames AllocatorStore.lookup :=
+    Semantics.Resource.Contract.seq_frames Allocator.frames Handle.frames
+  exact frames composed (.object vfs.tagged) (by decide)
+
+example : ∃ payload : LocalFields .vfs, combined.objectHistory.lookup vfs.tagged =
+    some (.present ⟨.vfs, .live, payload⟩) :=
+  Handle.find_default_live borrowed.1
 
 example : combined.toObjects.lookupTagged (.object vfs.tagged : StoreId TaggedId TaggedId) =
     some ⟨.vfs, .live, fields⟩ := by

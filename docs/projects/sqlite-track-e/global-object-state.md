@@ -2,7 +2,7 @@
 
 Import `Silmaril.Machine.SQLite.GlobalState.All` for object histories, typed
 struct payloads, flat and indexed stores, checked views, the named-file
-adapter, and the allocator resource contract. Use
+adapter, and the allocator and handle resource contracts. Use
 `Silmaril.Machine.SQLite.Architecture.All` separately for Track E's component
 diagram and its Interface, compiler, VM and backend contracts. The global-state
 package assembles cross-component state and resource observations. The
@@ -21,6 +21,7 @@ architecture aggregate follows the four groups of the diagram.
 | Use typed structs as state payloads | `Silmaril.Machine.SQLite.GlobalState.StatePayload` | [Struct-to-state bridge](object-state-payloads.md) |
 | Follow a Pager's named main file into a read premise | `Silmaril.Machine.SQLite.GlobalState.StructObservations` | [Named-file adapter](object-structs.md#checked-laws-and-adapter) |
 | Specify initialized public allocator calls and ownership | `Silmaril.Machine.SQLite.Allocator.Thms` | [Allocator model and replay](allocator-resources.md) |
+| Specify handle lifetimes and a read-only default VFS borrow | `Silmaril.Machine.SQLite.Handle.Thms` | [Handle and VFS model and replay](handle-resources.md) |
 | Compose resource steps and preserve untouched observations | `Silmaril.Semantics.Resource.Thms` | [Reusable resource API](allocator-resources.md#reusable-resource-api) |
 
 The source reference is SQLite **3.54.1**, Fossil check-in
@@ -124,7 +125,7 @@ differs from a failed lookup of an existing token.
 ## Resource contracts and refinement boundary
 
 The reusable `Silmaril.Semantics.Resource.Thms` interface is
-re-exported through `Allocator.Thms`. `Contract.Frames` preserves a
+re-exported through `Allocator.Thms` and `Handle.Thms`. `Contract.Frames` preserves a
 chosen key observation outside the writes for the input and reply.
 `Contract.seq` passes the first reply into the second operation and
 concatenates their write lists, so `Contract.seq_frames` preserves keys
@@ -140,8 +141,22 @@ lookup, and `objects_preserved` preserves the entire object history.
 `malloc_success_lookup` establishes freshness and ownership.
 `realloc_failure_preserves` keeps the original block on a failed positive
 resize, and `realloc_success_lookup` distinguishes in-place resize from a
-move that retires the old token. The handle/VFS contract remains a
-separate integration dependency. [Allocator model and replay](allocator-resources.md)
+move that retires the old token. [Allocator model and replay](allocator-resources.md)
+
+`Handle.Payload` supplies lifecycle metadata for connection, statement,
+blob and backup kinds and retains the supplied payloads for the other
+kinds. `Handle.Step` acts on object history. `Handle.contract` lifts it
+to the same tagged store as the allocator, and `Handle.frames` uses that
+same full lookup. `open_error_close_only` admits a failed open's cleanup
+handle within this profile. `final_dependent_reaps_zombie` retires the
+last blocker and its zombie connection under the release premises.
+`stale_not_fresh` preserves the distinction between a retired token and
+a fresh one. A backup's source blocks close, and
+`backup_finish_destination` checks and preserves the distinct live
+destination under the borrowed-destination profile. The default VFS
+borrow uses a caller-supplied registry of live VFS entries.
+`find_default_iff` gives its unchanged history and `find_default_live`
+gives presence of a non-null result. [Handle and VFS model and replay](handle-resources.md)
 
 The verified algebra concerns finite lookup, erasure and modeled
 transitions. The source guides justify the choice of observations. A
@@ -152,8 +167,9 @@ simulation of the relevant C behavior. The selected
 `NamedMainFile.readAccess` requires `VFS.Opened.Live` and a read grant to
 produce `Pager.ReadAccess`. Interface/D3 observations still describe the
 admitted point-query profile. ABI layout, allocator byte copying,
-platform locks, shared-cache ownership, WAL/SHM and general SQLite execution
-remain separate from these proofs. [Source inventory](object-structs.md) · [Track E behavioral coverage](coverage-v1.md#behavioral-coverage)
+platform locks, registry mutation and named VFS search, shared-cache
+ownership, WAL/SHM and general SQLite execution remain separate from
+these proofs. [Source inventory](object-structs.md) · [Track E behavioral coverage](coverage-v1.md#behavioral-coverage)
 
 ## Build, replay and evidence
 
@@ -161,17 +177,20 @@ Use the pinned [Lean toolchain](../../../lean-toolchain) and
 [Lake manifest](../../../lake-manifest.json). The aggregate fixture imports
 only `GlobalState.All`. It checks the indexed and flat lookups of a typed
 VFS descriptor, then follows it through the state and kind bridge to
-the default root. A successful malloc issues a
-raw token with the same underlying value as the VFS ID. The fixture
-checks the object frame and raw-block exclusion from erasure.
+the default root. It follows a successful malloc with a read-only
+default VFS borrow. The allocation and object share an underlying ID
+value, and the composed frame preserves the full object lookup. Erasure
+excludes the raw block from checked object admission.
 
 ```bash
 set -euo pipefail
 root=Silmaril.Machine.SQLite.GlobalState
 allocator=Silmaril.Machine.SQLite.Allocator
+handle=Silmaril.Machine.SQLite.Handle
 resource=Silmaril.Semantics.Resource
 lake build --wfail +"$root".{AggregateChecks,Checks,Store.Checks} \
-    +"$root".{Store.Allocator.Checks,StructChecks,StatePayloadChecks} +"$allocator".Checks
+    +"$root".{Store.Allocator.Checks,StructChecks,StatePayloadChecks} \
+    +"$allocator".Checks +"$handle".Checks
 lake env lean -DautoImplicit=false -DwarningAsError=true \
     Silmaril/Machine/SQLite/GlobalState/AggregateChecks.lean
 make check CHECK_TARGETS=+"$root".AggregateChecks
@@ -181,6 +200,7 @@ for module in "$root".{All,AggregateChecks,Defs,Roots,Thms,Checks} \
     "$root".{Structs,Indexed,StructThms,StructObservations,StructChecks,StatePayload,StatePayloadChecks} \
     Silmaril.Proofs.Machine.SQLite.GlobalState.{Store.Erasure,Indexed,Flat.Lookup} \
     "$allocator".{Defs,Thms,Checks} Silmaril.Proofs.Machine.SQLite.Allocator.Laws \
+    "$handle".{Defs,Thms,Checks} Silmaril.Proofs.Machine.SQLite.Handle.Laws \
     "$resource".{Defs,Thms} Silmaril.Proofs.Semantics.Resource.Laws; do
   SILMARIL_REPLAY_MODULE="$module" lake env lean -DwarningAsError=true \
     tools/compiler-explorer/Replay.lean
