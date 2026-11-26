@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.SelectedTerminal.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Projection.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.InputPacking.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Generation.PackedTerm.Thms
@@ -23,7 +23,6 @@ open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 open CfgEta.TypeCategory (returnRegion returnRegion_typed singletonValueFamily)
 open Paper.RetainedLet (returnOnce)
 open Paper.UnaryReturn (returnOnce_valueBranches)
-open Paper.UnaryReturn.Beta.Constructors (pairSequence)
 open Silmaril.DeBruijn (lift)
 
 local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
@@ -59,43 +58,13 @@ private theorem weakSingleton {A : Ty Empty} {Γ : VCtx (Ty Empty)} :
   | zero => exact h
   | succ i => simp [At] at h
 
-private theorem pairSecond {Γ : VCtx (Ty Empty)} {A B : Ty Empty} {a b : Tm signature.Instr}
-    (ha : Tm.HasType Γ a A) (hb : Tm.HasType Γ b B) :
-    E Γ (returnRegion (.let₁ (.pair a b) (.let₂ (.var 0) (.var 0))))
-      (.let₁ a (.let₁ (b.rename Nat.succ) (.br 0 (.var 0)))) [B] := by
-  let pairBody := returnOnce_valueBranches (.pair ha hb)
-  let seqBody := Paper.WithPairReturns.pairSequence_typed ha hb
-  let hproj := Paper.WithProjectionReturns.Step.snd (Φ := signature.Instr) A B
-  have proj : E [product A B] (returnRegion (.let₂ (.var 0) (.var 0)))
-      (.let₂ (.var 0) (.br 0 (.var 0))) [B] :=
-    .extra hproj.valueBranches.1.hasType hproj.valueBranches.2.hasType (inclProjection hproj)
-  have projCaptured : E (product A B :: Γ) (returnRegion (.let₂ (.var 0) (.var 0)))
-      (.let₂ (.var 0) (.br 0 (.var 0))) [B] := by
-    simpa only [renameVars_id] using proj.renameVars (weakSingleton (A := product A B) (Γ := Γ))
-  have hp : ValueBranches (product A B :: Γ) (returnRegion (.let₂ (.var 0) (.var 0))) [B] :=
-    returnRegion_typed (Φ := signature.Instr) (.let₂ (.var (i := 0) rfl) (.var (i := 0) rfl))
-  have seq : E Γ (returnOnce (.pair a b)) (pairSequence a b) [product A B] :=
-    .extra pairBody.hasType seqBody.hasType (inclPair (.seq ha hb))
-  refine (seq.lsubstPost pairBody seqBody (fun _ _ hi => ((singletonValueFamily hp) hi).hasType)).trans ?_
-  have comp : E Γ ((pairSequence a b).lsubst (fun _ => returnRegion (.let₂ (.var 0) (.var 0))))
-      ((pairSequence a b).lsubst (fun _ => .let₂ (.var 0) (.br 0 (.var 0)))) [B] := by
-    apply Paper.Extension.Eqv.lsubstCongr seqBody
-    intro i T hi
-    cases i with
-    | zero => cases Option.some.inj hi; exact projCaptured
-    | succ i => simp [At] at hi
-  refine comp.trans ?_
-  exact .let₁ ha (.let₁ (hb.rename (Ren.wk Γ A))
-    (.paper (.productBeta (.let₂Beta (.var (i := 1) rfl) (.var (i := 0) rfl)
-      (.br rfl (.var (i := 0) rfl))))))
-
 private theorem emitTrue_typed {Γ : VCtx (Ty Empty)} : Tm.HasType Γ emitTrue unit :=
   .op .unit
 
 private theorem prefixSecond (t : Term signature.Instr TerminalInput Bit) :
     E [TerminalInput] (returnRegion (emitPrefix [true] t).elaborate.val)
       (.let₁ emitTrue (.let₁ (t.elaborate.val.rename Nat.succ) (.br 0 (.var 0)))) [Bit] :=
-  pairSecond emitTrue_typed t.elaborate.property
+  Paper.WithPairReturns.return_pair_second inclPair inclProjection emitTrue_typed t.elaborate.property
 
 private theorem direct_prefix (pos : Position Exits) :
     E [TerminalInput] (terminal pos (.read 1)).elaborate.val
