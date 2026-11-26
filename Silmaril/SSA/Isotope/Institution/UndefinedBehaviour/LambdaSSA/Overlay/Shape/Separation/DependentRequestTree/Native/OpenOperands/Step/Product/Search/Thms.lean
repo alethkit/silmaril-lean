@@ -19,6 +19,53 @@ open Syntax (Payload)
 universe u
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
+/-- Explore exactly the reachable packet pairs for the supplied edge function. -/
+theorem ProductSearch.visits_exact (edges : ProductConfig R T → List (ProductEdge S R T))
+    (entry : ProductConfig R T) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    let seen := ProductSearch.visits edges entry left right
+    (seen.map Prod.fst).Nodup ∧
+      ∀ p, p ∈ seen.map Prod.fst ↔ ∃ trail, ProductPath edges entry trail p :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.product_visits_exact
+    edges entry left right
+
+/-- Each stored trail witnesses the recorded visit. -/
+theorem ProductSearch.visits_path {edges : ProductConfig R T → List (ProductEdge S R T)}
+    {entry : ProductConfig R T} {left : ConfigurationEnumeration R} {right : ConfigurationEnumeration T}
+    {visit : ProductSearch.Visit S R T} (listed : visit ∈ ProductSearch.visits edges entry left right) :
+    ProductPath edges entry visit.2 visit.1 :=
+  (Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.product_visits_spec
+    edges entry left right).2.1 visit listed
+
+/-- A simple visiting path needs at most one state per reachable pair. -/
+theorem ProductSearch.simple_path_bound
+    (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    {edges : ProductConfig R T → List (ProductEdge S R T)}
+    {start point : ProductConfig R T} {trail : List (ProductEdge S R T)}
+    (walk : ProductPath edges start trail point) (simple : (ProductPath.vertices start trail).Nodup) :
+    trail.length + 1 ≤ (ProductSearch.visits edges start left right).length :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.product_simple_path_bound
+    left right walk simple
+
+theorem Head.checkPair_edges [DecidableEq Φ] (replies : ReplyEnumeration S)
+    (rel : Packet R → Packet T → Bool) (p : Head S R) (q : Head S T) :
+    p.checkPair replies rel q =
+      (p.checkPair replies (fun _ _ => true) q &&
+        (p.productEdges replies q).all fun edge => rel edge.2.1 edge.2.2) :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.check_pair_edges
+    replies rel p q
+
+theorem Head.product_edge_forms [DecidableEq Φ] (replies : ReplyEnumeration S)
+    {lower : Head S R} {upper : Head S T} {edge : ProductEdge S R T}
+    (listed : edge ∈ lower.productEdges replies upper) :
+    ∃ (f : Φ) (arg : Payload (instrSrc f))
+      (next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R)
+      (next' : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T)
+      (reply : Packet (S.replies f)),
+      lower = .request f arg next ∧ upper = .request f arg next' ∧
+      edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.head_edge_forms
+    replies listed
+
 section Paths
 
 variable {edges : ProductConfig R T → List (ProductEdge S R T)}

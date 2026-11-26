@@ -59,6 +59,14 @@ theorem Table.exhausts_close (g : Table S R) (configs : ConfigurationEnumeration
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.Dispatch.exhausts_close
     g configs caller prim p s exhausted
 
+/-- The computed head supplies the exact local step of normalized feedback. -/
+theorem Table.normalized_step (g : Table S R) (configs : ConfigurationEnumeration R)
+    (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) (p : Packet R) (s : σ) :
+    g.normalizedFeedback configs caller prim (blockPoint p s) =
+      ((g.head configs caller p).execute prim s).routed :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Silent.Dispatch.normalized_step
+    g configs caller prim p s
+
 /-- Closing the computed heads preserves complete feedback observations,
 including infinite replays of productive requests. -/
 theorem Table.close_normalized (g : Table S R) (configs : ConfigurationEnumeration R)

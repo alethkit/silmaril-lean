@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Defs
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Observer.Defs
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Observation.Thms
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Soundness
@@ -38,6 +38,15 @@ theorem productContains_iff (pairs : List (Packet R × Packet T)) (p : Packet R)
 theorem Table.head_mark (g : Table S R) (caller : Syntax.Payload (R.get g.entry)) (p : Packet R)
     {i : Tag} {marked : Bool} (head : g.head caller p = .exit i marked) : g.selected i = marked :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.head_mark g caller p head
+
+theorem HeadObserver.closed_relation_sound (g : HeadObserver.{u,v} S R) (h : HeadObserver.{u,v} S T)
+    (prim : Syntax.StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
+    (closed : ∀ p q, rel p q → (g.head p).MatchesWith
+      (fun i j => (i, g.returnValue p i) = (j, h.returnValue q j)) rel (h.head q))
+    {p : Packet R} {q : Packet T} (related : rel p q) (s : σ) :
+    g.observe prim p s ≤ h.observe prim q s :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.observer_closed_relation_sound
+    g h prim rel closed related s
 
 /-- Shared request closure preserves complete ordered outputs and matches
 infinite replay as ordinary divergence. -/

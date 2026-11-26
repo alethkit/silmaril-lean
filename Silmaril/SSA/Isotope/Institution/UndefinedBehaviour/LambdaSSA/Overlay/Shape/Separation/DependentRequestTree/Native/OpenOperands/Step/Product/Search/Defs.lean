@@ -83,6 +83,13 @@ def scan (edges : ProductConfig R T → List (ProductEdge S R T)) :
       let remaining' := remaining.filter fun p => !productContains [visit.1] p.1 p.2
       scan edges fuel remaining' (visit :: seen)
 
+/-- Explore from a typed entry with any packet-indexed edge function. -/
+def visits (edges : ProductConfig R T → List (ProductEdge S R T))
+    (entry : ProductConfig R T) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    List (Visit S R T) :=
+  let remaining := (left.configs.product right.configs).filter fun p => !productContains [entry] p.1 p.2
+  scan edges remaining.length remaining [(entry, [])]
+
 inductive Result (S : RequestSignature Φ) (R T : List Syntax.Ty) where
   | accepted (pairs : List (ProductConfig R T))
   | mismatch (pair : ProductConfig R T) (path : List (ProductEdge S R T))
@@ -94,9 +101,7 @@ def Table.productVisits [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
     List (ProductSearch.Visit S R T) :=
-  let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
-  let remaining := (left.configs.product right.configs).filter fun p => !productContains [entry] p.1 p.2
-  ProductSearch.scan (g.productEdges h caller caller' replies) remaining.length remaining [(entry, [])]
+  ProductSearch.visits (g.productEdges h caller caller' replies) (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩) left right
 
 /-- Start with the entry pair and inspect its reachable typed product.
 A mismatch carries the shared reply path from the entry in forward order. -/

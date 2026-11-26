@@ -107,15 +107,7 @@ theorem mismatch_iff (hg : g.checkNative raw = true) (hh : h.checkNative raw' = 
 theorem simple_length {point : ProductConfig R T} {trail : List (ProductEdge S R T)}
     (walk : ProductPath (g.productEdges h a b replies) (⟨g.entry, a⟩, ⟨h.entry, b⟩) trail point)
     (simple : (ProductPath.vertices (⟨g.entry, a⟩, ⟨h.entry, b⟩) trail).Nodup) :
-    trail.length + 1 ≤ (g.productVisits h a b replies left right).length := by
-  let seen := (g.productVisits h a b replies left right).map Prod.fst
-  have exactVisits := (g.productVisits_exact h a b replies left right).2
-  have entry : (⟨g.entry, a⟩, ⟨h.entry, b⟩) ∈ seen := (exactVisits _).mpr ⟨[], .start⟩
-  have closed (p : ProductConfig R T) (mem : p ∈ seen) (e : ProductEdge S R T)
-      (edge : e ∈ g.productEdges h a b replies p) : e.2 ∈ seen := by
-    obtain ⟨_, path⟩ := (exactVisits p).mp mem
-    exact (exactVisits _).mpr ⟨_, .step path edge⟩
-  have bound := simple.length_le_of_subset (walk.covered seen entry closed).2
-  simpa [seen, ProductPath.vertices, Nat.succ_eq_add_one] using bound
+    trail.length + 1 ≤ (g.productVisits h a b replies left right).length :=
+  ProductSearch.simple_path_bound left right walk simple
 
 end Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FiniteSupport.Model.Reachable

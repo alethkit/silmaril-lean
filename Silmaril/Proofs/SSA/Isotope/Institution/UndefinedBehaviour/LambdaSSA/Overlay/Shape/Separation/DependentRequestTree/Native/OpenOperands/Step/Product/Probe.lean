@@ -5,6 +5,8 @@ public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Over
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Packet.Thms
 
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Soundness
+
 public section
 
 namespace Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
@@ -28,73 +30,72 @@ private def test [DecidableEq Φ] {n : Nat} (key : Option (Φ × Value Unit)) :
   fun f a s => if key = some (f, a.val) then .fault s else .diverge
 
 
-theorem payload_local_mismatch_refutes [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
-    (a : Payload (R.get g.control.entry)) (b : Payload (T.get h.control.entry)) (p : Packet R) (q : Packet T)
-    (fuel : Nat) (mismatch : ¬ (g.control.head a p).MatchesWith
-      (fun i j => (g.returnPacket a p i).raw = (h.returnPacket b q j).raw) (fun _ _ => True) (h.control.head b q)) :
-    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observeAt a prim p 0 ≤ h.observeAt b prim q 0 := by
-  cases upper : h.control.head b q with
+theorem observer_local_mismatch_refutes [DecidableEq Φ] (g : HeadObserver.{u,0} S R) (h : HeadObserver.{u,0} S T)
+    (p : Packet R) (q : Packet T)
+    (fuel : Nat) (mismatch : ¬ (g.head p).MatchesWith
+      (fun i j => (i, g.returnValue p i) = (j, h.returnValue q j)) (fun _ _ => True) (h.head q)) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observe prim p 0 ≤ h.observe prim q 0 := by
+  cases upper : h.head q with
   | exit j selected =>
     cases selected with
     | true => exact (mismatch (by simp [upper, Head.MatchesWith])).elim
     | false =>
-      cases lower : g.control.head a p with
+      cases lower : g.head p with
       | exit i marked =>
         refine ⟨test none, ?_⟩
-        rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
-        simp only [Head.execute, g.control.head_mark a p lower, h.control.head_mark b q upper]
+        rw [g.step _ p 0, h.step _ q 0, lower, upper]
+        simp only [Head.execute]
         cases marked with
         | true => simp
         | false =>
           intro agrees
-          have same : i = j ∧ (g.returnPacket a p i).2.val = (h.returnPacket b q j).2.val := by
+          have same : i = j ∧ g.returnValue p i = h.returnValue q j := by
             simpa [WithTop.coe_le_coe] using agrees
           apply mismatch
           simp only [lower, upper, Head.MatchesWith]
           exact Prod.ext same.1 same.2
       | diverge | request =>
         refine ⟨test none, ?_⟩
-        rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
-        simp [Head.execute, test, h.control.head_mark b q upper, WithTop.coe_le_coe]
+        rw [g.step _ p 0, h.step _ q 0, lower, upper]
+        simp [Head.execute, test, WithTop.coe_le_coe]
   | diverge =>
-    cases lower : g.control.head a p with
+    cases lower : g.head p with
     | diverge => exact (mismatch (by simp [lower, upper, Head.MatchesWith])).elim
     | exit i marked =>
       refine ⟨test none, ?_⟩
-      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
-      cases marked <;> simp [Head.execute, g.control.head_mark a p lower, WithTop.coe_le_coe]
+      rw [g.step _ p 0, h.step _ q 0, lower, upper]
+      cases marked <;> simp [Head.execute, WithTop.coe_le_coe]
     | request f arg next =>
       refine ⟨test (some (f, arg.val)), ?_⟩
-      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      rw [g.step _ p 0, h.step _ q 0, lower, upper]
       simp [Head.execute, test, WithTop.coe_le_coe]
   | request k operand route =>
-    cases lower : g.control.head a p with
+    cases lower : g.head p with
     | exit i marked =>
       refine ⟨test none, ?_⟩
-      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
-      cases marked <;> simp [Head.execute, test, g.control.head_mark a p lower, WithTop.coe_le_coe]
+      rw [g.step _ p 0, h.step _ q 0, lower, upper]
+      cases marked <;> simp [Head.execute, test, WithTop.coe_le_coe]
     | diverge =>
       refine ⟨test (some (k, operand.val)), ?_⟩
-      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      rw [g.step _ p 0, h.step _ q 0, lower, upper]
       simp [Head.execute, test, WithTop.coe_le_coe]
     | request f arg next =>
       have different : ¬ (f = k ∧ arg.val = operand.val) := by
         rintro ⟨rfl, values⟩
         exact mismatch (by rw [lower, upper]; exact ⟨rfl, values, fun _ => trivial⟩)
       refine ⟨test (some (f, arg.val)), ?_⟩
-      rw [g.observe_state_step a _ p 0, h.observe_state_step b _ q 0, lower, upper]
+      rw [g.step _ p 0, h.step _ q 0, lower, upper]
       simp [Head.execute, test, different, WithTop.coe_le_coe]
 
-theorem payload_prepend_refutation [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
-    (a : Payload (R.get g.control.entry)) (b : Payload (T.get h.control.entry))
+theorem observer_prepend_refutation [DecidableEq Φ] (g : HeadObserver.{u,0} S R) (h : HeadObserver.{u,0} S T)
     (p : Packet R) (q : Packet T) {f : Φ} {arg : Payload (instrSrc f)}
     {next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R}
     {route : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T}
-    (lower : g.control.head a p = .request f arg next) (upper : h.control.head b q = .request f arg route)
+    (lower : g.head p = .request f arg next) (upper : h.head q = .request f arg route)
     (answer : Packet (S.replies f))
     {fuel : Nat} (other : Primitives Φ fuel) (t : Fin fuel)
-    (bad : ¬ g.observeAt a other (next answer.1 answer.2) t ≤ h.observeAt b other (route answer.1 answer.2) t) :
-    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observeAt a prim p 0 ≤ h.observeAt b prim q 0 := by
+    (bad : ¬ g.observe other (next answer.1 answer.2) t ≤ h.observe other (route answer.1 answer.2) t) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observe prim p 0 ≤ h.observe prim q 0 := by
   let eq := congrArg Payload (S.target f)
   let payload := cast eq.symm (pack answer)
   have decoded : unpack (cast eq payload) = answer := by
@@ -112,11 +113,30 @@ theorem payload_prepend_refutation [DecidableEq Φ] (g : Endpoint S R A) (h : En
   have agree (op : Φ) (input : Payload (instrSrc op)) (old : Fin fuel) :
       extended op input (e old) = (other op input old).mapState e := rfl
   refine ⟨extended, ?_⟩
-  rw [g.observe_state_step a extended p 0, h.observe_state_step b extended q 0, lower, upper]
+  rw [g.step extended p 0, h.step extended q 0, lower, upper]
   simp only [Head.execute, hit]
-  rw [decoded, g.observeAt_mapState e a other extended agree _ _,
-    h.observeAt_mapState e b other extended agree _ _, Behaviour.mapState_le_iff]
+  rw [decoded, g.mapState e other extended agree _ _,
+    h.mapState e other extended agree _ _, Behaviour.mapState_le_iff]
   exact bad
+
+theorem payload_local_mismatch_refutes [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
+    (a : Payload (R.get g.control.entry)) (b : Payload (T.get h.control.entry)) (p : Packet R) (q : Packet T)
+    (fuel : Nat) (mismatch : ¬ (g.control.head a p).MatchesWith
+      (fun i j => (g.returnPacket a p i).raw = (h.returnPacket b q j).raw) (fun _ _ => True) (h.control.head b q)) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observeAt a prim p 0 ≤ h.observeAt b prim q 0 :=
+  observer_local_mismatch_refutes (payload_observer g a) (payload_observer h b) p q fuel mismatch
+
+theorem payload_prepend_refutation [DecidableEq Φ] (g : Endpoint S R A) (h : Endpoint S T A)
+    (a : Payload (R.get g.control.entry)) (b : Payload (T.get h.control.entry))
+    (p : Packet R) (q : Packet T) {f : Φ} {arg : Payload (instrSrc f)}
+    {next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R}
+    {route : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T}
+    (lower : g.control.head a p = .request f arg next) (upper : h.control.head b q = .request f arg route)
+    (answer : Packet (S.replies f))
+    {fuel : Nat} (other : Primitives Φ fuel) (t : Fin fuel)
+    (bad : ¬ g.observeAt a other (next answer.1 answer.2) t ≤ h.observeAt b other (route answer.1 answer.2) t) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observeAt a prim p 0 ≤ h.observeAt b prim q 0 :=
+  observer_prepend_refutation (payload_observer g a) (payload_observer h b) p q lower upper answer other t bad
 
 theorem local_mismatch_refutes [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (a : Payload (R.get g.entry)) (b : Payload (T.get h.entry)) (p : Packet R) (q : Packet T)

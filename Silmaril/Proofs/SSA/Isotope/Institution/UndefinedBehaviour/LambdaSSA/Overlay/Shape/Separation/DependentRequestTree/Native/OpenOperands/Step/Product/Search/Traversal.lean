@@ -119,6 +119,32 @@ theorem check_pair_edges [DecidableEq Φ] (replies : ReplyEnumeration S)
       · simp [*, List.all_map, Function.comp_def]
       · simp [*]
 
+theorem head_edge_forms [DecidableEq Φ] (replies : ReplyEnumeration S)
+    {lower : Head S R} {upper : Head S T} {edge : ProductEdge S R T}
+    (listed : edge ∈ lower.productEdges replies upper) :
+    ∃ (f : Φ) (arg : Payload (instrSrc f))
+      (next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R)
+      (next' : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T)
+      (reply : Packet (S.replies f)),
+      lower = .request f arg next ∧ upper = .request f arg next' ∧
+      edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) := by
+  cases lower with
+  | exit | diverge => simp [Head.productEdges] at listed
+  | request f arg next =>
+    cases upper with
+    | exit | diverge => simp [Head.productEdges] at listed
+    | request op' operand' next' =>
+      rw [Head.productEdges] at listed
+      split at listed
+      · rename_i matchQuery
+        obtain ⟨keys, values⟩ := Prod.mk.inj matchQuery
+        subst op'
+        have operands : arg = operand' := Subtype.ext values
+        subst operand'
+        obtain ⟨reply, _, rfl⟩ := List.mem_map.mp listed
+        exact ⟨f, arg, next, next', reply, rfl, rfl, rfl⟩
+      · simp at listed
+
 section Edges
 
 variable {g : Table S R} {h : Table S T}
@@ -132,24 +158,8 @@ theorem edge_forms [DecidableEq Φ] (replies : ReplyEnumeration S)
       (next' : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T)
       (reply : Packet (S.replies f)),
       g.head caller p.1 = .request f arg next ∧ h.head caller' p.2 = .request f arg next' ∧
-      edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) := by
-  unfold Table.productEdges at listed
-  cases lower : g.head caller p.1 with
-  | exit | diverge => simp [lower, Head.productEdges] at listed
-  | request f arg next =>
-    cases upper : h.head caller' p.2 with
-    | exit | diverge => simp [lower, upper, Head.productEdges] at listed
-    | request op' operand' next' =>
-      rw [lower, upper, Head.productEdges] at listed
-      split at listed
-      · rename_i matchQuery
-        obtain ⟨keys, values⟩ := Prod.mk.inj matchQuery
-        subst op'
-        have operands : arg = operand' := Subtype.ext values
-        subst operand'
-        obtain ⟨reply, _, rfl⟩ := List.mem_map.mp listed
-        exact ⟨f, arg, next, next', reply, rfl, rfl, rfl⟩
-      · simp at listed
+      edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) :=
+  head_edge_forms replies listed
 
 end Edges
 

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Defs
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Observer.Defs
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Payload.Observation.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Thms
@@ -88,47 +88,64 @@ theorem payload_observe_infinite (g : Endpoint S R A) (caller : Payload (R.get g
   rw [Endpoint.observeAt, loop]
   exact diverge_bind _
 
-private theorem local_match (g : Endpoint S R A) (h : Endpoint S T A) (caller : Payload (R.get g.control.entry))
-    (caller' : Payload (T.get h.control.entry)) (prim : StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
-    (p : Packet R) (q : Packet T) (s : σ) (agreement : (g.control.head caller p).MatchesWith
-      (fun i j => (g.returnPacket caller p i).raw = (h.returnPacket caller' q j).raw) rel (h.control.head caller' q)) :
-    g.observeAt caller prim p s ≤ h.observeAt caller' prim q s ∨
-      ∃ p' q' t, (g.control.head caller p).execute prim s = .repeat p' t ∧
-        (h.control.head caller' q).execute prim s = .repeat q' t ∧ rel p' q' := by
-  cases upper : h.control.head caller' q with
+@[expose] noncomputable def payload_observer (g : Endpoint S R A) (caller : Payload (R.get g.control.entry)) :
+    HeadObserver.{u,v} S R where
+  head := g.control.head caller
+  returnValue p i := (g.returnPacket caller p i).2.val
+  observe := fun prim => g.observeAt caller prim
+  step := by
+    intro σ prim p s
+    rw [g.observe_state_step]
+    cases head : g.control.head caller p with
+    | exit i selected => simp only [Head.execute, head_mark g.control caller p head]
+    | diverge => rfl
+    | request f arg next =>
+      simp only [Head.execute]
+      cases prim f arg s <;> rfl
+  infinite := fun prim => payload_observe_infinite g caller prim
+  mapState := fun e prim other => g.observeAt_mapState e caller prim other
+
+private theorem local_match (g : HeadObserver.{u,v} S R) (h : HeadObserver.{u,v} S T)
+    (prim : StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
+    (p : Packet R) (q : Packet T) (s : σ) (agreement : (g.head p).MatchesWith
+      (fun i j => (i, g.returnValue p i) = (j, h.returnValue q j)) rel (h.head q)) :
+    g.observe prim p s ≤ h.observe prim q s ∨
+      ∃ p' q' t, (g.head p).execute prim s = .repeat p' t ∧
+        (h.head q).execute prim s = .repeat q' t ∧ rel p' q' := by
+  cases upper : h.head q with
   | exit j selected =>
     cases selected with
     | true =>
       left
-      rw [h.observe_state_step, upper]
-      simp only [Head.execute, head_mark h.control caller' q upper, ↓reduceIte]
+      rw [h.step, upper]
+      simp only [Head.execute, ↓reduceIte]
       exact le_top
     | false =>
-      cases lower : g.control.head caller p with
+      cases lower : g.head p with
       | exit i marked =>
         cases marked with
         | true => simp [lower, upper, Head.MatchesWith] at agreement
         | false =>
-          have same : (g.returnPacket caller p i).raw = (h.returnPacket caller' q j).raw := by
+          have same : (i, g.returnValue p i) = (j, h.returnValue q j) := by
             simpa [lower, upper, Head.MatchesWith] using agreement
           have tag : i = j := congrArg Prod.fst same
-          have val : (g.returnPacket caller p i).2.val = (h.returnPacket caller' q j).2.val :=
+          have val : g.returnValue p i = h.returnValue q j :=
             congrArg Prod.snd same
           left
-          rw [g.observe_state_step, h.observe_state_step, lower, upper]
-          simp only [Head.execute, head_mark g.control caller p lower, head_mark h.control caller' q upper,
+          rw [g.step, h.step, lower, upper]
+          simp only [Head.execute,
             Bool.false_eq_true, ↓reduceIte]
           rw [val, tag]
       | request | diverge => simp [lower, upper, Head.MatchesWith] at agreement
   | diverge =>
-    cases lower : g.control.head caller p with
+    cases lower : g.head p with
     | exit | request => simp [lower, upper, Head.MatchesWith] at agreement
     | diverge =>
       left
-      rw [g.observe_state_step, h.observe_state_step, lower, upper]
+      rw [g.step, h.step, lower, upper]
       exact le_rfl
   | request op' operand' next' =>
-    cases lower : g.control.head caller p with
+    cases lower : g.head p with
     | exit | diverge => simp [lower, upper, Head.MatchesWith] at agreement
     | request op operand next =>
       rw [lower, upper] at agreement
@@ -145,41 +162,49 @@ private theorem local_match (g : Endpoint S R A) (h : Endpoint S T A) (caller : 
           by rw [Head.execute, answer], replies reply⟩
       | fault t =>
         left
-        rw [g.observe_state_step, h.observe_state_step, lower, upper, Head.execute, Head.execute, answer]
+        rw [g.step, h.step, lower, upper, Head.execute, Head.execute, answer]
       | diverge =>
         left
-        rw [g.observe_state_step, h.observe_state_step, lower, upper, Head.execute, Head.execute, answer]
+        rw [g.step, h.step, lower, upper, Head.execute, Head.execute, answer]
+
+theorem observer_closed_relation_sound (g : HeadObserver.{u,v} S R) (h : HeadObserver.{u,v} S T)
+    (prim : StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
+    (closed : ∀ p q, rel p q → (g.head p).MatchesWith
+      (fun i j => (i, g.returnValue p i) = (j, h.returnValue q j)) rel (h.head q))
+    {p : Packet R} {q : Packet T} (related : rel p q) (s : σ) :
+    g.observe prim p s ≤ h.observe prim q s := by
+  classical
+  by_contra fails
+  let Bad := { x : Packet R × Packet T × σ // rel x.1 x.2.1 ∧
+    ¬ g.observe prim x.1 x.2.2 ≤ h.observe prim x.2.1 x.2.2 }
+  let start : Bad := ⟨(p, q, s), related, fails⟩
+  have advance (x : Bad) : ∃ y : Bad,
+      (g.head x.val.1).execute prim x.val.2.2 = .repeat y.val.1 y.val.2.2 ∧
+      (h.head x.val.2.1).execute prim x.val.2.2 = .repeat y.val.2.1 y.val.2.2 := by
+    obtain ⟨⟨p, q, s⟩, related, fails⟩ := x
+    obtain order | ⟨p', q', t, lp, rp, related'⟩ :=
+      local_match g h prim rel p q s (closed p q related)
+    · exact (fails order).elim
+    have fails' : ¬ g.observe prim p' t ≤ h.observe prim q' t := by
+      rw [g.step, h.step, lp, rp] at fails
+      exact fails
+    exact ⟨⟨(p', q', t), related', fails'⟩, lp, rp⟩
+  let path : Nat → Bad := fun n => Nat.rec start (fun _ x => (advance x).choose) n
+  have edges (n : Nat) := (advance (path n)).choose_spec
+  let store := fun n => (path n).val.2.2
+  have left := g.infinite prim (fun n => (path n).val.1) store (fun n => (edges n).1)
+  have right := h.infinite prim (fun n => (path n).val.2.1) store (fun n => (edges n).2)
+  change g.observe prim p s = WithTop.some {Outcome.diverge} at left
+  change h.observe prim q s = WithTop.some {Outcome.diverge} at right
+  exact fails ((left.trans right.symm).le)
 
 theorem payload_closed_relation_sound (g : Endpoint S R A) (h : Endpoint S T A) (caller : Payload (R.get g.control.entry))
     (caller' : Payload (T.get h.control.entry)) (prim : StatePrimitives Φ σ) (rel : Packet R → Packet T → Prop)
     (closed : ∀ p q, rel p q → (g.control.head caller p).MatchesWith
       (fun i j => (g.returnPacket caller p i).raw = (h.returnPacket caller' q j).raw) rel (h.control.head caller' q))
     {p : Packet R} {q : Packet T} (related : rel p q) (s : σ) :
-    g.observeAt caller prim p s ≤ h.observeAt caller' prim q s := by
-  classical
-  by_contra fails
-  let Bad := { x : Packet R × Packet T × σ // rel x.1 x.2.1 ∧
-    ¬ g.observeAt caller prim x.1 x.2.2 ≤ h.observeAt caller' prim x.2.1 x.2.2 }
-  let start : Bad := ⟨(p, q, s), related, fails⟩
-  have advance (x : Bad) : ∃ y : Bad,
-      (g.control.head caller x.val.1).execute prim x.val.2.2 = .repeat y.val.1 y.val.2.2 ∧
-      (h.control.head caller' x.val.2.1).execute prim x.val.2.2 = .repeat y.val.2.1 y.val.2.2 := by
-    obtain ⟨⟨p, q, s⟩, related, fails⟩ := x
-    obtain order | ⟨p', q', t, lp, rp, related'⟩ :=
-      local_match g h caller caller' prim rel p q s (closed p q related)
-    · exact (fails order).elim
-    have fails' : ¬ g.observeAt caller prim p' t ≤ h.observeAt caller' prim q' t := by
-      rw [g.observe_state_step, h.observe_state_step, lp, rp] at fails
-      exact fails
-    exact ⟨⟨(p', q', t), related', fails'⟩, lp, rp⟩
-  let path : Nat → Bad := fun n => Nat.rec start (fun _ x => (advance x).choose) n
-  have edges (n : Nat) := (advance (path n)).choose_spec
-  let store := fun n => (path n).val.2.2
-  have left := payload_observe_infinite g caller prim (fun n => (path n).val.1) store (fun n => (edges n).1)
-  have right := payload_observe_infinite h caller' prim (fun n => (path n).val.2.1) store (fun n => (edges n).2)
-  change g.observeAt caller prim p s = WithTop.some {Outcome.diverge} at left
-  change h.observeAt caller' prim q s = WithTop.some {Outcome.diverge} at right
-  exact fails ((left.trans right.symm).le)
+    g.observeAt caller prim p s ≤ h.observeAt caller' prim q s :=
+  observer_closed_relation_sound (payload_observer g caller) (payload_observer h caller') prim rel closed related s
 
 theorem unit_matches_iff (g : Table S R) (h : Table S T) (a : Payload (R.get g.entry))
     (b : Payload (T.get h.entry)) (p : Packet R) (q : Packet T) (rel : Packet R → Packet T → Prop)
