@@ -184,4 +184,92 @@ theorem effectful_query_unknown :
 
 end VariableExample
 
+/-- Successful decision readback proves equality in unchanged Paper at the
+original packed endpoint and the guarded tree used by default quotation. -/
+theorem Candidate.packed_eq_with_decisions {fuel : Nat} {p : Candidate} {t : Tree 1}
+    (h : p.readWithDecisions fuel = some t) : p.packed = t.defaultPacked :=
+  BitQueryTreeReadback.packed_eq_decision h
+
+/-- Different query expressions may have the same key. Completeness uses
+native quotation, including contextual case expansion on each live slot. -/
+theorem eq_iff_key_with_decisions {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithDecisions fuel = some t) (hq : q.readWithDecisions fuel = some u) :
+    p.packed = q.packed ↔ t.key = u.key :=
+  BitQueryTreeReadback.decision_eq_iff_key hp hq
+
+theorem compare_with_decisions_equal_iff {fuel : Nat} {p q : Candidate} {t u : Tree 1}
+    (hp : p.readWithDecisions fuel = some t) (hq : q.readWithDecisions fuel = some u) :
+    Readback.compareWithDecisions fuel p q = .equal ↔ p.packed = q.packed :=
+  BitQueryTreeReadback.compare_decision_equal_iff hp hq
+
+theorem compare_with_decisions_different {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithDecisions fuel p q = .different w) :
+    w.history.observation ∈ (if w.fromRight then q else p).observations w.guard ∧
+      w.history.observation ∉ (if w.fromRight then p else q).observations w.guard :=
+  BitQueryTreeReadback.compare_decision_different h
+
+theorem compare_with_decisions_different_ne {fuel : Nat} {p q : Candidate} {w : Difference}
+    (h : Readback.compareWithDecisions fuel p q = .different w) : p.packed ≠ q.packed :=
+  BitQueryTreeReadback.compare_decision_different_ne h
+
+namespace DecisionExample
+
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload.Finite (Assignment)
+
+theorem numbered_typed (renumbered : Bool) (shape : Shape) :
+    ValueBranches [Bit] (numbered renumbered shape) Exits :=
+  BitQueryTreeReadback.DecisionExample.numbered_typed renumbered shape
+
+theorem term_case_typed : ValueBranches [Bit] termCase Exits :=
+  BitQueryTreeReadback.DecisionExample.term_case_typed
+
+@[expose] def program (renumbered : Bool) (shape : Shape) : Candidate :=
+  ⟨numbered renumbered shape, numbered_typed renumbered shape⟩
+
+@[expose] def termOperand : Candidate := ⟨termCase, term_case_typed⟩
+
+theorem reads_plain : (program false .plain).readWithDecisions 16 = some (expected .plain) := rfl
+
+theorem reads_redundant : (program true .redundant).readWithDecisions 16 = some (expected .redundant) := rfl
+
+theorem reads_changed : (program true .changed).readWithDecisions 16 = some (expected .changed) := rfl
+
+theorem distinct_readbacks : expected .plain ≠ expected .redundant :=
+  BitQueryTreeReadback.DecisionExample.expected_ne
+
+theorem same_key : (expected .plain).key = (expected .redundant).key := rfl
+
+theorem same_packed : (program false .plain).packed = (program true .redundant).packed :=
+  (eq_iff_key_with_decisions reads_plain reads_redundant).mpr same_key
+
+/-- Only the right first reply with true payload and a false caller
+Bit changes the second query. -/
+theorem mismatch_iff (guard tag payload : Bool) :
+    let env := Assignment.push (fun _ : Fin 1 => guard) payload
+    (selectedQuery .plain tag).eval env ≠ (selectedQuery .changed tag).eval env ↔
+      tag = true ∧ payload = true ∧ guard = false := by
+  cases guard <;> cases tag <;> cases payload <;> decide
+
+theorem compare_one_assignment :
+    Readback.compareWithDecisions 16 (program false .plain) (program true .changed) = .different witness := rfl
+
+theorem separates_one_assignment :
+    witness.history.observation ∈ (program false .plain).observations witness.guard ∧
+      witness.history.observation ∉ (program true .changed).observations witness.guard :=
+  compare_with_decisions_different (fuel := 16) (p := program false .plain)
+    (q := program true .changed) (w := witness) compare_one_assignment
+
+/-- The focused operand-beta obligation is sufficient at the literal packed
+representative of the well-typed term-level example. -/
+theorem term_case_packed_of (beta : CaseOperandBeta) : termOperand.packed = quotedTermCase.defaultPacked :=
+  BitQueryTreeReadback.DecisionExample.term_case_packed_of beta
+
+theorem pure_term_case_unknown :
+    Readback.compareWithDecisions 16 (program false .plain) termOperand = .unknown := rfl
+
+theorem effectful_operand_unknown :
+    Readback.compareWithDecisions 16 (program false .plain) VariableExample.unsupported = .unknown := rfl
+
+end DecisionExample
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.BitQuery.RequestTree.Readback

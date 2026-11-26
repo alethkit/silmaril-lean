@@ -24,6 +24,7 @@ private def addCollisions (table : Table) (start count : Nat) : Except Error Tab
     let grown ← addCollisions replaced 8 1
     let filled ← addCollisions grown 9 4
     let overflowReplaced ← Growth.set #[] filled (collision 8) (int 88)
+    let second ← addCollisions overflowReplaced 13 5
     let hash : UInt32 := 0x0240000f
     let slotIndices : List (Option Nat) := (grown.slots hash).map (fun slot => slot.map Prod.snd)
     let expectedKeys := (List.range 13).map collision
@@ -33,7 +34,12 @@ private def addCollisions (table : Table) (start count : Nat) : Except Error Tab
       (overflowReplaced.candidates hash).map Prod.snd = [7, 6, 5, 4, 3, 2, 1, 0, 8, 12, 11, 10, 9] ∧
       overflowReplaced.keys = expectedKeys ∧ Growth.get #[] overflowReplaced (int 0) = .ok (some (int 99)) ∧
       Growth.get #[] overflowReplaced (collision 8) = .ok (some (int 88)) ∧
-      (Growth.set #[] overflowReplaced (collision 13) (int 13)).map Table.keys = .error .capacity))
+      second.width = Width.two.double ∧ (second.slots hash).length = 24 ∧
+      (second.candidates hash).map Prod.snd = [7, 6, 5, 4, 3, 2, 1, 0, 8, 15, 14, 13, 12, 11, 10, 9, 16, 17] ∧
+      second.keys = (List.range 18).map collision ∧
+      Growth.get #[] second (int 0) = .ok (some (int 99)) ∧
+      Growth.get #[] second (collision 8) = .ok (some (int 88)) ∧
+      Growth.get #[] second (collision 16) = .ok (some (int 16))))
   fixture = .ok true
 
 -- The first key has an even hash. Rehash moves it to the other bucket and the
@@ -53,6 +59,24 @@ private def addCollisions (table : Table) (start count : Nat) : Except Error Tab
       (grown.candidates evenHash).map Prod.snd = [0] ∧ grown.keys = int 1 :: remaining ∧
       Growth.get #[] grown (int 1) = .ok (some (int 99))) &&
       (List.range 8).all (fun n => decide (Growth.get #[] grown (collision (n+1)) = .ok (some (int (Int.ofNat (n+1)))))))
+  fixture = .ok true
+
+-- The first row shares a home through width two. Removing it from the
+-- collision chain at width four promotes row eight into the primary bucket.
+#guard
+  let fixture : Except Error Bool := do
+    let first ← Growth.set #[] Table.empty (int 2) (int 0)
+    let full ← addCollisions first 1 12
+    let replaced ← Growth.set #[] full (.scalar (.float 0x4000000000000000)) (int 99)
+    let grown ← addCollisions replaced 13 1
+    let hash : UInt32 := 0x0240000f
+    pure (decide (replaced.width = .two ∧ grown.width = Width.two.double ∧
+      (replaced.candidates hash).map Prod.snd = [7, 6, 5, 4, 3, 2, 1, 8, 12, 11, 10, 9] ∧
+      (grown.candidates hash).map Prod.snd = [8, 7, 6, 5, 4, 3, 2, 1, 9, 13, 12, 11, 10] ∧
+      grown.keys = int 2 :: (List.range 13).map (fun n => collision (n + 1)) ∧
+      Growth.get #[] grown (int 2) = .ok (some (int 99))) &&
+      (List.range 13).all (fun n => decide (Growth.get #[] grown (collision (n + 1)) =
+        .ok (some (int (Int.ofNat (n + 1)))))))
   fixture = .ok true
 
 private def deep (leaf : Value) : Meaning Value :=
@@ -79,11 +103,13 @@ private def cycleFixture : Meaning (Value × Value × Value) := do
       let leftStart ← Growth.set heap Table.empty key cycle
       let rightStart ← Growth.set heap Table.empty alias cycle
       let rightFull ← fill rightStart 7
-      let left ← fill leftStart 8
-      let right ← fill rightStart 8
-      let shallow ← fill Table.empty 9
-      pure (decide (rightFull.width = .one ∧ right.width = .two ∧
+      let rightSecondFull ← fill rightStart 12
+      let left ← fill leftStart 13
+      let right ← fill rightStart 13
+      let shallow ← fill Table.empty 14
+      pure (decide (rightFull.width = .one ∧ rightSecondFull.width = .two ∧ right.width = Width.two.double ∧
         (Growth.set heap rightFull key cycle).map Table.keys = .error (.runtime .comparisonDepth) ∧
+        (Growth.set heap rightSecondFull key cycle).map Table.keys = .error (.runtime .comparisonDepth) ∧
         Growth.get heap right key = .error (.runtime .comparisonDepth) ∧ Growth.contains heap right key = .ok false ∧
         Growth.equalWith heap compare Comparison.defaultDepth left right = .ok false ∧
         Growth.equalWith heap compare Comparison.defaultDepth shallow shallow = .error (.runtime .comparisonDepth)))

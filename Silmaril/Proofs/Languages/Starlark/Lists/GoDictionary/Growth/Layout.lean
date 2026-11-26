@@ -11,65 +11,62 @@ open Silmaril.Languages.Starlark.Lists.GoDictionary (Error Row hashKey storedHas
 open Silmaril.Languages.Starlark.Lists.GoDictionary.Growth
 open Silmaril.Languages.Starlark.Lists (Heap Value)
 
-theorem occupied_slots {α : Type} (entries : List α) :
-    (physicalChain entries).filterMap id = slotOrder entries := by
+private theorem occupied_suffix {α : Type} (entries : List α) (n : Nat) :
+    ((List.replicate n none ++ entries.map some).filterMap id) = entries := by
   have empty : (id : Option α → Option α) none = none := rfl
-  have suffix (later : List α) (n : Nat) :
-      ((List.replicate n none ++ later.map some).filterMap id) = later := by
-    simp [List.filterMap_replicate_of_none empty, List.filterMap_map, Function.comp_def]
-  rw [physicalChain, slotOrder, List.filterMap_append, primarySlots, suffix]
-  cases h : entries.drop 8 with
-  | nil => rfl
-  | cons first later => simp [overflowSlots, overflowOrder]
+  simp [List.filterMap_replicate_of_none empty, List.filterMap_map, Function.comp_def]
+
+private theorem overflow_perm {α : Type} (entries : List α) :
+    ((overflowSlots entries).filterMap id).Perm entries := by
+  cases entries with
+  | nil => simp [overflowSlots]
+  | cons first later =>
+    rw [overflowSlots, List.filterMap_append, overflowBlock, List.filterMap_cons]
+    simp only [id_eq, occupied_suffix, List.cons_append]
+    exact .cons first (by
+      simpa only [List.take_append_drop] using
+        (List.reverse_perm (later.take 7)).append (overflow_perm (later.drop 7)))
+termination_by entries.length
+decreasing_by simp; omega
 
 theorem slot_order_perm {α : Type} (entries : List α) :
     (slotOrder entries).Perm entries := by
-  have overflow (rows : List α) : (overflowOrder rows).Perm rows := by
-    cases rows with
-    | nil => exact .nil
-    | cons first later => exact .cons first (List.reverse_perm later)
-  simpa only [slotOrder, List.take_append_drop] using
-    (List.reverse_perm (entries.take 8)).append
-      (overflow (entries.drop 8))
+  rw [slotOrder, physicalChain, List.filterMap_append, primarySlots, occupied_suffix]
+  simpa only [List.take_append_drop] using
+    (List.reverse_perm (entries.take 8)).append (overflow_perm (entries.drop 8))
 
-theorem chain_size {α : Type} (entries : List α) (bound : entries.length ≤ 16) :
-    (physicalChain entries).length = if entries.length ≤ 8 then 8 else 16 := by
-  have primary : (primarySlots entries).length = 8 := by
-    simp only [primarySlots, List.length_append, List.length_replicate, List.length_map,
-      List.length_reverse, List.length_take]
-    omega
-  rw [physicalChain, List.length_append, primary]
-  have dropLength := List.length_drop (l := entries) (i := 8)
-  cases h : entries.drop 8 with
-  | nil =>
-    rw [h, List.length_nil] at dropLength
-    simp [overflowSlots, show entries.length ≤ 8 by omega]
+private theorem primary_size {α : Type} (entries : List α) : (primarySlots entries).length = 8 := by
+  simp only [primarySlots, List.length_append, List.length_map, List.length_reverse,
+    List.length_replicate, List.length_take]
+  omega
+
+private theorem overflow_size {α : Type} (entries : List α) :
+    (overflowSlots entries).length = 8 * ((entries.length + 7) / 8) := by
+  cases entries with
+  | nil => simp [overflowSlots]
   | cons first later =>
-    rw [h, List.length_cons] at dropLength
-    simp only [overflowSlots, List.length_cons, List.length_append, List.length_replicate,
-      List.length_map, List.length_reverse, ite_eq_right (show ¬ entries.length ≤ 8 by omega)]
+    rw [overflowSlots, List.length_append, overflow_size (later.drop 7)]
+    simp only [overflowBlock, List.length_cons, List.length_append, List.length_replicate, List.length_map,
+      List.length_reverse, List.length_take, List.length_drop]
     omega
+termination_by entries.length
+decreasing_by simp; omega
+
+theorem chain_size {α : Type} (entries : List α) :
+    (physicalChain entries).length = 8 * max 1 ((entries.length + 7) / 8) := by
+  rw [physicalChain, List.length_append, primary_size, overflow_size, List.length_drop]
+  omega
 
 theorem candidates_slots (table : Table) (hash : UInt32) :
     table.candidates hash = (table.slots hash).filterMap (fun cell =>
       cell.filter fun item => item.1.hash == hash) := by
-  rw [Table.candidates, orderedCandidates, Table.slots, Table.homeEntries, ← occupied_slots, List.filter_filterMap]
+  rw [Table.candidates, orderedCandidates, Table.slots, Table.homeEntries, slotOrder, List.filter_filterMap]
   rfl
-
-theorem home_length_le (table : Table) (hash : UInt32) :
-    (table.homeEntries hash).length ≤ table.entries.length := by
-  simpa [Table.homeEntries, homeRows] using
-    List.length_filter_le (fun item : Row × Nat =>
-      table.width.home item.1.hash == table.width.home hash) table.entries.zipIdx
 
 theorem slots_wellFormed (table : Table) (hash : UInt32) :
     ((table.slots hash).filterMap id).Perm (table.homeEntries hash) ∧
-    (table.slots hash).length = (if (table.homeEntries hash).length ≤ 8 then 8 else 16) := by
-  have home := home_length_le table hash
-  have bound := table.bounded
-  have fits : table.width.limit ≤ 16 := by cases table.width <;> decide
-  exact ⟨by rw [Table.slots, occupied_slots]; exact slot_order_perm _,
-    chain_size _ (by omega)⟩
+    (table.slots hash).length = 8 * max 1 (((table.homeEntries hash).length + 7) / 8) :=
+  ⟨slot_order_perm _, chain_size _⟩
 
 theorem home_append (table : Table) (row : Row) (room : table.entries.length < table.width.limit)
     (hash : UInt32) :
@@ -97,34 +94,65 @@ theorem append_primary {α : Type} (entries : List α) (row : α) (room : entrie
     List.reverse_singleton, List.singleton_append, List.map_cons]
   exact (fill_suffix entries.reverse row (7 - entries.length)).symm
 
-theorem append_first_overflow {α : Type} (entries : List α) (row : α) (full : entries.length = 8) :
-    physicalChain (entries ++ [row]) = physicalChain entries ++ (some row :: List.replicate 7 none) := by
-  have takeRows := List.take_append_of_le_length (l₁ := entries) (l₂ := [row]) (i := 8) (by omega)
-  have suffix := List.drop_append_of_le_length (l₁ := entries) (l₂ := [row]) (i := 8) (by omega)
-  rw [physicalChain, physicalChain, primarySlots, primarySlots, takeRows, suffix]
-  simp [full, List.drop_of_length_le (show entries.length ≤ 8 by omega), overflowSlots]
-
-theorem append_overflow {α : Type} (entries : List α) (row : α)
-    (overflow : 8 < entries.length) (room : entries.length < 16) :
-    physicalChain (entries ++ [row]) =
-      (physicalChain entries).set (24 - entries.length) (some row) := by
-  have takeRows := List.take_append_of_le_length (l₁ := entries) (l₂ := [row]) (i := 8) (by omega)
-  have suffix := List.drop_append_of_le_length (l₁ := entries) (l₂ := [row]) (i := 8) (by omega)
-  have size : (primarySlots entries).length = 8 := by
-    simp [primarySlots, List.length_take, Nat.min_eq_left (show 8 ≤ entries.length by omega)]
-  have length := List.length_drop (l := entries) (i := 8)
-  cases h : entries.drop 8 with
-  | nil => simp [h] at length; omega
+private theorem overflow_append {α : Type} (entries : List α) (row : α) :
+    overflowSlots (entries ++ [row]) =
+      if entries.length % 8 = 0 then overflowSlots entries ++ (some row :: List.replicate 7 none)
+      else (overflowSlots entries).set (8 * (entries.length / 8) + (8 - entries.length % 8)) (some row) := by
+  cases entries with
+  | nil => simp [overflowSlots, overflowBlock]
   | cons first later =>
-    rw [h, List.length_cons] at length
-    have vacant : 7 - later.length = (6 - later.length) + 1 := by omega
-    have remaining : 7 - (later.length + 1) = 6 - later.length := by omega
-    have index : 24 - entries.length - 8 = (6 - later.length) + 1 := by omega
-    rw [physicalChain, physicalChain, List.set_append_right (h := by omega), size, index]
-    simp only [primarySlots, takeRows, suffix, h, List.cons_append, overflowSlots, List.length_append,
-      List.length_singleton, remaining, vacant, List.reverse_append, List.reverse_singleton,
-      List.nil_append, List.map_cons, List.set_cons_succ]
-    rw [fill_suffix]
+    simp only [List.cons_append]
+    rw [overflowSlots, overflowSlots]
+    by_cases full : 7 ≤ later.length
+    · rw [List.take_append_of_le_length full, List.drop_append_of_le_length full]
+      rw [overflow_append (later.drop 7) row]
+      have size : (overflowBlock first (later.take 7)).length = 8 := by
+        simp [overflowBlock, List.length_take, Nat.min_eq_left full]
+      have rem : (later.drop 7).length % 8 = (first :: later).length % 8 := by
+        simp only [List.length_drop, List.length_cons]
+        omega
+      rw [rem]
+      split
+      · simp only [List.append_assoc]
+      · rw [List.set_append_right (h := by simp only [size, List.length_cons]; omega), size]
+        simp only [List.length_drop, List.length_cons]
+        congr 2
+        omega
+    · have before : later.length ≤ 7 := by omega
+      have after : (later ++ [row]).length ≤ 7 := by simp; omega
+      have vacant : 7 - later.length = (6 - later.length) + 1 := by omega
+      have remaining : 7 - (later.length + 1) = 6 - later.length := by omega
+      have block : (first :: later).length / 8 = 0 := by simp; omega
+      have rem : (first :: later).length % 8 = later.length + 1 := by simp; omega
+      have index : 8 - (later.length + 1) = (6 - later.length) + 1 := by omega
+      simp only [List.take_of_length_le before, List.take_of_length_le after,
+        List.drop_of_length_le before, List.drop_of_length_le after, overflowSlots, List.append_nil,
+        overflowBlock, List.length_append, List.length_singleton, vacant, remaining, rem, block,
+        Nat.mul_zero, Nat.zero_add, index, List.set_cons_succ, List.reverse_append, List.reverse_singleton]
+      rw [fill_suffix]
+      simp
+termination_by entries.length
+decreasing_by simp; omega
+
+theorem append_overflow {α : Type} (entries : List α) (row : α) (full : 8 ≤ entries.length) :
+    physicalChain (entries ++ [row]) =
+      if entries.length % 8 = 0 then physicalChain entries ++ (some row :: List.replicate 7 none)
+      else (physicalChain entries).set (8 * (entries.length / 8) + (8 - entries.length % 8)) (some row) := by
+  unfold physicalChain
+  simp only [primarySlots, List.take_append_of_le_length full, List.drop_append_of_le_length full]
+  rw [overflow_append (entries.drop 8) row]
+  have rem : (entries.drop 8).length % 8 = entries.length % 8 := by
+    simp only [List.length_drop]
+    omega
+  rw [rem]
+  split
+  · simp only [List.append_assoc]
+  · have size : (primarySlots entries).length = 8 := primary_size _
+    change primarySlots entries ++ _ = (primarySlots entries ++ _).set _ _
+    rw [List.set_append_right (h := by rw [size]; omega), size]
+    simp only [List.length_drop]
+    congr 2
+    omega
 
 theorem lookup_hit_row (heap : Heap) (table : Table) (key : Value) (hash : UInt32)
     (hit : Row × Nat) (found : lookupWithHash heap table key = .ok (hash, some hit)) :

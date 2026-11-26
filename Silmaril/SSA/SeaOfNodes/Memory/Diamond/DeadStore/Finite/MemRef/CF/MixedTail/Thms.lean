@@ -56,6 +56,18 @@ theorem lower_eq_none_iff :
       ∀ version ∈ storeVersions entry, tryVersion fits arm suffix input entry version = none :=
   List.findSome?_eq_none_iff
 
+/-- A nominated success supplies the exact cut, suffix certificate and
+independently admitted original occurrences. -/
+theorem tryVersion_checked {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result) :
+    result.version = version ∧
+      inferCut result.version entry = some (result.emission.edit, result.ports) ∧
+      result.facts.Valid input ∧ inferCandidate preds result.emission.edit.address arm = some result.candidate ∧
+      (∀ i, LoadTail.PrefixWord.checkArm result.emission.edit.address (arm i) (result.candidate i) input = true) ∧
+      result.emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
+        lowerBank preds fits cells (some result.emission.edit.retained) arm suffix⟩ :=
+  Proofs.tryVersion_checked accepted
+
 /-- Successful discovery records the actual address certificate, independently
 admitted occurrences, saved input and exact emitted pair. -/
 theorem lower_checked (accepted : lower fits arm suffix input entry = some result) :
@@ -66,6 +78,21 @@ theorem lower_checked (accepted : lower fits arm suffix input entry = some resul
       result.emission.programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
         lowerBank preds fits cells (some result.emission.edit.retained) arm suffix⟩ :=
   Proofs.lower_checked accepted
+
+/-- The checked nomination preserves the entry Return and each Load word,
+and reconstructs the original whole entry buffer. -/
+theorem tryVersion_entry {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result) (initial : Buffer cells) :
+    let edit := result.emission.edit
+    let checkedInput := result.emission.programs.input
+    let retained := observe edit.retained checkedInput initial
+    let word := (observe edit.beforeStore checkedInput initial).1
+    let probe := fun (graph : Memory.Graph args) (index : Nat) => (throughLoad graph index).map fun block =>
+      (observe block checkedInput initial).1
+    DeletesStores 1 (operations entry) (operations edit.retained) ∧
+      observe entry checkedInput initial = (retained.1, ⟨Heap.write retained.2.cell (cell checkedInput edit.address) word⟩) ∧
+      ∀ index, probe entry index = probe edit.retained index :=
+  Proofs.tryVersion_entry accepted initial
 
 /-- The emitted entry retains the Return word and each ordered Load word.
 The original entry buffer is recovered by reapplying the nominated write. -/
@@ -80,6 +107,20 @@ theorem lower_entry (accepted : lower fits arm suffix input entry = some result)
       observe entry checkedInput initial = (retained.1, ⟨Heap.write retained.2.cell (cell checkedInput edit.address) word⟩) ∧
       ∀ index, probe entry index = probe edit.retained index :=
   Proofs.lower_entry accepted initial
+
+/-- The nominated pair agrees on the selected occurrence, complete join
+packet and return observation at every common budget. -/
+theorem tryVersion_observations {version : Nat}
+    (accepted : tryVersion fits arm suffix input entry version = some result)
+    (arrival : Occurrence preds) (fuel : Nat) (initial : Buffer cells) :
+    let programs := result.emission.programs
+    let before := entryTransition programs.original programs.input arrival initial
+    let after := entryTransition programs.optimized programs.input arrival initial
+    before.1 = .inl ⟨.arm arrival, .nil⟩ ∧ after.1 = .inl ⟨.arm arrival, .nil⟩ ∧
+      armTransition programs.optimized programs.input arrival after.2 =
+        armTransition programs.original programs.input arrival before.2 ∧
+      run programs.optimized programs.input arrival fuel initial = run programs.original programs.input arrival fuel initial :=
+  Proofs.tryVersion_observations accepted arrival fuel initial
 
 /-- At the saved input, the emitted CFGs select the same occurrence and
 agree on its join packet, return word and full buffer at every common budget. -/

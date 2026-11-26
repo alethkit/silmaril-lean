@@ -18,17 +18,55 @@ variable {F : Type} {blocks exits captures : Nat}
   {sig : PrimitiveSignature F} {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
   {source : FiniteCFG F blocks exits captures}
 
+/-- Collect a straight row ending in a jump. Wrapping the operand in
+the original binders keeps reply dependencies and the final label. -/
+def transferOperand : Region F → Option (Nat × LambdaSSA.Tm F)
+  | .br label arg => some (label, arg)
+  | .let₁ value tail => (transferOperand tail).map fun (label, arg) => (label, .let₁ value arg)
+  | .let₂ value tail => (transferOperand tail).map fun (label, arg) => (label, .let₂ value arg)
+  | _ => none
+
+def foldedTransfer (written : Region F) : Option (Region F) :=
+  (transferOperand written).map fun (label, arg) => .br label arg
+
 /-- Each row either has a checked operand schedule or already belongs to
 the public packet-scoped grammar. The latter needs no fresh labels. -/
 inductive Row (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F)
-  | scheduled (body : ScheduledTransfer sig packets outputs input written)
+  | scheduled {transfer : Region F} (body : ScheduledTransfer sig packets outputs input transfer)
+      (origin : written = transfer ∨ foldedTransfer written = some transfer)
+  | outlined (count : Nat) (tree : EntryTree sig packets outputs [input] count)
+      (origin : written = tree.written)
   | unchanged (body : Code sig (Sum.elim packets outputs) [input])
       (accepted : elaborateRow (Sum.elim packets outputs) sig [input] written = some body)
 
 def Row.count {input : PacketType} {written : Region F} : Row sig packets outputs input written → Nat
-  | .scheduled body => body.count
+  | .scheduled body _ => body.count
+  | .outlined count _ _ => count
   | .unchanged .. => 0
+
+/-- Fall back to collecting sequential binds when the original row
+does not already have public readback. The normal operand checker still
+checks every initializer and the transfer's residual packet. -/
+def readStraight [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) :
+    Option (Row sig packets outputs input written) :=
+  match accepted : transferOperand written with
+  | some (label, arg) =>
+    if within : label < blocks + exits then do
+      let body ← readJump sig packets outputs input ⟨label, within⟩ arg
+      return .scheduled body (Or.inr (by simp only [foldedTransfer, accepted, Option.map_some]))
+    else none
+  | none => none
+
+/-- Check a branch-local continuation tree in the original packet scope.
+The exact erasure check ties every arm to the original written row. -/
+def readTree [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) :
+    Option (Row sig packets outputs input written) := do
+  let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] written
+  let exact ← commonRow (blocks + exits) written tree.written
+  return .outlined count tree (exact.property.1.trans exact.property.2.symm)
 
 structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures) where
@@ -37,19 +75,22 @@ structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketTyp
   entry_eq : source.entry.erase = .br start.val (packetTerm seed)
   row : ∀ i, Row sig packets outputs (packets i) (source.block i).erase
 
-/-- Read each original row before relocating any label. If a row cannot
-be scheduled, it must already elaborate in the public row grammar. -/
+/-- Read each original row before relocating any label. Public rows
+keep their existing lowering. The fallback schedules a checked straight
+sequence of binds or outlines a typed continuation tree. -/
 def read [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures) :
     Option (Shape sig packets outputs source) := do
   let ⟨⟨start, seed⟩, entryEq⟩ ← readEntry source
   let rows ← tabulateDependent blocks fun i =>
     match readTransfer sig packets outputs (packets i) (source.block i) with
-    | some body => some (.scheduled body)
+    | some body => some (.scheduled body (Or.inl rfl))
     | none =>
       match h : elaborateRow (Sum.elim packets outputs) sig [packets i] (source.block i).erase with
       | some body => some (.unchanged body h)
-      | none => none
+      | none =>
+        (readStraight sig packets outputs (packets i) (source.block i).erase).orElse fun _ =>
+          readTree sig packets outputs (packets i) (source.block i).erase
   return ⟨start, seed, entryEq, rows⟩
 
 def Shape.count (s : Shape sig packets outputs source) : Nat := ∑ i, (s.row i).count
@@ -63,13 +104,15 @@ def Shape.fresh (s : Shape sig packets outputs source) (i : Fin blocks) (j : Fin
 def Row.head {freshCount : Nat} {input : PacketType} {written : Region F} (row : Row sig packets outputs input written)
     (labels : Fin row.count → Fin (blocks + freshCount)) : Region F :=
   match row with
-  | .scheduled body => body.tree.entry (oldLabel freshCount) labels
+  | .scheduled body _ => body.tree.entry (oldLabel freshCount) labels
+  | .outlined _ tree _ => tree.entry (oldLabel freshCount) labels
   | .unchanged .. => written.renameLabels (moveExit blocks freshCount)
 
 def Row.cell {freshCount : Nat} {input : PacketType} {written : Region F} (row : Row sig packets outputs input written)
     (labels : Fin row.count → Fin (blocks + freshCount)) : Fin row.count → PacketType × Region F :=
   match row with
-  | .scheduled body => body.tree.cells (oldLabel freshCount) labels
+  | .scheduled body _ => body.tree.cells (oldLabel freshCount) labels
+  | .outlined _ tree _ => tree.cells (oldLabel freshCount) labels
   | .unchanged .. => Fin.elim0
 
 /-- Old block indices and packet types are retained. Only the outward

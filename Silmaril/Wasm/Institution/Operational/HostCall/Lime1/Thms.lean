@@ -31,6 +31,17 @@ theorem Site.step_iff (allocated : site.Allocated base) (contract : site.Contrac
         dst = site.pending (memory.store bytes) outer context args) :=
   Proofs.step_iff allocated contract live typed
 
+/-- Read an answered native callout back through a surrounding evaluation
+context that preserves the selected redex. -/
+theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
+    (plugged : wrapped.code = context.plug value inner.code) (store : wrapped.store = inner.store)
+    (decomposed : decompose? wrapped = (decompose? inner).map
+      (fun c => { c with context := context.comp c.context }))
+    (located : CalloutAt wrapped call) (answer : Answer host wrapped call dst) :
+    ∃ c mid, CalloutAt inner c ∧ Answer host inner c mid ∧
+      dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ :=
+  Proofs.answer_under plugged store decomposed located answer
+
 /-- Resolution consumes the selector in one internal step and preserves the
 current store, frame, operands and suffix. Success leaves a pending host or
 checked Wasm invocation. Bounds, null and signature failures leave a native trap. -/

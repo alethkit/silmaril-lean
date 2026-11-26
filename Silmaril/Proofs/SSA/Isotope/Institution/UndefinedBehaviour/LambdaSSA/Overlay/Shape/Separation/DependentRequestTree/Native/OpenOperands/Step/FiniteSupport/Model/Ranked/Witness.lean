@@ -69,21 +69,21 @@ private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
           cases lower : g.head a p with
           | exit i marked =>
             cases marked with
-            | true => simp [lower, upper, Head.Matches] at agreement
+            | true => simp [lower, upper, Head.Matches, Head.MatchesWith] at agreement
             | false =>
-              have same : i = j := by simpa [lower, upper, Head.Matches] using agreement
+              have same : i = j := by simpa [lower, upper, Head.Matches, Head.MatchesWith] using agreement
               rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper, same] at failed
               exact (failed le_rfl).elim
-          | diverge | request => simp [lower, upper, Head.Matches] at agreement
+          | diverge | request => simp [lower, upper, Head.Matches, Head.MatchesWith] at agreement
       | diverge =>
         cases lower : g.head a p with
         | diverge =>
           rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper] at failed
           exact (failed le_rfl).elim
-        | exit | request => simp [lower, upper, Head.Matches] at agreement
+        | exit | request => simp [lower, upper, Head.Matches, Head.MatchesWith] at agreement
       | request k operand route =>
         cases lower : g.head a p with
-        | exit | diverge => simp [lower, upper, Head.Matches] at agreement
+        | exit | diverge => simp [lower, upper, Head.Matches, Head.MatchesWith] at agreement
         | request f arg next =>
           rw [lower, upper] at agreement
           obtain ⟨rfl, values, _⟩ := agreement

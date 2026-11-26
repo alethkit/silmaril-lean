@@ -8,9 +8,13 @@ public import Silmaril.Languages.Python.Core.Closure.Defs
 @[expose] public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry
 
+inductive Arm (action : Type) where
+  | named (name : String) (body : List action)
+  | bare (body : List action)
+
 structure Plan (action : Type) where
   body : List action
-  handler : Option (List action)
+  handlers : List (Arm action)
   otherwise : List action
   cleanup : List action
 
@@ -42,13 +46,32 @@ def Outcome.afterCleanup {state failure : Type} (pending cleaned : Outcome state
   | .ok () => ⟨cleaned.reached, pending.completion⟩
   | .error _ => cleaned
 
+/-- A class test is reached only after every previous named test
+has returned false. A match or error ends selection. -/
+def selectHandler {state failure action : Type}
+    (testClass : state → failure → String → Except failure Bool) (reached : state) (pending : failure) :
+    List (Arm action) → Except failure (Option (List action))
+  | [] => .ok none
+  | .bare actions :: _ => .ok (some actions)
+  | .named name actions :: rest =>
+    match testClass reached pending name with
+    | .error error => .error error
+    | .ok true => .ok (some actions)
+    | .ok false => selectHandler testClass reached pending rest
+
 def afterBody {state failure action : Type} (suite : state → List action → Outcome state failure)
-    (isPythonError : failure → Bool) (body : Outcome state failure) (handler : Option (List action))
+    (isPythonError : failure → Bool) (testClass : state → failure → String → Except failure Bool)
+    (body : Outcome state failure) (handlers : List (Arm action))
     (otherwise : List action) : Outcome state failure :=
-  match body.completion, handler with
-  | .ok (), _ => suite body.reached otherwise
-  | .error failure, some arm => if isPythonError failure then suite body.reached arm else body
-  | .error _, none => body
+  match body.completion with
+  | .ok () => suite body.reached otherwise
+  | .error failure =>
+    if isPythonError failure then
+      match selectHandler testClass body.reached failure handlers with
+      | .ok (some arm) => suite body.reached arm
+      | .ok none => body
+      | .error error => ⟨body.reached, .error error⟩
+    else body
 
 def runCleanup {state failure action : Type} (suite : state → List action → Outcome state failure)
     (isPythonError : failure → Bool) (pending : Outcome state failure)
@@ -58,21 +81,44 @@ def runCleanup {state failure action : Type} (suite : state → List action → 
   else pending
 
 def run {state failure action : Type} (suite : state → List action → Outcome state failure)
-    (isPythonError : failure → Bool) (initial : state) (plan : Plan action) : Outcome state failure :=
+    (isPythonError : failure → Bool) (testClass : state → failure → String → Except failure Bool)
+    (initial : state) (plan : Plan action) : Outcome state failure :=
   let body := suite initial plan.body
-  let pending := afterBody suite isPythonError body plan.handler plan.otherwise
+  let pending := afterBody suite isPythonError testClass body plan.handlers plan.otherwise
   runCleanup suite isPythonError pending plan.cleanup
 
 open Source (ExceptHandler Expr Name Scope Stmt)
-open Core.Closure (RuntimeError)
+open Core.Closure (ExceptionClass RuntimeError)
+
+inductive HandlerClass where
+  | stock (kind : ExceptionClass)
+  | invalid
+  | outsideProfile
+
+/-- Read the handler name exactly when its arm is considered. A present
+invalid binding replaces the pending error instead of falling through. -/
+def matchClass {Value : Type} (lookup : Name → Option Value) (classOf : Value → HandlerClass)
+    (actual : ExceptionClass) (name : Name) : Except (Option RuntimeError) Bool :=
+  match lookup name with
+  | none => .error (some (.nameError name))
+  | some value =>
+    match classOf value with
+    | .stock expected => .ok (decide (expected.catches actual))
+    | .invalid => .error (some .invalidHandlerClass)
+    | .outsideProfile => .error none
 
 def scalarAtom : Expr → Bool
   | .name _ => true
   | source => (exactScalarLiteral? source).isSome
 
+def scalarCondition : Expr → Bool
+  | .comparison left [(.eq, right)] | .comparison left [(.ne, right)] =>
+    scalarAtom left && scalarAtom right
+  | source => scalarAtom source
+
 def scalarStatement : Stmt → Bool
   | .pass => true
-  | .assert_ condition none => scalarAtom condition
+  | .assert_ condition none => scalarCondition condition
   | statement =>
     match binding? statement with
     | some checked => scalarAtom checked.val.2
@@ -151,63 +197,88 @@ def RaiseCall.error {scope : Scope} {Value : Type} (call : RaiseCall scope)
 inductive Step (scope : Scope) where
   | scalar (action : Action scope)
   | raiseCall (call : RaiseCall scope)
+  | raiseInactive
 
-inductive Suite (scope : Scope) : List Stmt → List (Step scope) → Prop where
-  | nil : Suite scope [] []
+/-- Only the protected suite of a module-level try starts without an
+active exception in this standalone module profile. -/
+inductive Suite (scope : Scope) (allowInactiveRaise : Bool) : List Stmt → List (Step scope) → Prop where
+  | nil : Suite scope allowInactiveRaise [] []
   | scalar {source rest actions tail} (allowed : scalarStatement source = true)
       (code : ModuleEntry.Translation scope [source] actions)
-      (remaining : Suite scope rest tail) :
-      Suite scope (source :: rest) ((actions.map (Step.scalar ∘ Action.inLiteralArm)) ++ tail)
+      (remaining : Suite scope allowInactiveRaise rest tail) :
+      Suite scope allowInactiveRaise (source :: rest) ((actions.map (Step.scalar ∘ Action.inLiteralArm)) ++ tail)
   | raiseCall {source rest call tail} (checked : RaiseCall.Translation scope source call)
-      (remaining : Suite scope rest tail) :
-      Suite scope (source :: rest) (.raiseCall call :: tail)
+      (remaining : Suite scope allowInactiveRaise rest tail) :
+      Suite scope allowInactiveRaise (source :: rest) (.raiseCall call :: tail)
 
-def suite? (scope : Scope) : (source : List Stmt) → Option {actions // Suite scope source actions}
+  | raiseInactive {source rest tail} (form : source = .raise_ none none)
+      (inactive : allowInactiveRaise = true) (remaining : Suite scope allowInactiveRaise rest tail) :
+      Suite scope allowInactiveRaise (source :: rest) (.raiseInactive :: tail)
+
+def suite? (scope : Scope) (allowInactiveRaise : Bool) :
+    (source : List Stmt) → Option {actions // Suite scope allowInactiveRaise source actions}
   | [] => some ⟨[], .nil⟩
   | statement :: rest => do
-    let tail ← suite? scope rest
+    let tail ← suite? scope allowInactiveRaise rest
     if allowed : scalarStatement statement = true then
       let lowered ← (lowerStatements scope [statement]).toOption
       return ⟨lowered.val.map (Step.scalar ∘ Action.inLiteralArm) ++ tail.val,
         .scalar allowed lowered.property tail.property⟩
     else
-      let checked ← raiseCall? scope statement
-      return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
+      match form : statement with
+      | .raise_ none none =>
+        if inactive : allowInactiveRaise = true then
+          some ⟨.raiseInactive :: tail.val, .raiseInactive form inactive tail.property⟩
+        else none
+      | _ =>
+        let checked ← raiseCall? scope statement
+        return ⟨.raiseCall checked.val :: tail.val, .raiseCall checked.property tail.property⟩
 
-inductive Handler (scope : Scope) : List ExceptHandler → List Stmt → List Stmt →
-    Option (List (Step scope)) → Prop where
-  | finallyOnly {cleanup} (present : cleanup.isEmpty = false) :
-      Handler scope [] [] cleanup none
-  | bare {source otherwise cleanup actions} (present : source.isEmpty = false)
-      (translated : Suite scope source actions) :
-      Handler scope [⟨none, none, source⟩] otherwise cleanup (some actions)
+inductive Handlers (scope : Scope) : List ExceptHandler → List (Arm (Step scope)) → Prop where
+  | nil : Handlers scope [] []
+  | bare {source actions} (present : source.isEmpty = false)
+      (translated : Suite scope false source actions) :
+      Handlers scope [⟨none, none, source⟩] [.bare actions]
+  | named {name source actions rest arms} (reference : GlobalReference scope name)
+      (present : source.isEmpty = false) (translated : Suite scope false source actions)
+      (remaining : Handlers scope rest arms) :
+      Handlers scope (⟨some (.name name), none, source⟩ :: rest) (.named name actions :: arms)
 
-def handler? (scope : Scope) : (handlers : List ExceptHandler) → (otherwise cleanup : List Stmt) →
-    Option {handler // Handler scope handlers otherwise cleanup handler}
-  | [], [], cleanup =>
-    if present : cleanup.isEmpty = false then some ⟨none, .finallyOnly present⟩ else none
-  | [⟨none, none, source⟩], _, _ =>
+def handlers? (scope : Scope) :
+    (source : List ExceptHandler) → Option {arms // Handlers scope source arms}
+  | [] => some ⟨[], .nil⟩
+  | [⟨none, none, source⟩] =>
     if present : source.isEmpty = false then
-      (suite? scope source).map fun checked => ⟨some checked.val, .bare present checked.property⟩
+      (suite? scope false source).map fun checked => ⟨[.bare checked.val], .bare present checked.property⟩
     else none
-  | _, _, _ => none
+  | ⟨some (.name name), none, source⟩ :: rest => do
+    if present : source.isEmpty = false then
+      let reference ← globalReference? scope name
+      let checked ← suite? scope false source
+      let tail ← handlers? scope rest
+      return ⟨.named name checked.val :: tail.val, .named reference present checked.property tail.property⟩
+    else none
+  | _ => none
 
 inductive Translation (scope : Scope) : Stmt → Plan (Step scope) → Prop where
   | checked {body handlers otherwise cleanup first handler normal final}
-      (present : body.isEmpty = false) (bodyCode : Suite scope body first)
-      (handlerCode : Handler scope handlers otherwise cleanup handler)
-      (elseCode : Suite scope otherwise normal) (cleanupCode : Suite scope cleanup final) :
+      (present : body.isEmpty = false)
+      (shape : (!handlers.isEmpty || (otherwise.isEmpty && !cleanup.isEmpty)) = true)
+      (bodyCode : Suite scope true body first) (handlerCode : Handlers scope handlers handler)
+      (elseCode : Suite scope false otherwise normal) (cleanupCode : Suite scope false cleanup final) :
       Translation scope (.try_ body handlers otherwise cleanup) ⟨first, handler, normal, final⟩
 
 def check (scope : Scope) : (source : Stmt) → Option {plan // Translation scope source plan}
   | .try_ body handlers otherwise cleanup =>
     if present : body.isEmpty = false then do
-      let first ← suite? scope body
-      let handler ← handler? scope handlers otherwise cleanup
-      let normal ← suite? scope otherwise
-      let final ← suite? scope cleanup
-      return ⟨⟨first.val, handler.val, normal.val, final.val⟩,
-        .checked present first.property handler.property normal.property final.property⟩
+      if shape : (!handlers.isEmpty || (otherwise.isEmpty && !cleanup.isEmpty)) = true then
+        let first ← suite? scope true body
+        let handler ← handlers? scope handlers
+        let normal ← suite? scope false otherwise
+        let final ← suite? scope false cleanup
+        return ⟨⟨first.val, handler.val, normal.val, final.val⟩,
+          .checked present shape first.property handler.property normal.property final.property⟩
+      else none
     else none
   | _ => none
 

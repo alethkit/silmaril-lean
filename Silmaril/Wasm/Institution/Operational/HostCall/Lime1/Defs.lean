@@ -154,33 +154,48 @@ structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : Indirect
   allocated : child.Allocated base
   smaller : child.fn.rank < parent.fn.rank
 
+/-- The declared numeric signature of a direct call and its allocated host code. -/
+def Site.directTarget {H : Type} (target : CallTarget) (code : H) : Site H :=
+  ⟨target.address, target.declaration.type, code⟩
+
+/-- A direct host link checks the caller's function index and the exact
+host allocation. Its payload uses the same embedding contract as an indirect host. -/
+structure MemoryDirectHost {H : Type} {base : Store H} (memory : Memory32 base) (host : HostSemantics H)
+    (parent : MemoryTarget) (target : CallTarget) (code : H) : Prop where
+  resolves : parent.fn.declaration.module.funcs[target.index.toNat]? = some target.address
+  allocated : (Site.directTarget target code).Allocated base
+  contract : (Site.directTarget target code).Contract memory host
+
 /-- Resolve a nested site's type in the active callee while using the same
 fixed table and memory function registry as the enclosing dispatcher. -/
 def IndirectSite.memorySite (site : IndirectSite) (index : TypeIdx)
     (signature : Wasm.V1.FuncType) : IndirectSite :=
   ⟨⟨site.table, index, ⟨signature.params, signature.results⟩⟩, ⟨[]⟩, site.memoryFunctions⟩
 
-/-- Every nonnull entry is allocated. Entries with the expected ordered
-signature must be registered Wasm children of strictly smaller rank. -/
-structure IndirectSite.MemoryIndirect {H : Type} (site : IndirectSite) (base : Store H)
-    (parent : MemoryTarget) (index : TypeIdx) (signature : Wasm.V1.FuncType) : Prop where
+/-- Every nonnull entry is allocated. Matching Wasm entries must be registered
+children of strictly smaller rank. Matching hosts require their embedding
+contract, including store and result typing on returned traps. -/
+structure IndirectSite.MemoryIndirect {H : Type} (site : IndirectSite) {base : Store H}
+    (memory : Memory32 base) (host : HostSemantics H) (parent : MemoryTarget) (index : TypeIdx) (signature : Wasm.V1.FuncType) : Prop where
   tableAt : frameTable base ⟨[], parent.fn.declaration.module⟩ = some site.table
   signatureAt : parent.fn.declaration.module.types[index.toNat]? = some ⟨signature.params, signature.results⟩
   entries : ∀ address, some address ∈ site.table.refs →
     ∃ fn : FuncInst Wasm.Lime1.Func H, base.funcs[address.value]? = some fn ∧
-      (fn.type = ⟨signature.params, signature.results⟩ →
-        ∃ child, site.memoryLookup address = some child ∧
-          (⟨address, child⟩ : MemoryTarget).Allocated base ∧ child.rank < parent.fn.rank)
+      (fn.type = ⟨signature.params, signature.results⟩ → match fn with
+        | .host type code => (⟨address, type, code⟩ : Site H).Contract memory host
+        | .wasm .. => ∃ child, site.memoryLookup address = some child ∧
+            (⟨address, child⟩ : MemoryTarget).Allocated base ∧ child.rank < parent.fn.rank)
 
 /-- Static checks of the address-indexed graph used by the memory callee. -/
 structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : IndirectSite)
-    (memory : Memory32 base) : Prop where
+    (memory : Memory32 base) (host : HostSemantics H) : Prop where
   checked : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn → callee.Checked memory
   direct : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
-    ∀ target ∈ parent.fn.targets, ∃ child, site.MemoryDirect (base := base) parent target child
+    ∀ target ∈ parent.fn.targets, (∃ child, site.MemoryDirect (base := base) parent target child) ∨
+      ∃ code, MemoryDirectHost memory host parent target code
   indirect : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
     ∀ index signature, .callIndirect index signature ∈ parent.fn.code →
-      site.MemoryIndirect base parent index signature
+      site.MemoryIndirect memory host parent index signature
 
 /-- Matching hosts supply the embedding contract. Registered memory targets
 check their code and the designated memory of the actual allocated module. -/
@@ -189,7 +204,7 @@ structure IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite
   hosts : ∀ address code, some address ∈ site.table.refs →
     (⟨address, site.signature, code⟩ : Site H).Allocated base →
     (⟨address, site.signature, code⟩ : Site H).Contract memory host
-  memory : site.MemoryLinked memory
+  memory : site.MemoryLinked memory host
 
 /-- A single native lookup supplies an allocated target or one of the three
 trap witnesses. The selector is the unsigned i32 table index. -/

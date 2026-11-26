@@ -91,31 +91,42 @@ private theorem compiled_suite_files {aliases globals} (body : List (Step aliase
 theorem ordered_layout (plan : OrderedConsumer) {program : Program} {consumer : ResolvedModule}
     (checked : resolve plan.commands program = .ok consumer) :
     consumer.program = (compileSuite program plan.body).2 ∧ consumer.source.commands = plan.code program ∧
-    consumer.source.globals = plan.globals ∧ consumer.source.fileNames = plan.imports.map ImportSite.alias := by
+    consumer.source.globals = plan.globals ∧ consumer.source.fileNames = plan.aliases := by
   let body := plan.body.map Step.source
   have suffixNames := suite_names plan.body
   have names (loads : List ImportSite) : globalNames (loads.map ImportSite.source ++ body) = plan.globals := by
     induction loads with
     | nil => exact suffixNames.1.trans plan.declared
     | cons head tail ih => exact ih
+  have itemNames (site : ImportSite) : (site.bindings.map ImportBinding.item).map Modules.Import.localName =
+      site.aliases := by
+    simp [ImportSite.aliases, ImportBinding.item, List.map_map, Function.comp_def]
   have files (loads : List ImportSite) :
-      fileNames (loads.map ImportSite.source ++ body) = loads.map ImportSite.alias := by
+      fileNames (loads.map ImportSite.source ++ body) = loads.flatMap ImportSite.aliases := by
     induction loads with
     | nil => exact suffixNames.2
-    | cons head tail ih => exact congrArg (List.cons head.alias) ih
-  let context : BlockContext := ⟨(block (plan.imports.map ImportSite.alias) plan.globals).context, .global⟩
+    | cons head tail ih =>
+      change (head.bindings.map ImportBinding.item).map Modules.Import.localName ++
+        fileNames (tail.map ImportSite.source ++ body) = head.aliases ++ tail.flatMap ImportSite.aliases
+      rw [itemNames, ih]
+  let context : BlockContext := ⟨(block (plan.aliases) plan.globals).context, .global⟩
   have sameContext : moduleBlock plan.commands = context := by
     change moduleBlock (plan.imports.map ImportSite.source ++ body) = context
-    simp [moduleBlock, names, files, context, block, Assignment.LexicalBlock.context]
+    simp [moduleBlock, names, files, context, block, Assignment.LexicalBlock.context, OrderedConsumer.aliases]
   have compiledLoads (loads : List ImportSite) :
       (((loads.map ImportSite.source ++ body).mapM (elaborateCommand context))) program =
         .ok (loads.map ImportSite.code ++ (compileSuite program plan.body).1, (compileSuite program plan.body).2) := by
     induction loads with
-    | nil => simpa [body, context] using compiles_suite plan.body program
+    | nil => simpa [body, context, OrderedConsumer.aliases] using compiles_suite plan.body program
     | cons head tail ih =>
-      simp [body, ImportSite.source, ImportSite.code, List.mapM_cons, bind, StateT.bind, Except.bind,
-        pure, StateT.pure, Except.pure, elaborateCommand_load] at ih ⊢
-      rw [ih]
+      have headCode : elaborateCommand context head.source program = .ok (head.code, program) := by
+        cases items : head.bindings with
+        | nil => exact (head.nonempty items).elim
+        | cons item rest =>
+          simpa [ImportSite.source, ImportSite.code, items] using
+            elaborateCommand_load context head.label item.item (rest.map ImportBinding.item) program
+      simp only [List.map_cons, List.cons_append, List.mapM_cons, bind, StateT.bind, Except.bind,
+        pure, StateT.pure, Except.pure, headCode, ih]
   have detail := checked_of_resolve checked
   rw [elaborateCommands, sameContext] at detail
   obtain ⟨sameCode, sameTable⟩ := Prod.mk.inj (Except.ok.inj (detail.1.symm.trans (compiledLoads plan.imports)))
@@ -125,14 +136,17 @@ theorem ordered_layout (plan : OrderedConsumer) {program : Program} {consumer : 
     | .load _ imports => imports.map Modules.Import.localName
     | _ => []
   change (plan.imports.map ImportSite.code).flatMap collect ++
-    (compileSuite program plan.body).1.flatMap collect = plan.imports.map ImportSite.alias
+    (compileSuite program plan.body).1.flatMap collect = plan.imports.flatMap ImportSite.aliases
   have empty : (compileSuite program plan.body).1.flatMap collect = [] := compiled_suite_files plan.body program
   rw [empty, List.append_nil]
-  suffices ∀ loads : List ImportSite, (loads.map ImportSite.code).flatMap collect = loads.map ImportSite.alias from this _
+  suffices ∀ loads : List ImportSite, (loads.map ImportSite.code).flatMap collect = loads.flatMap ImportSite.aliases from this _
   intro loads
   induction loads with
   | nil => rfl
-  | cons head tail ih => exact congrArg (List.cons head.alias) ih
+  | cons head tail ih =>
+    change (head.bindings.map ImportBinding.item).map Modules.Import.localName ++
+      (tail.map ImportSite.code).flatMap collect = head.aliases ++ tail.flatMap ImportSite.aliases
+    rw [itemNames, ih]
 
 theorem consumer_layout (plan : Consumer) {program : Program} {consumer : ResolvedModule}
     (checked : resolve plan.commands program = .ok consumer) :

@@ -156,6 +156,48 @@ theorem discovery_refuses_the_wrong_return_after_propagation :
       Discovery.rewrite? (fixture true) resultTwin = none :=
   ⟨rfl, rfl, rfl, rfl⟩
 
+open GVN.Cyclic.FixedPoint (Refines)
+
+/-- An independently labelled discrete partition, with the labels in reverse order. -/
+private def distinctClasses : Discovery.Classes regs := ⟨Vector.ofFn Fin.rev⟩
+
+private theorem distinctClasses_label (i : Discovery.Lane regs) : distinctClasses i = i.rev := by
+  change (Vector.ofFn Fin.rev).get i = i.rev
+  cases i
+  simp [Vector.get, Fin.cast]
+
+private theorem distinctClasses_entry : Refines distinctClasses (Discovery.initial (fixture false)) := by
+  intro i j same
+  rw [distinctClasses_label, distinctClasses_label, Fin.rev_inj] at same
+  rw [same]
+
+private theorem distinctClasses_checked : Discovery.checkStable (fixture false) distinctClasses = true := rfl
+
+theorem finer_checked_partition_refines_every_round (fuel : Nat) :
+    Refines distinctClasses (Discovery.run (fixture false) fuel (Discovery.initial (fixture false))) :=
+  Discovery.stable_refines_run (fixture false)
+    ((Discovery.checkStable_eq_true_iff (fixture false) _).mp distinctClasses_checked) fuel _ distinctClasses_entry
+
+theorem discovered_classes_are_strictly_coarser_than_the_finer_partition :
+    Refines distinctClasses (Discovery.normalize (fixture false)) ∧
+      ¬ Refines (Discovery.normalize (fixture false)) distinctClasses := by
+  refine ⟨Discovery.normalize_coarsest (fixture false)
+    ((Discovery.checkStable_eq_true_iff (fixture false) _).mp distinctClasses_checked) distinctClasses_entry, ?_⟩
+  intro reverse
+  have different : distinctClasses laneA ≠ distinctClasses laneATwin := by decide
+  exact different (reverse laneA laneATwin rfl)
+
+theorem representative_substitution_recovers_both_feedback_keys :
+    let p := fixture false
+    let coarse := Discovery.normalize p
+    let rename := GVN.WordNumber.Key.substitute (fun port => (seed (Discovery.equations coarse)).get port)
+    Discovery.feedbackKeys p distinctClasses laneA ≠ Discovery.feedbackKeys p distinctClasses laneATwin ∧
+      Prod.map rename rename (Discovery.feedbackKeys p distinctClasses laneA) =
+        Discovery.feedbackKeys p coarse laneATwin := by
+  refine ⟨by decide, ?_⟩
+  exact (Discovery.feedbackKeys_coarsen (fixture false)
+    discovered_classes_are_strictly_coarser_than_the_finer_partition.1 laneA).trans rfl
+
 end Discovery
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Regression

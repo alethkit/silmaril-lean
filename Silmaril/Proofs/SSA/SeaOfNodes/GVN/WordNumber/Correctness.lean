@@ -112,6 +112,10 @@ private theorem keyArguments_get (inputs : List (ValueSort Unit)) :
       | head => rfl
       | tail inner => exact ih (fun q => lift (.tail q)) inner
 
+theorem entryKeys_get {inputs : List (ValueSort Unit)} (port : Port (dataPorts inputs) wordPort) :
+    (entryKeys inputs).get port = .argument port :=
+  keyArguments_get inputs (fun p => p) port
+
 theorem entry_read_agrees {inputs : List (ValueSort Unit)} (entry : Tuple (Val model.value) (dataPorts inputs))
     (wire : Origin (dataPorts inputs) [] wordPort) :
     (read (numbering (dataPorts inputs)) wire (entryKeys inputs) PUnit.unit).eval entry =
@@ -120,7 +124,7 @@ theorem entry_read_agrees {inputs : List (ValueSort Unit)} (entry : Tuple (Val m
   | output index _ => exact index.elim0
   | arg port =>
     change ((entryKeys inputs).get port).eval entry = entry.get port
-    rw [entryKeys, keyArguments_get]
+    rw [entryKeys_get]
     rfl
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.WordNumber

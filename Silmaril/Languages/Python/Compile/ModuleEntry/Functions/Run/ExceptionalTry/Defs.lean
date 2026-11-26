@@ -22,7 +22,7 @@ def ordinarySuite {scope : Source.Scope} (table : CodeTable) (session : Session)
 
 def ordinary {scope : Source.Scope} (table : CodeTable) (session : Session)
     (plan : Plan (ModuleEntry.Action scope)) : Outcome Session Completion :=
-  Functions.ExceptionalTry.run (ordinarySuite table) Completion.isPythonError session plan
+  Functions.ExceptionalTry.run (ordinarySuite table) Completion.isPythonError matchHandler session plan
 
 /-- Preserve the observation delivered before the compound statement,
 including its ordered receipts. -/
@@ -37,7 +37,8 @@ def seeded {scope : Source.Scope} (context : Seeded.CallContext) (incoming : See
   match incoming.completion with
   | .error _ => incoming
   | .ok () =>
-    let result := Functions.ExceptionalTry.run (seededSuite context) Seeded.ModuleFailure.isPythonError incoming plan
+    let result := Functions.ExceptionalTry.run (seededSuite context) Seeded.ModuleFailure.isPythonError
+      (fun observed => Seeded.matchHandler observed.residual) incoming plan
     { result.reached with completion := result.completion }
 
 

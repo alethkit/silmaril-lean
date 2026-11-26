@@ -9,7 +9,7 @@ namespace Silmaril.SSA.SeaOfNodes.GVN.WordNumber
 
 open Diamond (Dataflow Ty Val ValueSort dataPorts read)
 open Pure.SubZero (Opcode model wordPort)
-open RVSDG (Locals Origin Tuple extend)
+open RVSDG (Locals Origin Port Tuple extend)
 
 variable {args : List (Ty Unit)} {past sigs : List (List (Ty Unit))}
 
@@ -32,6 +32,11 @@ theorem eval_agrees (flow : Dataflow Opcode args past sigs)
       (read (numbering args) wire keys (flow.eval (numbering args) keys numbered)).eval entry =
         read model wire entry (flow.eval model entry locals) :=
   Proofs.SSA.SeaOfNodes.GVN.WordNumber.eval_agrees flow agrees
+
+/-- An initial word key is exactly its original typed argument leaf. -/
+theorem entryKeys_get {inputs : List (ValueSort Unit)} (port : Port (dataPorts inputs) wordPort) :
+    (entryKeys inputs).get port = .argument port :=
+  Proofs.SSA.SeaOfNodes.GVN.WordNumber.entryKeys_get port
 
 /-- A numbered entry reads the corresponding typed word for any input valuation. -/
 theorem entry_read_agrees {inputs : List (ValueSort Unit)}

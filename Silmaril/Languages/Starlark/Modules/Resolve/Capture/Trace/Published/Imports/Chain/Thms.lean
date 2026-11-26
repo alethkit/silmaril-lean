@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Defs
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Edge
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Graph
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Selection
 
 public section
 
@@ -12,6 +13,14 @@ open Defaults.Nested.Sequence (PreservesDeclarations)
 open Functions (Program)
 open Lists (State)
 open Loader (Manifest ModuleId Session)
+
+/-- Independent export selection agrees with the shared loader lookup for a
+whole command, including the first reached missing export. -/
+theorem selection_agrees {published : Modules.Published} {site : ImportSite}
+    {out : Except Modules.Error (List (Binding × Lists.Value))}
+    (source : SelectImports published site.label site.bindings.reverse out) :
+    Modules.importsOf published site.label (site.bindings.map ImportBinding.item) = out :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.group_agrees source
 
 /-- One checked import composes with a reached dependency in any manifest. The imported call uses the actual cache entry and address. -/
 theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exports : ModuleId → Tracked}

@@ -8,7 +8,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family
 
-open Diamond (ValueSort)
+open Diamond (ValueSort dataPorts)
 open Pure.SubZero (word)
 open Pure.ConstantFold.Comparison (Opcode model)
 open Quads.Loop.Blocks (Bank)
@@ -21,6 +21,15 @@ variable {p target : Program Opcode regs word} {equations : Equations regs} {rep
 /-- Every nominated pair has the same key in the common seed, including overlapping pairs. -/
 theorem seed_matches (equations : Equations regs) : matchesAll equations (seed equations) = true :=
   Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.seed_matches equations
+
+/-- A family seed preserves an interpretation of its original argument leaves
+whenever that interpretation already satisfies every nominated equality. -/
+theorem seed_interprets {A : Type*} (equations : Equations regs)
+    (interpret : WordNumber.Key (dataPorts regs) → A) (values : WordSlot regs → A)
+    (arguments : ∀ port : WordSlot regs, interpret (.argument port) = values port)
+    (holds : ∀ eq ∈ equations, values eq.representative = values eq.member) :
+    ∀ port : WordSlot regs, interpret ((seed equations).get port) = values port :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.seed_interprets equations interpret values arguments holds
 
 theorem certify?_isSome_iff :
     (certify? p equations replacement).isSome = true ↔

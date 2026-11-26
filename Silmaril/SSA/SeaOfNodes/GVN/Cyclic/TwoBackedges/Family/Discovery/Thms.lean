@@ -58,6 +58,32 @@ theorem normalize_fixed (i j : Lane regs) :
     refine p (normalize p) i = refine p (normalize p) j ↔ normalize p i = normalize p j :=
   (refine_eq_iff p _ i j).trans ⟨And.left, fun same => ⟨same, (normalize_stable p).1 i j same⟩⟩
 
+/-- The coarse seed replaces the argument leaves of the fine key.
+This uses the actual seed and independently preserves both feedback occurrences. -/
+theorem feedbackKeys_coarsen {fine coarse : Classes regs} (related : Refines fine coarse) (i : Lane regs) :
+    let rename := WordNumber.Key.substitute (fun arg => (Family.seed (equations coarse)).get arg)
+    Prod.map rename rename (feedbackKeys p fine i) = feedbackKeys p coarse i :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.feedback_coarsens p related i
+
+theorem refine_monotone {fine coarse : Classes regs} (related : Refines fine coarse) :
+    Refines (refine p fine) (refine p coarse) :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.refine_monotone p related
+
+theorem stable_refines_round {fine coarse : Classes regs} (stable : Stable p fine)
+    (related : Refines fine coarse) : Refines fine (refine p coarse) :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.stable_refines_round p stable related
+
+/-- Every stable refinement of the starting partition refines every executable run prefix. -/
+theorem stable_refines_run {fine : Classes regs} (stable : Stable p fine) (fuel : Nat)
+    (classes : Classes regs) (related : Refines fine classes) : Refines fine (run p fuel classes) :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.Family.Discovery.stable_refines_run p stable fuel classes related
+
+/-- Together with `normalize_stable`, this characterizes the coarsest stable
+refinement of the structural entry classes, up to the same-class relation. -/
+theorem normalize_coarsest {fine : Classes regs} (stable : Stable p fine)
+    (entry : Refines fine (initial p)) : Refines fine (normalize p) :=
+  stable_refines_run p stable _ _ entry
+
 /-- The discovered equations pass the existing entry and both feedback
 checks. Admission of a proposed return redirect only depends on its exit key. -/
 theorem certify?_isSome_iff (replacement : WordSlot regs) :

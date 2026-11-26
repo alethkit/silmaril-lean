@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Defs
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Publication
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Selection
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Invariant
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Frame
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall.Thms
@@ -45,8 +46,7 @@ private theorem frame_after {aliases globals : List String} {before after : Stat
   refine ⟨?_, ?_⟩
   · intro first second address atFirst atSecond
     exact frame.1 _ _ _ (slots.symm ▸ atFirst) (slots.symm ▸ atSecond)
-  ·
-    intro binding member
+  · intro binding member
     obtain ⟨address, value, flag, owned, stored⟩ := frame.2 binding member
     obtain ⟨frozen, next⟩ := contents address ⟨.binding value, flag⟩ stored
     exact ⟨address, value, frozen, slots ▸ owned, next⟩
@@ -58,6 +58,71 @@ private theorem live_after {aliases : List String} {origin program : Program} {e
   obtain ⟨slot, address, flag, owned, stored, record⟩ := live name callee tracked
   obtain ⟨frozen, next⟩ := contents slot ⟨.binding (some (.function address)), flag⟩ stored
   exact ⟨slot, address, frozen, slots ▸ owned, next, transport_callable record (closure_cells_of_contents contents)⟩
+
+private structure Committed (aliases globals : List String) (origin program : Program)
+    (env : Tracked) (floor : Nat) (reserved : List Binding) (before after : State) : Prop where
+  slots : after.slots = before.slots
+  contents : KeepsBelow floor before after
+  records : KeepsClosureCells before after
+  frame : ImportFrame aliases globals after
+  live : Live aliases origin program env after
+  untouched : ∀ binding ∈ reserved, Blank after binding
+
+/-- Installation starts only after selection and writes the selected references
+into distinct blank cells, preserving the earlier live closures. -/
+private theorem commit {origin program : Program} {state : State} {items : List ImportBinding}
+    {env final : Tracked} {entries : List (Binding × Lists.Value)}
+    (chosen : SelectedValues origin program state items env entries final)
+    {aliases globals : List String} {reserved : List Binding} {floor : Nat}
+    (visible : ∀ name ∈ items.map ImportBinding.alias, name ∈ aliases)
+    (unique : (items.map ImportBinding.alias).Nodup)
+    (disjoint : ∀ name ∈ items.map ImportBinding.alias, fileSlot name ∉ reserved)
+    (frame : ImportFrame aliases globals state) (fresh : FreshSlots floor state)
+    (live : Live aliases origin program env state)
+    (pending : ∀ name ∈ items.map ImportBinding.alias, Blank state (fileSlot name))
+    (untouched : ∀ binding ∈ reserved, Blank state binding) :
+    Committed aliases globals origin program final floor reserved state (installImports state entries) := by
+  induction items generalizing state env entries with
+  | nil =>
+    cases chosen
+    exact ⟨rfl, fun _ cell _ stored => ⟨cell.frozen, stored⟩,
+      closure_cells_of_contents (keeps_contents_refl _), frame, live, untouched⟩
+  | cons item rest ih =>
+    cases chosen with
+    | @next _ _ _ _ callee address entries record remaining =>
+      let value := Lists.Value.function address
+      let next := state.write (fileSlot item.alias) value
+      have blank := pending item.alias List.mem_cons_self
+      have atAlias : readSlot aliases item.alias = fileSlot item.alias := by
+        simp [readSlot, visible item.alias List.mem_cons_self]
+      have nextLive : Live aliases origin program (track env item.alias (some callee)) next := by
+        exact Eq.mp (congrArg (fun target => Live aliases origin program (track env item.alias (some callee))
+          (state.write target value)) atAlias)
+          (write_tracked (atAlias.symm ▸ blank) live value (some callee)
+            (fun target same => by cases same; exact ⟨address, rfl, record⟩))
+      have nextSlots : next.slots = state.slots := write_slots _ _ _
+      have nextRecords := write_blank_cells blank value
+      have nextPending : ∀ name ∈ rest.map ImportBinding.alias, Blank next (fileSlot name) := by
+        intro name member
+        apply other_blank frame.1 _ (pending name (List.mem_cons_of_mem _ member)) value
+        intro same
+        have sameName : item.alias = name := congrArg Binding.name same
+        exact (List.nodup_cons.mp unique).1 (sameName ▸ member)
+      have after := ih (selected_transport remaining nextRecords)
+        (fun name member => visible name (List.mem_cons_of_mem _ member))
+        (List.nodup_cons.mp unique).2
+        (fun name member => disjoint name (List.mem_cons_of_mem _ member))
+        (writes_frame frame (fileSlot item.alias) value)
+        (fun binding slot owned => fresh binding slot (nextSlots ▸ owned))
+        nextLive nextPending (fun binding member =>
+          other_blank (writable := fileSlot item.alias) frame.1
+            (fun same => disjoint item.alias List.mem_cons_self (same ▸ member)) (untouched binding member) value)
+      obtain ⟨slot, _, owned, _⟩ := blank
+      have writeKeeps := write_keeps_below owned (fresh _ _ owned) value
+      exact ⟨after.slots.trans nextSlots,
+        below_trans (fun _ cell small stored => ⟨cell.frozen, writeKeeps.2 _ _ small stored⟩) after.contents,
+        closure_cells_trans nextRecords after.records, after.frame, after.live, after.untouched⟩
+
 
 /-- The reached prefix keeps previously published modules and protects cells
 outside the importer frame. Success establishes the suite's entry invariant. -/
@@ -90,13 +155,13 @@ theorem run_prefix {origin program : Program} {manifest : Manifest} {exports : M
     {imports : List ImportSite} {env : Tracked} {final : Option Tracked}
     (plan : ImportPlan manifest exports id bound imports env final)
     {aliases globals : List String} {floor : Nat} {reserved : List Binding}
-    (visible : ∀ site ∈ imports, site.alias ∈ aliases)
-    (unique : (imports.map ImportSite.alias).Nodup)
-    (disjoint : ∀ site ∈ imports, fileSlot site.alias ∉ reserved)
+    (visible : ∀ name ∈ imports.flatMap ImportSite.aliases, name ∈ aliases)
+    (unique : (imports.flatMap ImportSite.aliases).Nodup)
+    (disjoint : ∀ name ∈ imports.flatMap ImportSite.aliases, fileSlot name ∉ reserved)
     (caller : Session) (cache : Cache origin program manifest exports caller)
     (frame : ImportFrame aliases globals caller.runtime) (fresh : FreshSlots floor caller.runtime)
     (live : Live aliases origin program env caller.runtime)
-    (pending : ∀ site ∈ imports, Blank caller.runtime (fileSlot site.alias))
+    (pending : ∀ name ∈ imports.flatMap ImportSite.aliases, Blank caller.runtime (fileSlot name))
     (untouched : ∀ binding ∈ reserved, Blank caller.runtime binding) :
     ∃ out, ImportTrace manifest id imports caller out ∧
       (∀ suffix result, Continues program manifest active id suffix out result →
@@ -112,7 +177,7 @@ theorem run_prefix {origin program : Program} {manifest : Manifest} {exports : M
     intro suffix result rest
     cases rest
     exact .failed (.missingLabel label)
-  | @missing site tail env dependency earlier label absent =>
+  | @load site tail env dependency selected final earlier label sourceSelection _ _ ih =>
     obtain ⟨loaded, trace, native, reached⟩ := loadEarlier dependency earlier caller cache
     cases loaded with
     | error error stopped =>
@@ -123,73 +188,72 @@ theorem run_prefix {origin program : Program} {manifest : Manifest} {exports : M
       exact .failed (.loadFailed label native)
     | ok published stopped =>
       obtain ⟨_, actual⟩ := reached.cache dependency published (reached.published _ _ rfl)
-      have missing : published.exports.lookup site.name = none := by
-        cases found : published.exports.lookup site.name with
-        | none => rfl
-        | some value => exact (absent (actual.1 _ _ found)).elim
-      refine ⟨_, .missing label trace missing, ?_, ⟨reached.slots, fun _ _ _ => reached.contents _ _,
-        reached.cache, reached.retained, fun _ impossible => nomatch impossible⟩⟩
-      intro suffix result rest
-      cases rest
-      apply Modules.Loader.Runs.failed
-      have ran := Modules.Loader.Runs.load (imports := [site.item]) label native
-      simpa [ImportSite.code, Modules.importsOf, Modules.bindImports, ImportSite.item, site.publicName, missing,
-        Modules.Loader.liftResult, List.mapM_cons, bind, Except.bind, throw, throwThe, MonadExceptOf.throw,
-        pure, Except.pure] using ran
-  | @found site tail env dependency callee final earlier label tracked sourceTail ih =>
-    obtain ⟨loaded, trace, native, reached⟩ := loadEarlier dependency earlier caller cache
-    cases loaded with
-    | error error stopped =>
-      refine ⟨_, .dependencyError label trace, ?_, ⟨reached.slots, fun _ _ _ => reached.contents _ _,
-        reached.cache, reached.retained, fun _ impossible => nomatch impossible⟩⟩
-      intro suffix result rest
-      cases rest
-      exact .failed (.loadFailed label native)
-    | ok published stopped =>
-      obtain ⟨_, actual⟩ := reached.cache dependency published (reached.published _ _ rfl)
-      obtain ⟨address, found, record⟩ := actual.2 site.name callee tracked site.publicName
-      let value := Lists.Value.function address
-      let bound := {stopped with runtime := stopped.runtime.write (fileSlot site.alias) value}
-      have blank := blank_after reached.slots reached.contents (pending site List.mem_cons_self)
-      have atAlias : readSlot aliases site.alias = fileSlot site.alias := by
-        simp [readSlot, visible site List.mem_cons_self]
-      have afterLive := live_after reached.slots reached.contents live
-      have boundLive : Live aliases origin program (track env site.alias (some callee)) bound.runtime := by
-        exact Eq.mp (congrArg (fun target => Live aliases origin program (track env site.alias (some callee))
-          (stopped.runtime.write target value)) atAlias)
-          (write_tracked (atAlias.symm ▸ blank) afterLive value (some callee)
-            (fun target same => by cases same; exact ⟨address, rfl, record⟩))
-      have boundSlots : bound.runtime.slots = caller.runtime.slots :=
-        (write_slots _ _ _).trans reached.slots
-      have distinct : RootCall.DistinctOwned stopped.runtime := (frame_after reached.slots reached.contents frame).1
-      have pendingAfter (binding : Binding) (other : fileSlot site.alias ≠ binding) (before : Blank caller.runtime binding) :
-          Blank bound.runtime binding :=
-        other_blank distinct other (blank_after reached.slots reached.contents before) value
-      have readyTail : ∀ next ∈ tail, Blank bound.runtime (fileSlot next.alias) := by
-        intro next member
-        apply pendingAfter _ _ (pending next (List.mem_cons_of_mem _ member))
-        intro same
-        have sameName : site.alias = next.alias := congrArg Binding.name same
-        exact (List.nodup_cons.mp unique).1 (List.mem_map.mpr ⟨next, member, sameName.symm⟩)
-      have boundCache := cache_transport (next := bound) reached.cache (write_blank_cells blank value) rfl
-      have boundFrame := writes_frame (frame_after reached.slots reached.contents frame) (fileSlot site.alias) value
-      obtain ⟨out, tailTrace, tailNative, after⟩ := ih
-        (fun next member => visible next (List.mem_cons_of_mem _ member)) (List.nodup_cons.mp unique).2
-        (fun next member => disjoint next (List.mem_cons_of_mem _ member)) bound boundCache boundFrame
-        (fun binding slot owned => fresh binding slot (boundSlots ▸ owned)) boundLive readyTail
-        (fun binding member => pendingAfter binding (fun same => disjoint site List.mem_cons_self (same ▸ member))
-          (untouched binding member))
-      have step : Modules.Loader.Runs program manifest active (.command id site.code) caller (.ok () bound) := by
-        have ran := Modules.Loader.Runs.load (imports := [site.item]) label native
-        simpa [ImportSite.code, Modules.importsOf, Modules.bindImports, ImportSite.item, site.publicName, found,
-          Modules.Loader.liftResult, List.mapM_cons, bind, Except.bind, pure, Except.pure, bound, value] using ran
-      obtain ⟨aliasCell, _, owned, _⟩ := blank
-      have writeKeeps := write_keeps_below owned (fresh _ _ (reached.slots ▸ owned)) value
-      have kept : KeepsBelow floor caller.runtime bound.runtime :=
-        below_trans (fun _ _ _ => reached.contents _ _)
-          (fun _ cell small stored => ⟨cell.frozen, writeKeeps.2 _ _ small stored⟩)
-      refine ⟨out, .next label trace found tailTrace, fun suffix result rest => .step step (tailNative suffix result rest),
-        ⟨after.slots.trans boundSlots, below_trans kept after.contents, after.cache, ?_, after.ready⟩⟩
-      exact fun index publication old => after.retained index publication (reached.retained index publication old)
+      obtain ⟨selection, lookup, matched⟩ := select_covered actual sourceSelection site.label
+      have runLoad : Modules.Loader.Runs program manifest active (.command id site.code) caller
+          (Modules.Loader.liftResult id stopped (Modules.bindImports selection stopped.runtime)) := by
+        rw [← group_agrees (site := site) lookup]
+        exact .load label native
+      cases selection with
+      | error error =>
+        refine ⟨_, .selectionError label trace lookup, ?_, ⟨reached.slots, fun _ _ _ => reached.contents _ _,
+          reached.cache, reached.retained, fun _ impossible => nomatch impossible⟩⟩
+        intro suffix result rest
+        cases rest
+        exact .failed runLoad
+      | ok entries =>
+        cases selected with
+        | none => exact False.elim matched
+        | some next =>
+          let tailAliases := tail.flatMap ImportSite.aliases
+          have distinct : (site.aliases ++ tailAliases).Nodup := unique
+          obtain ⟨groupUnique, tailUnique, separates⟩ := List.pairwise_append.mp distinct
+          have orderedAlias : site.bindings.reverse.map ImportBinding.alias = site.aliases.reverse :=
+            List.map_reverse
+          have groupMember {name : String} (member : name ∈ site.bindings.reverse.map ImportBinding.alias) :
+              name ∈ (site :: tail).flatMap ImportSite.aliases := by
+            rw [orderedAlias, List.mem_reverse] at member
+            exact List.mem_append.mpr (.inl member)
+          have tailMember {name : String} (member : name ∈ tailAliases) :
+              name ∈ (site :: tail).flatMap ImportSite.aliases :=
+            List.mem_append.mpr (.inr member)
+          have reservedBlank (binding : Binding) (member : binding ∈ tailAliases.map fileSlot ++ reserved) :
+              Blank stopped.runtime binding := by
+            apply blank_after reached.slots reached.contents
+            rcases List.mem_append.mp member with earlierAlias | reservedMember
+            · obtain ⟨name, member, same⟩ := List.mem_map.mp earlierAlias
+              exact same ▸ pending name (tailMember member)
+            · exact untouched binding reservedMember
+          have separateReserved (name : String) (member : name ∈ site.bindings.reverse.map ImportBinding.alias) :
+              fileSlot name ∉ tailAliases.map fileSlot ++ reserved := by
+            rw [orderedAlias, List.mem_reverse] at member
+            intro conflict
+            rcases List.mem_append.mp conflict with aliasConflict | reservedConflict
+            · obtain ⟨other, inTail, same⟩ := List.mem_map.mp aliasConflict
+              exact separates name member other inTail ((congrArg Binding.name same).symm)
+            · exact disjoint name (List.mem_append.mpr (.inl member)) reservedConflict
+          let bound := {stopped with runtime := installImports stopped.runtime entries}
+          have committed := commit matched (fun _ member => visible _ (groupMember member))
+            (by rw [orderedAlias, List.Nodup, List.pairwise_reverse]; exact groupUnique.imp Ne.symm) separateReserved
+            (frame_after reached.slots reached.contents frame)
+            (fun binding slot owned => fresh binding slot (reached.slots ▸ owned))
+            (live_after reached.slots reached.contents live)
+            (fun name member => blank_after reached.slots reached.contents (pending name (groupMember member)))
+            reservedBlank
+          have boundSlots : bound.runtime.slots = caller.runtime.slots := committed.slots.trans reached.slots
+          have boundCache := cache_transport (next := bound) reached.cache committed.records rfl
+          obtain ⟨out, tailTrace, tailNative, after⟩ := ih next rfl
+            (fun name member => visible _ (tailMember member)) tailUnique
+            (fun name member => disjoint _ (tailMember member)) bound boundCache committed.frame
+            (fun binding slot owned => fresh binding slot (boundSlots ▸ owned)) committed.live
+            (fun name member => committed.untouched _ (List.mem_append.mpr (.inl (List.mem_map_of_mem member))))
+            (fun binding member => committed.untouched _ (List.mem_append.mpr (.inr member)))
+          have step : Modules.Loader.Runs program manifest active (.command id site.code) caller (.ok () bound) :=
+            runLoad
+          have kept : KeepsBelow floor caller.runtime bound.runtime :=
+            below_trans (fun _ _ _ => reached.contents _ _) committed.contents
+          refine ⟨out, .next label trace lookup tailTrace,
+            fun suffix result rest => .step step (tailNative suffix result rest),
+            ⟨after.slots.trans boundSlots, below_trans kept after.contents, after.cache, ?_, after.ready⟩⟩
+          exact fun index publication old => after.retained index publication (reached.retained index publication old)
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain

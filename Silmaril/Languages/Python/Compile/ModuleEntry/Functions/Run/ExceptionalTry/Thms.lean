@@ -108,4 +108,15 @@ theorem seeded_raise_masked {scope : Source.Scope} (space : Namespace) (call : R
   simp [Seeded.exceptionalStep, call.error_construct _ _ _ (Namespace.module_precedes space mask) read,
     Seeded.raiseCallee, Functions.ExceptionalTry.RaiseCallee.construct]
 
+theorem ordinary_handler_stock (session : Session) (name : String) (error : Core.Closure.RuntimeError)
+    (kind : Core.Closure.ExceptionClass) (found : session.globals name = some (.exceptionClass kind)) :
+    matchHandler session (.raised error) name = .ok (decide (kind.catches error.classify)) := by
+  simp [matchHandler, Functions.ExceptionalTry.matchClass, found, handlerClass, Except.mapError]
+
+theorem seeded_handler_stock (space : Namespace) (name : String) (error : Core.Module.SeededCall.Raised)
+    (kind : Core.Closure.ExceptionClass)
+    (found : space.lookupGlobal name = some (.exceptionClass kind)) :
+    Seeded.matchHandler space (.raised error) name = .ok (decide (kind.catches error.classify)) := by
+  simp [Seeded.matchHandler, Functions.ExceptionalTry.matchClass, found, Seeded.handlerClass, Except.mapError]
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry

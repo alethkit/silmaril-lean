@@ -29,8 +29,21 @@ inductive Demand (plan : Consumer) (seed : Program)
       ReadyFor seed (initial plan.alias callee) plan.body →
       Demand plan seed dependencyExports dependencySource (exportsOf plan seed callee)
 
-/-- The checked prefix resolves each reached label to an earlier module.
-An absent export needs no certificate for the unreachable suffix. -/
+/-- Static evidence follows lookup order, which is reverse source order for
+a single command. A missing export ends selection without installing aliases. -/
+inductive SelectPlan (exports : Tracked) (globals : List String) :
+    List ImportBinding → Tracked → Option Tracked → Prop where
+  | done (env : Tracked) : SelectPlan exports globals [] env (some env)
+  | missing {item : ImportBinding} {rest : List ImportBinding} {env : Tracked} :
+      item.name ∉ globals → SelectPlan exports globals (item :: rest) env none
+  | found {item : ImportBinding} {rest : List ImportBinding} {env : Tracked} {selected : Option Tracked}
+      (callee : Callee) :
+      exports item.name = some callee →
+      SelectPlan exports globals rest (track env item.alias (some callee)) selected →
+      SelectPlan exports globals (item :: rest) env selected
+
+/-- The checked prefix resolves each reached label once. Only successful
+selection in a whole command enables the remaining commands. -/
 inductive ImportPlan (manifest : Manifest) (exports : ModuleId → Tracked)
     (id : ModuleId) (bound : id < manifest.size) :
     List ImportSite → Tracked → Option Tracked → Prop where
@@ -38,20 +51,17 @@ inductive ImportPlan (manifest : Manifest) (exports : ModuleId → Tracked)
   | unresolved {site : ImportSite} {tail : List ImportSite} {env : Tracked} :
       Loader.resolve manifest id site.label = none →
       ImportPlan manifest exports id bound (site :: tail) env none
-  | missing {site : ImportSite} {tail : List ImportSite} {env : Tracked} {dependency : ModuleId}
-      (earlier : dependency < id) :
+  | load {site : ImportSite} {tail : List ImportSite} {env : Tracked} {dependency : ModuleId}
+      {selected final : Option Tracked} (earlier : dependency < id) :
       Loader.resolve manifest id site.label = some dependency →
-      site.name ∉ (manifest[dependency]'(Nat.lt_trans earlier bound)).source.globals →
-      ImportPlan manifest exports id bound (site :: tail) env none
-  | found {site : ImportSite} {tail : List ImportSite} {env : Tracked} {dependency : ModuleId}
-      {callee : Callee} {final : Option Tracked} (earlier : dependency < id) :
-      Loader.resolve manifest id site.label = some dependency →
-      exports dependency site.name = some callee →
-      ImportPlan manifest exports id bound tail (track env site.alias (some callee)) final →
+      SelectPlan (exports dependency) (manifest[dependency]'(Nat.lt_trans earlier bound)).source.globals
+        site.bindings.reverse env selected →
+      (∀ next, selected = some next → ImportPlan manifest exports id bound tail next final) →
+      (selected = none → final = none) →
       ImportPlan manifest exports id bound (site :: tail) env final
 
-/-- Successful prefixes enable the ordinary suite. With a statically
-absent export, there is no reachable body and no tracked publication. -/
+/-- Successful prefixes enable the ordinary suite. A statically missing
+label or export leaves the body unreachable and supplies no publication. -/
 @[expose] def OrderedReady (plan : OrderedConsumer) (seed : Program) (final : Option Tracked)
     (published : Tracked) : Prop :=
   match final with
@@ -153,6 +163,24 @@ structure Graph (origin : Program) (manifest : Manifest) where
   exports : ModuleId → Tracked
   nodes : ∀ id (bound : id < manifest.size), Node origin linked.program manifest exports id bound
 
+/-- Look up all requested exports before writing any aliases. A reached
+missing name wins immediately, even if other source items also lack exports. -/
+inductive SelectImports (published : Modules.Published) (label : String) :
+    List ImportBinding → Except Modules.Error (List (Binding × Lists.Value)) → Prop where
+  | done : SelectImports published label [] (.ok [])
+  | missing {item : ImportBinding} {tail : List ImportBinding} :
+      published.exports.lookup item.name = none →
+      SelectImports published label (item :: tail) (.error (.missingExport label item.name))
+  | next {item : ImportBinding} {tail : List ImportBinding} {value : Lists.Value}
+      {out : Except Modules.Error (List (Binding × Lists.Value))} :
+      published.exports.lookup item.name = some value →
+      SelectImports published label tail out →
+      SelectImports published label (item :: tail) (out.map (List.cons (Modules.fileSlot item.alias, value)))
+
+/-- The selected values are written in lookup order after the full selection succeeds. -/
+@[expose] def installImports (state : State) (entries : List (Binding × Lists.Value)) : State :=
+  entries.foldl (fun s (slot, value) => s.write slot value) state
+
 mutual
 /-- Independent source traces use the actual cached value or the reached
 source execution of the dependency, with no heap-address premise. -/
@@ -204,18 +232,19 @@ inductive ImportTrace (manifest : Manifest) :
       Loader.resolve manifest id site.label = some dependency →
       TraceRun manifest dependency state (.error error reached) →
       ImportTrace manifest id (site :: tail) state (.error error reached)
-  | missing {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
-      {state reached : Session} {published : Modules.Published} :
+  | selectionError {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
+      {state reached : Session} {published : Modules.Published} {error : Modules.Error} :
       Loader.resolve manifest id site.label = some dependency →
       TraceRun manifest dependency state (.ok published reached) →
-      published.exports.lookup site.name = none →
-      ImportTrace manifest id (site :: tail) state (.error (.initialization id (.missingExport site.label site.name)) reached)
+      SelectImports published site.label site.bindings.reverse (.error error) →
+      ImportTrace manifest id (site :: tail) state (.error (.initialization id error) reached)
   | next {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
-      {state reached : Session} {published : Modules.Published} {value : Lists.Value} {out : Loader.Result Unit} :
+      {state reached : Session} {published : Modules.Published}
+      {entries : List (Binding × Lists.Value)} {out : Loader.Result Unit} :
       Loader.resolve manifest id site.label = some dependency →
       TraceRun manifest dependency state (.ok published reached) →
-      published.exports.lookup site.name = some value →
-      ImportTrace manifest id tail {reached with runtime := reached.runtime.write (Modules.fileSlot site.alias) value} out →
+      SelectImports published site.label site.bindings.reverse (.ok entries) →
+      ImportTrace manifest id tail {reached with runtime := installImports reached.runtime entries} out →
       ImportTrace manifest id (site :: tail) state out
 end
 

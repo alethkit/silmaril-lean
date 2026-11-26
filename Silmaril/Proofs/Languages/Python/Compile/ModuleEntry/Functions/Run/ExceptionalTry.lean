@@ -95,25 +95,28 @@ private theorem runSuite_preserves {state failure action : Type}
     | error error => simpa [runSuite, next] using started
 
 private theorem run_preserves {state failure action : Type}
-    (step : state → action → Except failure state) (isPythonError : failure → Bool) (property : state → Prop)
+    (step : state → action → Except failure state) (isPythonError : failure → Bool)
+    (testClass : state → failure → String → Except failure Bool) (property : state → Prop)
     (keeps : ∀ {input next act}, step input act = .ok next → property input → property next)
     (initial : state) (plan : Plan action) (started : property initial) :
-    property (Compile.ModuleEntry.Functions.ExceptionalTry.run (runSuite step) isPythonError initial plan).reached := by
+    property (Compile.ModuleEntry.Functions.ExceptionalTry.run (runSuite step) isPythonError testClass initial plan).reached := by
   have suiteKeeps {before : state} (actions : List action) (holds : property before) :=
     runSuite_preserves step property keeps before actions holds
   unfold Compile.ModuleEntry.Functions.ExceptionalTry.run
   have afterBodyKeeps : property (runSuite step initial plan.body).reached :=
     suiteKeeps plan.body started
   have pendingKeeps : property
-      (Compile.ModuleEntry.Functions.ExceptionalTry.afterBody (runSuite step) isPythonError
-        (runSuite step initial plan.body) plan.handler plan.otherwise).reached := by
+      (Compile.ModuleEntry.Functions.ExceptionalTry.afterBody (runSuite step) isPythonError testClass
+        (runSuite step initial plan.body) plan.handlers plan.otherwise).reached := by
     unfold Compile.ModuleEntry.Functions.ExceptionalTry.afterBody
     split
     · exact suiteKeeps _ afterBodyKeeps
     · split
-      · exact suiteKeeps _ afterBodyKeeps
+      · split
+        · exact suiteKeeps _ afterBodyKeeps
+        · exact afterBodyKeeps
+        · exact afterBodyKeeps
       · exact afterBodyKeeps
-    · exact afterBodyKeeps
   dsimp only
   unfold Compile.ModuleEntry.Functions.ExceptionalTry.runCleanup
   split
@@ -126,11 +129,11 @@ theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
     (plan : Plan (Step scope)) :
     let outcome := Compile.ModuleEntry.Functions.Run.runExceptionalTry session plan
     outcome.reached.heap = session.heap ∧ outcome.reached.lists = session.lists := by
-  refine run_preserves exceptionalStep Completion.isPythonError
+  refine run_preserves exceptionalStep Completion.isPythonError matchHandler
     (fun reached => reached.heap = session.heap ∧ reached.lists = session.lists) ?_ session plan ⟨rfl, rfl⟩
   intro initial reached step done kept
   cases step with
-  | raiseCall call => simp [exceptionalStep] at done
+  | raiseCall _ | raiseInactive => simp [exceptionalStep] at done
   | scalar action =>
     change Compile.ModuleEntry.Functions.Run.scalarStep initial action = .ok reached at done
     cases action with
@@ -146,11 +149,11 @@ theorem ordinary_reached_carriers {scope : Source.Scope} (session : Session)
 theorem seeded_reached_builtins {scope : Source.Scope} (space : Namespace)
     (plan : Plan (Step scope)) :
     (Seeded.runExceptionalTry space plan).reached.builtins = space.builtins := by
-  refine run_preserves Seeded.exceptionalStep Seeded.ModuleFailure.isPythonError
+  refine run_preserves Seeded.exceptionalStep Seeded.ModuleFailure.isPythonError Seeded.matchHandler
     (fun reached => reached.builtins = space.builtins) ?_ space plan rfl
   intro initial reached step done kept
   cases step with
-  | raiseCall call => simp [Seeded.exceptionalStep] at done
+  | raiseCall _ | raiseInactive => simp [Seeded.exceptionalStep] at done
   | scalar action =>
     change Seeded.scalarStep initial action = .ok reached at done
     cases binding : Seeded.scalarBinding initial action with

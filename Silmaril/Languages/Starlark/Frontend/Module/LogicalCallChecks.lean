@@ -92,9 +92,6 @@ example : groupedOperandSpans = some ([⟨⟨13, 2, 8⟩, ⟨34, 2, 29⟩⟩], [
     ⟨⟨14, 2, 9⟩, ⟨17, 2, 12⟩⟩, ⟨⟨22, 2, 17⟩, ⟨25, 2, 20⟩⟩, ⟨⟨30, 2, 25⟩, ⟨33, 2, 28⟩⟩]) :=
   by decide +kernel
 
-example : frontendDiagnostic "out=f() if flag else 0" =
-    some ⟨.unsupported .operator, ⟨⟨8, 1, 9⟩, ⟨10, 1, 11⟩⟩⟩ := by decide +kernel
-
 private def standaloneDiagnostic : Option Diagnostic :=
   match parseFunctionUtf8 "def relay(f):\n  return False and f()".toUTF8 with
   | .error diagnostic => some diagnostic

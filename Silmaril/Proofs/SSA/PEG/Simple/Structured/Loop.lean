@@ -196,6 +196,11 @@ theorem traceExit {Q : InstructionSet.{u,x} Data} {source : Interpretation.{u,x,
 @[expose] def samples (j : Index all.length) (r : Port vars t) (k : Nat) : Option (m.Value t) :=
   read (view.inner.embed (body.lift (portLeft r))) (j.set view.key k)
 
+theorem samples_zero (j : Index all.length) (r : Port vars t) :
+    samples view j r 0 = read (view.embed ((Code.loop init body guard next neg).lift (init.get r)))
+      (j.set view.key 0) :=
+  thetaZero view r _ (by simp [Index.set])
+
 theorem samples_succ (j : Index all.length) (r : Port vars t) (k : Nat) :
     samples view j r (k + 1) = read (view.inner.embed (next.get r)) (j.set view.key k) := by
   have setTwice : (j.set view.key (k + 1)).set view.key k = j.set view.key k := by

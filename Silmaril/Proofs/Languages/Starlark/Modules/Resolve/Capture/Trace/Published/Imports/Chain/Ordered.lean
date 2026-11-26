@@ -61,16 +61,16 @@ theorem ordered_agrees {origin seed finalSeed : Program} {manifest : Manifest} {
     exact List.mem_append.mpr (.inl member)
   have frame := entry_frame globals files (state := entered.runtime) rfl (keeps_contents_refl _)
   obtain ⟨prefixOut, sourcePrefix, nativePrefix, reached⟩ := run_prefix loadEarlier imports
-    (fun site member => List.mem_map_of_mem member) aliasUnique
+    (fun _ member => member) aliasUnique
     (by
-      intro site _ member
+      intro aliasName _ member
       obtain ⟨name, _, equal⟩ := List.mem_map.mp member
       cases equal)
     entered enteredCache frame (Entry.entered_cells consumer.source caller.runtime).1
     (fun _ _ impossible => nomatch impossible)
-    (fun site member => entered_blank_after_dependency rfl (keeps_contents_refl _) (by
+    (fun name member => entered_blank_after_dependency rfl (keeps_contents_refl _) (by
       rw [files]
-      exact List.mem_append.mpr (.inr (List.mem_map_of_mem (List.mem_map_of_mem member)))))
+      exact List.mem_append.mpr (.inr (List.mem_map_of_mem member))))
     reserved
   have complete (out : Modules.Loader.Result Unit)
       (ran : Modules.Loader.Runs whole.program manifest (id :: active) (.commands id (plan.code seed)) entered out) :
@@ -94,7 +94,7 @@ theorem ordered_agrees {origin seed finalSeed : Program} {manifest : Manifest} {
     obtain ⟨env, someEnv, frame, live, blank⟩ := reached.ready session rfl
     rw [someEnv] at ready
     obtain ⟨admitted, publishedEnv⟩ := ready
-    have outside : ∀ name ∈ plan.globals, name ∉ plan.imports.map ImportSite.alias :=
+    have outside : ∀ name ∈ plan.globals, name ∉ plan.aliases :=
       fun name member conflict => separate name member name conflict rfl
     have table : PreservesDeclarations (compileSuite seed plan.body).2 whole.program := same ▸ extension
     have fresh : FreshSlots caller.runtime.heap.size session.runtime :=

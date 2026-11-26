@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges
 
-open Diamond (ValueSort)
+open Diamond (ValueSort dataPorts)
 open Pure.SubZero (word)
 open Pure.ConstantFold.Comparison (Opcode model)
 open Quads.Join (Block)
@@ -25,6 +25,14 @@ theorem Keys.reads_block (block : Block Opcode regs) (anchor : Bank (regs := reg
     {keys : Keys regs} {values : Bank (regs := regs) model} (prior : Keys.Reads anchor keys values) :
     Keys.Reads anchor (block.eval (numbering regs) keys) (block.eval model values) :=
   Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.block_agrees block anchor prior
+
+/-- Replacing argument leaves commutes with ordered symbolic quad evaluation on word slots. -/
+theorem Keys.substitute_block (block : Block Opcode regs)
+    (arguments : WordSlot regs → WordNumber.Key (dataPorts regs)) {fine coarse : Keys regs}
+    (related : ∀ port : WordSlot regs, (fine.get port).substitute arguments = coarse.get port) :
+    ∀ port : WordSlot regs, ((block.eval (numbering regs) fine).get port).substitute arguments =
+      (block.eval (numbering regs) coarse).get port :=
+  Proofs.SSA.SeaOfNodes.GVN.Cyclic.TwoBackedges.block_substitutes block arguments related
 
 theorem Keys.reads_match {anchor values : Bank (regs := regs) model} {keys : Keys regs}
     (reads : Keys.Reads anchor keys values) {first second : WordSlot regs}

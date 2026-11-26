@@ -49,4 +49,31 @@ theorem step_iff (allocated : site.Allocated base) (contract : site.Contract mem
     · exact .inl ⟨memory.store next, outcome, behavior, rfl⟩
     · exact .inr diverged
 
+theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
+    (plugged : wrapped.code = context.plug value inner.code) (store : wrapped.store = inner.store)
+    (decomposed : decompose? wrapped = (decompose? inner).map
+      (fun c => { c with context := context.comp c.context }))
+    (located : CalloutAt wrapped call) (answer : Answer host wrapped call dst) :
+    ∃ c mid, CalloutAt inner c ∧ Answer host inner c mid ∧
+      dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ := by
+  cases found : decompose? inner with
+  | none =>
+    obtain ⟨_, outerFound, _⟩ := decompose?_complete located
+    rw [decomposed, found] at outerFound
+    cases outerFound
+  | some c =>
+    have here := decompose?_sound found
+    have lifted : CalloutAt wrapped { c with context := context.comp c.context } :=
+      decompose?_sound (by rw [decomposed, found]; rfl)
+    obtain ⟨_, _, hostEq, argsEq, resumes⟩ := located.unique lifted
+    rcases Answer.iff.mp answer with ⟨returned, outcome, behavior, eq⟩ | ⟨diverged, rfl⟩
+    · have inside : host c.host inner.store c.args (.returned returned outcome) := by
+        simpa only [store, hostEq, argsEq] using behavior
+      refine ⟨c, resume inner c returned outcome, here, .returned returned outcome inside, ?_⟩
+      rw [eq, resumes]
+      simp [resume, Execution.Runtime.Callout.fill, EvalCtx.plug_comp]
+    · have inside : host c.host inner.store c.args .diverged := by
+        simpa only [store, hostEq, argsEq] using diverged
+      exact ⟨c, inner, here, .diverged inside, by cases dst; simp_all⟩
+
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Proofs

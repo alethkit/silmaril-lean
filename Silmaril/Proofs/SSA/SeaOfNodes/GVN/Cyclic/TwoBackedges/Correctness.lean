@@ -26,13 +26,15 @@ variable {regs : List (ValueSort Unit)}
 private abbrev Concrete := Val model.value
 private abbrev Symbolic (regs : List (ValueSort Unit)) := Val (numbering regs).value
 
-private theorem write_agrees (anchor : Bank (regs := regs) model) {ports : List (Ty Unit)} {t : Ty Unit}
-    (dest : Port ports t) (key : Symbolic regs t) (value : Concrete t)
-    (keys : Tuple (Symbolic regs) ports) (values : Tuple Concrete ports)
-    (prior : Keys.Reads anchor keys values)
-    (next : ∀ same : t = wordPort, (show Symbolic regs wordPort from same ▸ key).eval anchor =
-      (show Concrete wordPort from same ▸ value)) :
-    Keys.Reads anchor (write dest key keys) (write dest value values) := by
+private theorem write_agrees {F : Ty Unit → Type} {ports : List (Ty Unit)} {t : Ty Unit}
+    (interpret : Symbolic regs wordPort → F wordPort)
+    (dest : Port ports t) (key : Symbolic regs t) (value : F t)
+    (keys : Tuple (Symbolic regs) ports) (values : Tuple F ports)
+    (prior : ∀ port : Port ports wordPort, interpret (keys.get port) = values.get port)
+    (next : ∀ same : t = wordPort, interpret (show Symbolic regs wordPort from same ▸ key) =
+      (show F wordPort from same ▸ value)) :
+    ∀ port : Port ports wordPort,
+      interpret ((write dest key keys).get port) = (write dest value values).get port := by
   induction dest with
   | head =>
     cases keys with | cons _ keys =>
@@ -53,7 +55,7 @@ private theorem quad_agrees (quad : Quad Opcode regs) (anchor : Bank (regs := re
     {keys : Keys regs} {values : Bank (regs := regs) model} (prior : Keys.Reads anchor keys values) :
     Keys.Reads anchor (quad.eval (numbering regs) keys) (quad.eval model values) := by
   obtain ⟨_, _, dest, op, operands⟩ := quad
-  refine write_agrees anchor dest _ _ keys values prior ?_
+  refine write_agrees (regs := regs) (F := Concrete) (Key.eval anchor) dest _ _ keys values prior ?_
   intro same
   cases op with
   | arithmetic op =>
@@ -76,6 +78,37 @@ theorem block_agrees (block : Block Opcode regs) (anchor : Bank (regs := regs) m
   | nil => exact prior
   | cons head tail ih => exact ih (quad_agrees head anchor prior)
 
+private theorem quad_substitutes (quad : Quad Opcode regs)
+    (arguments : WordSlot regs → Key (dataPorts regs)) {fine coarse : Keys regs}
+    (related : ∀ port : WordSlot regs, (fine.get port).substitute arguments = coarse.get port) :
+    ∀ port : WordSlot regs, ((quad.eval (numbering regs) fine).get port).substitute arguments =
+      (quad.eval (numbering regs) coarse).get port := by
+  obtain ⟨_, _, dest, op, operands⟩ := quad
+  refine write_agrees (regs := regs) (F := Symbolic regs) (Key.substitute arguments) dest _ _ fine coarse related ?_
+  intro same
+  cases op with
+  | arithmetic op =>
+    cases op with
+    | literal => cases operands; rfl
+    | add | sub | mul =>
+      cases operands with | cons first rest =>
+      cases rest with | cons second rest =>
+      cases rest
+      first
+      | exact congrArg₂ (Key.binary .add) (related first) (related second)
+      | exact congrArg₂ (Key.binary .sub) (related first) (related second)
+      | exact congrArg₂ (Key.binary .mul) (related first) (related second)
+  | boolean _ | eq | slt | sle | not => cases same
+
+theorem block_substitutes (block : Block Opcode regs)
+    (arguments : WordSlot regs → Key (dataPorts regs)) {fine coarse : Keys regs}
+    (related : ∀ port : WordSlot regs, (fine.get port).substitute arguments = coarse.get port) :
+    ∀ port : WordSlot regs, ((block.eval (numbering regs) fine).get port).substitute arguments =
+      (block.eval (numbering regs) coarse).get port := by
+  induction block generalizing fine coarse with
+  | nil => exact related
+  | cons head tail ih => exact ih (quad_substitutes head arguments related)
+
 theorem entry_agrees (entry : Bank (regs := regs) model) :
     Keys.Reads entry (entryKeys regs) entry :=
   fun port => entry_read_agrees entry (.arg port)
@@ -89,7 +122,7 @@ private theorem write_same {ports : List (Ty Unit)} {t : Ty Unit} (port : Port p
 private theorem header_agrees {representative member : WordSlot regs} {old : Bank (regs := regs) model}
     (same : old.get representative = old.get member) :
     Keys.Reads old (headerKeys representative member) old := by
-  have agrees := write_agrees old member (.argument representative) (old.get member)
+  have agrees := write_agrees (regs := regs) (F := Concrete) (Key.eval old) member (.argument representative) (old.get member)
     (entryKeys regs) old (entry_agrees old) (fun eq => by cases eq; exact same)
   rw [write_same] at agrees
   exact agrees
