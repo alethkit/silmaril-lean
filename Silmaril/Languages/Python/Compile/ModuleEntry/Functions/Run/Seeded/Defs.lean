@@ -71,6 +71,11 @@ def legacyTupleSeed (placement : SeedPlacement) : Namespace :=
   let seed := legacySeed placement
   { seed with builtins := ("tuple", .builtin .tuple) :: seed.builtins }
 
+/-- The ordinal profile opts into the stock descriptor in either placement. -/
+def legacyOrdSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  { seed with builtins := ("ord", .builtin .ord) :: seed.builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)
@@ -87,7 +92,7 @@ def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ => none
+  | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ | .returnedTuple _ => none
 
 /-- Observation map for the shared scalar comparison profile. -/
 def scalarFailure : Completion → Failure
@@ -132,6 +137,7 @@ def truth : Value → Bool
   | .listObject object => !object.contents.isEmpty
   | .exceptionClass _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
+  | .returnedTuple items => !items.isEmpty
 
 def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
   if truth value = expected then .ok () else .error (.raised (.assertionError .empty))
@@ -174,6 +180,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .bool value => some (.bool value)
   | .none => some .none
   | .function closure => some (.function closure)
+  | .returnedTuple items => some (.tuple items)
   | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
@@ -181,6 +188,7 @@ def seededValue : Core.Closure.Value → Value
   | .bool value => .bool value
   | .none => .none
   | .function closure => .function closure
+  | .tuple items => .returnedTuple items
 
 def callbackSession (space : Namespace) (heap : Heap) : Core.Module.Functions.Session :=
   ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap⟩
@@ -315,8 +323,29 @@ def factoryOperands (values : List Value) : Option (List Core.Module.Functions.O
 def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
-  | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none) =>
+  | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
+  | .finished heap (.ok (.tuple _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
+  | _ => observeDirectCall space state
+
+/-- This result-binding profile recognizes an explicit flat tuple return
+through checked stores and assertions. Generic result dispatch stays separate. -/
+def returnsScalarTuple {layout : Core.Closure.Layout} : Core.Closure.Executor.Body layout → Bool
+  | .ret (.tuple _) => true
+  | .store _ _ tail | .assert _ tail => returnsScalarTuple tail
+  | _ => false
+
+def CallContext.acceptsTupleResult (context : CallContext) (closure : Function) (arity : Nat) : Bool :=
+  context.acceptsPublishedCall closure arity &&
+    match Core.Closure.Dispatch.resolve context.table closure.code with
+    | .ok definition => returnsScalarTuple definition.body
+    | .error _ => false
+
+def observeTupleResult (space : Namespace) (state : Core.Closure.Executor.State) :
+    Except ModuleFailure CallObservation × Heap :=
+  match state with
+  | .finished _ (.ok (.tuple _)) => observeDirectCall space state
+  | .finished heap (.ok _) => (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
 
 /-- Dispatch an already resolved flat call. Factory binding uses the current
@@ -335,6 +364,8 @@ def invokeFlatCall (space : Namespace) (context : CallContext)
     | some operands =>
       if context.acceptsFactory closure operands.length then
         observeFactory space (ordinaryCall space context closure operands)
+      else if context.acceptsTupleResult closure operands.length then
+        observeTupleResult space (ordinaryCall space context closure operands)
       else (.ok ⟨.error .unsupported, none⟩, context.heap)
     | none => (.ok ⟨.error .unsupported, none⟩, context.heap)
   | _, _, _ => invokeCall space context callee arguments
@@ -472,19 +503,65 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   match space.lookupGlobal "len" with
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
-  | some (.int _) | some (.bool _) | some .none => .error (.raised (.runtime .notCallable))
+  | some (.int _) | some (.bool _) | some .none | some (.returnedTuple _) =>
+    .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
 
-def checkSequenceLengthResult {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope)
-    (length : Int) : Except Failure Unit := do
+def readIntegerBuiltin (space : Namespace) : IntegerBuiltinArgument → Except Failure Int
+  | .sequenceLength length => readSequenceLength space length
+  | .ordinal point _ =>
+    match space.lookupGlobal "ord" with
+    | none => .error (.raised (.runtime (.nameError "ord")))
+    | some (.builtin .ord) => .ok (Int.ofNat point.toNat)
+    | some other =>
+      match Core.Module.SeededCall.Request.decode other [] with
+      | .nonCallable => .error (.raised (.runtime .notCallable))
+      | _ => .error .unsupported
+
+def checkIntegerBuiltinResult {scope : Scope} (space : Namespace) (test : IntegerBuiltinTest scope)
+    (value : Int) : Except Failure Unit := do
   let actual ← evaluateScalar space true test.right
   let some right := scalar? actual | throw .unsupported
-  assertTruthAs test.expectedEqual (.bool ((.int length : Core.Module.Value).equal right))
+  assertTruthAs test.expectedEqual (.bool ((.int value : Core.Module.Value).equal right))
 
-def assertSequenceLength {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) : Effect :=
-  let result := readSequenceLength space test.length
-  let checked := result.bind (checkSequenceLengthResult space test)
-  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"len", ⟨result.map .int, none⟩⟩]⟩
+def assertIntegerBuiltin {scope : Scope} (space : Namespace) (test : IntegerBuiltinTest scope) : Effect :=
+  let result := readIntegerBuiltin space test.argument
+  let checked := result.bind (checkIntegerBuiltinResult space test)
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall,
+    [⟨test.argument.name, ⟨result.map .int, none⟩⟩]⟩
+
+abbrev checkSequenceLengthResult {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) :=
+  checkIntegerBuiltinResult space test.toIntegerBuiltin
+
+abbrev assertSequenceLength {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) : Effect :=
+  assertIntegerBuiltin space test.toIntegerBuiltin
+
+def readBoolCall {scope : Scope} (space : Namespace) (argument : Option (ModuleEntry.Operand scope)) :
+    Except Failure Bool :=
+  match space.lookupGlobal "bool" with
+  | none => .error (.raised (.runtime (.nameError "bool")))
+  | some callee =>
+    (argument.mapM (evaluateScalar space true)).bind fun value =>
+      match callee with
+      | .builtin .bool =>
+        match scalar? (value.getD .none) with
+        | some scalar => .ok scalar.truth
+        | none => .error .unsupported
+      | other =>
+        match Core.Module.SeededCall.Request.decode other value.toList with
+        | .nonCallable => .error (.raised (.runtime .notCallable))
+        | _ => .error .unsupported
+
+def checkBoolIdentityResult {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope)
+    (value : Bool) : Except Failure Unit := do
+  let right ← Core.Module.Identity.project (fun item => (scalar? item).bind Core.Module.Value.singleton?)
+    .unsupported (evaluateScalar space true test.right)
+  assertTruth (.bool (test.operator.test (.boolean value) right))
+
+def assertBoolIdentity {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope) : Effect :=
+  let result := readBoolCall space test.argument
+  let checked := result.bind (checkBoolIdentityResult space test)
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"bool", ⟨result.map .bool, none⟩⟩]⟩
 
 /-- Only a checked list argument allocates a list before constructor dispatch. -/
 def prepareListArgument (heap : ListHeap) : ListConstructorArgument → List Core.Module.Value × ListHeap
@@ -504,7 +581,8 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .none | .listObject _ => (.error (.raised (.runtime .notCallable)), reached)
+    | .int _ | .bool _ | .none | .listObject _ | .returnedTuple _ =>
+      (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
 def listEquality (left right : ListObject) : Bool :=
@@ -570,7 +648,8 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
-  | .assertSequenceLength test => (assertSequenceLength space test, context.heap)
+  | .assertIntegerBuiltin test => (assertIntegerBuiltin space test, context.heap)
+  | .assertBoolIdentity test => (assertBoolIdentity space test, context.heap)
   | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
   | .assertTupleChain test =>
     (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)

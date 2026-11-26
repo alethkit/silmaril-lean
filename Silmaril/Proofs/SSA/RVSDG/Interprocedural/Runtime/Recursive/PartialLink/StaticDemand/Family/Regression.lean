@@ -1,7 +1,7 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Thms
-meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Thms
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Thms
 meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Wrapper.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Synthesis.Thms
@@ -12,7 +12,7 @@ meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Sta
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression
 
 open NestedTheta.Liveness
-open Isomorphism.RecursiveCall.Numbered.Prefix (linkTerm_bind)
+open Ordered.Prefix (Plan Scope lastExport seededGraph)
 open Continuation (Stack)
 open Continuation.Partial (Config Step)
 open Continuation.Partial.Executable (Actions Observation next? observe runFor runFor_add step_iff)
@@ -27,6 +27,7 @@ private abbrev decision : List T := [.control 2, num]
 
 private inductive Op : Dialect (ValueSort Unit Unit) Unit
   | route (first : Bool) : Op single decision
+  | choose (extra cost : Nat) : Op single [.control (extra + 2)]
   | probe : Op single []
   | after : Op [] []
 
@@ -35,6 +36,7 @@ private def machine : Machine Op where
   State _ := Unit
   primitive
     | .route _, .cons (.data count) .nil => .cons (.control 0) (.cons (.data count) .nil)
+    | .choose _ _, _ => .cons (.control 0) .nil
     | .probe, _ => .nil
     | .after, _ => .nil
 
@@ -48,6 +50,10 @@ private def actions : Actions machine Nat where
       let tag : Fin 2 := if count = 0 then 0 else 1
       let next := if count = 99 then count else count - 1
       some (.cons (.control tag) (one next), store + (if first then 1 else 2))
+    | .choose extra cost, .cons (.data value) .nil => fun store =>
+      let value : Nat := value
+      let tag : Fin (extra + 2) := ⟨value % (extra + 2), Nat.mod_lt _ (Nat.zero_lt_succ _)⟩
+      some (.cons (.control tag) .nil, store + cost)
     | .probe, .cons (.data cap) .nil => fun store =>
       let cap : Nat := cap
       if cap = 0 then none else some (.nil, store + cap)
@@ -479,54 +485,24 @@ private def laterBinding : Ordered.Binding Op firstSlots single firstSigs export
         (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
     laterSuffix
 
-private abbrev laterSlots := Ordered.prepend laterBinding.summary firstSlots
-
-private def seedLocals (cap : Nat) : Locals machine.Val seedSigs :=
-  (inferred.references (one cap), PUnit.unit)
-
-private def seedChecked (cap : Nat) :=
-  Ordered.CheckedPrefix.seed actions inferred (one cap) (one cap) (relayReady cap) (relayReady cap)
-
-private def firstLocals (cap : Nat) : Locals machine.Val firstSigs :=
-  (seedLocals cap).snoc (.cons (firstBinding.value (one cap) (seedLocals cap)) .nil)
-
-private def firstChecked? (cap : Nat) : Option (Ordered.CheckedPrefix actions firstSlots
-    (firstLocals cap) (firstLocals cap)) :=
-  (seedChecked cap).addLambda firstBinding (one cap) (one cap)
-    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
-
-private def firstChecked (cap : Nat) := (firstChecked? cap).get (by rfl)
-
-private def laterChecked? (cap : Nat) :=
-  (firstChecked cap).addLambda laterBinding (one cap) (one cap)
-    (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩) (fun _ => ⟨⟨rfl, rfl⟩, trivial⟩)
-
-private def laterChecked (cap : Nat) := (laterChecked? cap).get (by rfl)
-
-private def orderedExport : ModuleTerm Op single (firstSigs ++ [[exportFn.port]]) [] [exportFn.port] :=
-  .ret (.cons (.output (2 : Fin 3) .head) .nil)
-
 private def orderedLambdas : ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port]] [exportFn.port] :=
-  .bind (.lambda firstBinding.term) (.bind (.lambda laterBinding.term) orderedExport)
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda laterBinding.term) (.ret (lastExport firstSigs exportFn)))
 
-private def orderedGraph : Omega Op single [exportFn.port] (firstSigs ++ [[exportFn.port]]) :=
-  OmegaTerm.toGraph ⟨.bind (.phi inferred.group) orderedLambdas⟩
+private def orderedGraph := seededGraph inferred orderedLambdas
 
-private def exportValues (cap : Nat) : Tuple machine.Val [exportFn.port] :=
-  .cons (laterBinding.value (one cap) (firstLocals cap)) .nil
+private def firstScope (cap : Nat) :=
+  (Scope.seed inferred (one cap) (one cap)).add firstBinding (one cap) (one cap)
 
-private def laterCaptures (cap : Nat) := laterBinding.captures.read (one cap) (firstLocals cap)
+private def orderedPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) laterBinding.summary orderedLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) laterBinding)
 
-private theorem linkedOrdered (cap : Nat) :
-    Executable.link actions 83 orderedGraph (one cap) 20 = .linked (exportValues cap) 20 := by
-  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap) (past := [])
-    PUnit.unit (.bind (.phi inferred.group) orderedLambdas) 20 = _
-  refine (linkTerm_bind (past := []) actions 83 (one cap) PUnit.unit (.phi inferred.group) orderedLambdas 20).trans ?_
-  change Isomorphism.RecursiveCall.Numbered.Prefix.linkTerm actions 83 (one cap)
-    (seedLocals cap) orderedLambdas 20 = _
-  exact (firstBinding.link_step actions 83 (one cap) (seedLocals cap)
-      (.bind (.lambda laterBinding.term) orderedExport) 20).trans
-    ((laterBinding.link_step actions 83 (one cap) (firstLocals cap) orderedExport 20).trans rfl)
+private def admitted (cap : Nat) :=
+  (orderedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+
+private def checkedExport (cap : Nat) := (admitted cap).get (by rfl)
 
 private theorem laterReads : laterBinding.summary.live requested = [.arg 2, .arg 3, .arg 4] := by
   have usesFirst : resultDemand 0 (laterSuffix.plan requested) = requested := by
@@ -549,8 +525,8 @@ example : Address.arg 4 ∈ (laterBinding.body.liveness requested).mayOut 0 :=
 
 private theorem laterAgreed (cap count : Nat) :
     Ordered.InputsAgree (m := machine) laterBinding.summary requested
-      (prependContext (args count 41 4) (laterCaptures cap))
-      (prependContext (args count 41 40) (laterCaptures cap)) := by
+      (prependContext (args count 41 4) (checkedExport cap).capsL)
+      (prependContext (args count 41 40) (checkedExport cap).capsR) := by
   intro ty p live
   change .arg p.index ∈ laterBinding.summary.live requested at live
   rw [laterReads] at live
@@ -578,11 +554,10 @@ private def runOrdered (fuel cap count spare : Nat) :=
 
 example (fuel after cap count : Nat) :
     ∃ left right, runOrdered fuel cap count 4 = .ok left ∧ runOrdered fuel cap count 40 = .ok right ∧
-      PrefixObservationsAgree actions requested after left right := by
-  exact (laterChecked cap).dispatch.linked_prefixes_agree (0 : Fin 4) requested fuel after 83 orderedGraph
-    .head (one cap) (one cap) (args count 41 4) (args count 41 40) 20
-    (capsL := laterCaptures cap) (capsR := laterCaptures cap)
-    (linkedOrdered cap) (linkedOrdered cap) ⟨rfl, rfl⟩ ⟨rfl, rfl⟩ (laterAgreed cap count)
+      PrefixObservationsAgree actions requested after left right :=
+  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := laterBinding.summary)
+    requested fuel after 83 orderedGraph (one cap) (one cap) (args count 41 4) (args count 41 40) 20
+    (checkedExport cap) (laterAgreed cap count)
 
 #guard (runOrdered 80 2 2 4).toOption.bind wrapperResult == some (41, 66)
 #guard (runOrdered 80 2 2 40).toOption.bind wrapperResult == some (41, 66)
@@ -590,5 +565,332 @@ example (fuel after cap count : Nat) :
 #guard probeBlock (runOrdered 80 0 2 40) 8
 #guard (resume (runOrdered 80 0 2 4)).bind wrapperResult == some (41, 90)
 #guard (resume (runOrdered 80 0 2 40)).bind wrapperResult == some (41, 90)
+
+-- This skipped λ has the same signature and builds the same closure as
+-- the first one. Its linker position nevertheless carries no admission.
+private def uncheckedLambda : LambdaTerm Op single firstSigs exportFn :=
+  ⟨firstBinding.context, .cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil),
+    firstBinding.sigs, firstBinding.body.term⟩
+
+private abbrev skippedSigs := firstSigs ++ [[exportFn.port]]
+
+private def rejectedBinding : Ordered.Binding Op firstSlots single skippedSigs exportFn where
+  context := laterBinding.context
+  captures := .cons (.output (2 : Fin 3) .head)
+    (.cons (.output (0 : Fin 3) .head) (.cons (.arg .head) .nil))
+  sigs := laterBinding.sigs
+  body := laterBinding.body
+
+private def rejectedLambdas :
+    ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port], [exportFn.port]] [exportFn.port] :=
+  .bind (.lambda firstBinding.term) (.bind (.lambda uncheckedLambda)
+    (.bind (.lambda rejectedBinding.term) (.ret (lastExport skippedSigs exportFn))))
+
+private def rejectedPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) rejectedBinding.summary rejectedLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.skipLambda (scope := firstScope cap) uncheckedLambda
+      (Plan.finishDirect (scope := (firstScope cap).skip uncheckedLambda (one cap) (one cap)) rejectedBinding))
+
+example (cap : Nat) :
+    (rejectedPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
+  rfl
+
+#guard (Executable.run actions 80 83 (seededGraph inferred rejectedLambdas) (one 2) .head (args 2 41 4) 20
+  |>.toOption.bind wrapperResult) == some (41, 66)
+
+-- The site still names an earlier slot, but its target operand is one
+-- of the caller's formal arguments rather than a captured linker source.
+private abbrev formalFn : Function Unit Unit := ⟨exportFn.port :: exportFn.args, single⟩
+
+private def formalBinding : Ordered.Binding Op firstSlots single firstSigs formalFn where
+  context := [fn.port, num]
+  captures := .cons (.output (0 : Fin 2) .head) (.cons (.arg .head) .nil)
+  sigs := [single]
+  body := .familyCall (table := firstSlots) (0 : Fin 3) (.tail (.tail .head))
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil))
+    (.cons (.arg (.tail (.tail (.tail .head))))
+      (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil)))
+    (.ret (.cons (.output (0 : Fin 1) .head) .nil))
+
+private def formalLambdas : ModuleTerm Op single seedSigs [[exportFn.port], [formalFn.port]] [formalFn.port] :=
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda formalBinding.term) (.ret (lastExport firstSigs formalFn)))
+
+private def formalPlan (cap : Nat) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap)) formalBinding.summary formalLambdas :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) formalBinding)
+
+example (cap : Nat) :
+    (formalPlan cap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap) = none :=
+  rfl
+
+-- A ternary γ forwards the captures into its first arm. A binary γ
+-- in that arm permutes those wires again before selecting a callee.
+private abbrev gammaContext := [exportFn.port, fn.port, fn.port, num]
+private abbrev gammaEntry := gammaContext ++ exportFn.args
+private abbrev gammaChild := [fn.port, exportFn.port, num, fn.port, num, num, num]
+private abbrev innerChild := [num, fn.port, fn.port, exportFn.port, num, num, num]
+
+private def gammaWires : Wires gammaEntry [[.control 3]] gammaChild :=
+  .cons (.arg (.tail .head))
+    (.cons (.arg .head)
+      (.cons (.arg (.tail (.tail (.tail .head))))
+        (.cons (.arg (.tail (.tail .head)))
+          (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+            (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+              (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))))))
+
+private def innerWires (mismatch : Bool) : Wires gammaChild [[.control 2]] innerChild :=
+  .cons (.arg (.tail (.tail .head)))
+    (.cons (.arg .head)
+      (.cons (.arg (if mismatch then .head else .tail (.tail (.tail .head))))
+        (.cons (.arg (.tail .head))
+          (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+            (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+              (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))))))
+
+private def gammaArguments : Wires gammaChild [] exportFn.args :=
+  .cons (.arg (.tail (.tail (.tail (.tail .head)))))
+    (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))
+
+private def innerArguments : Wires innerChild [] exportFn.args :=
+  .cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+    (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+      (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))
+
+private def innerSigs : Fin 2 → List (Ports T) := Fin.cases [single] (fun _ => [pair])
+
+private def innerArms (i : Fin 2) : Code Op innerChild [] (innerSigs i) single true (some firstSlots) :=
+  Fin.cases (motive := fun i => Code Op innerChild [] (innerSigs i) single true (some firstSlots))
+    (.familyCall (table := firstSlots) (0 : Fin 3) (.tail (.tail (.tail .head)))
+      (.cons (.arg (.tail .head)) (.cons (.arg .head) .nil)) innerArguments
+      (.ret (.cons (.output (0 : Fin 1) .head) .nil)))
+    (fun _ => .familyCall (table := firstSlots) (2 : Fin 3) (.tail (.tail .head))
+      (.cons (.arg .head) .nil) innerArguments
+      (.ret (.cons (.output (0 : Fin 1) (.tail .head)) .nil))) i
+
+private abbrev nestedSigs : List (Ports T) := [[.control 2], single, []]
+private def gammaArmSigs : Fin 3 → List (Ports T) := Fin.cases nestedSigs (Fin.cases [pair] (fun _ => []))
+
+private def gammaArms (mismatch : Bool) (i : Fin 3) : Code Op gammaChild [] (gammaArmSigs i) single true (some firstSlots) :=
+  Fin.cases (motive := fun i => Code Op gammaChild [] (gammaArmSigs i) single true (some firstSlots))
+    (.primitive (.choose 0 0) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+      (.gamma 0 innerSigs (.output (0 : Fin 1) .head) (innerWires mismatch) innerArms
+        (.primitive .after .nil (.ret (.cons (.output (1 : Fin 3) .head) .nil)))))
+    (Fin.cases
+      (.familyCall (table := firstSlots) (2 : Fin 3) (.tail (.tail (.tail .head)))
+        (.cons (.arg (.tail (.tail .head))) .nil) gammaArguments
+        (.ret (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))
+      (fun _ => .ret (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil))) i
+
+private def gammaBinding (mismatch : Bool) : Ordered.Binding Op firstSlots single firstSigs exportFn where
+  context := gammaContext
+  captures := .cons (.output (1 : Fin 2) .head)
+    (.cons (.output (0 : Fin 2) .head)
+      (.cons (.output (0 : Fin 2) (.tail .head)) (.cons (.arg .head) .nil)))
+  sigs := [[.control 3], single, []]
+  body := .primitive (.choose 1 2) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+    (.gamma 1 gammaArmSigs (.output (0 : Fin 1) .head) gammaWires (gammaArms mismatch)
+      (.primitive .after .nil (.ret (.cons (.output (1 : Fin 3) .head) .nil))))
+
+private def gammaLambdas (mismatch : Bool) :
+    ModuleTerm Op single seedSigs [[exportFn.port], [exportFn.port]] [exportFn.port] :=
+  .bind (.lambda firstBinding.term)
+    (.bind (.lambda (gammaBinding mismatch).term) (.ret (lastExport firstSigs exportFn)))
+
+private def gammaPlan (cap : Nat) (mismatch : Bool) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap))
+      (gammaBinding mismatch).summary (gammaLambdas mismatch) :=
+  Plan.lambdaDirect (scope := Scope.seed inferred (one cap) (one cap)) firstBinding
+    (Plan.finishDirect (scope := firstScope cap) (gammaBinding mismatch))
+
+private def gammaAdmitted (cap : Nat) (mismatch : Bool) :=
+  (gammaPlan cap mismatch).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+
+private def gammaExport (cap : Nat) := (gammaAdmitted cap false).get (by rfl)
+
+-- Substitute the other same-signature φ at the second inner arm's
+-- target. The checker rejects the plan even if the first inner arm runs.
+example (cap : Nat) : gammaAdmitted cap true = none := rfl
+
+private theorem gammaSpareDead : Address.arg 6 ∉ (gammaBinding false).summary.live requested := by decide
+
+#guard ((gammaBinding false).summary.live requested).contains (.arg 4)
+#guard ((gammaBinding false).summary.live requested).contains (.arg 5)
+
+private theorem gammaAgreed (cap count : Nat) :
+    Ordered.InputsAgree (m := machine) (gammaBinding false).summary requested
+      (prependContext (args count 41 4) (gammaExport cap).capsL)
+      (prependContext (args count 41 40) (gammaExport cap).capsR) := by
+  intro ty p live
+  let captured := (gammaBinding false).captures.read (one cap) (firstScope cap).localsL
+  change (prependContext (args count 41 4) captured).get p = (prependContext (args count 41 40) captured).get p
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  cases p with
+  | head => exact False.elim (gammaSpareDead live)
+  | tail p => nomatch p
+
+private def runGamma (mismatch : Bool) (fuel cap count spare : Nat) :=
+  Executable.run actions fuel 83 (seededGraph inferred (gammaLambdas mismatch)) (one cap) .head (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runGamma false fuel cap count 4 = .ok left ∧ runGamma false fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right :=
+  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := (gammaBinding false).summary)
+    requested fuel after 83 (seededGraph inferred (gammaLambdas false)) (one cap) (one cap)
+    (args count 41 4) (args count 41 40) 20 (gammaExport cap) (gammaAgreed cap count)
+
+#guard (runGamma false 80 2 0 4).toOption.bind wrapperResult == some (0, 55)
+#guard (runGamma false 80 2 0 40).toOption.bind wrapperResult == some (0, 55)
+#guard (runGamma false 80 2 1 4).toOption.bind wrapperResult == some (41, 47)
+#guard (runGamma false 80 2 1 40).toOption.bind wrapperResult == some (41, 47)
+#guard (runGamma false 80 2 2 4).toOption.bind wrapperResult == some (41, 32)
+#guard (runGamma false 160 2 3 4).toOption.bind wrapperResult == some (0, 80)
+#guard (runGamma true 80 2 0 4).toOption.bind wrapperResult == some (0, 55)
+
+private def gammaBlock (count : Nat) : Option (Nat × Nat) :=
+  match runGamma false 80 0 count 4 with
+  | .ok (.blocked ⟨⟨_, _, .probe, _, _, .cons (.data cap) .nil⟩, _⟩ store) => some (cap, store)
+  | _ => none
+
+#guard gammaBlock 0 == some (0, 23)
+#guard gammaBlock 1 == some (0, 25)
+#guard gammaBlock 3 == some (0, 28)
+#guard (resume (runGamma false 80 0 0 4)).bind wrapperResult == some (0, 80)
+#guard (resume (runGamma false 80 0 1 4)).bind wrapperResult == some (41, 70)
+#guard (resume (runGamma false 80 0 3 4)).bind wrapperResult == some (0, 100)
+
+-- The first θ activation only updates the counter. Its second activation
+-- calls φ through the carried target and witnesses, then exits.
+private abbrev thetaContext := [fn.port, fn.port, num]
+private abbrev thetaCarried := thetaContext ++ exportFn.args
+
+private def thetaA : Port thetaCarried fn.port := .head
+private def thetaB : Port thetaCarried fn.port := .tail .head
+private def thetaCapture : Port thetaCarried num := .tail (.tail .head)
+private def thetaCount : Port thetaCarried num := .tail (.tail (.tail .head))
+private def thetaPayload : Port thetaCarried num := .tail (.tail (.tail (.tail .head)))
+private def thetaSpare : Port thetaCarried num := .tail (.tail (.tail (.tail (.tail .head))))
+
+private def thetaArgs {past : List (Ports T)} : Wires thetaCarried past exportFn.args :=
+  .cons (.arg thetaCount) (.cons (.arg thetaPayload) (.cons (.arg thetaSpare) .nil))
+
+private def thetaWires {past : List (Ports T)} : Wires thetaCarried past thetaCarried :=
+  .cons (.arg thetaA) (.cons (.arg thetaB) (.cons (.arg thetaCapture) thetaArgs))
+
+private def thetaArmSigs : Fin 2 → List (Ports T) := Fin.cases [pair, []] (fun _ => [])
+
+private def thetaArms (i : Fin 2) :
+    Code Op thetaCarried [] (thetaArmSigs i) single true (some seeds) :=
+  Fin.cases (motive := fun i => Code Op thetaCarried [] (thetaArmSigs i) single true (some seeds))
+    (.familyCall (table := seeds) (0 : Fin 2) thetaA (.cons (.arg thetaCapture) .nil) thetaArgs
+      (.primitive .after .nil (.ret (.cons (.output (0 : Fin 2) (.tail .head)) .nil))))
+    (fun _ => .ret (.cons (.arg thetaPayload) .nil)) i
+
+private def thetaBody (swap : Bool) :
+    Code Op thetaCarried [] [decision, single] (Theta.BodyResults thetaCarried) true (some seeds) :=
+  let next : Wires thetaCarried [decision, single] (Theta.BodyResults thetaCarried) :=
+    .cons (.output (0 : Fin 2) .head)
+      (.cons (.arg (if swap then thetaB else thetaA))
+        (.cons (.arg (if swap then thetaA else thetaB))
+          (.cons (.arg thetaCapture)
+            (.cons (.output (0 : Fin 2) (.tail .head))
+              (.cons (.output (1 : Fin 2) .head) (.cons (.arg thetaSpare) .nil))))))
+  .primitive (.route true) (.cons (.arg thetaCount) .nil)
+    (.gamma 0 thetaArmSigs (.output (0 : Fin 1) .head) thetaWires thetaArms (.ret next))
+
+private def thetaBinding (swap : Bool) : Ordered.Binding Op seeds single seedSigs exportFn where
+  context := thetaContext
+  captures := .cons (.output (0 : Fin 1) .head)
+    (.cons (.output (0 : Fin 1) (.tail .head)) (.cons (.arg .head) .nil))
+  sigs := [thetaCarried, []]
+  body := .theta thetaWires (thetaBody swap)
+    (.primitive .after .nil (.ret (.cons (.output (0 : Fin 2) thetaPayload) .nil)))
+
+private def thetaLambdas (swap : Bool) : ModuleTerm Op single seedSigs [[exportFn.port]] [exportFn.port] :=
+  .bind (.lambda (thetaBinding swap).term) (.ret (lastExport seedSigs exportFn))
+
+private def thetaPlan (cap : Nat) (swap : Bool) :
+    Plan (one cap) (one cap) (Scope.seed inferred (one cap) (one cap))
+      (thetaBinding swap).summary (thetaLambdas swap) :=
+  Plan.finishDirect (scope := Scope.seed inferred (one cap) (one cap)) (thetaBinding swap)
+
+private def thetaAdmitted (cap : Nat) (swap : Bool) :=
+  (thetaPlan cap swap).admit inferred actions 83 (one cap) (one cap) 20 (relayReady cap) (relayReady cap)
+
+private def thetaExport (cap : Nat) := (thetaAdmitted cap false).get (by rfl)
+
+-- The actual initial callable wires still match. Swapping the two carried
+-- callables on the backedge removes the target's provenance at the call.
+example (cap : Nat) : thetaAdmitted cap true = none := rfl
+
+set_option maxRecDepth 2048 in
+private theorem thetaSpareDead : Address.arg 5 ∉ (thetaBinding false).summary.live requested := by decide
+
+#guard ((thetaBinding false).summary.live requested).contains (.arg 3)
+#guard ((thetaBinding false).summary.live requested).contains (.arg 4)
+
+private theorem thetaAgreed (cap count : Nat) :
+    Ordered.InputsAgree (m := machine) (thetaBinding false).summary requested
+      (prependContext (args count 41 4) (thetaExport cap).capsL)
+      (prependContext (args count 41 40) (thetaExport cap).capsR) := by
+  intro ty p live
+  let scope := Scope.seed inferred (one cap) (one cap)
+  let captured := (thetaBinding false).captures.read (one cap) scope.localsL
+  change (prependContext (args count 41 4) captured).get p = (prependContext (args count 41 40) captured).get p
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  rcases p with _ | p
+  · rfl
+  cases p with
+  | head => exact False.elim (thetaSpareDead live)
+  | tail p => nomatch p
+
+private def runTheta (swap : Bool) (fuel cap count spare : Nat) :=
+  Executable.run actions fuel 83 (seededGraph inferred (thetaLambdas swap)) (one cap) .head (args count 41 spare) 20
+
+example (fuel after cap count : Nat) :
+    ∃ left right, runTheta false fuel cap count 4 = .ok left ∧ runTheta false fuel cap count 40 = .ok right ∧
+      PrefixObservationsAgree actions requested after left right :=
+  Ordered.Prefix.Export.linked_prefixes_agree (actions := actions) (summary := (thetaBinding false).summary)
+    requested fuel after 83 (seededGraph inferred (thetaLambdas false)) (one cap) (one cap)
+    (args count 41 4) (args count 41 40) 20 (thetaExport cap) (thetaAgreed cap count)
+
+#guard (runTheta false 80 2 1 4).toOption.bind wrapperResult == some (41, 45)
+#guard (runTheta false 80 2 1 40).toOption.bind wrapperResult == some (41, 45)
+#guard (runTheta true 80 2 0 4).toOption.bind wrapperResult == some (41, 44)
+#guard (runTheta true 80 2 1 4).toOption.bind wrapperResult == some (0, 46)
+
+private def thetaBlock (count spare : Nat) : Option (Nat × Nat) :=
+  match runTheta false 80 0 count spare with
+  | .ok (.blocked ⟨⟨_, _, .probe, _, _, .cons (.data cap) .nil⟩, _⟩ store) => some (cap, store)
+  | _ => none
+
+#guard thetaBlock 0 4 == some (0, 22)
+#guard thetaBlock 1 4 == some (0, 23)
+#guard thetaBlock 1 40 == some (0, 23)
+#guard (resume (runTheta false 80 0 1 4)).bind wrapperResult == some (41, 70)
+#guard (resume (runTheta false 80 0 1 40)).bind wrapperResult == some (41, 70)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Family.Regression

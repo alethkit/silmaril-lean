@@ -26,7 +26,7 @@ private theorem get_ofTable {n : Nat} {F : Fin n → Type w} (values : (i : Fin 
   | zero => exact i.elim0
   | succ n ih => exact Fin.cases rfl (fun j => ih (fun k => values k.succ) j) i
 
-private theorem member_get {F : Ty V S → Type w} (members : List (Function V S))
+theorem member_get {F : Ty V S → Type w} (members : List (Function V S))
     (values : (i : Fin members.length) → F members[i].port) (i : Fin members.length) :
     (memberValues members values).get (memberPort members i) = values i := by
   induction members with

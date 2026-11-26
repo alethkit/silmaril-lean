@@ -783,6 +783,84 @@ returns `41` at store `66`, blocks at store `24`, and resumes through
 both λ suffixes and both φ suffixes to store `90`.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
+### Checking a whole linked demand prefix
+
+`Ordered.Prefix.Plan` follows the typed module tail after a checked φ
+seed. It admits selected λ bindings with `addLambda` and leaves skipped
+positions empty in the existing typed linker table. Each checked binding
+can supply a local body-resolution proof or request the direct-call
+check. The fold constructs the intermediate
+membership tables, attaches the computed summaries, and uses the existing
+linker equations to identify both successful link results and the final
+export's captures. `Export.linked_prefixes_agree` consumes that result
+directly.
+[Whole-prefix API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Thms.lean)
+
+This slice compares two links of the same φ/λ module with a common
+initial store and exports the last checked λ. The
+λ→λ→φ regression uses the direct-call check for both checked bindings and retains
+its demand, return, block, and resumption checks. A second plan links
+a same-signature copy of the first λ at a skipped position and
+redirects the last λ's capture there. The runner can call that copy,
+while admission rejects the unchecked position. It also rejects a site
+that takes its callable from a formal input.
+[Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+### Synthesizing direct call resolution
+
+`Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local
+`ResolvedWith` proofs for direct captured calls. The checker projects the
+typed call operand and capture witnesses through the λ's capture wiring
+and composes that partial map through nested γ boundaries.
+It compares their linker addresses with the stored sources for the
+specified slot and checks callable membership at the actual position
+in both runs. Matching typed addresses imply equality of the wires.
+At each γ, the checker follows the actual argument wires and certifies
+every arm and the suffix. The number of arms is the `Code` layer's
+`extra + 2`. The certificate covers every prior local tuple. Untracked
+child ports can still carry ordinary inputs and results.
+
+The φ seed can describe member capture witnesses that project directly
+through its outer context. The checker rejects missing source descriptions,
+formal callees, and local outputs as origins for callees or capture
+witnesses, including callable values produced by a branch join. Inline
+closure descriptions use the explicit plan constructors with supplied
+resolution proofs. Invocation uses the same linked runner.
+[Direct resolution API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
+
+`synthesize_complete` proves success for a direct forwarding derivation
+whose call sites match the supplied slot sources and paired checked
+membership. The whole-prefix fold also checks each binding's admission.
+[Completeness theorem](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Completeness/Thms.lean)
+
+The linked fixture reorders captures through a ternary γ and then through
+a binary γ in its first arm. The runner checks every branch choice,
+including typed probes and resumption through both nested suffixes. The
+spare formal stays dead. Substituting a same-signature φ target from the
+wrong linker position rejects admission even when the affected inner arm
+would be unselected.
+[Linked γ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+### Tracking captured calls through θ feedback
+
+At θ entry, the checker follows the actual input wires and keeps a
+carried origin only if the corresponding body result is wired straight
+back from that same port. `feedback_return_reads` proves that every
+returned body packet preserves those reads by `Code.Forwards`. The
+linked runtime theorem carries those equalities through each restart,
+including after resumption. Untracked ordinary state may change, and
+inference checks the suffix under its enclosing boundary.
+
+The linked θ fixture changes a counter on the first iteration and calls
+a captured φ member on the second. With the spare input dead, the runner
+returns, blocks on a typed probe, and resumes through both effectful
+suffixes at exact stores. Swapping two same-signature callables on the
+backedge rejects admission, even with the right target on initial entry.
+θ bodies that need computed or permuted origins for call operands still
+use supplied resolution proofs.
+[Feedback and checker API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
+[Linked θ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
