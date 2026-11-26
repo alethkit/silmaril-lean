@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Pure.Thms
 import Silmaril.Semantics.ITree.Thms
 
 /-! A visible request supplies the operand of the next visit to a φ header. -/
@@ -161,25 +161,38 @@ private theorem packed_fixture :
   simp only [produce, vis_bind, pure_bind, from_entry] at compared
   exact compared
 
--- The first continuing reply is the next visible argument. Either request can
+-- The first continuing reply is the next visible argument. Either tick can
 -- return, and the dispatcher tags only that final result.
-example : region instr ambient (packedExecutionRegion closed.typed) =
-    vis .capture (fun seed =>
-      vis (.tick seed) (fun
-        | .inl result => pure (0, .inl (atom result))
-        | .inr first =>
-            vis (.tick first) (fun
-              | .inl result => pure (0, .inl (atom result))
-              | .inr second =>
-                  resume (pending true (afterBack (afterBack (sourceStore seed) seed first) first second))))) := by
-  rw [packed_fixture]
-  congr 1
-  funext seed
-  rw [resume_tick false (sourceStore seed) seed rfl]
+private noncomputable def twoTicks (seed : Nat) : Tree Event (Transfer Atom) :=
+  vis (.tick seed) (fun
+    | .inl result => pure (0, .inl (atom result))
+    | .inr first =>
+        vis (.tick first) (fun
+          | .inl result => pure (0, .inl (atom result))
+          | .inr second =>
+              resume (pending true (afterBack (afterBack (sourceStore seed) seed first) first second))))
+
+private theorem resume_two_ticks (seed : Nat) :
+    resume (pending false (sourceStore seed)) = twoTicks seed := by
+  rw [twoTicks, resume_tick false (sourceStore seed) seed rfl]
   congr 1
   funext first
   cases first with
   | inl result => rfl
   | inr reply => exact resume_tick true _ reply (by simp [afterBack, upd])
+
+example : region instr ambient (packedExecutionRegion closed.typed) = vis .capture twoTicks := by
+  rw [packed_fixture]
+  exact congrArg (vis .capture) (funext resume_two_ticks)
+
+private def pureClosed := (Certified.PureCapture.close admitted).get (by decide)
+
+-- The same admitted graph begins with tick under pure capture. The source
+-- store supplies the first argument, and a reply supplies the second.
+example (seed : Nat) :
+    region (Certified.PureCapture.treePrimitives instr (Certified.captureEnv names (sourceStore seed)))
+      (fun _ => .unit) (packedExecutionRegion pureClosed.typed) = twoTicks seed :=
+  (Certified.PureCapture.packed_run_tree pureClosed instr (sourceStore seed)).trans
+    ((from_entry seed).trans (resume_two_ticks seed))
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Interaction.Examples
