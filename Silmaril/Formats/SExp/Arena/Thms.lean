@@ -148,6 +148,13 @@ end Rooted
 
 namespace FiniteLookup
 
+/-- A root in finite storage unfolds exactly when it reaches neither a cycle nor a missing lookup. -/
+theorem exists_unfolds_iff (storage : FiniteLookup Ix (Cell Ix Atom)) (root : Ix) :
+    (∃ expr, Arena.Unfolds storage.lookup root expr) ↔
+      Arena.AcyclicBelow storage.lookup root ∧
+        ∀ i, Arena.Reachable storage.lookup root i → ∃ cell, storage.lookup i = some cell :=
+  Proofs.Formats.SExp.Arena.exists_unfolds_iff storage root
+
 theorem ofList_normalize_lookup {Entry : Type*} [CellEncoding Entry Nat Atom] (entries : List Entry) :
     (ofList entries).normalize.lookup = Arena.ofList entries :=
   rfl

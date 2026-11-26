@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Formats.SExp.Arena.Defs
+import Mathlib.Data.Finset.Card
 
 public section
 
@@ -143,6 +144,66 @@ theorem unfolds_acyclicBelow (unfolded : source.Unfolds index expr) : source.Acy
     | refl => exact initial
     | tail _ edge ih => exact ih.inv edge
   exact acc_no_self accessible.transGen (Relation.transGen_swap.mpr loop)
+
+private theorem unfolds_reachable_lookup {other : Ix} (unfolded : source.Unfolds index expr)
+    (reached : source.Reachable index other) : ∃ cell, source other = some cell := by
+  induction unfolded with
+  | nil read | atom read =>
+    rcases Relation.ReflTransGen.cases_head reached with rfl | ⟨_, ⟨_, edgeRead, _⟩, _⟩
+    · exact ⟨_, read⟩
+    · rw [read] at edgeRead
+      cases edgeRead
+  | cons read _ _ ihCar ihCdr =>
+    rcases Relation.ReflTransGen.cases_head reached with rfl | ⟨_, ⟨_, edgeRead, child⟩, path⟩
+    · exact ⟨_, read⟩
+    · rw [read] at edgeRead
+      cases edgeRead
+      rcases child with rfl | rfl
+      · exact ihCar path
+      · exact ihCdr path
+
+private theorem exists_unfolds_of_finite_reachable (keys : Finset Ix) :
+    ∀ root, source.AcyclicBelow root →
+      (∀ i, source.Reachable root i → i ∈ keys) →
+      (∀ i, source.Reachable root i → ∃ cell, source i = some cell) →
+      ∃ expr, source.Unfolds root expr := by
+  classical
+  induction keys using Finset.eraseInduction
+  rename_i keys ih
+  intro root acyclic covered occupied
+  obtain ⟨cell, read⟩ := occupied root .refl
+  cases cell with
+  | nil => exact ⟨_, .nil read⟩
+  | atom => exact ⟨_, .atom read⟩
+  | cons pair =>
+    have unfoldChild (child : Ix) (edge : source.Edge root child) :
+        ∃ expr, source.Unfolds child expr := by
+      refine ih root (covered root .refl) child ?_ ?_ ?_
+      · rintro ⟨cycle, path, loop⟩
+        exact acyclic ⟨cycle, Relation.ReflTransGen.head edge path, loop⟩
+      · intro i path
+        refine Finset.mem_erase.mpr ⟨?_, covered i (Relation.ReflTransGen.head edge path)⟩
+        intro equal
+        exact acyclic ⟨root, .refl, Relation.TransGen.head' edge (equal ▸ path)⟩
+      · intro i path
+        exact occupied i (Relation.ReflTransGen.head edge path)
+    obtain ⟨car, carUnfolds⟩ := unfoldChild pair.car ⟨pair, read, Or.inl rfl⟩
+    obtain ⟨cdr, cdrUnfolds⟩ := unfoldChild pair.cdr ⟨pair, read, Or.inr rfl⟩
+    exact ⟨.cons car cdr, .cons read carUnfolds cdrUnfolds⟩
+
+theorem exists_unfolds_iff (storage : FiniteLookup Ix (Cell Ix Atom)) (root : Ix) :
+    (∃ expr, Arena.Unfolds storage.lookup root expr) ↔
+      Arena.AcyclicBelow storage.lookup root ∧
+        ∀ i, Arena.Reachable storage.lookup root i → ∃ cell, storage.lookup i = some cell := by
+  constructor
+  · rintro ⟨_, unfolded⟩
+    exact ⟨unfolds_acyclicBelow unfolded, fun _ => unfolds_reachable_lookup unfolded⟩
+  · rintro ⟨acyclic, occupied⟩
+    refine exists_unfolds_of_finite_reachable storage.keys root acyclic (fun i reached => ?_) occupied
+    by_contra outside
+    obtain ⟨_, read⟩ := occupied i reached
+    rw [storage.none_of_not_mem i outside] at read
+    cases read
 
 theorem markSweep_normalize_lookup {Entry : Type*} [CellEncoding Entry Ix Atom]
     (storage : FiniteLookup Ix Entry) (exports : List Ix) :

@@ -20,6 +20,8 @@ example : (Arena.ofList [Undef.defined sumCell, .undef]) 1 = none := rfl
 private def holes : Arena Nat String := Arena.ofList [some (Cell.nil : Cell Nat String), none]
 
 example : holes.Unfolds 0 .nil := .nil rfl
+example : (Arena.ofOption (none : Option (Arena Nat String))) 0 = none := rfl
+example : (Arena.ofUndef (.defined holes)) 0 = some .nil := rfl
 
 -- An explicit hole and an out-of-bounds root have the same empty observation.
 example : (⟨1, holes⟩ : Pointed Nat String) ≈ ⟨2, holes⟩ := by
@@ -84,5 +86,27 @@ example : Arena.Cyclic ring.withRefCounts.erase.lookup := by
 
 example : ¬ ∃ expr, Arena.Unfolds ring.lookup 0 expr :=
   fun ⟨_, unfolded⟩ => Arena.unfolds_acyclicBelow unfolded ringCycle
+
+private def sparseEntries : FiniteLookup Nat (Option (Cell Nat String)) :=
+  FiniteLookup.ofList [some (.cons ⟨1, 3⟩), some (.atom "leaf"), some (.cons ⟨1, 1⟩), none]
+
+private def sparse : FiniteLookup Nat (Cell Nat String) := sparseEntries.normalize
+
+private theorem holeReached : Arena.Reachable sparse.lookup 0 3 :=
+  .single ⟨⟨1, 3⟩, rfl, Or.inr rfl⟩
+
+example : ¬ ∃ expr, Arena.Unfolds sparse.lookup 0 expr := by
+  intro unfolded
+  obtain ⟨_, read⟩ := ((sparse.exists_unfolds_iff 0).mp unfolded).2 3 holeReached
+  cases read
+
+example : (sparseEntries.markSweep [0]).normalize.lookup 3 = none := by
+  rw [FiniteLookup.markSweep_normalize_lookup]
+  exact (Arena.markSweep_preservesReachable 3 ⟨0, List.mem_singleton.mpr rfl, holeReached⟩).trans rfl
+
+-- The dead cons contributes two references to the surviving leaf before deletion.
+example : sparse.withRefCounts.count? 1 = some 3 := by decide
+example : (sparse.restrict (· ≠ 2)).withRefCounts.count? 1 = some 1 := by decide
+example : sparse.incomingCount 3 = 1 ∧ sparse.withRefCounts.count? 3 = none := by decide
 
 end Silmaril.Formats.SExpArena

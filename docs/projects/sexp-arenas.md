@@ -56,7 +56,10 @@ theorem compares observations at the exports.
 or renaming. Each reachable source lookup must agree with the lookup at the
 renamed index, with both children rewritten by the same index function.
 `exportDenotation_reindexes` proves that mapping exports by that function
-preserves the denotation, even across different index types.
+preserves the denotation, even across different index types. The correspondence
+includes missing lookups and allows arbitrary cells outside the image of the
+reachable source indices. Aliasing reachable indices is allowed when their
+mapped lookups agree, so the theorem needs no injectivity assumption.
 
 ## Reference counts and cycles
 
@@ -71,9 +74,12 @@ After deleting cells, counts can be recomputed from the swept storage.
 A cycle is a nonempty child path from an index back to itself.
 `Arena.CyclicBelow` asks whether such a cycle is reachable from a selected
 root. A successful unfolding excludes every cycle reachable from that root.
-Acyclic roots can still have dangling children, and infinite acyclic
-lookups can still require infinite unfolding. The examples include a
-self-loop with a correct positive count and no finite unfolding.
+`FiniteLookup.exists_unfolds_iff` characterizes successful unfolding in
+finite storage by acyclicity below the root and an occupied lookup at every
+reachable index, including the root. Infinite acyclic lookups can still
+require infinite unfolding. The examples include a self-loop with a correct
+positive count, a reachable hole preserved by sweeping, and recomputed counts
+after deleting a cons that referenced the same child twice.
 
 Build the definitions, theorem headers, and examples on the repository's
 pinned toolchain with:
