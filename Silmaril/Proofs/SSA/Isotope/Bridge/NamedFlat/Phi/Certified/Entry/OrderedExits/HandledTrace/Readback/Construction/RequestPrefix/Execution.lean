@@ -1025,6 +1025,33 @@ private theorem schedule_case_run (instr : Primitive E F α) (env : Env α) {a b
       | inr payload => exact branch right payload
       | atom _ | unit | pair _ _ => rfl
 
+private theorem hoist_run (instr : Primitive E F α) (env : Env α) (outer : F)
+    (argument : Operand sig Γ (sig.argument outer)) (tail : Region F) :
+    region instr env (.let₁ (.op outer argument.written) tail) =
+      region instr env (hoist outer argument tail) := by
+  rw [hoist, region_wrap]
+  let s := argument.schedule
+  calc
+    _ = bindRequests instr s.requests env (fun final =>
+        instr outer (evalOperand (readSlots position final) s.value) >>= fun reply =>
+          region instr (extend env reply) tail) := by
+      simpa only [s, Operand.schedule, Operand.scheduleAt, region, term, bind_assoc] using
+        (schedule_run instr argument (fun slot => .var slot) env env (fun _ => rfl)
+          (fun arg => instr outer arg >>= fun reply => region instr (extend env reply) tail)).symm
+    _ = _ := by
+      apply bind_scope_congr
+      intro final older
+      simp only [region, term, operand_tree instr position final (readSlots position final)
+        argument.schedule.value (fun _ => rfl), pure_bind]
+      apply bind_congr
+      intro reply
+      symm
+      apply LambdaSSA.Semantics.Interaction.region_renameVars
+      intro i
+      cases i with
+      | zero => rfl
+      | succ i => exact older i
+
 private theorem schedule_cases_run [DecidableEq F] (instr : Primitive E F α) (env : Env α)
     (Γ : List PacketType) (written prepared : Region F)
     (accepted : scheduleCases sig Γ written = some prepared) :
@@ -1034,10 +1061,18 @@ private theorem schedule_cases_run [DecidableEq F] (instr : Primitive E F α) (e
     cases accepted
     rfl
   | let₁ value tail ih =>
-    simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
-    obtain ⟨⟨ty, _⟩, _, next, checked, rfl⟩ := accepted
-    simp only [region]
-    exact bind_congr fun reply => ih (extend env reply) (ty :: Γ) next checked
+    cases value
+    case op op argument =>
+      simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+      obtain ⟨⟨arg, sourceEq⟩, _, next, checked, rfl⟩ := accepted
+      rw [← hoist_run instr env op arg next, ← sourceEq]
+      simp only [region]
+      exact bind_congr fun reply => ih (extend env reply) (sig.reply op :: Γ) next checked
+    all_goals
+      simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
+      obtain ⟨⟨ty, _⟩, _, next, checked, rfl⟩ := accepted
+      simp only [region]
+      exact bind_congr fun reply => ih (extend env reply) (ty :: Γ) next checked
   | let₂ value tail ih =>
     simp only [scheduleCases, Option.bind_eq_some_iff, Option.map_eq_some_iff] at accepted
     obtain ⟨⟨a, b⟩, _, next, checked, rfl⟩ := accepted
@@ -1065,28 +1100,7 @@ private theorem boundary_run {labels : Nat} {types : Fin labels → PacketType}
     region instr env boundary.written = region instr env boundary.lower := by
   cases boundary with
   | request outer argument tail =>
-    rw [Boundary.written, Boundary.lower, hoist, region_wrap]
-    let s := argument.schedule
-    calc
-      _ = bindRequests instr s.requests env (fun final =>
-          instr outer (evalOperand (readSlots position final) s.value) >>= fun reply =>
-            region instr (extend env reply) tail.erase) := by
-        simpa only [s, Operand.schedule, Operand.scheduleAt, region, term, bind_assoc] using
-          (schedule_run instr argument (fun slot => .var slot) env env (fun _ => rfl)
-            (fun arg => instr outer arg >>= fun reply => region instr (extend env reply) tail.erase)).symm
-      _ = _ := by
-        apply bind_scope_congr
-        intro final older
-        simp only [region, term, operand_tree instr position final (readSlots position final)
-          argument.schedule.value (fun _ => rfl), pure_bind]
-        apply bind_congr
-        intro reply
-        symm
-        apply LambdaSSA.Semantics.Interaction.region_renameVars
-        intro i
-        cases i with
-        | zero => rfl
-        | succ i => exact older i
+    exact hoist_run instr env outer argument tail.erase
   | jump label argument =>
     rw [Boundary.written, Boundary.lower, region_wrap]
     calc

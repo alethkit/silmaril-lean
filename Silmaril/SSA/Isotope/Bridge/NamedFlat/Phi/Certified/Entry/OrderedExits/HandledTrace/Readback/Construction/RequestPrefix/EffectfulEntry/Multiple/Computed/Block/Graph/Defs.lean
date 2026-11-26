@@ -61,8 +61,8 @@ def readStraight [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blo
     else none
   | none => none
 
-/-- Check a branch-local tree from a written row or its scheduled
-tests. Exact erasure ties the readback to that syntax. -/
+/-- Check a branch-local tree from a written or scheduled row.
+Exact erasure ties the readback to that syntax. -/
 def readTreeAt [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) (written prepared : Region F)
     (origin : written = prepared ∨
