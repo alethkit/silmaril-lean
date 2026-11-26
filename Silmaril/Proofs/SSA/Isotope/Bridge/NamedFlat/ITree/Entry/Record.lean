@@ -25,7 +25,7 @@ theorem inputEnv_field (β : BoundCtx (Ty κ) n) (record : Input β) (i : Fin n)
   | snoc β A ih =>
     exact Fin.cases rfl (fun j => (extend_succ ..).trans (ih record.1 j)) i
 
-private theorem field_ofFields (β : BoundCtx (Ty κ) n)
+theorem field_ofFields (β : BoundCtx (Ty κ) n)
     (fields : (i : Fin n) → Ty.denote C (β.get i)) (i : Fin n) :
     field β (ofFields β fields) i = fields i := by
   induction β with

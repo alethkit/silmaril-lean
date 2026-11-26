@@ -18,6 +18,10 @@ theorem inputEnv_field (β : BoundCtx (Ty κ) n) (record : Input β) (i : Fin n)
     inputEnv β record i.val = encodeValue (AtomValues.carrier (κ := κ)) (β.get i) (field β record i) :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Record.inputEnv_field β record i
 
+/-- Every typed bound environment is supplied by a caller record. -/
+theorem field_surjective (β : BoundCtx (Ty κ) n) : Function.Surjective (field β) :=
+  fun fields => ⟨ofFields β fields, funext (Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Record.field_ofFields β fields)⟩
+
 /-- Reindexing commutes with the institution's actual input decoder. -/
 theorem inputEnv_reindex {β : BoundCtx (Ty κ) n} {γ : BoundCtx (Ty κ) m}
     (slots : BoundCtx.Renaming β γ) (record : Input γ) (i : Fin n) :
