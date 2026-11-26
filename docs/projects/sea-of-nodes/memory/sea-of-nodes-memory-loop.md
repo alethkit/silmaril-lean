@@ -354,6 +354,47 @@ one marking, with the cell 0 → cell 1 transition and the full result
 the numbered graph with distinct and coincident ports.
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Petri/Regression.lean)
 
+#### Equations for the address Phi
+
+`CarriedAddress.Institution.inst` uses the existing memory entry
+signatures, typed port maps, and models. A model chooses the cell count
+and entry valuation. An equation compares complete finite word-and-heap
+observations for every initialized heap at that model. Two absent
+observations agree at that heap. Each port map renames both Phi operands
+and the invariant inputs under the bound address.
+[Equation definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Defs.lean)
+
+`petri_satisfaction` and `memref_satisfaction` preserve and reflect
+native satisfaction using the emitted coloured graph and MemRef CFG.
+Their reindexing laws compare re-emission at renamed ports with the
+model reduct. `petri_no_return_iff_native` and
+`memref_no_return_iff_native` compare absence of any finite result.
+A finite firing trace and a CFG backedge allowance witness their
+respective observations.
+[Equation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Thms.lean)
+
+`runtime_satisfaction` also factors the comparison through the
+existing nested RVSDG runtime observer at the canonical initialized
+heap model and `encodeArrival .entry`. The native model fixes one typed
+scalar valuation. The general nested RVSDG equation room quantifies
+over every raw input tuple, including both occurrence colours, and its
+signature maps relabel opcodes. The address-Phi institution's signature
+maps act on entry ports.
+[Runtime observation room](../../../../Silmaril/SSA/RVSDG/NestedTheta/Institution/RuntimeObservation/Defs.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.Thms
+```
+
+The regression uses the shared address-switch fixture for both backends,
+checks immediate exit, and proves absence of finite returns at the
+coincident-port valuation and initial heap `[7, 0, 99]`. Reversing the
+two address operands yields the same word and a different final heap,
+so the equation fails at the distinct-port valuation. At the coincident-port
+valuation it holds for every heap. Swapping the typed ports and pulling back
+the valuation transports the comparison.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/Regression.lean)
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
