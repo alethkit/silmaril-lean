@@ -26,8 +26,13 @@ inductive Feature where
   | floatLiteral | quotedLiteral
   | compoundStatement | loadStatement | functionControl
   | inlineSuite | parameters | functionFile
-  | augmentedAssignment
+  | augmentedAssignment | spreadKey
   | tuple | collection | lambda | call | callArguments | subscript | attribute | operator
+  deriving DecidableEq, Repr
+
+inductive CallOrderError where
+  | positionalAfterNamed | argumentAfterStar | argumentAfterStarStar
+  | repeatedStar | repeatedStarStar
   deriving DecidableEq, Repr
 
 inductive DiagnosticKind where
@@ -43,6 +48,7 @@ inductive DiagnosticKind where
   | reservedWord (word : String)
   | expected (description : String)
   | chainedComparison | invalidAssignmentTarget
+  | callOrder (error : CallOrderError)
   | unsupported (feature : Feature)
   | exhausted
   deriving DecidableEq, Repr
@@ -55,6 +61,8 @@ structure Diagnostic where
 inductive TokenKind where
   | name (text : String)
   | integer (value : Nat)
+  /-- Unescaped text for mapping spread display keys. -/
+  | plainString (value : String)
   | keyword (text : String)
   | symbol (text : String)
   | newline | indent | outdent | eof
@@ -186,6 +194,10 @@ private def quoted (fuel : Nat) (start : Cursor) (prefixLength : Nat) (c : Char)
   let long := String.ofList [c, c, c]
   let triple := containsPrefix opener long
   let delimiter := if triple then long else String.singleton c
+  if prefixLength == 0 && !triple then
+    let (text, close) := opener.pop.take (fun ch =>
+      ch != c && ch != '\\' && ch != '\x00' && !isNewline ch)
+    if close.rest.head? == some c then return (.plainString text, close.pop)
   let next ← closeQuote start.pos delimiter triple fuel (opener.popN delimiter.length)
   return (.outside .quotedLiteral, next)
 

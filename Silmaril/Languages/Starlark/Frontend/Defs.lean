@@ -31,11 +31,43 @@ structure LocatedArgument where
   span : Span
   expr : SourceExpr
 
+structure LocatedParameter where
+  span : Span
+  name : String
+  defaultValue : Option LocatedArgument
+
+structure LocatedFunction where
+  name : String
+  parameters : List LocatedParameter
+  span : Span
+  body : List LocatedStmt
+
+structure LocatedNamedArgument where
+  nameSpan : Span
+  name : String
+  value : LocatedArgument
+
+structure LocatedPositionalSpread where
+  span : Span
+  isTuple : Bool
+  elements : List LocatedArgument
+
+structure LocatedMappingSpread where
+  span : Span
+  entries : List LocatedNamedArgument
+
+/-- Groups in the source order prescribed by Starlark. -/
+structure LocatedCallArguments where
+  positional : List LocatedArgument := []
+  named : List LocatedNamedArgument := []
+  star : Option LocatedPositionalSpread := none
+  starStar : Option LocatedMappingSpread := none
+
 /-- The source forms consumed by the normalized module adapter. -/
 inductive FileCommand where
   | simple (stmt : SourceStmt)
-  | define (fn : ParsedFunction)
-  | assignCall (target callee : String) (positional : List LocatedArgument)
+  | define (fn : LocatedFunction)
+  | assignCall (target callee : String) (arguments : LocatedCallArguments)
 
 structure LocatedFileCommand where
   span : Span
@@ -137,6 +169,7 @@ private def parseExpr : Nat → Nat → Stream → Except Diagnostic (SourceExpr
         if minimum == 0 then failAt (.unsupported .lambda) s else expect "an expression" s
       | .symbol "[" | .symbol "{" => failAt (.unsupported .collection) s
       | .symbol "~" => failAt (.unsupported .operator) s
+      | .plainString _ => failAt (.unsupported .quotedLiteral) s
       | .outside feature => failAt (.unsupported feature) s
       | _ => expect "an expression" s
     parseInfix fuel minimum false left rest
@@ -298,34 +331,45 @@ private def parseName (s : Stream) : Except Diagnostic (String × Stream) :=
   | .outside .nonAsciiName => failAt (.unsupported .nonAsciiName) s
   | _ => expect "a name" s
 
-private def parseParameters : Nat → Stream → List String → Except Diagnostic (List String × Stream)
+private def parseLocatedExpr (exprFuel : Nat) (s : Stream) :
+    Except Diagnostic (LocatedArgument × Stream) := do
+  let (expr, rest) ← parseExpr exprFuel 0 s
+  return (⟨⟨s.peek.span.start, rest.lastEnd⟩, expr⟩, rest)
+
+private def parseParameters (exprFuel : Nat) (allowDefaults : Bool) :
+    Nat → Stream → List LocatedParameter → Except Diagnostic (List LocatedParameter × Stream)
   | 0, s, _ => failAt .exhausted s
-  | fuel + 1, s, names => do
+  | fuel + 1, s, parameters => do
     match s.peek.kind with
-    | .symbol ")" => return (names.reverse, s.pop)
+    | .symbol ")" => return (parameters.reverse, s.pop)
     | .symbol "*" | .symbol "**" => failAt (.unsupported .parameters) s
     | _ =>
       let (name, rest) ← parseName s
-      if names.contains name then return ← failAt (.duplicateParameter name) s
-      let names := name :: names
+      if parameters.any (fun parameter => parameter.name == name) then
+        return ← failAt (.duplicateParameter name) s
+      let (value, rest) ← if rest.peek.kind = .symbol "=" then do
+          unless allowDefaults do return ← failAt (.unsupported .parameters) rest
+          let (expr, rest) ← parseLocatedExpr exprFuel rest.pop
+          pure (some expr, rest)
+        else pure (none, rest)
+      let parameters := ⟨⟨s.peek.span.start, rest.lastEnd⟩, name, value⟩ :: parameters
       match rest.peek.kind with
-      | .symbol "," => parseParameters fuel rest.pop names
-      | .symbol ")" => return (names.reverse, rest.pop)
-      | .symbol "=" => failAt (.unsupported .parameters) rest
+      | .symbol "," => parseParameters exprFuel allowDefaults fuel rest.pop parameters
+      | .symbol ")" => return (parameters.reverse, rest.pop)
       | _ => expect "',' or ')'" rest
 
-private def parseFunctionAt (fuel : Nat) (s : Stream) :
-    Except Diagnostic (ParsedFunction × Stream) := do
+private def parseFunctionAt (fuel : Nat) (allowDefaults : Bool) (s : Stream) :
+    Except Diagnostic (LocatedFunction × Stream) := do
   unless s.peek.kind = .keyword "def" do return ← expect "'def'" s
   let (name, rest) ← parseName s.pop
-  let (parameters, rest) ← parseParameters fuel (← consumeSymbol "(" rest) []
+  let (parameters, rest) ← parseParameters fuel allowDefaults fuel (← consumeSymbol "(" rest) []
   let (body, rest) ← parseSuite fuel fuel (← consumeSymbol ":" rest)
   return (⟨name, parameters, ⟨s.peek.span.start, rest.lastEnd⟩, body⟩, rest)
 
 private def parseFunctionTokens (tokens : List Token) : Except Diagnostic ParsedFunction := do
-  let (fn, rest) ← parseFunctionAt (parserFuel tokens) ⟨tokens, {}⟩
+  let (fn, rest) ← parseFunctionAt (parserFuel tokens) false ⟨tokens, {}⟩
   unless rest.peek.kind = .eof do return ← failAt (.unsupported .functionFile) rest
-  return fn
+  return ⟨fn.name, fn.parameters.map LocatedParameter.name, fn.span, fn.body⟩
 
 /-- Parse a file containing one scalar function with an indented body. -/
 def parseFunction (source : String) : Except Diagnostic ParsedFunction := do
@@ -335,24 +379,85 @@ def parseFunction (source : String) : Except Diagnostic ParsedFunction := do
 def parseFunctionUtf8 (source : ByteArray) : Except Diagnostic ParsedFunction := do
   parseFunctionTokens (← lexUtf8 source)
 
-private def parsePositional (exprFuel : Nat) :
-    Nat → Stream → List LocatedArgument → Except Diagnostic (List LocatedArgument × Stream)
+private def parseDisplayItems {α : Type} (item : Stream → Except Diagnostic (α × Stream))
+    (closing : String) : Nat → Stream → List α → Except Diagnostic (List α × Stream)
   | 0, s, _ => failAt .exhausted s
-  | fuel + 1, s, arguments => do
-    match s.peek.kind with
-    | .symbol ")" => return (arguments.reverse, s.pop)
-    | .symbol "*" | .symbol "**" => failAt (.unsupported .callArguments) s
-    | _ =>
-      let (expr, rest) ← parseExpr exprFuel 0 s
-      let arguments := ⟨⟨s.peek.span.start, rest.lastEnd⟩, expr⟩ :: arguments
-      match rest.peek.kind with
-      | .symbol "," => parsePositional exprFuel fuel rest.pop arguments
-      | .symbol ")" => return (arguments.reverse, rest.pop)
-      | .symbol "=" =>
-        match s.peek.kind, s.pop.peek.kind with
-        | .name _, .symbol "=" => failAt (.unsupported .callArguments) rest
-        | _, _ => expect "',' or ')'" rest
-      | _ => expect "',' or ')'" rest
+  | fuel + 1, s, items => do
+    if s.peek.kind = .symbol closing then return (items.reverse, s.pop)
+    let (value, rest) ← item s
+    let items := value :: items
+    if rest.peek.kind = .symbol "," then parseDisplayItems item closing fuel rest.pop items
+    else if rest.peek.kind = .symbol closing then return (items.reverse, rest.pop)
+    else expect s!"',' or '{closing}'" rest
+
+private def parseStar (fuel : Nat) (s : Stream) : Except Diagnostic (LocatedPositionalSpread × Stream) := do
+  let next := s.pop
+  let item := parseLocatedExpr fuel
+  let (isTuple, elements, rest) ← match next.peek.kind with
+    | .symbol "[" => do
+      let (elements, rest) ← parseDisplayItems item "]" fuel next.pop []
+      pure (false, elements, rest)
+    | .symbol "(" => do
+      if next.pop.peek.kind = .symbol ")" then pure (true, [], next.pop.pop)
+      else
+        let (first, afterFirst) ← item next.pop
+        match afterFirst.peek.kind with
+        | .symbol "," => do
+          let (elements, rest) ← parseDisplayItems item ")" fuel afterFirst.pop [first]
+          pure (true, elements, rest)
+        | .symbol ")" => failAt (.unsupported .callArguments) next
+        | _ => expect "',' or ')'" afterFirst
+    | _ => failAt (.unsupported .callArguments) next
+  return (⟨⟨s.peek.span.start, rest.lastEnd⟩, isTuple, elements⟩, rest)
+
+private def parseMappingEntry (fuel : Nat) (s : Stream) :
+    Except Diagnostic (LocatedNamedArgument × Stream) := do
+  let .plainString key := s.peek.kind | failAt (.unsupported .spreadKey) s
+  let (value, rest) ← parseLocatedExpr fuel (← consumeSymbol ":" s.pop)
+  return (⟨s.peek.span, key, value⟩, rest)
+
+private def parseStarStar (fuel : Nat) (s : Stream) : Except Diagnostic (LocatedMappingSpread × Stream) := do
+  let next := s.pop
+  unless next.peek.kind = .symbol "{" do return ← failAt (.unsupported .callArguments) next
+  let (entries, rest) ← parseDisplayItems (parseMappingEntry fuel) "}" fuel next.pop []
+  return (⟨⟨s.peek.span.start, rest.lastEnd⟩, entries⟩, rest)
+
+-- Preserve explicit names, including repetitions, for the normalized validator.
+-- Reject order errors here because the grouped call AST cannot represent them.
+private def parseCallItem (fuel : Nat) (s : Stream) (args : LocatedCallArguments) :
+    Except Diagnostic (LocatedCallArguments × Stream) := do
+  match s.peek.kind, s.pop.peek.kind with
+  | .symbol "**", _ =>
+    if args.starStar.isSome then return ← failAt (.callOrder .repeatedStarStar) s
+    let (spread, rest) ← parseStarStar fuel s
+    return ({ args with starStar := some spread }, rest)
+  | .symbol "*", _ =>
+    if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
+    if args.star.isSome then return ← failAt (.callOrder .repeatedStar) s
+    let (spread, rest) ← parseStar fuel s
+    return ({ args with star := some spread }, rest)
+  | kind, next =>
+    if args.starStar.isSome then return ← failAt (.callOrder .argumentAfterStarStar) s
+    if args.star.isSome then return ← failAt (.callOrder .argumentAfterStar) s
+    if let (.name name, .symbol "=") := (kind, next) then
+      let (value, rest) ← parseLocatedExpr fuel s.pop.pop
+      return ({ args with named := ⟨s.peek.span, name, value⟩ :: args.named }, rest)
+    if !args.named.isEmpty then return ← failAt (.callOrder .positionalAfterNamed) s
+    let (value, rest) ← parseLocatedExpr fuel s
+    return ({ args with positional := value :: args.positional }, rest)
+
+private def parseCallArguments (exprFuel : Nat) :
+    Nat → Stream → LocatedCallArguments → Except Diagnostic (LocatedCallArguments × Stream)
+  | 0, s, _ => failAt .exhausted s
+  | fuel + 1, s, args => do
+    if s.peek.kind = .symbol ")" then
+      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, s.pop)
+    let (args, rest) ← parseCallItem exprFuel s args
+    match rest.peek.kind with
+    | .symbol "," => parseCallArguments exprFuel fuel rest.pop args
+    | .symbol ")" =>
+      return ({ args with positional := args.positional.reverse, named := args.named.reverse }, rest.pop)
+    | _ => expect "',' or ')'" rest
 
 private def hasExprSuffix (s : Stream) : Bool :=
   (infixOperator s).isSome || match s.peek.kind with
@@ -363,7 +468,7 @@ private def hasExprSuffix (s : Stream) : Bool :=
 private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (FileCommand × Stream) :=
   match s.remaining with
   | ⟨.name target, _⟩ :: ⟨.symbol "=", _⟩ :: ⟨.name callee, _⟩ :: ⟨.symbol "(", _⟩ :: _ => do
-    let (arguments, rest) ← parsePositional exprFuel exprFuel s.pop.pop.pop.pop []
+    let (arguments, rest) ← parseCallArguments exprFuel exprFuel s.pop.pop.pop.pop {}
     if hasExprSuffix rest then failAt (.unsupported .call) rest
     else return (.assignCall target callee arguments, rest)
   | _ => (parseSmallStmt exprFuel false s).map fun (stmt, rest) => (.simple stmt, rest)
@@ -377,7 +482,7 @@ private def parseFileCommands (exprFuel : Nat) :
     | .newline => parseFileCommands exprFuel fuel true s.pop commands
     | .keyword "def" =>
       unless lineStart do return ← expect "a simple statement" s
-      let (fn, rest) ← parseFunctionAt exprFuel s
+      let (fn, rest) ← parseFunctionAt exprFuel true s
       parseFileCommands exprFuel fuel true rest (⟨fn.span, .define fn⟩ :: commands)
     | .keyword "if" | .keyword "for" =>
       unless lineStart do return ← expect "a simple statement" s
