@@ -154,4 +154,38 @@ theorem iterate_normalize {B : P} (g : T ⟶ B ⨿ T) :
   · simp only [normalize, ← Category.assoc R R, both]
   · simp only [normalize, Category.assoc, coprod.map_map, Category.id_comp, both]
 
+section PhaseInterleave
+
+universe w z
+variable {C : Type w} [Category.{z} C] [HasBinaryCoproducts C]
+
+local notation "Copies" A:max => (A ⨿ (A ⨿ A))
+
+@[expose] noncomputable def phaseInterleave (A D : C) : Copies (A ⨿ D) ≅ Copies A ⨿ Copies D where
+  hom :=
+    coprod.desc (coprod.map coprod.inl coprod.inl)
+      (coprod.desc (coprod.map (coprod.inl ≫ coprod.inr) (coprod.inl ≫ coprod.inr))
+        (coprod.map (coprod.inr ≫ coprod.inr) (coprod.inr ≫ coprod.inr)))
+  inv := coprod.desc (coprod.map coprod.inl (coprod.map coprod.inl coprod.inl))
+    (coprod.map coprod.inr (coprod.map coprod.inr coprod.inr))
+  hom_inv_id := by
+    apply coprod.hom_ext
+    · apply coprod.hom_ext <;> simp
+    · apply coprod.hom_ext <;> (apply coprod.hom_ext <;> simp)
+  inv_hom_id := by
+    apply coprod.hom_ext
+    · apply coprod.hom_ext
+      · simp
+      · apply coprod.hom_ext <;> simp
+    · apply coprod.hom_ext
+      · simp
+      · apply coprod.hom_ext <;> simp
+
+theorem phaseInterleave_hom (A D : C) : (phaseInterleave A D).hom =
+  coprod.desc (coprod.map coprod.inl coprod.inl)
+    (coprod.desc (coprod.map (coprod.inl ≫ coprod.inr) (coprod.inl ≫ coprod.inr))
+      (coprod.map (coprod.inr ≫ coprod.inr) (coprod.inr ≫ coprod.inr))) := rfl
+
+end PhaseInterleave
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ComponentTripling
