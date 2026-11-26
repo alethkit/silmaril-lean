@@ -284,13 +284,41 @@ ordinary divergence. The outward example also checks semantic relabeling
 and staged feedback on the native quotient inputs.
 [Descent regressions][ssa-ub-descent-regression]
 
+### Shape-respecting observations
+
+Over the free type algebra `Ty κ`, the shaped model reuses the runtime
+typing of the LambdaSSA resumption machine. The model assigns types to atoms
+and requires every bound slot to have its declared type. Unit, pairs and
+injections retain their runtime tags, and empty has no runtime inhabitant.
+When a primitive succeeds on a source-typed argument, its payload must have
+the target type. Fault and primitive-divergence relations have no reply
+payload. The semantics uses the original observation relations and lifted
+subset order. [Model][ssa-ub-shaped-model]
+
+Finite evaluation preserves expression types and the payload type of each
+native region exit, including through CFG blocks. In the overlay, reachable
+ordinary returns carry the declared label type through substitution and
+feedback. This uses finite path induction for feedback transfers. An
+infinite path contributes divergence, and fresh UB is greatest in the
+unchanged lifted order. [Preservation][ssa-ub-shaped-laws]
+
+The installed variable product η step preserves the full lifted behaviour
+at every shaped input and state. Native initiality's exact constructor-value
+premise entails that the value context has no shaped model. The fixture
+passes a primitive-produced pair through an internal CFG label, checks
+product η on that payload, and exhibits a faulting empty-result primitive
+that separates the equation when the constructor-value guard is dropped.
+Soundness of the remaining generators and congruences of the larger native
+quotients remains open here. [Laws][ssa-ub-shaped-laws]
+[Fixture][ssa-ub-shaped-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
-| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The CFG entry quotient uses `CfgEquiv`. The continuation quotients install additional equations. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. The overlay denotation descends through the native CFG entry quotient. The larger continuation quotients need a stronger observation model. [Native descent][ssa-ub-native-quotient] [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
+| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The CFG entry quotient uses `CfgEquiv`. The continuation quotients install additional equations. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. The independent exact-typed overlay adds a distinct greatest element with monotone substitution and feedback, each with exact all-native CFG agreement. The overlay denotation descends through the native CFG entry quotient. Shape-respecting models over free types validate the variable product η and native initiality generators. [Shaped laws][ssa-ub-shaped-laws] [Native descent][ssa-ub-native-quotient] [Empty-label boundary][ssa-ub] [Explicit overlay][ssa-ub-overlay] [Feedback][ssa-ub-feedback] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
 An effect bound of `⊤` permits all effects in the typing system. It does
@@ -371,3 +399,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-native-quotient]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Thms.lean
 [ssa-ub-descent-obstruction]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Obstruction/Thms.lean
 [ssa-ub-descent-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/NativeQuotient/Regression.lean
+[ssa-ub-shaped-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Defs.lean
+[ssa-ub-shaped-laws]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Thms.lean
+[ssa-ub-shaped-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Regression.lean
