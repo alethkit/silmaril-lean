@@ -32,6 +32,7 @@ inductive WordOp : Silmaril.SSA.SeaOfNodes.Diamond.Signature Unit where
   | sub : WordOp [word, word] word
   | eq : WordOp [word, word] .predicate
   | ne : WordOp [word, word] .predicate
+  | slt : WordOp [word, word] .predicate
 
 abbrev values : Unit → Type := fun _ => Word
 
@@ -43,6 +44,7 @@ def model : Model WordOp where
     | .sub, .cons x (.cons y .nil) => BitVec.sub x y
     | .eq, .cons x (.cons y .nil) => ⟨BEq.beq (α := Word) x y⟩
     | .ne, .cons x (.cons y .nil) => ⟨!(BEq.beq (α := Word) x y)⟩
+    | .slt, .cons x (.cons y .nil) => ⟨decide (x.toInt < y.toInt)⟩
 
 def entry (x y : Word) : Tuple (Val model.value) args := .cons x (.cons y .nil)
 
@@ -85,6 +87,9 @@ def emitOpWith {ports : List PortTy} {sorts : List (ValueSort Unit)} {out : Valu
         (registerWith argReg (wires.get (.tail .head)))
   | .ne, wires =>
       .binary (.cmp .ne) dest (registerWith argReg (wires.get .head))
+        (registerWith argReg (wires.get (.tail .head)))
+  | .slt, wires =>
+      .binary (.cmp .lts) dest (registerWith argReg (wires.get .head))
         (registerWith argReg (wires.get (.tail .head)))
 
 def emitOp {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
