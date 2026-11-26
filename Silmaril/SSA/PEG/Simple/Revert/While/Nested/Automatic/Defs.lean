@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Defs
 public import Silmaril.SSA.PEG.Simple.Revert.While.Region.Defs
 public import Init.Data.List.Sort
-public import Init.Data.Vector.OfFn
+public import Silmaril.SSA.PEG.Reindex.Automatic.Defs
 
 /-! # Automatic two-level reversion in the structured compiler layout
 
@@ -22,55 +22,73 @@ open RVSDG (Port Tuple)
 universe u v
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
-variable {outer vars outs ins : List (Ty Data)} {result t : Ty Data} {n : Nat}
+variable {outer vars outs ins : List (Ty Data)} {result t : Ty Data} {n l : Nat}
 
-structure Slot (g : Graph P outer [result] n n) (t : Ty Data) where
+structure Slot (g : Graph P outer [result] n l) (t : Ty Data) where
   exit : Ref g.sort t
   theta : Ref g.sort t
   initial : Ref g.sort t
   next : Ref g.sort t
 
 def evalLoop : {ins : List (Ty Data)} → {t : Ty Data} →
-    Label P outer (Fin n) ins t → Option (Fin n)
+    Label P outer (Fin l) ins t → Option (Fin l)
   | _, _, .eval loop => some loop
   | _, _, _ => none
 
 /-- All carried slots have an eval row using the same pass. -/
-def readSlot (g : Graph P outer [result] n n) (pass : Ref g.sort .count)
+def readSlotAt (g : Graph P outer [result] n l) (key : Fin l) (pass : Ref g.sort .count)
     (exit : Ref g.sort t) : Option (Slot g t) := do
   let ⟨_, .eval loop, args⟩ := Region.nodeAt g exit | none
   let theta := args.get .head
   let ⟨_, .theta owner, thetaArgs⟩ := Region.nodeAt g theta | none
-  if loop = pass.id ∧ owner = loop ∧ (args.get (.tail .head)).id = pass.id then
+  if loop = key ∧ owner = key ∧ (args.get (.tail .head)).id = pass.id then
     return ⟨exit, theta, thetaArgs.get .head, thetaArgs.get (.tail .head)⟩
   else none
 
-def readSlots (g : Graph P outer [result] n n) (pass : Ref g.sort .count) :
+def readSlot (g : Graph P outer [result] n n) (pass : Ref g.sort .count)
+    (exit : Ref g.sort t) : Option (Slot g t) :=
+  readSlotAt g pass.id pass exit
+
+def readSlotsAt (g : Graph P outer [result] n l) (key : Fin l) (pass : Ref g.sort .count) :
     List (Fin n) → Option (Σ profile, Tuple (Slot g) profile)
   | [] => some ⟨[], .nil⟩
   | i :: rest => do
-    let some head := readSlot g pass (Ref.ofId g.sort i) | none
-    let ⟨profile, tail⟩ ← readSlots g pass rest
+    let some head := readSlotAt g key pass (Ref.ofId g.sort i) | none
+    let ⟨profile, tail⟩ ← readSlotsAt g key pass rest
     return ⟨g.sort i :: profile, .cons head tail⟩
 
-def bundle (g : Graph P outer [result] n n) (pass : Ref g.sort .count) :
-    Option (Σ profile, Tuple (Slot g) profile) := do
-  let ⟨profile, slots⟩ ← readSlots g pass ((List.finRange n).filter fun i =>
-    evalLoop (g.node i).label == some pass.id)
+def readSlots (g : Graph P outer [result] n n) (pass : Ref g.sort .count) :
+    List (Fin n) → Option (Σ profile, Tuple (Slot g) profile) :=
+  readSlotsAt g pass.id pass
+
+def bundleIds (g : Graph P outer [result] n l) (key : Fin l) : List (Fin n) :=
+  (List.finRange n).filter fun i => evalLoop (g.node i).label == some key
+
+def bundleAt (g : Graph P outer [result] n l) (key : Fin l) (pass : Ref g.sort .count)
+    (exits : List (Fin n)) : Option (Σ profile, Tuple (Slot g) profile) := do
+  let ⟨profile, slots⟩ ← readSlotsAt g key pass exits
   if (refNumbers (slots.map fun _ slot => slot.theta)).Nodup then some ⟨profile, slots⟩ else none
 
-structure Test (g : Graph P outer [result] n n) where
+def bundle (g : Graph P outer [result] n n) (pass : Ref g.sort .count) :
+    Option (Σ profile, Tuple (Slot g) profile) :=
+  bundleAt g pass.id pass (bundleIds g pass.id)
+
+structure Test (g : Graph P outer [result] n l) where
   guard : Ref g.sort .bool
   negate : P [.bool] .bool
 
-def readTest (g : Graph P outer [result] n n) (pass : Ref g.sort .count) : Option (Test g) := do
+def readTestAt (g : Graph P outer [result] n l) (key : Fin l)
+    (pass : Ref g.sort .count) : Option (Test g) := do
   let ⟨_, .pass loop, args⟩ := Region.nodeAt g pass | none
   let ⟨[.bool], .op negate, operands⟩ := Region.nodeAt g (args.get .head) | none
-  if loop = pass.id then some ⟨operands.get .head, negate⟩ else none
+  if loop = key then some ⟨operands.get .head, negate⟩ else none
+
+def readTest (g : Graph P outer [result] n n) (pass : Ref g.sort .count) : Option (Test g) :=
+  readTestAt g pass.id pass
 
 /-- A continuation test is a carried Boolean or a single primitive
 whose operands are carried values. -/
-def readGuard (g : Graph P outer [result] n n) (scope : Tuple (Ref g.sort) vars)
+def readGuard (g : Graph P outer [result] n l) (scope : Tuple (Ref g.sort) vars)
     (guard : Ref g.sort .bool) : Option (Expr P vars .bool) :=
   match Region.lookup guard scope with
   | some slot => some (.var slot.val)
@@ -82,57 +100,94 @@ def readGuard (g : Graph P outer [result] n n) (scope : Tuple (Ref g.sort) vars)
       | none => none
     | _ => none
 
-/-- Discover the dependency slice, then use reverse row order to recover
-the compiler's assignment order. The checked schedule validates every read. -/
-def readSlice (g : Graph P outer [result] n n) (scope : Tuple (Ref g.sort) vars)
-    (roots : Tuple (Ref g.sort) outs) : Option (Stmt P false vars outs) := do
+/-- The exact-numbered path recovers the compiler's emission order.
+For a reference program up to renaming, the scoped dependency order
+already suffices. -/
+def readSliceAt (g : Graph P outer [result] n l) (scope : Tuple (Ref g.sort) vars)
+    (roots : Tuple (Ref g.sort) outs) (numbered : Bool) : Option (Stmt P false vars outs) := do
   let some ids := Region.scopedOrder g scope roots | none
-  let order := ids.mergeSort (fun a b => b.val ≤ a.val)
+  let order := if numbered then ids.mergeSort (fun a b => b.val ≤ a.val) else ids
   (Region.Schedule.check g roots order scope).map Region.Schedule.lower
 
-/-- Cache the finite row and parent tables for discovery, which may
-read a row repeatedly while finding scopes and scheduling dependencies. -/
-def cacheRows (g : Graph P outer [result] n n) : Graph P outer [result] n n :=
-  let rows := Vector.ofFn fun (i : Fin n) =>
-    (⟨i, g.node i⟩ : Σ j, Node P outer (Fin n) g.sort (g.sort j))
-  let parents := Vector.ofFn g.forest.parent
-  { g with
-    forest := ⟨parents.get⟩
-    node := fun i =>
-      let row := rows.get i
-      have address : row.1 = i := by simp [row, rows, Vector.get, Fin.cast]
-      address ▸ row.2 }
+def readSlice (g : Graph P outer [result] n l) (scope : Tuple (Ref g.sort) vars)
+    (roots : Tuple (Ref g.sort) outs) : Option (Stmt P false vars outs) :=
+  readSliceAt g scope roots true
 
-/-- Infer a form from labelled rows and typed wires. Duplicate child
-captures are allowed. The chosen child must be the only direct child of
-the outer pass. -/
-def probe [DecidableEq Data] (g : Graph P outer [result] n n) :
-    Option (Σ inner, Form P outer inner result) := do
-  let g := cacheRows g
-  let root := g.roots.get .head
-  let ⟨_, .eval _, refs⟩ := Region.nodeAt g root | none
+def cacheRows (g : Graph P outer [result] n l) : Graph P outer [result] n l :=
+  Silmaril.SSA.PEG.Reindex.Automatic.cacheRows g
+
+structure Headers (g : Graph P outer [result] n l) where
+  outerKey : Fin l
+  outerPass : Ref g.sort .count
+  childKey : Fin l
+  childPass : Ref g.sort .count
+
+/-- Read the designated outer eval and find its sole direct child. The
+graph's pass label identifies a loop independently of the pass address. -/
+def locate [DecidableEq Data] (g : Graph P outer [result] n l) : Option (Headers g) := do
+  let ⟨_, .eval outerKey, refs⟩ := Region.nodeAt g (g.roots.get .head) | none
   let outerPass := refs.get (.tail .head)
-  if (g.forest.parent outerPass.id).isSome then none else
-    let [child] := (List.finRange n).filter (fun i => g.forest.parent i == some outerPass.id) | none
-    let some childPass := Ref.check g.sort .count child.val | none
-    let some outerTest := readTest g outerPass | none
-    let some childTest := readTest g childPass | none
-    let some ⟨outerProfile, outerSlots⟩ := bundle g outerPass | none
-    let some ⟨innerProfile, childSlots⟩ := bundle g childPass | none
+  if (g.forest.parent outerKey).isSome then none else
+    let [childKey] := (List.finRange l).filter (fun i => g.forest.parent i == some outerKey) | none
+    let [childRow] := (List.finRange n).filter
+      (fun i => Structured.passLoop (g.node i).label == some childKey) | none
+    let some childPass := Ref.check g.sort .count childRow.val | none
+    return ⟨outerKey, outerPass, childKey, childPass⟩
+
+/-- Recover outer bundle order from distinct ordered input parameters. -/
+def parameterOrder (g : Graph P outer [result] n l) (header : Headers g)
+    (exits : List (Fin n)) : Option (List (Fin n)) := do
+  let keyed ← exits.mapM fun i => do
+    let some slot := readSlotAt g header.outerKey header.outerPass (Ref.ofId g.sort i) | none
+    let ⟨_, .param port, _⟩ := Region.nodeAt g slot.initial | none
+    return ((numberPort port).id.val, i)
+  let sorted := keyed.mergeSort (fun a b => a.1 ≤ b.1)
+  if sorted.map Prod.fst = List.range outer.length then some (sorted.map Prod.snd) else none
+
+structure Description (P : InstructionSet.{u,v} Data) (outer : List (Ty Data))
+    (result : Ty Data) (n : Nat) where
+  inner : List (Ty Data)
+  form : Form P outer inner result
+  outerExits : List (Fin n)
+  childExits : List (Fin n)
+
+/-- Recover the form and the ordered exit bundles. The graph-local path
+orders outer slots by parameter, child slots by input eval address, and
+primitive bindings by dependency. -/
+def describe [DecidableEq Data] (input : Graph P outer [result] n l)
+    (numbered : Bool) : Option (Description P outer result n) := do
+  let g := cacheRows input
+  let some header := locate g | none
+  if numbered && (header.outerKey.val != header.outerPass.id.val ||
+      header.childKey.val != header.childPass.id.val) then none else
+    let some outerTest := readTestAt g header.outerKey header.outerPass | none
+    let some childTest := readTestAt g header.childKey header.childPass | none
+    let outerIds := bundleIds g header.outerKey
+    let childIds := bundleIds g header.childKey
+    let some outerExits := if numbered then some outerIds else parameterOrder g header outerIds | none
+    let some ⟨outerProfile, outerSlots⟩ := bundleAt g header.outerKey header.outerPass outerExits | none
+    let some ⟨innerProfile, childSlots⟩ := bundleAt g header.childKey header.childPass childIds | none
     if same : outerProfile = outer then
       let outerSlots : Tuple (Slot g) outer := same ▸ outerSlots
       let old := outerSlots.map fun _ slot => slot.theta
       let childOld := childSlots.map fun _ slot => slot.theta
       let some captures := Region.Reads.check old (childSlots.map fun _ slot => slot.initial) | none
-      let some returned := Region.lookup root (outerSlots.map fun _ slot => slot.exit) | none
+      let some returned := Region.lookup (g.roots.get .head)
+        (outerSlots.map fun _ slot => slot.exit) | none
       let outerGuard ← readGuard g old outerTest.guard
       let innerGuard ← readGuard g childOld childTest.guard
-      let innerStep ← readSlice g childOld (childSlots.map fun _ slot => slot.next)
-      let commit ← readSlice g (childSlots.map fun _ slot => slot.exit)
-        (outerSlots.map fun _ slot => slot.next)
+      let innerStep ← readSliceAt g childOld (childSlots.map fun _ slot => slot.next) numbered
+      let commit ← readSliceAt g (childSlots.map fun _ slot => slot.exit)
+        (outerSlots.map fun _ slot => slot.next) numbered
       return ⟨innerProfile,
-        ⟨outerGuard, captures.slots, innerGuard, innerStep, commit, returned.val, outerTest.negate⟩⟩
+        ⟨outerGuard, captures.slots, innerGuard, innerStep, commit, returned.val, outerTest.negate⟩,
+        outerExits, childIds⟩
     else none
+
+/-- Infer a form for the exact numbered checker. -/
+def probe [DecidableEq Data] (g : Graph P outer [result] n n) :
+    Option (Σ inner, Form P outer inner result) :=
+  (describe g true).map fun d => ⟨d.inner, d.form⟩
 
 /-- An accepted inference contains the existing checked reversion
 certificate for the input table at the recovered size. -/
