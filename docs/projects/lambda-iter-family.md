@@ -256,6 +256,36 @@ repeating interpretation has an infinite transfer witness and packed
 divergence.
 [Repeated back edge and stuck-primitive regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
+### Visible requests on the generated named table
+
+`treeModel` instantiates the existing named evaluator with the same tagged
+values and primitive trees as erased Isotope. Its carrier sits one universe
+above the event replies, as in `Interaction.Typed.ModelTree`. The local
+`entry_tree` and `step_tree` equalities preserve each request and every reply
+continuation, including the tagged packet at the next jump. The hypotheses
+are successful elaboration and matching initial captures. Each side uses the
+same primitive evaluator, so a primitive's supplied tree determines its
+behavior. The proof preserves the existing erased semantics for structural
+shape mismatches.
+[Entry, step, and whole-run ITree theorems](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Thms.lean)
+
+`compile_run_tree` consumes the elaboration equation carried by the actual
+`compileTyped` result. It lifts the local equations through weak ITree
+feedback using naturality, uniformity, and codiagonal. The first matching
+block determines the internal index. External returns use their first
+position in the exit list. Total numbering uses a sentinel for unlisted
+names, which successful elaboration excludes from all written branches.
+
+The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
+and the exact capture packet. It compiles and closes a loop with a visible
+capture read, seed operation, and tick on the back edge. The checked packed
+tree feeds the capture reply into the seed request and each tick reply into
+the next tick's operand. The packed endpoint additionally uses the existing
+`packedExecution_tree` theorem and the closure equation checked for this
+fixture. General effectful capture closure would need an environment
+transport theorem for the erased trees.
+[Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
@@ -283,4 +313,9 @@ table.
 lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.Infinite.Thms \
   Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples.Thms
+```
+
+```sh
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Thms \
+  Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```
