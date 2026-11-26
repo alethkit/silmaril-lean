@@ -147,16 +147,24 @@ completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first three unchanged lines complete when the Boolean helper and
-stock type descriptors are supplied. On line 2,
-`___assertTrue(isinstance(4 + 2, int))` records exact Boolean `True`
-before the outer helper's `None` receipt. The dispatch compares the live
-stock descriptors, so aliases work and a stock `bool` class mask produces
-exact `False`. This instance profile covers exact integer and Boolean
-values against the stock `int` and `bool` classes.
-Line 4 reaches the missing `float` class in these namespaces. The first
-rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`.
-The full file still reports `expressionProfile`.
+The first six unchanged lines complete with `legacyNumericIsinstanceSeed`
+in both helper placements. It installs the stock `float` class in the
+builtin table and the Boolean assertion helper in the selected placement.
+The probes on lines 2, 4 and 6 record exact Boolean `True` before the
+outer helper's `None` receipt. The two mixed sums supply finite binary64
+`6.0`. Instance dispatch uses the live module-first descriptors. A saved
+class alias still works after rebinding `float`, and an `int` or `bool`
+mask yields exact `False` before the assertion fails. The checked pairs use
+exact Boolean, integer and finite float values against stock `bool`,
+`int` and `float` classes. Class tuples, arbitrary subclasses, nonclass
+arguments and calling `float` as a constructor are outside this profile.
+
+Ordinary and empty-seeded runs stop at the missing equality helper on
+line 1. The fixed stock profiles reach the missing Boolean assertion
+helper on line 2. Supplying that helper and only the integer and Boolean
+classes leaves the `float` lookup on line 4 undefined. The first
+rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`,
+and the full file reports `expressionProfile`.
 Run the mixed addition differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional addition differential with

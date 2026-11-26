@@ -121,6 +121,26 @@ theorem invoke_isinstance_int_int (value : Int) :
     invoke (.builtin .isinstance) [.int value, .builtin .int] = .ok (.bool true) :=
   invoke_iff.mpr (.isinstance .intAgainstInt)
 
+theorem invoke_isinstance_float_float (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .float] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .floatAgainstFloat)
+
+theorem invoke_isinstance_float_int (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .int] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .floatAgainstBoolOrInt)
+
+theorem invoke_isinstance_float_bool (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .bool] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .floatAgainstBoolOrInt)
+
+theorem invoke_isinstance_int_float (value : Int) :
+    invoke (.builtin .isinstance) [.int value, .builtin .float] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .boolOrIntAgainstFloat)
+
+theorem invoke_isinstance_bool_float (value : Bool) :
+    invoke (.builtin .isinstance) [.bool value, .builtin .float] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .boolOrIntAgainstFloat)
+
 theorem resolveCall_firstOperandError {slots : Nat} {space : Namespace} {locals : Locals slots}
     {callee operand : Operand slots} {tail : List (Operand slots)} {function : Value} {error : Failure}
     (found : callee.eval space locals = .ok function)

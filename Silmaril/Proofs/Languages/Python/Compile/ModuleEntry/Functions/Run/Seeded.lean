@@ -13,6 +13,48 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Core.Closure (Function)
 
+theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
+    {outer inner className : String} {operand : Core.Module.Functions.Operand}
+    {value : Value} {kind : Core.Module.SeededCall.Builtin} {result : Bool}
+    (helper : space.lookupGlobal outer = some (.helper .assertTrue))
+    (probe : space.lookupGlobal inner = some (.builtin .isinstance))
+    (evaluated : (lowerCallOperand operand).eval space #v[] = .ok value)
+    (classBinding : space.lookupGlobal className = some (.builtin kind))
+    (tested : Core.Module.SeededCall.invoke (.builtin .isinstance) [value, .builtin kind] =
+      .ok (.bool result)) :
+    observeNestedCallIn space context .discard outer
+      [.call inner [operand, .readGlobal className]] =
+      (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
+        [⟨inner, ⟨.ok (.bool result), none⟩⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+        context.heap) := by
+  have resolved : Core.Module.SeededCall.resolveCall space #v[] (.global inner)
+      [lowerCallOperand operand, lowerCallOperand (.readGlobal className)] =
+      .ok (.builtin .isinstance, [value, .builtin kind]) := by
+    have readClass : (lowerCallOperand (.readGlobal className)).eval space #v[] =
+        .ok (.builtin kind) := by
+      simp [lowerCallOperand, Core.Module.SeededCall.Operand.eval, classBinding]
+    have readProbe : (Core.Module.SeededCall.Operand.global inner).eval space #v[] =
+        .ok (.builtin .isinstance) := by
+      simp [Core.Module.SeededCall.Operand.eval, probe]
+    simp only [Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.evalList,
+      evaluated, readClass, readProbe, Except.bind, Except.map]
+  have testedObservation : Core.Module.SeededCall.invokeObserved (.builtin .isinstance)
+      [value, .builtin kind] = ⟨.ok (.bool result), none⟩ := by
+    cases value <;> cases kind <;>
+      exact congrArg (fun outcome => Core.Module.SeededCall.CallObservation.mk outcome none) tested
+  have assertionObservation : Core.Module.SeededCall.invokeObserved (.helper .assertTrue) [.bool result] =
+      ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩ := by
+    change Core.Module.SeededCall.CallObservation.mk
+      (Core.Module.SeededCall.invoke (.helper .assertTrue) [.bool result]) none = _
+    cases result <;> simp [Core.Module.SeededCall.invoke_assertTrue_true,
+      Core.Module.SeededCall.invoke_assertTrue_false]
+  cases result <;>
+    simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
+      resolved, helper, invokeArgumentIn, invokeNestedTarget, invokeDescriptor, acceptObservation,
+      acceptCall, testedObservation, assertionObservation, Except.bind, Except.map, Except.mapError,
+      ModuleFailure.ofCall]
+
 theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallContext}
     {outer inner className : String} (value : Int)
     (helper : space.lookupGlobal outer = some (.helper .assertTrue))
@@ -20,21 +62,19 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
     (classBinding : space.lookupGlobal className = some (.builtin .int)) :
     observeNestedCallIn space context .discard outer
       [.call inner [.literal (.int value), .readGlobal className]] =
-      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) := by
-  have tested : Core.Module.SeededCall.invokeObserved (.builtin .isinstance) [.int value, .builtin .int] =
-      ⟨.ok (.bool true), none⟩ := by
-    change Core.Module.SeededCall.CallObservation.mk
-      (Core.Module.SeededCall.invoke (.builtin .isinstance) [.int value, .builtin .int]) none = _
-    rw [Core.Module.SeededCall.invoke_isinstance_int_int]
-  have asserted : Core.Module.SeededCall.invokeObserved (.helper .assertTrue) [.bool true] =
-      ⟨.ok .none, none⟩ := by
-    change Core.Module.SeededCall.CallObservation.mk
-      (Core.Module.SeededCall.invoke (.helper .assertTrue) [.bool true]) none = _
-    rw [Core.Module.SeededCall.invoke_assertTrue_true]
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+  observeNestedCallIn_instance helper probe rfl classBinding
+    (Core.Module.SeededCall.invoke_isinstance_int_int value)
+
+theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context : CallContext}
+    {outer inner : String} {operands : List Core.Module.Functions.Operand} {callee : Value} {error : Failure}
+    (outerFound : space.lookupGlobal outer = some callee)
+    (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
+      .error error) :
+    observeNestedCallIn space context .discard outer [.call inner operands] =
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) := by
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
-    Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.Operand.evalList,
-    lowerCallOperand, helper, probe, classBinding, invokeArgumentIn, invokeNestedTarget, invokeDescriptor, acceptObservation,
-    acceptCall, tested, asserted, Except.bind, Except.map, Except.mapError]
+    outerFound, failed, Except.mapError]
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
