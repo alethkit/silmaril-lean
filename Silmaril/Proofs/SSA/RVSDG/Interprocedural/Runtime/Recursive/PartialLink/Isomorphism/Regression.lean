@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Defs
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
@@ -12,7 +12,7 @@ import Silmaril.SSA.RVSDG.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
-meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Defs
+meta import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
 
@@ -1012,7 +1012,7 @@ example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
   simp [RecursiveCall.Numbered.admitExport, foreignRejected]
 
 open RecursiveCall.Numbered (linkedLambda)
-open RecursiveCall.Numbered.Prefix (Plan admit)
+open RecursiveCall.Numbered.Prefix (GraphPlan Plan admit admitGraph)
 
 private abbrev prefixL : List (Ports T) := [[global], [branchFn.port], []]
 private abbrev prefixR : List (Ports T) := [[], [global], [branchFn.port]]
@@ -1521,27 +1521,33 @@ private def secondProfileGroup (right gain : Bool) :=
   selfGroup branchFn (.output (1 : Fin 3) .head : Origin args [[global], [global], [branchFn.port]] global)
     (profiledBody right (if gain then .gain else .seed))
 
-private def profileModule (right gain : Bool) :
-    OmegaTerm Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] :=
-  ⟨.bind (.delta (seedDelta [])) <| .bind (.delta finishL) <| .bind (.phi (firstProfileGroup right)) <|
-    .bind (.phi (secondProfileGroup right gain)) <|
-    .bind (.lambda (combined (.output (2 : Fin 4) .head) (.output (3 : Fin 4) .head))) <|
-    .ret (.cons (.output (2 : Fin 5) .head) (.cons (.output (3 : Fin 5) .head)
-      (.cons (.output (4 : Fin 5) .head) .nil)))⟩
+private def profileGraph (right gain : Bool) :
+    Omega Op args captureExports [[global], [global], [branchFn.port], [branchFn.port], [branchFn.port]] where
+  region := {
+    vertices := Fin.cases (.delta (seedDelta []).toGraph) <|
+      Fin.cases (.delta finishL.toGraph) <|
+      Fin.cases (.phi (firstProfileGroup right).toGraph) <|
+      Fin.cases (.phi (secondProfileGroup right gain).toGraph) <|
+      Fin.cases (.lambda (combined (past := [[global], [global], [branchFn.port], [branchFn.port]])
+        (.output 2 .head) (.output 3 .head)).toGraph) (fun i => i.elim0)
+    results := .cons (.output (2 : Fin 5) .head) (.cons (.output (3 : Fin 5) .head)
+      (.cons (.output (4 : Fin 5) .head) .nil))
+  }
 
 private def profilePlan (gain : Bool) :
-    Plan Op args args captureExports false (profileModule false gain).region (profileModule true gain).region :=
+    GraphPlan (profileGraph false gain) (profileGraph true gain) :=
   .skipL (.skipR (.skipL (.skipR (.seed (.phi (.lambda .done))))))
 
-private def profileAdmission (gain : Bool) :=
-  admit instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
-    (profileModule false gain) (profileModule true gain) (profilePlan gain) (fn := branchFn)
+private def profileAdmission (gain : Bool) (flag : Nat := 1) :=
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 (number flag) (number flag)
+    (profileGraph false gain) (profileGraph true gain) (profilePlan gain) (fn := branchFn)
     (.tail (.tail .head)) 20 20
 
 -- Both groups have the same declared function and the same outer capture
 -- type. Changing the outer suffix opcode separates their definitions.
 #guard (profileAdmission true).isSome
 #guard (profileAdmission false).isNone
+#guard (profileAdmission true 0).isNone
 
 private def firstProfileRef (right : Bool) : machine.Val branchFn.port :=
   .member (.cons (globalValue 0 8) .nil) (firstProfileGroup right).toGraph.definitions 0
@@ -1549,7 +1555,7 @@ private def firstProfileRef (right : Bool) : machine.Val branchFn.port :=
 private def secondProfileRef (right gain : Bool) : machine.Val branchFn.port :=
   .member (.cons (globalValue 1 9) .nil) (secondProfileGroup right gain).toGraph.definitions 0
 
-example (right : Bool) : Executable.link actions 73 (profileModule right true).toGraph (number 1) 20 =
+example (right : Bool) : Executable.link actions 73 (profileGraph right true) (number 1) 20 =
     .linked (.cons (firstProfileRef right) (.cons (secondProfileRef right true)
       (.cons (.closure (.cons (firstProfileRef right) (.cons (secondProfileRef right true) .nil)) combinedBody.toGraph)
         .nil))) 28 := by
@@ -1558,18 +1564,24 @@ example (right : Bool) : Executable.link actions 73 (profileModule right true).t
 -- Each export recurses, runs its own effectful suffix, and returns.
 -- The caller captures both actual members and consumes both results.
 example (right : Bool) :
-    Executable.run actions 100 73 (profileModule right true).toGraph (number 1) .head (branchArgs 1) 20 =
+    Executable.run actions 100 73 (profileGraph right true) (number 1) .head (branchArgs 1) 20 =
       .ok (.returned (number 30) 42) ∧
-    Executable.run actions 100 73 (profileModule right true).toGraph (number 1) (.tail .head) (branchArgs 1) 20 =
+    Executable.run actions 100 73 (profileGraph right true) (number 1) (.tail .head) (branchArgs 1) 20 =
       .ok (.returned (number 45) 48) ∧
-    Executable.run actions 100 73 (profileModule right true).toGraph (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
+    Executable.run actions 100 73 (profileGraph right true) (number 1) (.tail (.tail .head)) (branchArgs 1) 20 =
       .ok (.returned (number 52) 65) := by
   cases right <;> exact ⟨by cbv, by cbv, by cbv⟩
 
 -- The checker still rejects equal profiles even when different captured
 -- payloads make the groups observationally distinct on this invocation.
-example : Executable.run actions 100 73 (profileModule false false).toGraph (number 1) (.tail .head)
+example : Executable.run actions 100 73 (profileGraph false false) (number 1) (.tail .head)
     (branchArgs 1) 20 = .ok (.returned (number 31) 42) := by cbv
+
+-- Undefined initialization is still a link error from the original table.
+example : (match Executable.run actions 100 73 (profileGraph false true) (number 0)
+    (.tail (.tail .head)) (branchArgs 1) 20 with
+  | .error ⟨unitId, vertex, ⟨_, _, .finish, _, _, inputs⟩, store⟩ => some (unitId, vertex, inputs, store)
+  | _ => none) = some (73, 1, finishInputs 0 7 0, 23) := by cbv
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
