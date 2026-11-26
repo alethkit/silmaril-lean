@@ -550,8 +550,8 @@ governs the callable slot, which the erased term still passes to `apply`. For
 nested calls it requires the callee's own static targets to be resolved for
 every formal argument tuple. The admission erases to the runtime's normal
 numbered term. A γ checks the static targets of its arms for the capture
-tuples wired from preceding locals. Dynamic target selection and recursive
-calls are outside this admission.
+tuples wired from preceding locals. The default member index admits acyclic
+calls. The singleton extension below admits one checked self-edge.
 
 `Code.linked_runs_agree` starts from actual successful linkage at a common
 store and relates the runner's demanded returns and exact stores, or its exact
@@ -581,7 +581,7 @@ resumes a saved stack from a first-call block and checks the later call.
 
 ### θ feedback through static calls
 
-Enable θ with the final `loops` index of `StaticDemand.Code`. The native
+Enable θ with the `loops` index of `StaticDemand.Code`. The native
 feedback solver computes the least carried mask for the body summary. It
 seeds the exit demand and continuation decision, and closes the mask through
 the body's typed feedback result wires. At every restart, the proof relates
@@ -610,6 +610,39 @@ and reaches the same typed block at that store.
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Regression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.GammaRegression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.ThetaRegression
+```
+
+### Singleton recursive φ
+
+`MemberSummary.live` supplies monotone demand summaries for a single
+member's captures and formals. A `Code.memberCall` passes the demand from
+its result users to that summary and maps live ports through its typed
+argument and capture wires. `Singleton.closed` checks that the supplied
+summary covers the body's shared `GenKill` liveness at every demand.
+The self reference is admitted as a static call target.
+[Singleton API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Singleton/Thms.lean)
+
+`Singleton.Ready` checks the member's actual λ capture wiring and requires
+every recursive call to resolve to the group's member with the witnessed
+captures. The proof uses a real dispatch step before reusing the summary at
+a smaller observation depth. `Singleton.calls_prefix` works at every depth
+and feeds the existing finite return and blocked derivation theorems.
+`linked_prefixes_agree` compares the actual linked runner at any fuel and
+arbitrary observation depth after resumption. It preserves typed attempts,
+exact stores, demanded results, and absence of a finite endpoint.
+Mutual recursion, dynamic target selection, and synthesis of a joint least
+summary are outside this admission.
+
+The fixture passes a demanded payload only through the recursive edge and
+varies a dead argument. It checks an effectful non-tail return, a probe
+blocked after descent at store `22`, and resumption through the saved
+frames to store `60`. A separate input repeatedly descends through the same
+linked member. The regression proves productive execution for that input
+using actual runner transitions.
+[Singleton regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Singleton/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Singleton.Regression
 ```
 
 ### Single-call admission

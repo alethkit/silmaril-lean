@@ -20,78 +20,109 @@ variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
 variable {loops : Bool}
 
-/-- An admission for RVSDG bindings with acyclic calls. A static application
+/-- A supplied singleton-member signature and demand summary. Live origins
+refer to the member's captures followed by its formal arguments. -/
+structure MemberSummary (V S : Type u) where
+  fn : Function V S
+  captures : Ports (Ty V S)
+  live : Demand → List Address
+  monotone : ∀ {low high : Demand}, (∀ p, low p = true → high p = true) → live low ⊆ live high
+
+variable {member : Option (MemberSummary V S)}
+
+/-- Check that a statically chosen dispatch target has exactly the captures
+named by the call site's typed witnesses. -/
+def MemberResolution (m : Machine.{u, v, w} Op) : Option (MemberSummary V S) → Type (max u v w)
+  | none => PUnit
+  | some summary => m.Val summary.fn.port → Tuple m.Val summary.captures → Prop
+
+/-- An admission for RVSDG bindings with statically checked calls. A static application
 names an entry port holding the callable and witnesses its captured values
 with typed wires from the caller's entry. The callee can itself have admitted
 calls. Reusing the same callee at different call sites permits different result
-demands. The finite witness excludes recursive and dynamically selected targets.
-The `loops` index enables θ. Its default keeps the settling interface for code
-without feedback. -/
+demands. The optional member index supplies the only recursive target.
+The `loops` index enables θ or recursive dispatch. Its default keeps the
+settling interface for code without feedback. -/
 inductive Code (Op : Dialect.{u, v} (ValueSort V S) S) :
     Ports (Ty V S) → List (Ports (Ty V S)) → List (Ports (Ty V S)) → Ports (Ty V S) →
-    (loops : Bool := false) → Type (max u v) where
+    (loops : Bool := false) → (member : Option (MemberSummary V S) := none) → Type (max u v) where
   | ret {entry results : Ports (Ty V S)} {past : List (Ports (Ty V S))}
-      {loops : Bool} (wires : Wires entry past results) : Code Op entry past [] results loops
+      {loops : Bool} {member : Option (MemberSummary V S)} (wires : Wires entry past results) :
+      Code Op entry past [] results loops member
   | primitive {entry results ins outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-      {loops : Bool} (opcode : Op ins outs) (operands : Wires entry past ins)
-      (rest : Code Op entry (past ++ [outs]) sigs results loops) : Code Op entry past (outs :: sigs) results loops
+      {loops : Bool} {member : Option (MemberSummary V S)} (opcode : Op ins outs) (operands : Wires entry past ins)
+      (rest : Code Op entry (past ++ [outs]) sigs results loops member) :
+      Code Op entry past (outs :: sigs) results loops member
   | apply {entry results context : Ports (Ty V S)} {fn : Function V S}
       {past sigs bodySigs : List (Ports (Ty V S))}
-      {loops : Bool} (target : Port entry fn.port) (captures : Wires entry [] context)
-      (body : Code Op (context ++ fn.args) [] bodySigs fn.results loops)
+      {loops : Bool} {member : Option (MemberSummary V S)}
+      (target : Port entry fn.port) (captures : Wires entry [] context)
+      (body : Code Op (context ++ fn.args) [] bodySigs fn.results loops member)
       (arguments : Wires entry past fn.args)
-      (rest : Code Op entry (past ++ [fn.results]) sigs results loops) :
-      Code Op entry past (fn.results :: sigs) results loops
+      (rest : Code Op entry (past ++ [fn.results]) sigs results loops member) :
+      Code Op entry past (fn.results :: sigs) results loops member
   | gamma {entry results captures outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-      {loops : Bool} (extra : Nat) (armSigs : Fin (extra + 2) → List (Ports (Ty V S)))
+      {loops : Bool} {member : Option (MemberSummary V S)}
+      (extra : Nat) (armSigs : Fin (extra + 2) → List (Ports (Ty V S)))
       (selector : Origin entry past (.control (extra + 2))) (wires : Wires entry past captures)
-      (arms : (i : Fin (extra + 2)) → Code Op captures [] (armSigs i) outs loops)
-      (rest : Code Op entry (past ++ [outs]) sigs results loops) : Code Op entry past (outs :: sigs) results loops
+      (arms : (i : Fin (extra + 2)) → Code Op captures [] (armSigs i) outs loops member)
+      (rest : Code Op entry (past ++ [outs]) sigs results loops member) :
+      Code Op entry past (outs :: sigs) results loops member
   | theta {entry results carried : Ports (Ty V S)} {past sigs bodySigs : List (Ports (Ty V S))}
-      (wires : Wires entry past carried)
-      (body : Code Op carried [] bodySigs (Theta.BodyResults carried) true)
-      (rest : Code Op entry (past ++ [carried]) sigs results true) :
-      Code Op entry past (carried :: sigs) results true
+      {member : Option (MemberSummary V S)} (wires : Wires entry past carried)
+      (body : Code Op carried [] bodySigs (Theta.BodyResults carried) true member)
+      (rest : Code Op entry (past ++ [carried]) sigs results true member) :
+      Code Op entry past (carried :: sigs) results true member
+  | memberCall {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
+      {summary : MemberSummary V S} (target : Port entry summary.fn.port)
+      (captures : Wires entry [] summary.captures) (arguments : Wires entry past summary.fn.args)
+      (rest : Code Op entry (past ++ [summary.fn.results]) sigs results true (some summary)) :
+      Code Op entry past (summary.fn.results :: sigs) results true (some summary)
 
 /-- Erase the static call witnesses. The result uses the runtime's own
 primitive, apply, γ and θ nodes, with their original typed operands. -/
 def Code.term : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} → {loops : Bool} →
-    Code Op entry past sigs results loops → NestedTheta.Term (Instruction Op) entry past sigs results
-  | _, _, _, _, _, .ret wires => .ret wires
-  | _, _, _, _, _, .primitive opcode operands rest =>
+    {member : Option (MemberSummary V S)} → Code Op entry past sigs results loops member →
+    NestedTheta.Term (Instruction Op) entry past sigs results
+  | _, _, _, _, _, _, .ret wires => .ret wires
+  | _, _, _, _, _, _, .primitive opcode operands rest =>
     .bind ⟨_, .base (.simple (.primitive opcode)), operands, fun i => i.elim0⟩ (fun i => i.elim0) rest.term
-  | _, _, _, _, _, .apply (fn := fn) target _ _ arguments rest =>
+  | _, _, _, _, _, _, .apply (fn := fn) target _ _ arguments rest =>
     .bind ⟨_, .base (.simple (.apply fn)), .cons (.arg target) arguments, fun i => i.elim0⟩
       (fun i => i.elim0) rest.term
-  | _, _, _, _, _, .gamma extra armSigs selector wires arms rest =>
+  | _, _, _, _, _, _, .gamma extra armSigs selector wires arms rest =>
     .bind ⟨_, .base (.gamma extra), .cons selector wires, armSigs⟩
       (fun i => (arms i).term) rest.term
-  | _, _, _, _, _, .theta (carried := carried) (bodySigs := bodySigs) wires body rest =>
+  | _, _, _, _, _, _, .theta (carried := carried) (bodySigs := bodySigs) wires body rest =>
     .bind ⟨carried, .theta carried, wires, fun _ => bodySigs⟩ (fun _ => body.term) rest.term
+  | _, _, _, _, _, _, .memberCall (summary := summary) target _ arguments rest =>
+    .bind ⟨_, .base (.simple (.apply summary.fn)), .cons (.arg target) arguments, fun i => i.elim0⟩
+      (fun i => i.elim0) rest.term
 
 /-- Identify a returned port wired straight from the region's entry. -/
 def Code.returnArg : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
-    {loops : Bool} → Code Op entry past sigs results loops → {ty : Ty V S} →
-    Port results ty → Option (Port entry ty)
-  | _, _, _, _, _, .ret wires, _, p =>
+    {loops : Bool} → {member : Option (MemberSummary V S)} → Code Op entry past sigs results loops member →
+    {ty : Ty V S} → Port results ty → Option (Port entry ty)
+  | _, _, _, _, _, _, .ret wires, _, p =>
     match wires.get p with
     | .arg q => some q
     | .output _ _ => none
-  | _, _, _, _, _, .primitive _ _ rest, _, p => rest.returnArg p
-  | _, _, _, _, _, .apply _ _ _ _ rest, _, p => rest.returnArg p
-  | _, _, _, _, _, .gamma _ _ _ _ _ rest, _, p => rest.returnArg p
-  | _, _, _, _, _, .theta _ _ rest, _, p => rest.returnArg p
+  | _, _, _, _, _, _, .primitive _ _ rest, _, p => rest.returnArg p
+  | _, _, _, _, _, _, .apply _ _ _ _ rest, _, p => rest.returnArg p
+  | _, _, _, _, _, _, .gamma _ _ _ _ _ rest, _, p => rest.returnArg p
+  | _, _, _, _, _, _, .theta _ _ rest, _, p => rest.returnArg p
+  | _, _, _, _, _, _, .memberCall _ _ _ rest, _, p => rest.returnArg p
 
 /-- Entry origins forwarded by the actual result wires retain their values
 even when the region returns after a hypothetical primitive resumption. -/
-def Code.Forwards (code : Code Op entry past sigs results loops)
+def Code.Forwards (code : Code Op entry past sigs results loops member)
     (input : Tuple m.Val entry) (output : Tuple m.Val results) : Prop :=
   ∀ {ty} (p : Port results ty) (q : Port entry ty), code.returnArg p = some q → output.get p = input.get q
 
 /-- Static call witnesses may use carried values wired directly to the same
 port at feedback. These values remain fixed from the initial activation. -/
 def Code.Stable {carried : Ports (Ty V S)}
-    (body : Code Op carried [] sigs (Theta.BodyResults carried) true)
+    (body : Code Op carried [] sigs (Theta.BodyResults carried) true member)
     (initial next : Tuple m.Val carried) : Prop :=
   ∀ {ty} (p : Port carried ty), body.returnArg (.tail p) = some p → next.get p = initial.get p
 
@@ -100,20 +131,27 @@ may supply arguments or γ captures. The witnesses must hold for every formal
 argument tuple and every γ capture tuple supplied by preceding locals. A θ
 checks the static targets on inputs agreeing at the entry origins that its
 body wires directly back to their original carried positions. -/
-def Code.Resolved : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} → {loops : Bool} →
-    Code Op entry past sigs results loops → Tuple m.Val entry → Prop
-  | _, _, _, _, _, .ret _, _ => True
-  | _, _, _, _, _, .primitive _ _ rest, input => rest.Resolved input
-  | _, _, _, _, _, .apply target captures body _ rest, input =>
+def Code.ResolvedWith : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} → {loops : Bool} →
+    {member : Option (MemberSummary V S)} → Code Op entry past sigs results loops member →
+    MemberResolution m member → Tuple m.Val entry → Prop
+  | _, _, _, _, _, _, .ret _, _, _ => True
+  | _, _, _, _, _, _, .primitive _ _ rest, guard, input => rest.ResolvedWith guard input
+  | _, _, _, _, _, _, .apply target captures body _ rest, guard, input =>
     let captured := captures.read input PUnit.unit
     input.get target = .closure captured body.term.toGraph ∧
-      (∀ params, body.Resolved (prependContext params captured)) ∧ rest.Resolved input
-  | _, _, past, _, _, .gamma _ _ _ wires arms rest, input =>
-    (∀ (locals : Locals m.Val past) i, (arms i).Resolved (wires.read input locals)) ∧
-      rest.Resolved input
-  | _, _, past, _, _, .theta wires body rest, input =>
-    (∀ (locals : Locals m.Val past) next, body.Stable (wires.read input locals) next → body.Resolved next) ∧
-      rest.Resolved input
+      (∀ params, body.ResolvedWith guard (prependContext params captured)) ∧ rest.ResolvedWith guard input
+  | _, _, past, _, _, _, .gamma _ _ _ wires arms rest, guard, input =>
+    (∀ (locals : Locals m.Val past) i, (arms i).ResolvedWith guard (wires.read input locals)) ∧
+      rest.ResolvedWith guard input
+  | _, _, past, _, _, _, .theta wires body rest, guard, input =>
+    (∀ (locals : Locals m.Val past) next, body.Stable (wires.read input locals) next → body.ResolvedWith guard next) ∧
+      rest.ResolvedWith guard input
+  | _, _, _, _, _, _, .memberCall target captures _ rest, guard, input =>
+    guard (input.get target) (captures.read input PUnit.unit) ∧ rest.ResolvedWith guard input
+
+/-- Static resolution for code without an external member. -/
+abbrev Code.Resolved (code : Code Op entry past sigs results loops) (input : Tuple m.Val entry) : Prop :=
+  code.ResolvedWith PUnit.unit input
 
 def resultDemand (pc : Nat) (next : DemandPlan) : Demand :=
   fun p => next.live.contains (.output pc p)
@@ -130,40 +168,43 @@ summary function of the statically resolved callee. A γ uses the native
 transfer to join the live captures of its arms at the binding's output demand.
 A θ closes the body summary under its actual feedback wires. -/
 def Code.plan (demand : Demand) : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} → {loops : Bool} →
-    Code Op entry past sigs results loops → DemandPlan
-  | _, _, past, _, _, .ret wires => (⟨[], []⟩ : DemandPlan).prepend past.length (selectWires demand.observes wires)
-  | _, _, past, _, _, .primitive _ operands rest => (rest.plan demand).prepend past.length operands.addresses
-  | _, _, past, _, _, .apply _ captures body arguments rest =>
+    {member : Option (MemberSummary V S)} → Code Op entry past sigs results loops member → DemandPlan
+  | _, _, past, _, _, _, .ret wires => (⟨[], []⟩ : DemandPlan).prepend past.length (selectWires demand.observes wires)
+  | _, _, past, _, _, _, .primitive _ operands rest => (rest.plan demand).prepend past.length operands.addresses
+  | _, _, past, _, _, _, .apply _ captures body arguments rest =>
     let next := rest.plan demand
     let live := (body.plan (resultDemand past.length next)).live
     next.prepend past.length (applyReads live captures arguments)
-  | _, _, past, _, _, .gamma (outs := outs) extra _ selector wires arms rest =>
+  | _, _, past, _, _, _, .gamma (outs := outs) extra _ selector wires arms rest =>
     let next := rest.plan demand
     let kind : NestedTheta.Kind (Instruction Op) _ outs := .base (.gamma extra)
     let reads := kind.demandReads past.length next.live (.cons selector wires)
       (fun i requested => ((arms i).plan requested).live)
     next.prepend past.length reads
-  | _, _, past, _, _, .theta (carried := carried) wires body rest =>
+  | _, _, past, _, _, _, .theta (carried := carried) wires body rest =>
     let next := rest.plan demand
     let kind : NestedTheta.Kind (Instruction Op) carried carried := .theta carried
     next.prepend past.length (kind.demandReads past.length next.live wires
       (fun _ requested => (body.plan requested).live))
+  | _, _, past, _, _, _, .memberCall (summary := summary) _ captures arguments rest =>
+    let next := rest.plan demand
+    next.prepend past.length (applyReads (summary.live (resultDemand past.length next)) captures arguments)
 
 /-- The carried mask coordinates exit demand, the decision, and all restarts. -/
 def Code.feedbackLive {carried : Ports (Ty V S)}
-    (body : Code Op carried [] sigs (Theta.BodyResults carried) true) (exit : Demand) :
+    (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand) :
     Feedback.Mask carried.length :=
   Feedback.close exit (fun requested => (body.plan requested).live)
 
-def Code.liveness (code : Code Op entry [] sigs results loops) (demand : Demand) : GenKill Nat Address :=
+def Code.liveness (code : Code Op entry [] sigs results loops member) (demand : Demand) : GenKill Nat Address :=
   NestedTheta.Liveness.problem (code.plan demand).reads
 
 /-- Executable entry summary, indexed by demand on returned ports (returned
 state ports are always observed). -/
-def Code.liveIn (code : Code Op entry [] sigs results loops) (demand : Demand) : List Address :=
+def Code.liveIn (code : Code Op entry [] sigs results loops member) (demand : Demand) : List Address :=
   (code.plan demand).live.eraseDups
 
-def Code.AgreesOnInputs (code : Code Op entry [] sigs results loops) (demand : Demand)
+def Code.AgreesOnInputs (code : Code Op entry [] sigs results loops member) (demand : Demand)
     (left right : Tuple m.Val entry) : Prop :=
   ∀ {ty} (p : Port entry ty), .arg p.index ∈ code.liveIn demand → left.get p = right.get p
 
