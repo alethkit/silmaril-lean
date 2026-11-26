@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Readback.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.SlotMaps.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping
@@ -54,31 +55,79 @@ private noncomputable abbrev tag (D : Fin n → Ty κ) (i : Fin n) :
 
 local notation "embedding" => embedLabels
 
-private noncomputable def finiteEmbedding (D : Fin n → Ty κ) :
-    finiteLabelObj M R ⟶ finiteLabelObj M (Wide D) :=
-  Sigma.desc fun i => tag M R D i ≫ finiteLabelInject M (Wide D) i
+private noncomputable def mapSlotFinite {Q : Fin n → Ty κ}
+    (slot : ∀ i, M.obj (R i) ⟶ M.obj (Q i)) : finiteLabelObj M R ⟶ finiteLabelObj M Q :=
+  Sigma.desc fun i => slot i ≫ finiteLabelInject M Q i
 
-@[reassoc] private theorem label_embed (D : Fin n → Ty κ) (i : Fin n) :
-    labelInject M i (local_label R i) ≫ embedding M R D =
-      tag M R D i ≫ labelInject M i (local_label (Wide D) i) := by
-  unfold embedLabels
-  erw [← Category.assoc, labelObjToFinite_local M R i (local_label R i)]
+@[reassoc] theorem mapSlot_inject {Q : Fin n → Ty κ}
+    (slot : ∀ i, M.obj (R i) ⟶ M.obj (Q i)) (i : Fin n)
+    (hi : At (List.ofFn R) i (R i)) (hj : At (List.ofFn Q) i (Q i)) :
+    labelInject M i hi ≫ mapSlotLabels M slot = slot i ≫ labelInject M i hj := by
+  unfold mapSlotLabels
+  erw [← Category.assoc, labelObjToFinite_local M R i hi]
   exact Sigma.ι_comp_desc _ _
 
-@[reassoc] private theorem finite_embed (D : Fin n → Ty κ) (i : Fin n) :
-    finiteLabelInject M R i ≫ finiteEmbedding M R D = tag M R D i ≫ finiteLabelInject M (Wide D) i :=
+@[reassoc] private theorem mapSlot_finite_inject {Q : Fin n → Ty κ}
+    (slot : ∀ i, M.obj (R i) ⟶ M.obj (Q i)) (i : Fin n) :
+    finiteLabelInject M R i ≫ mapSlotFinite M R slot = slot i ≫ finiteLabelInject M Q i :=
   Sigma.ι_comp_desc _ _
 
-private theorem embedding_toFinite (D : Fin n → Ty κ) :
-    embedding M R D ≫ labelObjToFinite M (Wide D) =
-      labelObjToFinite M R ≫ finiteEmbedding M R D := by
-  unfold embedLabels
+private theorem mapSlot_toFinite {Q : Fin n → Ty κ} (slot : ∀ i, M.obj (R i) ⟶ M.obj (Q i)) :
+    mapSlotLabels M slot ≫ labelObjToFinite M Q =
+      labelObjToFinite M R ≫ mapSlotFinite M R slot := by
+  unfold mapSlotLabels
   erw [Category.assoc]
   congr 1
   apply Sigma.hom_ext
   intro i
   change finiteLabelInject M R i ≫ _ = finiteLabelInject M R i ≫ _
-  erw [← Category.assoc, Sigma.ι_comp_desc, Category.assoc, labelObjToFinite_local, finite_embed]
+  erw [← Category.assoc, Sigma.ι_comp_desc, Category.assoc, labelObjToFinite_local, mapSlot_finite_inject]
+
+private noncomputable abbrev finiteEmbedding (D : Fin n → Ty κ) :=
+  mapSlotFinite M R (tag M R D)
+
+@[reassoc] private theorem label_embed (D : Fin n → Ty κ) (i : Fin n) :
+    labelInject M i (local_label R i) ≫ embedding M R D =
+      tag M R D i ≫ labelInject M i (local_label (Wide D) i) :=
+  mapSlot_inject M R (tag M R D) i _ _
+
+private theorem finite_embed (D : Fin n → Ty κ) (i : Fin n) :
+    finiteLabelInject M R i ≫ finiteEmbedding M R D = tag M R D i ≫ finiteLabelInject M (Wide D) i :=
+  mapSlot_finite_inject M R (tag M R D) i
+
+private theorem embedding_toFinite (D : Fin n → Ty κ) :
+    embedding M R D ≫ labelObjToFinite M (Wide D) =
+      labelObjToFinite M R ≫ finiteEmbedding M R D :=
+  mapSlot_toFinite M R (tag M R D)
+
+private theorem consMap_at {A B : Ty κ} (L : LCtx (Ty κ)) (h : M.obj A ⟶ M.obj B)
+    (i : Fin (A :: L).length) :
+    labelInject M i (labelAt_get (A :: L) i) ≫ mapLabelHead M L h = mapLabelHeadComponent M L h i := by
+  have inj : labelInject M i (labelAt_get (A :: L) i) =
+      Sigma.ι (fun j : Fin (A :: L).length => M.obj ((A :: L).get j)) i := by
+    unfold labelInject
+    change eqToHom (rfl : M.obj ((A :: L).get i) = M.obj ((A :: L).get i)) ≫
+      Sigma.ι (fun j : Fin (A :: L).length => M.obj ((A :: L).get j)) i = _
+    rw [eqToHom_refl, Category.id_comp]
+  rw [inj]
+  exact Sigma.ι_comp_desc _ _
+
+@[reassoc] theorem mapHead_zero {A B : Ty κ} (L : LCtx (Ty κ)) (h : M.obj A ⟶ M.obj B) :
+    labelInject M 0 (rfl : At (A :: L) 0 A) ≫ mapLabelHead M L h =
+      h ≫ labelInject M 0 (rfl : At (B :: L) 0 B) :=
+  consMap_at M L h 0
+
+@[reassoc] theorem mapHead_succ {A B T : Ty κ} (L : LCtx (Ty κ)) (h : M.obj A ⟶ M.obj B)
+    {i : Nat} (hi : At L i T) :
+    labelInject M (i + 1) (show At (A :: L) (i + 1) T from hi) ≫ mapLabelHead M L h =
+      labelInject M (i + 1) (show At (B :: L) (i + 1) T from hi) := by
+  have atIndex (j : Fin L.length) (T : Ty κ) (hit : At L j T) :
+      labelInject M (j.val + 1) (show At (A :: L) (j.val + 1) T from hit) ≫ mapLabelHead M L h =
+        labelInject M (j.val + 1) (show At (B :: L) (j.val + 1) T from hit) := by
+    have eq : L.get j = T := Option.some.inj ((labelAt_get L j).symm.trans hit)
+    subst T
+    exact consMap_at M L h j.succ
+  exact atIndex ⟨i, (List.getElem?_eq_some_iff.mp hi).1⟩ T hi
 
 private noncomputable def labelChange (tails : Option (Fin n → Ty κ)) :
     Small ⟶ labelObj M (List.ofFn (family R tails)) :=
@@ -278,6 +327,67 @@ private theorem taken_tag_row (D : Fin (k + 1) → Ty κ) (i : Fin (k + 1))
   rw [J.map_id, Category.id_comp, Category.assoc] at compared
   exact compared
 
+theorem slot_postmap {Q : Fin (k + 1) → Ty κ}
+    (slot : ∀ i, M.obj (P i) ⟶ M.obj (Q i)) {K' : LCtx (Ty κ)}
+    (out : Result ⟶ labelObj M K')
+    {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}
+    (entryRoute : ∀ ⦃ts : entry.HasType Γ (List.ofFn P ++ K)⦄
+      ⦃tw : entry'.HasType Γ (List.ofFn Q ++ K')⦄
+      ⦃a : J.obj Env ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj Env ⟶ J.obj (labelObj M (List.ofFn Q ++ K'))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      b ≫ J.map (labelAppendSplit M (List.ofFn Q) K') =
+        a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+          J.map (coprod.map out (mapSlotLabels M slot)))
+    (rowRoutes : ∀ i
+      ⦃ts : (rows i).HasType (P i :: Γ) (List.ofFn P ++ K)⦄
+      ⦃tw : (rows' i).HasType (Q i :: Γ) (List.ofFn Q ++ K')⦄
+      ⦃a : J.obj (ctxObj M (P i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn P ++ K))⦄
+      ⦃b : J.obj (ctxObj M (Q i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn Q ++ K'))⦄,
+      RegionDenotes J M ts a → RegionDenotes J M tw b →
+      J.map (Env ◁ (slot i)) ≫
+        b ≫ J.map (labelAppendSplit M (List.ofFn Q) K') =
+          a ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+            J.map (coprod.map out (mapSlotLabels M slot)))
+    {f : J.obj Env ⟶ J.obj Result}
+    {g : J.obj Env ⟶ J.obj (labelObj M K')}
+    (small : CfgDenotesAt J M P entry rows f)
+    (wide : CfgDenotesAt J M Q entry' rows' g) : g = f ≫ J.map out := by
+  let h := mapSlotLabels M slot
+  let hf := mapSlotFinite M P slot
+  let cut := labelAppendSplit M (List.ofFn P) K
+  let cut' := labelAppendSplit M (List.ofFn Q) K'
+  obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
+  obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
+  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map out h) := entryRoute se we
+  have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
+      all ≫ J.map cut ≫ J.map (coprod.map out h) := by
+    apply collective_ext J M k Γ P
+    intro i
+    rw [MonoidalCategory.id_tensorHom]
+    have sh := sc.restrict i
+    have wh := wc.restrict i
+    rw [MonoidalCategory.id_tensorHom] at sh wh
+    have slide : J.map (Env ◁ finiteLabelInject M P i) ≫ J.map (Env ◁ hf) =
+        J.map (Env ◁ (slot i)) ≫ J.map (Env ◁ finiteLabelInject M Q i) := by
+      rw [← J.map_comp, ← J.map_comp, ← MonoidalCategory.whiskerLeft_comp,
+        ← MonoidalCategory.whiskerLeft_comp, mapSlot_finite_inject]
+    rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
+      ← Category.assoc _ all, sh]
+    exact rowRoutes i (sb i) (wb i)
+  have square :
+      (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
+          J.map (coprod.map out h) =
+        J.map (Env ◁ h) ≫ J.map (Env ◁ labelObjToFinite M Q) ≫ all' ≫ J.map cut' := by
+    rw [← Category.assoc (J.map (Env ◁ h)), ← J.map_comp,
+      ← MonoidalCategory.whiskerLeft_comp, mapSlot_toFinite, MonoidalCategory.whiskerLeft_comp,
+      J.map_comp]
+    simp only [Category.assoc]
+    rw [← row_eq]
+  unfold cfgDispatchArrow
+  rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
+  simpa only [Category.assoc] using cfgDispatch_of_exit_state_square J out h (e ≫ J.map cut) _ _ square
+
 theorem taken_tag_postmap (D : Fin (k + 1) → Ty κ) {K' : LCtx (Ty κ)}
     (out : Result ⟶ labelObj M K')
     {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}
@@ -302,42 +412,8 @@ theorem taken_tag_postmap (D : Fin (k + 1) → Ty κ) {K' : LCtx (Ty κ)}
     {f : J.obj Env ⟶ J.obj Result}
     {g : J.obj Env ⟶ J.obj (labelObj M K')}
     (small : CfgDenotesAt J M P entry rows f)
-    (wide : CfgDenotesAt J M (family P (some D)) entry' rows' g) : g = f ≫ J.map out := by
-  let S := family P (some D)
-  let h := embedLabels M P D
-  let hf := finiteEmbedding M P D
-  let cut := labelAppendSplit M (List.ofFn P) K
-  let cut' := labelAppendSplit M (List.ofFn S) K'
-  obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
-  obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
-  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map out h) := entryRoute se we
-  have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
-      all ≫ J.map cut ≫ J.map (coprod.map out h) := by
-    apply collective_ext J M k Γ P
-    intro i
-    rw [MonoidalCategory.id_tensorHom]
-    have sh := sc.restrict i
-    have wh := wc.restrict i
-    rw [MonoidalCategory.id_tensorHom] at sh wh
-    have slide : J.map (Env ◁ finiteLabelInject M P i) ≫ J.map (Env ◁ hf) =
-        J.map (Env ◁ tag M P D i) ≫ J.map (Env ◁ finiteLabelInject M S i) := by
-      rw [← J.map_comp, ← J.map_comp, ← MonoidalCategory.whiskerLeft_comp,
-        ← MonoidalCategory.whiskerLeft_comp, finite_embed]
-    rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
-      ← Category.assoc _ all, sh]
-    exact rowRoutes i (sb i) (wb i)
-  have square :
-      (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
-          J.map (coprod.map out h) =
-        J.map (Env ◁ h) ≫ J.map (Env ◁ labelObjToFinite M S) ≫ all' ≫ J.map cut' := by
-    rw [← Category.assoc (J.map (Env ◁ h)), ← J.map_comp,
-      ← MonoidalCategory.whiskerLeft_comp, embedding_toFinite, MonoidalCategory.whiskerLeft_comp,
-      J.map_comp]
-    simp only [Category.assoc]
-    rw [← row_eq]
-  unfold cfgDispatchArrow
-  rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
-  simpa only [Category.assoc] using cfgDispatch_of_exit_state_square J out h (e ≫ J.map cut) _ _ square
+    (wide : CfgDenotesAt J M (family P (some D)) entry' rows' g) : g = f ≫ J.map out :=
+  slot_postmap J M (tag M P D) out entryRoute rowRoutes small wide
 
 theorem taken_tag_of_squares (D : Fin (k + 1) → Ty κ)
     {entry entry' : Region Φ} {rows rows' : Fin (k + 1) → Region Φ}

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.NestedCfg.Admission.Finite.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.SlotMaps.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgAdmission
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgFiniteSyntax
 
@@ -41,6 +42,20 @@ variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
   [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   (M : TypeModel (Ty Empty) V) [InstructionModel J M Φ]
+
+/-- In the selected inner table, change only the enclosing left-tag target.
+The supplied suffix may include other enclosing slots as well as actual exits. -/
+theorem Plan.Valid.postmap_inner {k n : Nat} {keep : Fin (k + 1) ↪ Fin (n + 1)}
+    {P : Fin (k + 1) → Ty Empty} {r : Region Φ} {p : Plan Φ (k + 1) (n + 1)}
+    {L : LCtx (Ty Empty)} (roll : IterationRolling C) (admitted : p.Valid keep P r L) (D : Ty Empty)
+    {t : p.commonInner.HasType [p.payload] (p.payload :: L)}
+    {t' : (p.selectedInner keep).HasType [p.payload] (.coprod p.payload D :: L)}
+    {f : J.obj (ctxObj M [p.payload]) ⟶ J.obj (labelObj M (p.payload :: L))}
+    {g : J.obj (ctxObj M [p.payload]) ⟶ J.obj (labelObj M (.coprod p.payload D :: L))}
+    (left : RegionDenotes J M t f) (right : RegionDenotes J M t' g) :
+    g = f ≫ J.map (mapLabelHead M L (coprod.inl ≫ (M.coprodIso p.payload D).inv)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.NestedCfgAdmission.finite_inner_compare
+    J M roll admitted D left right
 
 /-- Compare two original exact witnesses at a successful finite mask and
 payload check. Rolling trims each inner witness. The existing pure
