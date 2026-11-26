@@ -107,4 +107,40 @@ theorem returns_iff (compiled : Compiled mapping source origins) (input : WordTu
       compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
   Proofs.returns_iff compiled input mem value
 
+/-- A bounded CF return exists for the typed input and initial memory
+exactly when the abstract native source has some finite return along an
+ordered dispatch route. This is the CF side of the existing RTL-oracle
+law (`Family.rtl_return_iff`) for this checked family. -/
+theorem returns_exists_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory) :
+    (∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) ↔
+    ∃ slots value, source.ReturnsAlong (mapping.pull input) slots
+      (source.primary.initial model (mapping.pull input)) value :=
+  Proofs.returns_exists_iff compiled input mem
+
+/-- Both actual backends agree on finite-return existence: the RTL oracle's
+unbounded native relation returns some word exactly when the emitted CF
+returns at some bounded budget. -/
+theorem rtl_oracle_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory) :
+    (∃ returned final, compiled.rtl.oracle 0 (words input) mem returned final) ↔
+    (∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :=
+  Proofs.rtl_oracle_iff compiled input mem
+
+/-- Absence of any finite return agrees across the RTL oracle and the
+emitted CF, at every budget; neither side is read off a single
+insufficient run. -/
+theorem no_return_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory) :
+    (¬ ∃ returned final, compiled.rtl.oracle 0 (words input) mem returned final) ↔
+    (¬ ∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :=
+  Proofs.no_return_iff compiled input mem
+
+/-- Under the packed-capture entry side condition, absence of any finite
+return also agrees with the canonical λSSA Region, composing the existing
+two-directional `Phi.region_no_return_iff` with `no_return_iff`. -/
+theorem region_no_return_iff (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (env : Silmaril.Isotope.LambdaSSA.Semantics.Env Word) (entry : env 0 = packValues (words input)) :
+    (¬ ∃ value final, Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
+      (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) mem 0 value final) ↔
+    (¬ ∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :=
+  Proofs.region_no_return_iff compiled input mem env entry
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion
