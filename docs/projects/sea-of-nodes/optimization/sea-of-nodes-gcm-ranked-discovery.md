@@ -20,7 +20,9 @@ and inventory and uses the initial inventory size as its bound. The
 `schedule?_spec` theorem proves that the emitted requests reproduce the
 exact checked trace and that no remaining enumerated origin has a
 rank-selected hoist. This fixed point concerns the accepted rank results
-for the represented profile. [Termination and replay proofs][thms]
+for the represented profile. The single-latch admission proof strengthens
+it to absence of a checked physical preheader splice for any retained
+live origin. [Termination and replay proofs][thms] · [Admission proof][admission]
 
 The trace is a #4580 replay certificate. `plan_preserves` transports the
 physical-layout invariant, the full saved and surviving identity inventory,
@@ -57,3 +59,4 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.
 [thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/PreheaderSearch/Sequence/Discovery/Thms.lean
 [example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/PreheaderSearch/Sequence/Discovery/Example/Defs.lean
 [regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Layout/PreheaderSearch/Sequence/Discovery/Regression.lean
+[admission]: sea-of-nodes-gcm-single-latch-admission.md
