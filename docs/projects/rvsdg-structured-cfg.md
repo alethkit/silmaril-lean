@@ -273,13 +273,38 @@ The grammar uses canonical numbering, the existing nested-feedback leaf
 shape and the generated `gamma 0` fork layout.
 [Recursive reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Reverse/Recursive/Thms.lean)
 
+## Compile any admitted mixed source to the recursive layout
+
+`WithNestedFeedback.Normalization.compile` normalizes arbitrary serial
+association in the admitted mixed source before emitting a numbered graph.
+It uses the ordinary normalizer on embedded ordinary subtrees and treats
+nested feedback as an outer leaf. A suffix passes through a fork's shared
+continuation once. Both arms retain the original typed join. The normalized
+source has the same typed boundary and ordered signature table.
+
+`denote_normalize` proves equality of actual flat `Region.denote` in
+coherent monadic Elgot models. Its continuation law uses associativity of
+ordered bind. `compile_recover` guarantees decoder acceptance and
+`recover_denote` proves equality of the recovered and original partial
+state denotations in coherent `StateT σ Part`. This covers either typed exit,
+its payload, the exact final token and absence of finite return.
+
+The regression starts with two left-associated links after a fork with
+nested feedback in both arms. It checks that the links move into the
+shared tail, then compiles and recovers from the numbered graph.
+Inputs 1 and 0 return different payloads and tokens after the shared
+suffix observes the selected arm's state. Input 99 has no finite return.
+The equality concerns the actual source and recovered CFG denotations.
+The compiler emits canonical numbering for this grammar.
+[Mixed normalization API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/WithNestedFeedback/Normalization/Thms.lean)
+
 ## Reproduce
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
 lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Recursive.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Normalization.Thms
 ```
 
 ## Sources
