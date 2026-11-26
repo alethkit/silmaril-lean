@@ -110,6 +110,11 @@ variable {fits : Fits preds} {entry : Memory.Graph args}
 variable {arm : Occurrence preds → Memory.Graph args} {candidate : Candidate args preds}
 variable {suffix : Memory.Graph (.word :: args)} {programs : Programs cells args preds}
 
+theorem lower_eq_map_lowerWithEntry :
+    lower preds fits entry version arm candidate suffix input facts =
+      (lowerWithEntry preds fits entry version arm candidate suffix input facts).map Emission.programs := by
+  cases checked : cut facts version entry <;> simp [lower, lowerWithEntry, checked]
+
 theorem lowerWithEntry_replay {emission : Emission cells args preds}
     (emitted : lowerWithEntry preds fits entry version arm candidate suffix input facts = some emission) :
     cut facts version entry = some emission.edit ∧ facts.Valid input ∧
@@ -130,6 +135,7 @@ theorem lower_replay (emitted : lower preds fits entry version arm candidate suf
       (∀ i, checkArm edit.address (arm i) (candidate i) input = true) ∧
       programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
         lowerBank preds fits cells (some edit.retained) arm suffix⟩ := by
+  rw [lower_eq_map_lowerWithEntry] at emitted
   obtain ⟨emission, accepted, rfl⟩ := Option.map_eq_some_iff.mp emitted
   exact ⟨emission.edit, lowerWithEntry_replay accepted⟩
 

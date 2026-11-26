@@ -55,6 +55,12 @@ variable {fits : Fits preds} {entry : Memory.Graph args}
 variable {arm : Occurrence preds → Memory.Graph args} {candidate : Candidate args preds}
 variable {suffix : Memory.Graph (.word :: args)} {programs : Programs cells args preds}
 
+/-- Project the executable result from the enriched entry emission. -/
+theorem lower_eq_map_lowerWithEntry :
+    lower preds fits entry version arm candidate suffix input facts =
+      (lowerWithEntry preds fits entry version arm candidate suffix input facts).map Emission.programs :=
+  Proofs.lower_eq_map_lowerWithEntry
+
 /-- The checked native edit and both actual artifacts come from the same
 cut and invocation. Each original occurrence passes its own route check. -/
 theorem lowerWithEntry_replay {emission : Emission cells args preds}
@@ -68,7 +74,8 @@ theorem lowerWithEntry_replay {emission : Emission cells args preds}
 theorem lowerWithEntry_programs {emission : Emission cells args preds}
     (emitted : lowerWithEntry preds fits entry version arm candidate suffix input facts = some emission) :
     lower preds fits entry version arm candidate suffix input facts = some emission.programs := by
-  simp [lower, emitted]
+  rw [lower_eq_map_lowerWithEntry, emitted]
+  rfl
 
 /-- Successful emission uses the checked edit and the original occurrence
 bank and continuation. -/

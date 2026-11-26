@@ -75,7 +75,11 @@ Only the entry changes in the actual pair of MemRef CFGs. -/
 def lower (preds : Predecessors sites) (fits : Fits preds) (entry : Memory.Graph args) (version : Nat)
     (arm : Occurrence preds → Memory.Graph args) (candidate : Candidate args preds)
     (suffix : Memory.Graph (.word :: args)) (input : Tuple (Val cells) args)
-    (facts : Certificate args) : Option (Programs cells args preds) :=
-  (lowerWithEntry preds fits entry version arm candidate suffix input facts).map Emission.programs
+    (facts : Certificate args) : Option (Programs cells args preds) := do
+  let edit ← cut facts version entry
+  if facts.check input && checkArms preds edit.address arm candidate input then
+    some ⟨input, lowerBank preds fits cells (some entry) arm suffix,
+      lowerBank preds fits cells (some edit.retained) arm suffix⟩
+  else none
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord
