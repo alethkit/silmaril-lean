@@ -25,7 +25,7 @@ private theorem emit_path_inj {R : Type} {es fs : List Bool} {x y : R}
       obtain ⟨rfl, rfl⟩ := ih tail
       exact ⟨rfl, rfl⟩
 
-private theorem result_inj {L : List Sorts} {p q : Position L} {x y : Bool}
+theorem position_result_inj_proof {L : List Sorts} {p q : Position L} {x y : Bool}
     (h : p.result x = q.result y) : p = q ∧ x = y := by
   have pos : p = q := Subtype.ext (congrArg Sigma.fst h)
   subst q
@@ -42,8 +42,8 @@ theorem arm_traceTree_inj_proof {L : List Sorts} (p q : ArmNormal L)
     p = q := by
   obtain ⟨effects, resultFalse⟩ := emit_path_inj left
   obtain ⟨_, resultTrue⟩ := emit_path_inj right
-  obtain ⟨position, whenFalse⟩ := result_inj resultFalse
-  obtain ⟨_, whenTrue⟩ := result_inj resultTrue
+  obtain ⟨position, whenFalse⟩ := position_result_inj_proof resultFalse
+  obtain ⟨_, whenTrue⟩ := position_result_inj_proof resultTrue
   cases p
   cases q
   cases effects
@@ -51,6 +51,16 @@ theorem arm_traceTree_inj_proof {L : List Sorts} (p q : ArmNormal L)
   cases whenFalse
   cases whenTrue
   rfl
+
+theorem requestTree_inj_proof {R : Type} {req req' : Bool}
+    {l r l' r' : Bool → Reply.Normal R}
+    (h : requestTree req l r = requestTree req' l' r') :
+    req = req' ∧ (∀ b, l b = l' b) ∧ (∀ b, r b = r' b) := by
+  obtain ⟨request, left, right⟩ := Reply.Normal.ask.inj h
+  obtain ⟨_, lowLeft, highLeft⟩ := Reply.Normal.ask.inj left
+  obtain ⟨_, lowRight, highRight⟩ := Reply.Normal.ask.inj right
+  exact ⟨request, fun b => match b with | false => lowLeft | true => highLeft,
+    fun b => match b with | false => lowRight | true => highRight⟩
 
 theorem outcomes_injective_proof (L : List Sorts) : Function.Injective (@Normal.outcomes L) := by
   intro p q h

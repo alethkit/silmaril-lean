@@ -45,28 +45,41 @@ private theorem ask_bind {A : Type} (req : Bool) (k : value Answer → Trace A) 
     exact Or.inr ⟨answer right b, replyLog req right b, v, ⟨(right, b), rfl, rfl⟩, hv,
       mul_assoc _ _ _⟩
 
-private theorem bit_operand_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (b : Bool) :
+theorem bit_operand_run_proof {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (b : Bool) :
     Kleisli.run model (bitOperand β b).2 ρ = pure (bit b) := by
   cases b <;> simp [bitOperand, bit, Kleisli.run, Derivation.denote] <;> rfl
+
+theorem read_payload_run_proof {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
+    (i : Fin n) (h : β.get i = Bit) (b : Bool) (hi : h ▸ ρ i = bit b) :
+    Kleisli.run model (readPayload β i h).2 ρ = pure (bit b) := by
+  have transport (A : Sorts) (e : β.get i = A) :
+      Kleisli.run model (e ▸ (.bv : Derivation signature.Instr Γ₀ β (.bv i) (β.get i))) ρ =
+        pure (e ▸ ρ i) := by
+    cases e
+    rfl
+  exact (transport Bit h).trans (congrArg pure hi)
 
 private theorem table_run {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (i : Fin n)
     (h : β.get i = Bit) (b l r : Bool) (hi : h ▸ ρ i = bit b) :
     Kleisli.run model ((Expr.table l r).operand β i h).2 ρ = pure (bit (if b then r else l)) := by
-  have read : Kleisli.run model (readPayload β i h).2 ρ = pure (bit b) := by
-    have transport (A : Sorts) (e : β.get i = A) :
-        Kleisli.run model (e ▸ (.bv : Derivation signature.Instr Γ₀ β (.bv i) (β.get i))) ρ =
-          pure (e ▸ ρ i) := by
-      cases e
-      rfl
-    exact (transport Bit h).trans (congrArg pure hi)
+  have read := read_payload_run_proof ρ i h b hi
   change Kleisli.run model (.case (readPayload β i h).2
     (bitOperand (β.snoc U) l).2 (bitOperand (β.snoc U) r).2) ρ = _
   simp only [Kleisli.run, Derivation.denote]
   unfold Kleisli.run at read
   rw [read, pure_bind]
   cases b
-  · exact bit_operand_run (ρ.snoc (A := U) PUnit.unit) l
-  · exact bit_operand_run (ρ.snoc (A := U) PUnit.unit) r
+  · exact bit_operand_run_proof (ρ.snoc (A := U) PUnit.unit) l
+  · exact bit_operand_run_proof (ρ.snoc (A := U) PUnit.unit) r
+
+theorem position_pack_result_proof {L : List Sorts} (p : Position L) (b : Bool) :
+    Exits.packAt L p.1 p.typed (bit b) = (p.result b).packed := by
+  have packReturn (A : Sorts) (e : L.get p.1 = A) (x : value A) :
+      Exits.packAt L p.1 (e ▸ LambdaSSA.Semantics.Categorical.labelAt_get L p.1) x =
+        Exits.Exit.packed (L := L) ⟨p.1, e.symm ▸ x⟩ := by
+    cases e
+    rfl
+  exact packReturn Bit p.2 (bit b)
 
 theorem arm_run_at_proof {L : List Sorts} (a : ArmNormal L) (effects : List Bool)
     {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (i : Fin n)
@@ -80,12 +93,7 @@ theorem arm_run_at_proof {L : List Sorts} (a : ArmNormal L) (effects : List Bool
     have ht := Exits.run_tag model ρ L _ a.position.typed _
       ((Expr.table a.whenFalse a.whenTrue).operand β i h) (table_run ρ i h b _ _ hi)
     change Kleisli.run model (a.render.renderPrefix [] β i h).2 ρ = _ at ht
-    have packReturn (A : Sorts) (e : L.get a.position.1 = A) (x : value A) :
-        Exits.packAt L a.position.1 (e ▸ LambdaSSA.Semantics.Categorical.labelAt_get L a.position.1) x =
-          Exits.Exit.packed (L := L) ⟨a.position.1, e.symm ▸ x⟩ := by
-      cases e
-      rfl
-    have packed := packReturn Bit a.position.2 (bit (if b then a.whenTrue else a.whenFalse))
+    have packed := position_pack_result_proof a.position (if b then a.whenTrue else a.whenFalse)
     change _ = (a.result b).packed at packed
     rw [ht, packed, pure_bind, onReturn]
     rfl

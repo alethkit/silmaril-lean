@@ -15,7 +15,8 @@ namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 open Isotope.LetCase.LocallyNameless (Equiv)
 open Isotope.Semantics (BoundEnv InstructionModel)
 open Kleisli (value)
-open LambdaSSA.Acyclic (Operand)
+open LambdaSSA (At)
+open LambdaSSA.Acyclic (FiniteExit Operand)
 open LambdaSSA.Region (packedExitType)
 open Silmaril.Semantics.NondeterministicTrace (Tagged)
 
@@ -30,6 +31,12 @@ theorem Expr.replay (e : Expr) {n : Nat} (β : BoundCtx Sorts n) (i : Fin n)
   expr_replay_proof e β i h
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty Sorts)
+
+theorem tag_congr {n : Nat} {β : BoundCtx Sorts n} (L : List Sorts) (i : Nat)
+    {A : Sorts} (h : At L i A) (a b : Operand signature.Instr β A)
+    (eq : Equiv false Γ₀ β a.1 b.1 A) :
+    Equiv false Γ₀ β (FiniteExit.tag L i h a).1 (FiniteExit.tag L i h b).1 (packedExitType L) :=
+  tag_congr_proof L i h a b eq
 
 /-- Replay an arm at a live payload slot in any ambient context. -/
 theorem Arm.replay_at {L : List Sorts} (a : Arm L) (effects : List Bool)
@@ -74,6 +81,28 @@ theorem separator_sat_iff (e : GrammarEquation signature) :
     (grammarRoom J signature).Sat separator e ↔
       ((LetCase.inst Γ₀).obj signature).Sat (Kleisli.algebra model) (grammarCase e) :=
   Kleisli.validated_sat_iff model modelCoherent e
+
+theorem run_bitOperand {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) (b : Bool) :
+    Kleisli.run model (bitOperand β b).2 ρ = pure (bit b) :=
+  bit_operand_run_proof ρ b
+
+theorem run_readPayload {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β)
+    (i : Fin n) (h : β.get i = Bit) (b : Bool) (hi : h ▸ ρ i = bit b) :
+    Kleisli.run model (readPayload β i h).2 ρ = pure (bit b) :=
+  read_payload_run_proof ρ i h b hi
+
+theorem Position.pack_result {L : List Sorts} (p : Position L) (b : Bool) :
+    Exits.packAt L p.1 p.typed (bit b) = (p.result b).packed :=
+  position_pack_result_proof p b
+
+theorem Position.result_inj {L : List Sorts} {p q : Position L} {x y : Bool}
+    (h : p.result x = q.result y) : p = q ∧ x = y :=
+  position_result_inj_proof h
+
+theorem requestTree_inj {R : Type} {req req' : Bool} {l r l' r' : Bool → Reply.Normal R}
+    (h : requestTree req l r = requestTree req' l' r') :
+    req = req' ∧ (∀ b, l b = l' b) ∧ (∀ b, r b = r' b) :=
+  requestTree_inj_proof h
 
 /-- Run the witnessed arm with an older payload still live at a typed slot. -/
 theorem ArmNormal.run_at {L : List Sorts} (a : ArmNormal L)
