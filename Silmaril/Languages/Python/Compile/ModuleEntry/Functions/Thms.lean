@@ -25,6 +25,18 @@ theorem global_read_resolved {scope : Source.Scope} {name : Source.Name}
   | .implicit access => Or.inl access
   | .declared access => Or.inr access
 
+theorem sequenceLengthTest_tagged {scope : Source.Scope} {source right : Source.Expr}
+    {operator : Source.Comparison} {sequence : ClosedSequence} {operand : Operand scope} {equal : Bool}
+    (reference : GlobalReference scope "len") (argument : ClosedSequence.ValueOf source sequence)
+    (comparison : lengthEquality? operator = some equal)
+    (expected : OperandTranslation scope right operand) (scalar : operand.comparable = true) :
+    (sequenceLengthTest? scope
+      (.assert_ (.comparison (.callWith (.name "len") [(.positional, source)]) [(operator, right)]) none)).map
+        Subtype.val = some ⟨reference, sequence.values.length, operand, equal⟩ := by
+  simp only [sequenceLengthTest?, callExpression?, checkClosedSequence_complete argument,
+    global_reference reference, operand_complete expected, Except.toOption, bind, Option.bind, scalar, dite_true]
+  split <;> simp_all
+
 /-- A checked literal branch contributes the selected actions in order at
 the current lexical child index, ahead of the rest of the module. -/
 theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}

@@ -49,6 +49,17 @@ corresponding values, including Boolean and integer equality at zero and
 one. Tuple membership keeps the flat literal profile. The result is an
 exact Boolean with no runtime sequence value or allocation.
 
+A message-free assertion can compare `len(sequence)` for equality or
+inequality against a checked scalar operand. The sequence uses the closed
+list or tuple certificate above. Its elements and intermediate objects
+have no runtime uses outside the call. The plan retains the checked global
+read of `len` and the exact length. The ordinary namespace reports a missing
+`len` or an unsupported function receiver, or raises a defined error for
+a noncallable scalar. Seeded execution resolves the current module-first
+binding and uses the certified length only with the exact stock `len`
+descriptor. It records the call result before checking the right operand.
+This path uses the existing explicit seed that already supplies `len`.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

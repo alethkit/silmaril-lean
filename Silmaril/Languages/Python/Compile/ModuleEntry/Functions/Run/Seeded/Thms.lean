@@ -8,6 +8,7 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Thms
 public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.SequenceLength
 
 public section
 
@@ -231,6 +232,28 @@ theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (contex
       else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
   cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effect, assertOperand,
     evaluateScalar, lowerScalarOperand, Core.Module.SeededCall.Operand.eval] <;> rfl
+
+theorem readSequenceLength_ok_iff (space : Namespace) (length : Nat) (value : Int) :
+    readSequenceLength space length = .ok value ↔
+      space.lookupGlobal "len" = some (.builtin .len) ∧ value = Int.ofNat length :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.SequenceLength.readSequenceLength_ok_iff space length value
+
+theorem readSequenceLength_shadow (space : Namespace) (length : Nat) (value : Value)
+    (found : Core.Module.SeededCall.lookupBinding space.moduleGlobals "len" = some value) :
+    readSequenceLength space length = readSequenceLength { space with builtins := [] } length := by
+  simp [readSequenceLength, Core.Module.SeededCall.Namespace.lookupGlobal, found]
+
+theorem run_assertSequenceLength {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (test : SequenceLengthTest scope) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.assertSequenceLength test :: rest) =
+      let result := readSequenceLength space test.length
+      let receipt : CallEvent := ⟨"len", ⟨result.map .int, none⟩⟩
+      match result.bind (checkSequenceLengthResult space test) with
+      | .error error => ⟨space, .error (.ofCall error), [receipt], context.heap⟩
+      | .ok () =>
+        let tail := runInstructionsIn space context rest
+        { tail with calls := receipt :: tail.calls } :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.SequenceLength.run_assertSequenceLength space context test rest
 
 /-- Settle one direct discard call from the actual executor state. A
 finished call emits one receipt before its tail, and a failed call skips the tail. -/

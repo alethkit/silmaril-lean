@@ -127,6 +127,7 @@ private def ordinaryOutcome (source : Source.Module) (observed : String := "x") 
     let result := match completion with
       | .normal => "normal"
       | .raised (.nameError name) => "NameError:" ++ name
+      | .raised .notCallable => "TypeError"
       | _ => "unexpected completion"
     match session.globals observed with
     | none => some (result, none)
@@ -157,6 +158,18 @@ private def scalarEvidence (source : Source.Module) (profile completion : String
     seeded.residual.builtins == input.builtins && session.heap.next == 1 && seeded.heap.next == 1 &&
     (session.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell &&
     (seeded.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell
+
+private def sequenceLengthEffects (source : Source.Module) (profile : String)
+    (results : List Result) (bindings : Bindings := []) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let input := initial profile
+  let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
+  let outcome := Compile.ModuleEntry.Functions.Run.Seeded.run input compiled heap
+  let retained := (outcome.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue
+  return outcome.calls.map (·.observation.result) == results &&
+    outcome.calls.all (fun call => call.callee == "len" && call.observation.caught.isNone) &&
+    outcome.residual.moduleGlobals == bindings ++ input.moduleGlobals &&
+    outcome.residual.builtins == input.builtins && outcome.heap.next == 1 && retained == some (.int 23)
 
 private def trueAssertionOperands (source : Source.Module) (profile : String) (count : Nat) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
@@ -278,6 +291,12 @@ UPSTREAM_LITERAL_IF_CASE = "tests/python/programs/original/k-python/programs/tes
 UPSTREAM_LITERAL_IF_SHA256 = "a65342d9d5bc36848971fe5628ee00379edacee5a20cc406c790f4ef128222b8"
 UPSTREAM_CONDITIONAL_EXPR_CASE = "tests/python/programs/original/k-python/programs/testif.py"
 UPSTREAM_CONDITIONAL_EXPR_SHA256 = "3e35304b328295b30ffa6dbba0b50d7b6e1b10872e4138616a9bc3cd87d5ee4f"
+UPSTREAM_SEQUENCE_LENGTH_CASES = (
+    ("tests/python/programs/original/k-python/programs/testlists1.py",
+     "64cb76750506f5c5d8cfbe5d24d7e835c30df0062340dd8daa913c0e19cc911d", [1, 2]),
+    ("tests/python/programs/original/k-python/programs/testtuples2.py",
+     "f7cfe3824afdfc53cc69ac7b72e7482c54af388fae75d33ad527777c8e298d70", [1, 2, 0]),
+)
 UPSTREAM_CLOSED_SEQUENCE_CASE = "tests/python/programs/original/k-python/programs/testlists7.py"
 UPSTREAM_CLOSED_SEQUENCE_SHA256 = "d50543ac9fafb3800a8ff5027d4decd65c6cfb9b94939fb1602e37f71bdb4492"
 UPSTREAM_LITERAL_TUPLE_COMPARISONS = (
@@ -552,6 +571,38 @@ after = 9
 """, ["AssertionError:empty", "int:7", "absent"]),
     ("literal_conditional_unsupported", "empty", """result = 7
 result = skipped if False else 1 // 0
+after = 9
+""", ["unsupported", "int:7", "absent"]),
+    ("sequence_length_live", "legacy_bool_callable_builtin", """result = 1
+assert len([False]) == result
+assert len((1,) + (2,)) != result
+after = 9
+""", ["normal", "int:1", "int:9"]),
+    ("sequence_length_missing", "legacy_preamble", """result = 7
+assert len([1]) == missing_right
+after = 9
+""", ["NameError:len", "int:7", "absent"]),
+    ("sequence_length_mask", "legacy_bool_callable_preamble", """result = 7
+len = None
+assert len([1]) == missing_right
+after = 9
+""", ["TypeError", "int:7", "absent"]),
+    ("sequence_length_right_error", "legacy_bool_callable_builtin", """result = 7
+assert len([1, 2]) == missing_right
+after = 9
+""", ["NameError:missing_right", "int:7", "absent"]),
+    ("sequence_length_false_assertion", "legacy_bool_callable_preamble", """result = 7
+assert len([1]) == 2
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("sequence_length_stock_rebinding", "legacy_bool_callable_builtin", """saved = len
+len = 7
+len = saved
+assert len([1] + [2]) == 2
+""", ["normal", "absent", "absent"]),
+    ("sequence_length_wrong_descriptor", "legacy_bool_callable_preamble", """result = 7
+len = callable
+assert len([1]) == missing_right
 after = 9
 """, ["unsupported", "int:7", "absent"]),
     ("closed_sequence_typed", "legacy_builtin", """result = [] + [True] + [-2, False] == [1, -2, 0]
@@ -881,8 +932,26 @@ def identity_bindings(bindings):
                            for name, value in reversed(list(bindings.items()))) + "]"
 
 
+SEQUENCE_LENGTH_FIXTURE_STATES = {
+    "sequence_length_live": ('[.ok (.int 1), .ok (.int 2)]', '[("after", .int 9), ("result", .int 1)]'),
+    "sequence_length_missing": ('[.error (.raised (.runtime (.nameError "len")))]', '[("result", .int 7)]'),
+    "sequence_length_mask": ('[.error (.raised (.runtime .notCallable))]', '[("len", .none), ("result", .int 7)]'),
+    "sequence_length_right_error": ('[.ok (.int 2)]', '[("result", .int 7)]'),
+    "sequence_length_false_assertion": ('[.ok (.int 1)]', '[("result", .int 7)]'),
+    "sequence_length_stock_rebinding": ('[.ok (.int 2)]', '[("len", .builtin .len), ("saved", .builtin .len)]'),
+    "sequence_length_wrong_descriptor": ('[.error .unsupported]', '[("len", .builtin .callable), ("result", .int 7)]'),
+}
+
+
 CPYTHON_FIXTURE_BINDINGS = {
     **IDENTITY_FIXTURE_BINDINGS,
+    "sequence_length_live": {"result": 1, "after": 9},
+    "sequence_length_missing": {"result": 7},
+    "sequence_length_mask": {"result": 7, "len": None},
+    "sequence_length_right_error": {"result": 7},
+    "sequence_length_false_assertion": {"result": 7},
+    "sequence_length_stock_rebinding": {"len": len, "saved": len},
+    "sequence_length_wrong_descriptor": {"result": 7, "len": callable},
     "closed_sequence_typed": {"result": True, "after": False},
     "closed_sequence_failed_assertion": {"result": 7},
     "closed_sequence_enclosing_lookup": {"result": 7},
@@ -1159,6 +1228,32 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
     return rows
 
 
+def replay_upstream_sequence_lengths(checkout, shared, source_path, lean_path):
+    rows = []
+    for path, sha256, lengths in UPSTREAM_SEQUENCE_LENGTH_CASES:
+        source = pinned_source(checkout, path, sha256)
+        operands = [statement.test.left for statement in ast.parse(source).body]
+        values = [eval(compile(ast.Expression(operand), path, "eval", optimize=0),
+                       {"__builtins__": {"len": len}}) for operand in operands]
+        assert values == lengths and all(type(value) is int for value in values)
+        shared["emit"](source_path, lean_path, source)
+        guards = ['#guard ordinaryOutcome pythonSource == some ("NameError:len", none)']
+        observations = {}
+        for profile in ("empty", "legacy_builtin", "legacy_preamble", *OPT_IN_PROFILES):
+            has_len = profile in BOOL_CALLABLE_PROFILES
+            completion = "normal" if has_len else "NameError:len"
+            expected = [completion, "absent", "absent"]
+            assert cpython(source, profile, expected_globals={}) == expected
+            results = ("[" + ", ".join(f".ok (.int {length})" for length in lengths) + "]"
+                       if has_len else '[.error (.raised (.runtime (.nameError "len")))]')
+            guards += [guard_observation(profile, expected),
+                       f"#guard sequenceLengthEffects pythonSource {json.dumps(profile)} {results}"]
+            observations[profile] = {"completion": completion, "lengths": lengths if has_len else []}
+        shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+        rows.append({"path": path, "sha256": sha256, "ordinary": "NameError:len", "seeded": observations})
+    return rows
+
+
 def replay_upstream_publication(checkout, shared, source_path, lean_path):
     source = pinned_source(checkout, UPSTREAM_PUBLICATION_CASE, UPSTREAM_PUBLICATION_SHA256)
     shared["emit"](source_path, lean_path, source)
@@ -1230,6 +1325,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "preamble_projection": "normal, None, caught AssertionError((1, 2))",
         "nested": replay_upstream_nested(checkout, shared, source_path, lean_path),
         "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
+        "sequence_lengths": replay_upstream_sequence_lengths(checkout, shared, source_path, lean_path),
         "publication": replay_upstream_publication(checkout, shared, source_path, lean_path),
         "direct_discard": replay_upstream_direct_discard(checkout, shared, source_path, lean_path),
     }
@@ -1256,6 +1352,11 @@ if __name__ == "__main__":
             if name in IDENTITY_FIXTURE_BINDINGS:
                 bindings = identity_bindings(IDENTITY_FIXTURE_BINDINGS[name])
                 check += f"\n#guard scalarEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
+            if name in SEQUENCE_LENGTH_FIXTURE_STATES:
+                results, bindings = SEQUENCE_LENGTH_FIXTURE_STATES[name]
+                check += f"\n#guard sequenceLengthEffects pythonSource {json.dumps(profile)} {results} {bindings}"
+            if name == "sequence_length_mask":
+                check += '\n#guard ordinaryOutcome pythonSource "result" == some ("TypeError", some 7)'
             if name.startswith("closed_sequence_"):
                 bindings = EXACT_FIXTURE_BINDINGS[name]
                 check += f"\n#guard scalarEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
@@ -1266,6 +1367,10 @@ if __name__ == "__main__":
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
             if expected[0] == "unsupported":
                 lean_only.append(name)
+                if name == "sequence_length_wrong_descriptor":
+                    assert cpython(source, profile, expected_globals=CPYTHON_FIXTURE_BINDINGS[name]) == [
+                        "NameError:missing_right", "int:7", "absent"
+                    ]
             else:
                 assert cpython(source, profile, expected_globals=CPYTHON_FIXTURE_BINDINGS.get(name)) == expected, name
             observations[name] = expected
