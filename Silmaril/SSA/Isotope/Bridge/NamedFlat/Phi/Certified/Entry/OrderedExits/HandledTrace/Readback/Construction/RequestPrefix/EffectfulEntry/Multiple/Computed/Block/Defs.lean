@@ -8,7 +8,7 @@ public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedE
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed.Block
 
-open LambdaSSA (FiniteCFG Region)
+open LambdaSSA (FiniteCFG Flat Region)
 open Morphism.CaseSSA (erase)
 open Silmaril.SSA.LambdaRTL (Val)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (PacketType PrimitiveSignature)
@@ -16,6 +16,32 @@ open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (PacketType Pri
 variable {F : Type} {blocks exits captures : Nat}
   {sig : PrimitiveSignature F} {packets : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
   {source : FiniteCFG F blocks exits captures}
+
+/-- A direct transfer scheduled in the scope of its incoming packet.
+The two equations retain the written operand and the exact outlined tree. -/
+structure ScheduledTransfer (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (written : Region F) where
+  boundary : Boundary sig (.snoc .nil input) (SSA.FiniteSum.append packets outputs)
+  source_eq : written = boundary.written
+  count : Nat
+  tree : EntryTree sig packets outputs [input] count
+  tree_eq : boundary.lower = tree.written
+
+/-- Check a direct transfer operand at the original destination's packet
+type, using exactly the slots in the incoming packet scope. -/
+def readTransfer [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) {n : Nat} :
+    (row : Flat F (blocks + exits) n) → Option (ScheduledTransfer sig packets outputs input row.erase)
+  | .br label original => do
+    let ⟨arg, exactArg⟩ ← readArgument sig [input] (SSA.FiniteSum.append packets outputs label) (erase original)
+    let boundary : Boundary sig (.snoc .nil input) (SSA.FiniteSum.append packets outputs) := .jump label arg
+    let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] boundary.lower
+    let exact ← commonRow (blocks + exits) boundary.lower tree.written
+    return ⟨boundary, by
+      change Region.br label.val (erase original) = _
+      rw [exactArg]
+      rfl, count, tree, exact.property.1.trans exact.property.2.symm⟩
+  | _ => none
 
 /-- The selected row uses only its incoming packet. Captures used in the
 row must already be carried in that packet. The written entry still
@@ -34,22 +60,10 @@ structure Shape (sig : PrimitiveSignature F) (packets : Fin blocks → PacketTyp
 
 def read [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (source : FiniteCFG F blocks exits captures)
-    (selected : Fin blocks) : Option (Shape sig packets outputs source) :=
-  match h : source.block selected with
-  | .br label original => do
-    let ⟨⟨start, seed⟩, entryEq⟩ ← readEntry source
-    let ⟨arg, exactArg⟩ ← readArgument sig [packets selected] (SSA.FiniteSum.append packets outputs label)
-      (erase original)
-    let boundary : Boundary sig (.snoc .nil (packets selected)) (SSA.FiniteSum.append packets outputs) :=
-      .jump label arg
-    let ⟨count, tree⟩ ← Multiple.read sig packets outputs [packets selected] boundary.lower
-    let exact ← commonRow (blocks + exits) boundary.lower tree.written
-    return ⟨start, seed, entryEq, selected, boundary, by
-      rw [h]
-      change Region.br label.val (erase original) = _
-      rw [exactArg]
-      rfl, count, tree, exact.property.1.trans exact.property.2.symm⟩
-  | _ => none
+    (selected : Fin blocks) : Option (Shape sig packets outputs source) := do
+  let ⟨⟨start, seed⟩, entryEq⟩ ← readEntry source
+  let row ← readTransfer sig packets outputs (packets selected) (source.block selected)
+  return ⟨start, seed, entryEq, selected, row.boundary, row.source_eq, row.count, row.tree, row.tree_eq⟩
 
 /-- Keep the selected block's original packet type and index. Only its
 body changes. Fresh labels extend the table after all old blocks. -/
