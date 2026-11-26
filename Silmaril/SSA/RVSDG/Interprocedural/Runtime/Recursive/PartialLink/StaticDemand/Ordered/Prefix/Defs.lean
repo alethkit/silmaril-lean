@@ -27,6 +27,12 @@ structure Scope (m : Machine.{u, v, w} Op) where
   guardL : Guard m table
   guardR : Guard m table
 
+/-- Begin a module before any callable or physical binding has been checked.
+The existing capture checker recognizes ordinary imports by port type. -/
+def Scope.ordinary (m : Machine.{u, v, w} Op) : Scope m :=
+  ⟨[], ⟨[], fun i => i.elim0, fun i => i.elim0, fun i => i.elim0⟩, PUnit.unit, PUnit.unit,
+    fun i => i.elim0, fun i => i.elim0⟩
+
 def Scope.seed (family : StaticDemand.Family Op table imports)
     (inputsL inputsR : Tuple m.Val imports) : Scope m :=
   let groupL := family.captures.read inputsL PUnit.unit
@@ -42,6 +48,10 @@ structure Checked (actions : Actions m σ) where
   state : CheckedPrefix actions scope.table scope.localsL scope.localsR
   left : state.dispatch.left = scope.guardL
   right : state.dispatch.right = scope.guardR
+
+/-- The empty dispatch and typed position tables for an ordinary start. -/
+def Checked.ordinary (actions : Actions m σ) : (Scope.ordinary m).Checked actions :=
+  ⟨⟨⟨fun i => i.elim0, fun i => i.elim0, fun i => i.elim0⟩, PUnit.unit, PUnit.unit⟩, rfl, rfl⟩
 
 def add (binding : Binding Op scope.table imports scope.past fn)
     (inputsL inputsR : Tuple m.Val imports) : Scope m :=
