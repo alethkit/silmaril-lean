@@ -179,6 +179,38 @@ private def runEmitted (first : Projection) (guard : Bool) (fuel : Nat) :
 #guard (runEmitted .onFalse true 2).isNone
 #guard runEmitted .onTrue false 5 == runEmitted .onFalse false 3
 
+private def joinReadback (program : Discovery.MemRef.CF.Program 4 args) (guard : Bool) : Option (List Word) :=
+  let entered := Discovery.MemRef.CF.entryTransition program input guard ⟨initial⟩
+  match entered.1 with
+  | .inl ⟨.arm arrival, _⟩ =>
+    let joined := (program.block (.arm arrival)).eval (Discovery.MemRef.CF.evalBody input)
+      (.cons (BitVec.ofBool guard) .nil) entered.2
+    match joined.1 with
+    | .inl ⟨.join, words⟩ => some (readback (words.get .here, joined.2))
+    | _ => none
+  | _ => none
+
+private def runJoin (first : Projection) (guard : Bool) : Option (List Word × List Word) := do
+  let programs ← Discovery.MemRef.CF.lower (source first) input
+  let before ← joinReadback programs.original guard
+  let after ← joinReadback programs.optimized guard
+  some (before, after)
+
+-- Both join packets contain the checked Load word and all four cells.
+#guard runJoin .onFalse true == some ([2, 11, 11, 3, 55], [2, 11, 11, 3, 55])
+#guard runJoin .onTrue true == runJoin .onFalse true
+#guard runJoin .onTrue false == some ([3, 33, 2, 33, 55], [3, 33, 2, 33, 55])
+#guard runJoin .onFalse false == runJoin .onTrue false
+
+example (index : Nat) :
+    Memory.DeadStore.readAt (rightArm true) index input PUnit.unit initial =
+      Memory.DeadStore.readAt (rightArm true) index input PUnit.unit
+        ((source .onFalse).store.table.denote input initial).2 :=
+  (rewrite_arm_observations input (Discovery.rewrite_checked input (accepted .onFalse)).2 .first initial).2 index
+
+example : Discovery.MemRef.CF.lower (source .onFalse false) input = none := rfl
+example : Discovery.MemRef.CF.lower (source .onFalse true headPort) input = none := rfl
+
 private def slotNumber (program : Discovery.MemRef.CF.Program 4 args) (guard : Bool) : Option Nat :=
   match Discovery.MemRef.CF.entryDestination program input guard ⟨initial⟩ with
   | .inl frame => match frame.argsTy, frame.label with

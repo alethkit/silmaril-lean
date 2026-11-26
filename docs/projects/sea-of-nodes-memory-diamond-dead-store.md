@@ -43,6 +43,33 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression
 ```
 
+## Check the all-path join packets
+
+The two-route entry cut uses a separate overwrite and reader certificate
+for each Region occurrence. It permits a Load before the overwrite when
+the certificate validates that Load's cell as disjoint at the typed
+invocation. The entry Store may feed both arms. Each path must establish
+its own overwrite, and the checker refuses the whole edit if either
+path reads the old cell before the overwrite or lacks an overwrite.
+[Pinned Simple memory Phi](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+`rewrite_arm_observations` proves equality for every ordered Load and
+the full exported word and heap at each checked occurrence. The same
+packet is latched at the corresponding Region input, leaving the
+shared suffix's Load observations equal. `MemRef.CF.lower_join_eq`
+runs each actual emitted arm from its own entry buffer and compares
+the complete jump packet into the join. The entry buffers can differ
+until the checked overwrite. The slot order and the CFG return and
+full final buffer agree for both predicates, every CF budget and any
+initial buffer at the checked input.
+[Native theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Thms.lean) ·
+[Emitted join theorem](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Discovery/MemRef/CF/Thms.lean)
+
+The fixture reads the actual join packets for both guards and both
+Region orders. It also checks that emission refuses an observing Load
+or a missing overwrite on just one route.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter

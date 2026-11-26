@@ -73,6 +73,19 @@ theorem lower_entry_slots {source : Prefixed args} {programs : Programs cells ar
       entryDestination programs.optimized programs.input guard initial = .inl destination :=
   Proofs.lower_entry_slots input accepted guard initial
 
+/-- Run the actual arm blocks from their respective emitted entry buffers.
+At each Region occurrence the jump frame, word and full buffer agree.
+With `lower_entry_slots` this gives the packet on the selected route. -/
+theorem lower_join_eq {source : Prefixed args} {programs : Programs cells args}
+    (input : Tuple (Val cells) args) (accepted : lower source input = some programs)
+    (guard : Bool) (arrival : Slot) (initial : Buffer cells) :
+    let env : Env entryTypes := .cons (BitVec.ofBool guard) .nil
+    let before := (entryTransition programs.original programs.input guard initial).2
+    let after := (entryTransition programs.optimized programs.input guard initial).2
+    Block.eval (evalBody programs.input) (programs.optimized.block (Label.arm arrival)) env after =
+      Block.eval (evalBody programs.input) (programs.original.block (Label.arm arrival)) env before :=
+  Proofs.lower_join_eq input accepted guard arrival initial
+
 /-- Three block steps reach the return in either artifact. The observation
 includes the returned word and every final cell at the checked input. -/
 theorem lower_runs {source : Prefixed args} {programs : Programs cells args}
