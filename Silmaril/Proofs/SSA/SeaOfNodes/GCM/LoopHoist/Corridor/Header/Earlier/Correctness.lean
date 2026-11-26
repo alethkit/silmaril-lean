@@ -116,6 +116,13 @@ private theorem moved_spec (moved : moveAt? cfg index cut = some out) :
     exact ⟨supported.1, earlier, translates, header, emitted, rfl⟩
   · simp [moveAt?, supported] at moved
 
+theorem moveAt?_header (moved : moveAt? cfg index cut = some out) :
+    ∃ header, out = withHeader cfg header ∧
+      ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
+        (cfg.block .header).eval evalOp (fun term vals => term.eval vals) env := by
+  obtain ⟨_, _, _, header, emitted, eq⟩ := moved_spec moved
+  exact ⟨header, eq, moveEarlier?_eval emitted⟩
+
 theorem moveAt?_adjacent (adjacent : afterRemoval index cut.cut + 1 = index) :
     moveAt? cfg index cut = Header.moveAt? cfg index cut := by
   have earlier : afterRemoval index cut.cut < index := by omega

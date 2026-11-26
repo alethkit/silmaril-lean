@@ -27,7 +27,7 @@ variable {Input Γ : List Width} {carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {index : Nat} {cut : Point (SourceLabel carried result)}
-variable {out : Cfg TargetOp (SourceLabel carried result) Input [result]}
+variable {cfg out : Cfg TargetOp (SourceLabel carried result) Input [result]}
 variable {before after : Block TargetOp (SourceLabel carried result) Γ [result]}
 
 theorem moveLater?_order {extraSteps : Nat}
@@ -67,17 +67,37 @@ theorem moveLater?_eval {extraSteps : Nat} (moved : moveLater? index extraSteps 
     obtain ⟨_, swapped, remaining⟩ := Option.bind_eq_some_iff.mp moved
     exact (ih remaining).trans (swapAt?_eval swapped env)
 
-private theorem emitted_spec (moved : moveAt? g index cut = some out) :
-    checkDestination g index cut = true ∧
+private theorem emitted_spec (moved : moveCfgAt? cfg index cut = some out) :
+    checkCfgDestination cfg index cut = true ∧
     ∃ header, moveLater? index (afterRemoval index cut.cut - index - 1)
-        ((lower g).block .header) = some header ∧
-      out = withHeader (lower g) header := by
-  cases checked : checkDestination g index cut with
-  | false => simp [moveAt?, checked] at moved
+        (cfg.block .header) = some header ∧
+      out = withHeader cfg header := by
+  cases checked : checkCfgDestination cfg index cut with
+  | false => simp [moveCfgAt?, checked] at moved
   | true =>
-    simp only [moveAt?, checked, ite_true] at moved
+    simp only [moveCfgAt?, checked, ite_true] at moved
     obtain ⟨header, emitted, rfl⟩ := Option.map_eq_some_iff.mp moved
     exact ⟨rfl, header, emitted, rfl⟩
+
+theorem checkBindingCut_sound (checked : checkBindingCut cfg index cut = true) :
+    ∃ (saved : Width) (binding : Binding Input (carried :: Input) saved carried result),
+      findBinding index 0 headerOrigins (cfg.block .header) = some ⟨saved, binding⟩ ∧
+      Legal cfg binding.operands binding.uses cut := by
+  let _ : DecidableEq (Target (SourceLabel carried result)) := sourceTargetDecEq carried result
+  unfold checkBindingCut at checked
+  obtain ⟨⟨saved, binding⟩, found, accepted⟩ := (Option.any_eq_true _ _).mp checked
+  exact ⟨saved, binding, found, (Dominance.Placement.checkCut_iff.mp accepted).2⟩
+
+theorem moveCfgAt?_checked (moved : moveCfgAt? cfg index cut = some out) :
+    checkBindingCut cfg index cut = true :=
+  (Bool.and_eq_true_iff.mp (emitted_spec moved).1).2
+
+theorem moveCfgAt?_header (moved : moveCfgAt? cfg index cut = some out) :
+    ∃ header, out = withHeader cfg header ∧
+      ∀ env, header.eval evalOp (fun term vals => term.eval vals) env =
+        (cfg.block .header).eval evalOp (fun term vals => term.eval vals) env := by
+  obtain ⟨_, header, emitted, eq⟩ := emitted_spec moved
+  exact ⟨header, eq, moveLater?_eval emitted⟩
 
 theorem checkDestination_sound (checked : checkDestination g index cut = true) :
     cut.block = headerId ∧ index + 1 < cut.cut ∧ afterRemoval index cut.cut = cut.cut - 1 ∧
@@ -85,15 +105,13 @@ theorem checkDestination_sound (checked : checkDestination g index cut = true) :
       findBinding index 0 headerOrigins ((lower g).block .header) = some ⟨saved, binding⟩ ∧
       Legal (lower g) binding.operands binding.uses cut := by
   let _ : DecidableEq (Target (SourceLabel carried result)) := sourceTargetDecEq carried result
-  unfold checkDestination at checked
+  unfold checkDestination checkCfgDestination at checked
   obtain ⟨supported, checkedSites⟩ := Bool.and_eq_true_iff.mp checked
   obtain ⟨atHeader, later⟩ := of_decide_eq_true supported
   have beforeCut : index < cut.cut := later.trans_le (Nat.sub_le _ _)
   have translation : afterRemoval index cut.cut = cut.cut - 1 := by simp [afterRemoval, beforeCut]
-  obtain ⟨⟨saved, binding⟩, found, accepted⟩ := (Option.any_eq_true _ _).mp checkedSites
-  have legal := (Dominance.Placement.checkCut_iff.mp accepted).2
   rw [translation] at later
-  exact ⟨atHeader, by omega, translation, saved, binding, found, legal⟩
+  exact ⟨atHeader, by omega, translation, checkBindingCut_sound checkedSites⟩
 
 theorem moveAt?_placement (moved : moveAt? g index cut = some out) :
     cut.block = headerId ∧ index + 1 < cut.cut ∧ afterRemoval index cut.cut = cut.cut - 1 ∧
@@ -119,7 +137,7 @@ theorem moveAt?_refuses_lateUse {saved : Width}
       have samePoint := Option.some.inj (pointFound.symm.trans resolved)
       subst point
       exact (Nat.not_le_of_gt passed (available.local_order sameBlock)).elim
-  simp [moveAt?, checkDestination, found, refused]
+  simp [moveAt?, moveCfgAt?, checkCfgDestination, checkBindingCut, found, refused]
 
 theorem moveAt?_order (moved : moveAt? g index cut = some out) :
     ∃ (prefixOps crossed : List Operation) (chosen : Operation) (suffixOps : List Operation),
@@ -137,13 +155,13 @@ theorem moveAt?_frames (moved : moveAt? g index cut = some out) (input : Env Inp
     ∀ frame : Frame (SourceLabel carried result),
       (out.block frame.label).eval evalOp (fun term env => term.eval env) (frame.args.append input) =
         ((lower g).block frame.label).eval evalOp (fun term env => term.eval env) (frame.args.append input) := by
-  obtain ⟨_, _, emitted, rfl⟩ := emitted_spec moved
-  exact withHeader_frames (moveLater?_eval emitted) input
+  obtain ⟨_, rfl, agrees⟩ := moveCfgAt?_header moved
+  exact withHeader_frames agrees input
 
 theorem moveAt?_run_eq (moved : moveAt? g index cut = some out) (input : Env Input)
     (fuel : Nat) : out.run evalOp fuel input = (lower g).run evalOp fuel input := by
-  obtain ⟨_, _, emitted, rfl⟩ := emitted_spec moved
-  exact withHeader_run_eq (moveLater?_eval emitted) input fuel
+  obtain ⟨_, rfl, agrees⟩ := moveCfgAt?_header moved
+  exact withHeader_run_eq agrees input fuel
 
 theorem moveAt?_budget (moved : moveAt? g index cut = some out) (input : Env Input) (budget : Nat) :
     out.run evalOp (budget + 3) input =
@@ -154,7 +172,7 @@ theorem moveAt?_budget (moved : moveAt? g index cut = some out) (input : Env Inp
 theorem moveAt?_denotePart (moved : moveAt? g index cut = some out) (input : Env Input) :
     (Silmaril.MLIR.CF.SwitchAssert.Cfg.embed out).denotePart evalOp input =
       (Silmaril.MLIR.CF.SwitchAssert.Cfg.embed (lower g)).denotePart evalOp input := by
-  obtain ⟨_, _, emitted, rfl⟩ := emitted_spec moved
-  exact withHeader_denotePart (moveLater?_eval emitted) input
+  obtain ⟨_, rfl, agrees⟩ := moveCfgAt?_header moved
+  exact withHeader_denotePart agrees input
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Later
