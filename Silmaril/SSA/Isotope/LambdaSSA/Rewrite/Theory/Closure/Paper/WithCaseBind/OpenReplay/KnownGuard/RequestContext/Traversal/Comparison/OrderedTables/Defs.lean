@@ -35,6 +35,24 @@ def locate {X : Ty Empty} {frame : ReplyFrame X} {n : Nat}
   letI := ReplyFrame.Slot.decEq frame
   (List.finRange n).find? fun j => decide (slots j = slot)
 
+theorem rename_branch {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ)
+    {a : Tm signature.Instr} {X : Ty Empty} (h : Tm.BranchValue Γ a X) :
+    Tm.BranchValue Δ (a.rename ρ) X := by
+  rw [Tm.rename_eq_subst]
+  exact h.subst (fun _ _ hi => .var (hρ hi))
+
+def renameFrame {Γ Δ : List (Ty Empty)} {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
+    {X : Ty Empty} → {frame : ReplyFrame X} → ReplyFrame.Value Γ frame → ReplyFrame.Value Δ frame
+  | _, _, .base u => .base ⟨_, rename_branch hρ u.property⟩
+  | _, _, .unit v u => .unit (renameFrame hρ v) ⟨_, rename_branch hρ u.property⟩
+  | _, _, .bit v b u => .bit (renameFrame hρ v) b ⟨_, rename_branch hρ u.property⟩
+
+/-- The complete constructor packet in a selected reply arm after opening
+the Bit variable with its fresh unit payload. -/
+def extendReply {Γ : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (v : ReplyFrame.Value Γ frame) (b : Bool) : ReplyFrame.Value (unit :: Bit :: Γ) (.bit frame) :=
+  .bit (renameFrame ((Ren.wk Γ Bit).comp (Ren.wk (Bit :: Γ) unit)) v) b ⟨.var 0, .var rfl⟩
+
 /-- A new reply exposes a fresh field and carries facts about older fields. -/
 def replyFacts {X : Ty Empty} {frame : ReplyFrame X} (known : CompactTerminal.Known frame) :
     CompactTerminal.Known (.bit frame)
