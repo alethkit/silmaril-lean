@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Check.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms
@@ -371,17 +371,17 @@ open RecursiveCall (Family TupleIn Closed ClosedFamily Admitted)
 
 private def loopNumbering : Renaming := .region (Equiv.refl Nat) (fun _ _ => numbering)
 
-private theorem orderedBody :
-    RecursiveCall.Numbered.Ordered Op numbering (embed left.toTerm).toGraph (embed right.toTerm).toGraph := by
-  rw [Term.toTerm_toGraph, Term.toTerm_toGraph]
-  exact .emptyLeft idle.inputs (.bind (.base (.simple (.primitive Op.advance))) initial initial rfl rfl
-    (fun i => i.elim0) (.emptyRight idle.inputs (.ret tailL tailR rfl)))
+local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
 
-private theorem orderedLoop : RecursiveCall.Numbered.Ordered Op loopNumbering
-    (code initial left outputs).toGraph (code initial right outputs).toGraph := by
-  refine .bind (.theta carried) initial initial rfl rfl ?_ (.ret outputs outputs rfl)
-  intro i
-  exact orderedBody
+private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
+  Key := Unit
+  encode _ := ()
+  injective := by intro _ _ x y _; cases x; cases y; rfl
+
+private abbrev instructionKeys := RecursiveCall.Numbered.instructionCode opcodeCode
+
+private instance : DecidableEq instructionKeys.Key :=
+  show DecidableEq (Sum Unit (Ports T × Ports T)) from inferInstance
 
 -- The modified selector is still a well-typed control wire, but it reads
 -- the original mode rather than the primitive's feedback discriminant.
@@ -396,6 +396,9 @@ example (map : Renaming) :
   have wires := accepted.results_related
   change Address.output (map.vertices 1) 0 :: _ = Address.arg 0 :: _ at wires
   cases (List.cons.inj wires).1
+
+example : (RecursiveCall.Numbered.check instructionKeys numbering
+    (embed termL).toGraph (embed wrongFeedback).toGraph).isSome = false := by cbv
 
 private inductive LoopFamily (callee : machine.Val fn.port) : Family machine where
   | data (n : Nat) : LoopFamily callee (.data (t := ()) n)
@@ -415,6 +418,11 @@ private theorem loopClosed {sigs : List (Ports T)} (body : Body Op carried sigs)
     | .cons (.control feedback) (.cons (.control mode) (.cons (.data n) .nil)) =>
       exact ⟨.control feedback, .control mode, .data n, trivial⟩
 
+set_option maxHeartbeats 800000 in
+private theorem loopAccepts :
+    (RecursiveCall.Numbered.checkResolved instructionKeys loopNumbering
+      (resolve machine (callable left)) (resolve machine (callable right))).isSome = true := by cbv
+
 private theorem numberedFamily :
     RecursiveCall.Numbered.CheckedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) where
   closedL := loopClosed left
@@ -423,7 +431,7 @@ private theorem numberedFamily :
     intro _ _ _ _ leftMember rightMember _
     cases leftMember
     cases rightMember
-    exact .intro orderedLoop
+    exact RecursiveCall.Numbered.checkResolved_sound loopAccepts
 
 private theorem loopFamily :
     ClosedFamily primitives Eq (LoopFamily (callable left)) (LoopFamily (callable right)) :=
