@@ -418,6 +418,34 @@ program.
 This comparison uses a shared event family. Type-changing maps and
 reflection along event renaming are outside the checked law.
 
+### Relabelling before closure and packing
+
+`FiniteCFG.mapInstr` applies the existing primitive map to the scoped
+entry and every block at its original index. The mapped table has the same
+capture context and block and exit profiles. `close_mapInstr` runs the
+existing capture-closure algorithm on the mapped table and mapped producer.
+After projecting out the certificates, its result is the mapped original
+result, including failure. The decoder and position of each packed capture
+are unchanged.
+[Flat table typing](../../Silmaril/SSA/Isotope/LambdaSSA/Flat/InstructionMap/Thms.lean)
+· [Executable capture closure](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/InstructionMap/Thms.lean)
+
+The routed entry and the literal dispatcher commute with relabelling.
+`packedExecutionRegion_mapInstr` is a propositional equality of written
+region syntax over the target instruction signature. `Program.ofCFG_mapInstr`
+also identifies the exact typed singleton representatives using proof
+irrelevance for their typing certificates. `satisfies_ofCFG_map_iff` applies
+the ordered reduct law to the repacked tables, with an identity type map, a
+bottom-preserving Boolean effect map, and a shared event family.
+[Packed syntax](../../Silmaril/SSA/Isotope/LambdaSSA/Flat/InstructionMap/Packing/Thms.lean)
+· [Ordered satisfaction square](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Thms.lean)
+
+The generated capture fixture maps seed and tick to the same opcode. It
+reruns capture closure on the mapped table, then checks the typed packed
+equality and strict satisfaction against a silent self-loop. The separating
+trace uses the capture reply and follows the back edge to the next tick.
+[Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
