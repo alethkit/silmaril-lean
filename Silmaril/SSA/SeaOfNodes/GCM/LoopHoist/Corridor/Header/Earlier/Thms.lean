@@ -67,6 +67,14 @@ theorem pickAndMove?_placement (picked : pickAndMove? g index = some (cut, out))
       Legal (lower g) binding.operands binding.uses cut :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier.pickAndMove?_placement picked
 
+/-- The typed CFG emitter inserts the nominated binding at the translated index. -/
+theorem moveAt?_order (moved : moveAt? cfg index cut = some out) :
+    ∃ (prefixOps crossed : List Operation) (chosen : Operation) (suffixOps : List Operation),
+      prefixOps.length = afterRemoval index cut.cut ∧ prefixOps.length + crossed.length = index ∧
+      operations (cfg.block .header) = prefixOps ++ crossed ++ (chosen :: suffixOps) ∧
+      operations (out.block .header) = prefixOps ++ (chosen :: (crossed ++ suffixOps)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier.moveAt?_order moved
+
 /-- The emitted CFG has the selected operation at the chosen original cut,
 and all other operation symbols retain their relative order. -/
 theorem pickAndMove?_order (picked : pickAndMove? g index = some (cut, out)) :
