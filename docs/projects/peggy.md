@@ -9,7 +9,9 @@ well-founded demands. The [checked Egg bridge](peggy-egg.md) proves
 equality of native observations for ranked loop-free PEGs. The
 [cyclic E-PEG certificate kernel](peggy-epeg.md) checks finite class and
 candidate admission conditions and uses semantic evidence for merges
-and extraction.
+and extraction. The [finite saturation algorithm](peggy-saturation.md)
+closes a supplied table of ground obligations and checks a cyclic
+selection with structural row evidence.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -105,11 +107,13 @@ guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](ht
 4. **E-PEGs and optimization**. The [E-PEG certificate kernel](peggy-epeg.md)
    proves stream equality for same-label congruence and merges with
    independently justified laws. It checks the demand rank and root
-   classes of a proposed extraction. Add node extension, rule-schema
-   validation, proof production for candidate equations, saturation and
-   reversion. The [acyclic bridge](peggy-egg.md) reuses sorted Egg replay.
-   Prove §4's monotonicity and uniqueness of normal forms separately from
-   finite-fuel progress. Use an independent graph and
+   classes of a proposed extraction. The
+   [finite worklist](peggy-saturation.md) proves least closure and
+   order independence for a fixed table of ground reasons. It derives
+   candidate equations for same-label rewiring. Add node extension,
+   rule-schema validation and matching, and reversion. The
+   [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
+   node-generating form of §4 remains a separate proof obligation. Use an independent graph and
    CFG-like check on extracted representatives. The displayed Boolean
    constraints in §8.3 also admit invalid selections, such as a θ
    initializer selecting its own class. Prove reversion correctness

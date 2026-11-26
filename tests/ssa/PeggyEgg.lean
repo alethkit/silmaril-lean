@@ -4,6 +4,7 @@ import Silmaril.SSA.PEG.Builder
 import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
+import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
@@ -367,6 +368,45 @@ example (idx : Index 1) :
           (selection.demandWellFounded (classes := classes) (by decide))) idx :=
   run_selection_sound obligations.length obligations (c := discrete) (m := arithmetic) (env := .nil)
     selection sourceWF Classes.discrete_valid contracts (by decide) sourceSolves idx
+
+/-- Now the increment reads vertex 3 instead of vertex 0. Together with
+vertex 3's θ feedback, this gives the candidate a different cycle. -/
+private def redirectedNode (v : Fin 10) :
+    Node Op [] (Fin 1) cyclicSource.sort (cyclicSource.sort v) :=
+  if h : v = 1 then
+    h.symm ▸ Node.ofLabel (.op Op.succ) (.cons (countRef 3 rfl) .nil)
+  else cyclicSource.node v
+
+private def redirectedTarget : Graph Op [] Result 10 1 :=
+  { cyclicTarget with node := redirectedNode }
+
+private def redirectedSelection : Selection cyclicSource redirectedTarget :=
+  ⟨fun v => .ofId cyclicSource.sort v, rank⟩
+
+private def redirectedRows (v : Fin 10) : Selection.Row redirectedSelection v := by
+  by_cases h : v = 1
+  · subst v
+    exact ⟨[.count], .op Op.succ, .cons (countRef 0 rfl) .nil, .cons (countRef 3 rfl) .nil,
+      HEq.rfl, rfl⟩
+  · let row := cyclicSource.node v
+    exact ⟨row.inputs, row.label, row.args, row.args, HEq.rfl,
+      by
+        change redirectedNode v = Node.ofLabel row.label row.args
+        rw [redirectedNode, dite_eq_right h]
+        rfl⟩
+
+example : redirectedTarget.Edge 3 (.feedback 0) 1 ∧ redirectedTarget.Edge 1 .ordinary 3 :=
+  ⟨⟨⟨1, by decide⟩, rfl, rfl⟩, ⟨⟨0, by decide⟩, rfl, rfl⟩⟩
+
+example : Selection.checkRows redirectedRows limited = false := by decide
+
+example (idx : Index 1) :
+    cyclicSource.observe arithmetic streams idx =
+      redirectedTarget.observe arithmetic
+        (redirectedTarget.denote arithmetic .nil
+          (redirectedSelection.demandWellFounded (classes := classes) (by decide))) idx :=
+  Selection.observe_sound_of_rows (m := arithmetic) (env := .nil) sourceWF classesValid
+    (by decide) redirectedRows (by decide) idx
 
 /-- Putting θ in its own initial slot preserves wiring types but violates
 demand admission at index zero. -/
