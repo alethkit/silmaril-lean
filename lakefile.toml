@@ -487,6 +487,11 @@ globs = ["tests.ssa.PEGStructuredTheta"]
 name = "PEGIRBridgeTests"
 globs = ["tests.ssa.PEGIRBridge"]
 
+# Check PEG lowering into the existing λRTL region and flat CFG evaluators.
+[[lean_lib]]
+name = "PEGForwardCFGTests"
+globs = ["tests.ssa.PEGForwardCFG"]
+
 # Check open PEG equations and composition of Peggy opcode translations.
 [[lean_lib]]
 name = "PeggyDialectTests"
