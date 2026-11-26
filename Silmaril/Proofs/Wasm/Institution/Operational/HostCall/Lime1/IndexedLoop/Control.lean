@@ -85,19 +85,6 @@ private theorem loop_iff {s : Store H} {code next : List Admin}
   · rintro rfl
     exact ⟨_, localStep.mpr rfl, rfl⟩
 
-private theorem function_result {s : Store H} {r : Nested.Result} :
-    Internal ⟨s, outer, p.functionCode arg (Nested.resultCode values .trap r)⟩ dst ↔
-      dst = ⟨s, outer, [.frame 1 (p.active arg) (Nested.resultCode values .trap r)]⟩ := by
-  constructor
-  · intro step
-    rcases Computed.lime_body_step_cases step with ⟨_, inside, _⟩ | ⟨_, pop, rfl⟩
-    · exact (Nested.lime_result_stuck (r := r) inside).elim
-    · rw [Nested.lime_label_result (r := r) pop]
-  · rintro rfl
-    cases r with
-    | values vs => exact .frame (.pure _ _ (.labelDone 1 [] vs)) 1 outer
-    | trap => exact .frame (.pure _ _ (.labelTrap 1 [])) 1 outer
-
 private theorem loop_trap_exit {s : Store H} :
     Internal ⟨s, p.active arg, p.loopCode [.trap]⟩ dst ↔
       dst = ⟨s, p.active arg, value (i64 p.saved) :: .trap :: p.afterLoop⟩ := by
@@ -113,13 +100,13 @@ private theorem loop_trap_exit {s : Store H} :
   · intro eq
     exact invert.mpr (.inr ⟨[.trap], .labelTrap 1 [p.loop.instr], eq⟩)
 
-private theorem one {a b : Phase}
+private theorem one {a b : Phase H}
     (native : Internal (p.render mem outer index arg ⟨bytes, a⟩) dst ↔
       dst = p.render mem outer index arg ⟨bytes, b⟩)
-    (move : Control arg p.saved p.afterLoop a b)
-    (unique : ∀ {endPhase}, Control arg p.saved p.afterLoop a endPhase → endPhase = b) :
+    (move : Control arg p.saved p.continuation a b)
+    (unique : ∀ {endPhase}, Control arg p.saved p.continuation a endPhase → endPhase = b) :
     Internal (p.render mem outer index arg ⟨bytes, a⟩) dst ↔
-      ∃ next, Control arg p.saved p.afterLoop a next ∧ dst = p.render mem outer index arg ⟨bytes, next⟩ := by
+      ∃ next, Control arg p.saved p.continuation a next ∧ dst = p.render mem outer index arg ⟨bytes, next⟩ := by
   rw [native]
   exact ⟨fun eq => ⟨b, move, eq⟩, fun ⟨_, edge, eq⟩ => unique edge ▸ eq⟩
 
@@ -128,14 +115,9 @@ theorem pending_producer {input : BitVec 64} (checked : p.Checked mem outer inde
       (p.producer.callout (p.producerContext arg) [i64 input]) :=
   ⟨rfl, checked.producer, rfl⟩
 
-theorem pending_later {input : BitVec 32} (checked : p.Checked mem outer index) :
-    CalloutAt (p.render mem outer index arg ⟨bytes, .laterInvoke input⟩)
-      (p.later.callout (p.functionContext arg) [i64 p.saved, i32 input]) :=
-  ⟨rfl, checked.later, rfl⟩
-
-theorem internal_iff (checked : p.Checked mem outer index) (a : Phase) :
+theorem internal_iff (checked : p.Checked mem outer index) (a : Phase H) (beforeContinuation : ∀ q, a ≠ .continuation q) :
     Internal (p.render mem outer index arg ⟨bytes, a⟩) dst ↔
-      ∃ next, Control arg p.saved p.afterLoop a next ∧ dst = p.render mem outer index arg ⟨bytes, next⟩ := by
+      ∃ next, Control arg p.saved p.continuation a next ∧ dst = p.render mem outer index arg ⟨bytes, next⟩ := by
   cases a with
   | source =>
     exact one (Computed.lime_direct_call_iff (stack := [i64 arg]) (tail := []) checked.rootIndex)
@@ -197,17 +179,6 @@ theorem internal_iff (checked : p.Checked mem outer index) (a : Phase) :
     · intro out
       exact stay (saved := [i64 p.saved]) rfl (by simp) (by simp) (by simp)
     · exact p.loop.result_iff (saved := [i64 p.saved]) (payload := [i32 res]) checked.loopIndex rfl
-  | laterCall res =>
-    apply one ?_ (.resolveLater res) (fun edge => by cases edge; rfl)
-    refine function_iff (p := p) (arg := arg) (outer := outer) (s := mem.store bytes)
-      (code := values [i64 p.saved, i32 res] ++ .source (.call p.laterIndex) :: [])
-      (next := values [i64 p.saved, i32 res] ++ [.invoke p.laterAddress]) ?_ ?_
-    · intro out
-      exact stay (saved := [i64 p.saved, i32 res]) rfl (by simp) (by simp) (by simp)
-    · exact Computed.lime_direct_call_iff (stack := [i64 p.saved, i32 res]) (tail := []) checked.laterIndex
-  | laterInvoke res =>
-    exact ⟨fun step => ((pending_later checked (arg := arg) (bytes := bytes) (input := res)).not_internal step).elim,
-      fun ⟨_, edge, _⟩ => by cases edge⟩
   | loopTrap tail =>
     cases tail with
     | nil =>
@@ -233,53 +204,6 @@ theorem internal_iff (checked : p.Checked mem outer index) (a : Phase) :
         | eraseLoop split active =>
           exact ⟨_, (Computed.lime_trap_front_iff (stack := []) (tail := instr :: tail)).mpr
             ⟨[], [], _, _, rfl, split, .inr active, rfl⟩, rfl⟩
-  | bodyTrap saved tail =>
-    by_cases active : saved ≠ [] ∨ tail ≠ []
-    · have stays (out : List Admin) :
-          ¬ PureStep (p.active arg).module.types [.label 1 [] (values saved ++ .trap :: tail)] out :=
-        stay rfl (by simp) (by simp) (fun _ => active)
-      change Internal ⟨_, _, p.functionCode arg (values saved ++ .trap :: tail)⟩ dst ↔ _
-      rw [function_context stays]
-      constructor
-      · rintro ⟨mid, move, rfl⟩
-        rcases Computed.lime_trap_front_iff.mp move with ⟨kept, removed, cut, rest, stack, split, active, rfl⟩
-        exact ⟨.bodyTrap kept rest, .eraseBody stack split active, rfl⟩
-      · rintro ⟨_, edge, rfl⟩
-        cases edge with
-        | eraseBody split suffix nz =>
-          exact ⟨_, Computed.lime_trap_front_iff.mpr ⟨_, _, _, _, split, suffix, nz, rfl⟩, rfl⟩
-        | exitTrap => simp at active
-    · obtain ⟨savedEmpty, tailEmpty⟩ := not_or.mp active
-      have savedNil : saved = [] := not_not.mp savedEmpty
-      have tailNil : tail = [] := not_not.mp tailEmpty
-      subst saved tail
-      apply one (function_result (r := .trap)) .exitTrap
-      intro endPhase edge
-      cases edge with
-      | exitTrap => rfl
-      | eraseBody split suffix nz =>
-        exact (nz.elim (fun hn => hn (List.append_eq_nil_iff.mp split.symm).2)
-          (fun hn => hn (List.append_eq_nil_iff.mp suffix.symm).1)).elim
-  | bodyResult res =>
-    exact one (function_result (r := .values [i32 res])) (.exitResult res) (fun edge => by cases edge; rfl)
-  | frameResult res =>
-    apply one ?_ (.finish res) (fun edge => by cases edge; rfl)
-    constructor
-    · intro move
-      cases res with
-      | none => exact Nested.lime_frame_result (r := .trap) move
-      | some res => exact Nested.lime_frame_result (r := .values [i32 res]) move
-    · rintro rfl
-      cases res with
-      | none => exact .pure _ _ (.frameTrap 1 (p.active arg))
-      | some res => exact .pure _ _ (.frameDone 1 (p.active arg) [i32 res] rfl)
-  | done res =>
-    constructor
-    · intro move
-      cases res with
-      | none => exact (Nested.lime_result_stuck (r := .trap) move).elim
-      | some res => exact (Nested.lime_result_stuck (r := .values [i32 res]) move).elim
-    · rintro ⟨_, edge, _⟩
-      cases edge
+  | continuation q => exact (beforeContinuation q rfl).elim
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Proofs
