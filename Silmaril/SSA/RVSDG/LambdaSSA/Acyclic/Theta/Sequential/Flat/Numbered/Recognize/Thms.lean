@@ -13,6 +13,14 @@ universe u
 variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {A I M E D : τ} {g : Graph Φ A I M E D}
 
+/-- Recognition certifies the actual input graph's single live token. The
+certificate can be used independently of the recovered CFG and model. -/
+def Match.checked (m : Match g) :
+    NestedTheta.ExplicitRuntime.EntryChecked (a := OrderedTheta.carriedData A)
+      (b := OrderedTheta.carriedData (Wires.Second M E D)) g.toTerm :=
+  m.wiring ▸ joinChecked (Conditional.Wiring.code m.components.first)
+    (ExplicitRuntime.Wiring.loop m.components.second)
+
 /-- Accepted graphs have the existing source-free joint decomposition. -/
 noncomputable def Match.decomposition (m : Match g) :
     Decomposition g m.components.B m.components.K m.components.C m.components.J :=

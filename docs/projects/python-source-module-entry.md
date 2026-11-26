@@ -39,12 +39,15 @@ result of equality with `True`. The resulting value retains its Boolean
 type in ordinary and seeded execution. Other operands keep their existing
 value and failure semantics. The unselected operand performs no lookup.
 
-The scalar checker folds single tuple equality and membership comparisons
-over flat tuples of exact Boolean or signed integer literals. Equality uses
-the tuple lengths and corresponding scalar values. Membership tests tuple
-elements in order using the same scalar equality, including Boolean and
-integer equality at zero and one. The checked operand emits a Boolean
-through scalar equality and performs no runtime lookup or allocation.
+The scalar checker folds single equality and inequality comparisons over
+closed list and tuple expressions. Leaves are flat sequences of exact
+Boolean or signed integer literals. A concatenation must join sequences
+of the same kind and its certificate retains their element order. Both
+sides of the comparison require certificates, including when their
+kinds or lengths differ. Equality compares sequence kind, length and
+corresponding values, including Boolean and integer equality at zero and
+one. Tuple membership keeps the flat literal profile. The result is an
+exact Boolean with no runtime sequence value or allocation.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
@@ -54,14 +57,39 @@ value becomes the next comparison's left value. The first false comparison
 ends the scan. The result uses the same Boolean operand as a folded tuple
 comparison, with no runtime lookup, call, or allocation.
 
-Closed `and` and `or` operands are Boolean or integer literals. The
-checker validates every operand, then selects a value in order. `and`
-stops at the first false value and `or` at the first true value, with
-the last value used when the scan reaches the end. The emitted result
-retains its integer or Boolean tag. A closed `not` or assertion can
-also test `None` or a flat literal list or tuple whose elements pass
-the same scalar check. These tests use only falsity or emptiness and
-emit no container value.
+Singleton identity has a separate checked chain for `is` and `is not`.
+Each operand must produce `None` or an exact Boolean if evaluation succeeds.
+This includes Boolean results of admitted scalar comparisons and nested
+identity tests. The checker validates every link and operand, including a
+suffix that execution will skip. The runners evaluate reached operands
+left to right, carry the middle singleton into the next link, and stop at
+the first false comparison or operand error. A successful test produces
+a Boolean. Integer and text identities are outside this profile.
+
+Reached operands of a checked `and` or `or` are Boolean or signed integer
+literals. The source certificate records the first false value for
+`and`, the first true value for `or`, or the last value at the end of
+the sequence. A deciding operand permits the checker to use a separate
+syntax check on the whole dead suffix. That grammar accepts integer,
+Boolean and `None` literals, recursive unary and binary expressions, and
+nested Boolean expressions with at least two operands. Names, calls,
+and constructs introducing scopes are outside the dead-suffix grammar.
+The module still runs full source scope analysis. A reached true division
+remains an expression-profile rejection. Skipped true division has no
+runtime instruction. The emitted result retains its integer or Boolean tag.
+
+A closed `not` or assertion can also test `None` or a flat literal list or
+tuple whose elements pass the scalar check. These tests use only falsity
+or emptiness and emit no container value.
+
+`None` can also be bound, read and copied as a module value. It has its
+own tag and is false in a truth test. Scalar `==` and `!=` evaluate
+their operands from left to right. Two `None` values compare equal, and
+`None` compares unequal to an integer or Boolean. The integer
+projection used by arithmetic and closed numeric chains applies to
+integers and Booleans. Reached scalar arithmetic on `None` stops at the
+arithmetic profile boundary. Object identity requires separate evidence
+about the objects compared.
 
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
@@ -133,9 +161,9 @@ fail ordinary arity checking. Explicit keyword arguments, dynamic
 defaults, and introspection of these defaulted definitions are outside
 this profile.
 
-Checked function bodies can add integer literals and values read from fast
-locals, owned or forwarded cells, and live module globals. Addition can
-nest. The executor reads the left operand and then the right operand
+Checked function bodies can add and multiply integer literals and values
+read from fast locals, owned or forwarded cells, and live module globals.
+The operations can nest. The executor reads the left operand and then the right operand
 before checking their types. Booleans contribute 0 or 1 and the result is
 an integer. A plain function or `None` operand raises `TypeError` after
 both reads succeed. This value profile covers integer arithmetic without
@@ -143,8 +171,9 @@ custom operator methods or sequence concatenation. The ordinary and Finite
 runners share operand evaluation, and the seeded runner uses it when an
 existing selector admits the call.
 
-Deeper argument nesting, arithmetic call operands, and keyword or
-unpacked arguments outside the adjacent discard shape are rejected. The seeded runner supports these
+At module call sites, deeper argument nesting, arithmetic operands,
+and keyword or unpacked arguments outside the adjacent discard shape
+are rejected. The seeded runner supports these
 nested instructions within its [closed call profile](python-seeded-module-runner.md).
 The CPython regression checks
 result placement, lookup and argument error order, and residual bindings.

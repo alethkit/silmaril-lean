@@ -50,6 +50,7 @@ pub const SCRIPTS: &[(&str, &str)] = &[
     script!("views/progress.js"),
     script!("views/corpus.js"),
     script!("views/compiler.js"),
+    script!("views/ir.js"),
     script!("views/graph.js"),
     script!("views/lists.js"),
     script!("views/browse.js"),

@@ -1,4 +1,5 @@
-import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Thms
+import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Conditional.Thms
+import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Control.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Thms
 
 open Silmaril.Wasm
@@ -245,3 +246,307 @@ example : Lime1.Execution.Steps CallFrame.limeNoHost (limeSource limeStore outer
     ⟨limeStore, outer, [.trap]⟩ :=
   (lime_operand_trap_run_iff (checked 0 0) rfl zeroTrace).mpr
     (.inr ⟨.done, unwind Graph.limeEmit (i64 42) [] _, rfl⟩)
+
+namespace ConditionalFixture
+
+private def conditional : Conditional.Entry :=
+  { inside := { entry with cont := { cont with blocks := [middleBlock, innerBlock] } }
+    condition := ⟨1⟩
+    result := outerBlock.result
+    alternate := [.numeric (.get ⟨2⟩)]
+    tail := outerBlock.tail
+    siteOnTrue := false }
+
+private theorem conditionReady (divisor selected : BitVec 32) :
+    conditional.Checked program tables outer ⟨0⟩ (args divisor selected) :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+example : conditional.site = entry := rfl
+example : conditional.choosesSite 0 = true := rfl
+example : conditional.choosesSite 1 = false := rfl
+
+-- Both arms are checked against the same i64 result.
+example : { conditional with alternate := [.numeric (.get ⟨0⟩)] }.check program tables = false := rfl
+example : { conditional with inside := { conditional.inside with before := [.get ⟨99⟩] } }.check
+    program tables = false := rfl
+example : { conditional with condition := ⟨2⟩ }.check program tables = false := rfl
+
+private def coreConditional (c : Conditional.Entry) (hasTable : Bool) : Core.Store Unit :=
+  { coreStore with
+    funcs := [callee.coreInstance, c.coreInstance]
+    tables := if hasTable then coreStore.tables else [] }
+
+private def limeConditional (c : Conditional.Entry) (hasTable : Bool) : Lime1.Execution.Store Unit :=
+  { limeStore with
+    funcs := [.wasm callee.declaration.type callee.declaration.module callee.limeFunc, c.limeInstance]
+    tables := if hasTable then limeStore.tables else [] }
+
+private theorem coreTables (c : Conditional.Entry) : Source.Tables.CoreAllocated tables (coreConditional c true) :=
+  (coreAllocated 0).tables
+
+private theorem limeTables (c : Conditional.Entry) : Source.Tables.LimeAllocated tables (limeConditional c true) :=
+  (limeAllocated 0).tables
+
+private theorem coreLinks (c : Conditional.Entry) (hasTable : Bool) :
+    program.CoreLinksAllocated (coreConditional c hasTable) := by
+  intro _ _ found target used
+  rw [noDirectTargets found] at used
+  cases used
+
+private theorem limeLinks (c : Conditional.Entry) (hasTable : Bool) :
+    program.LimeLinksAllocated (limeConditional c hasTable) := by
+  intro _ _ found target used
+  rw [noDirectTargets found] at used
+  cases used
+
+private theorem coreTargets (c : Conditional.Entry) (selected : BitVec 32) :
+    (active selected).binding.site.CoreAllocated program (coreConditional c true) := by
+  intro address fn used found
+  obtain rfl := tableTarget used
+  obtain rfl := Option.some.inj found.symm
+  rfl
+
+private theorem limeTargets (c : Conditional.Entry) (selected : BitVec 32) :
+    (active selected).binding.site.LimeAllocated program (limeConditional c true) := by
+  intro address fn used found
+  obtain rfl := tableTarget used
+  obtain rfl := Option.some.inj found.symm
+  rfl
+
+example : Core.Steps spec noHost (coreSource (coreConditional conditional true) outer ⟨0⟩ (args 91 0))
+    ⟨coreConditional conditional true, outer.toCore, coreValues results⟩ :=
+  (Conditional.core_site_run (conditionReady 91 0) rfl rfl rfl (ready 0)
+    (coreTables conditional) (coreTargets conditional 0) (coreLinks conditional true) invoked).mpr
+      (.inr ⟨_, finished, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (limeSource (limeConditional conditional true) outer ⟨0⟩ (args 91 0))
+    ⟨limeConditional conditional true, outer, Lime1.Execution.values results⟩ :=
+  (Conditional.lime_site_run (conditionReady 91 0) rfl rfl rfl (ready 0)
+    (limeTables conditional) (limeTargets conditional 0) (limeLinks conditional true) invoked).mpr
+      (.inr ⟨_, finished, rfl⟩)
+
+private def alternateLocals : List Value := args 0 1 ++ [i64 0]
+private def alternateResults : List Value := [i64 7, i64 42, i32 0, i64 0]
+
+private theorem alternateFinished : program.FrameRuns ⟨1⟩ (conditional.alternatePhase (args 0 1))
+    (.done (.values alternateResults)) := by
+  have edge {a b : Graph.Phase} :=
+    (program.frameEdge_iff (a := a) (b := b) (fn := owner) (address := ⟨1⟩) rfl).mpr
+  have enter := Relation.ReflTransGen.single (edge (.blockEnter alternateLocals [i64 7] outerBlock.result
+    conditional.alternate outerBlock.tail))
+  have read := enter.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.numeric (rest := []) (.get (stack := []) (i := ⟨2⟩) (v := i64 42) (locals := alternateLocals) rfl))))
+  have leave := read.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.leaveValues alternateLocals [i64 42])))
+  have first := leave.tail (edge (.numeric (locals := alternateLocals) (rest := [.numeric (.get ⟨4⟩)])
+    (.get (stack := [i64 7, i64 42]) (i := ⟨0⟩) (v := i32 0) rfl)))
+  have last := first.tail (edge (.numeric (rest := [])
+    (.get (stack := [i64 7, i64 42, i32 0]) (i := ⟨4⟩) (v := i64 0) rfl)))
+  exact (last.tail (edge (.leaveValues alternateLocals alternateResults))).tail
+    (edge (.leaveFrame alternateLocals (.values alternateResults) rfl))
+
+-- The alternate arm completes without a native table and leaves the
+-- i64 local at zero. The skipped arm would divide by zero.
+example : (coreConditional conditional false).tables = [] := rfl
+example : (limeConditional conditional false).tables = [] := rfl
+
+example : Core.Steps spec noHost (coreSource (coreConditional conditional false) outer ⟨0⟩ (args 0 1))
+    ⟨coreConditional conditional false, outer.toCore, coreValues alternateResults⟩ :=
+  (Conditional.core_alternate_run (conditionReady 0 1) rfl rfl rfl (coreLinks conditional false)).mpr
+    (.inr ⟨_, alternateFinished, .done rfl, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (limeSource (limeConditional conditional false) outer ⟨0⟩ (args 0 1))
+    ⟨limeConditional conditional false, outer, Lime1.Execution.values alternateResults⟩ :=
+  (Conditional.lime_alternate_run (conditionReady 0 1) rfl rfl rfl (limeLinks conditional false)).mpr
+    (.inr ⟨_, alternateFinished, .done rfl, rfl⟩)
+
+example : Core.Steps spec noHost (coreSource (coreConditional conditional false) outer ⟨0⟩ (args 0 0))
+    (entry.coreCleanup (coreConditional conditional false) outer (entry.frame (args 0 0))
+      (.label [] (middleBlock.tail.map Graph.coreEmit) [⟨1, [i64 7], outerBlock.tail.map Graph.coreEmit⟩])) :=
+  (Conditional.core_operand_trap (conditionReady 0 0) rfl rfl rfl zeroTrace).mpr
+    (.inr ⟨_, twoExits Graph.coreEmit (i64 42) [] _, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (limeSource (limeConditional conditional false) outer ⟨0⟩ (args 0 0))
+    ⟨limeConditional conditional false, outer, [.trap]⟩ :=
+  (Conditional.lime_operand_trap (conditionReady 0 0) rfl rfl rfl zeroTrace).mpr
+    (.inr ⟨.done, unwind Graph.limeEmit (i64 42) [] _, rfl⟩)
+
+private def trueSite : Conditional.Entry := { conditional with condition := ⟨0⟩, siteOnTrue := true }
+
+private theorem trueReady : trueSite.Checked program tables outer ⟨0⟩ (args 91 1) :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+example : Core.Steps spec noHost (coreSource (coreConditional trueSite true) outer ⟨0⟩ (args 91 1))
+    ⟨coreConditional trueSite true, outer.toCore, [.trap]⟩ :=
+  (Conditional.core_lookup_trap trueReady rfl rfl rfl (ready 1)
+    (coreTables trueSite) (coreTargets trueSite 1) rfl .null).mpr
+      (.inr ⟨.done, unwind Graph.coreEmit (i64 42) [i32 5] _, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (limeSource (limeConditional trueSite true) outer ⟨0⟩ (args 91 1))
+    ⟨limeConditional trueSite true, outer, [.trap]⟩ :=
+  (Conditional.lime_lookup_trap trueReady rfl rfl rfl (ready 1)
+    (limeTables trueSite) (limeTargets trueSite 1) rfl .null).mpr
+      (.inr ⟨.done, unwind Graph.limeEmit (i64 42) [i32 5] _, rfl⟩)
+
+end ConditionalFixture
+
+namespace ControlFixture
+
+private def outerChoice : Control.Choice := ⟨⟨3⟩, [.numeric (.get ⟨2⟩)], true⟩
+private def innerChoice : Control.Choice := ⟨⟨1⟩, [.numeric (.get ⟨1⟩)], false⟩
+private def middle : Control.Node := ⟨middleBlock, none⟩
+private def inner : Control.Node := ⟨innerBlock, some innerChoice⟩
+
+private def control : Control.Entry :=
+  ⟨cont.address, cont.owner, cont.code, entry.op, entry.before, [⟨outerBlock, some outerChoice⟩, middle, inner]⟩
+
+private theorem readyControl (divisor selected : BitVec 32) :
+    control.Checked program tables outer ⟨0⟩ (args divisor selected) :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+example : control.site = entry := rfl
+example : { control with nodes := [⟨outerBlock, some outerChoice⟩, middle,
+    ⟨innerBlock, some { innerChoice with alternate := [.numeric (.get ⟨2⟩)] }⟩] }.check
+    program tables = false := rfl
+
+private def toInner : List Control.Position :=
+  [.pending [] control.nodes, .test [] outerBlock outerChoice [middle, inner] 455,
+   .pending [] [⟨outerBlock, none⟩, middle, inner],
+   .pending [outerBlock] [middle, inner], .pending [outerBlock, middleBlock] [inner]]
+
+private def toSite : List Control.Position :=
+  toInner ++ [.test [outerBlock, middleBlock] innerBlock innerChoice [] 0,
+    .pending [outerBlock, middleBlock] [⟨innerBlock, none⟩]]
+
+private def toAlternate : List Control.Position :=
+  toInner ++ [.test [outerBlock, middleBlock] innerBlock innerChoice [] 1]
+
+private theorem sitePath (divisor : BitVec 32) :
+    control.Trace (args divisor 0) toSite (.site cont.blocks) :=
+  .taken rfl rfl (.block (.block (.taken rfl rfl (.block (.done _)))))
+
+private theorem alternatePath :
+    control.Trace (args 0 1) toAlternate
+      (.alternate [outerBlock, middleBlock] (Control.Node.alternateCode innerBlock innerChoice)) :=
+  .taken rfl rfl (.block (.block (.alternate rfl rfl)))
+
+example : ∃ path last, control.Trace (args 0 1) path last := Control.trace_exists (readyControl 0 1)
+
+private def coreControl (hasTable : Bool) : Core.Store Unit :=
+  { coreStore with
+    funcs := [callee.coreInstance, control.coreInstance]
+    tables := if hasTable then coreStore.tables else [] }
+
+private def limeControl (hasTable : Bool) : Lime1.Execution.Store Unit :=
+  { limeStore with
+    funcs := [.wasm callee.declaration.type callee.declaration.module callee.limeFunc, control.limeInstance]
+    tables := if hasTable then limeStore.tables else [] }
+
+private theorem coreLinks (hasTable : Bool) : program.CoreLinksAllocated (coreControl hasTable) := by
+  intro _ _ found target used
+  rw [noDirectTargets found] at used
+  cases used
+
+private theorem limeLinks (hasTable : Bool) : program.LimeLinksAllocated (limeControl hasTable) := by
+  intro _ _ found target used
+  rw [noDirectTargets found] at used
+  cases used
+
+private theorem coreTargets : (active 0).binding.site.CoreAllocated program (coreControl true) := by
+  intro address fn used found
+  obtain rfl := tableTarget used
+  obtain rfl := Option.some.inj found.symm
+  rfl
+
+private theorem limeTargets : (active 0).binding.site.LimeAllocated program (limeControl true) := by
+  intro address fn used found
+  obtain rfl := tableTarget used
+  obtain rfl := Option.some.inj found.symm
+  rfl
+
+example : Core.Steps spec noHost (coreSource (coreControl true) outer ⟨0⟩ (args 91 0))
+    ⟨coreControl true, outer.toCore, coreValues results⟩ :=
+  (Control.core_site_run (s := coreControl true) (readyControl 91 0) rfl (sitePath 91) (ready 0)
+    (coreAllocated 0).tables coreTargets (coreLinks true) invoked).mpr
+      (.inr ⟨_, finished, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost (limeSource (limeControl true) outer ⟨0⟩ (args 91 0))
+    ⟨limeControl true, outer, Lime1.Execution.values results⟩ :=
+  (Control.lime_site_run (s := limeControl true) (readyControl 91 0) rfl (sitePath 91) (ready 0)
+    (limeAllocated 0).tables limeTargets (limeLinks true) invoked).mpr
+      (.inr ⟨_, finished, rfl⟩)
+
+private def untouched : List Value := args 0 1 ++ [i64 0]
+private def alternateUpdated : List Value := args 1 1 ++ [i64 0]
+private def alternateResults : List Value := [i64 7, i64 0, i32 1, i64 0]
+
+private theorem alternateFinished : program.FrameRuns ⟨1⟩
+    (control.alternatePhase (args 0 1) [outerBlock, middleBlock] (Control.Node.alternateCode innerBlock innerChoice))
+    (.done (.values alternateResults)) := by
+  have edge {a b : Graph.Phase} :=
+    (program.frameEdge_iff (a := a) (b := b) (fn := owner) (address := ⟨1⟩) rfl).mpr
+  have enter := Relation.ReflTransGen.single (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail
+      (.blockEnter untouched [] innerBlock.result innerChoice.alternate innerBlock.tail))))
+  have read := enter.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail (.blockStep [] innerBlock.result innerBlock.tail
+      (.numeric (rest := []) (.get (stack := []) (i := ⟨1⟩) (v := i32 1) (locals := untouched) rfl))))))
+  have leaveInner := read.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail (.blockStep [] innerBlock.result innerBlock.tail
+      (.leaveValues untouched [i32 1])))))
+  have readZero := leaveInner.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail (.numeric (locals := untouched)
+      (rest := [.numeric (.bin .i32 .add)]) (.get (stack := [i32 1]) (i := ⟨0⟩) (v := i32 0) rfl)))))
+  have add := readZero.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail (.numeric (locals := untouched) (rest := [])
+      (.bin (stack := []) (x := 1) (y := 0) (z := 1) (op := .add) rfl)))))
+  have leaveMiddle := add.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.blockStep [] middleBlock.result middleBlock.tail (.leaveValues untouched [i32 1]))))
+  have setLocal := Locals.fact (.set untouched ⟨0⟩ (i32 1) (by decide))
+  have assign := leaveMiddle.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.localSet (saved := []) (rest := [.numeric (.get ⟨4⟩)]) setLocal)))
+  have readResult := assign.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.numeric (rest := []) (.get (stack := []) (i := ⟨4⟩) (v := i64 0) (locals := alternateUpdated) rfl))))
+  have leaveOuter := readResult.tail (edge (.blockStep [i64 7] outerBlock.result outerBlock.tail
+    (.leaveValues alternateUpdated [i64 0])))
+  have first := leaveOuter.tail (edge (.numeric (locals := alternateUpdated) (rest := [.numeric (.get ⟨4⟩)])
+    (.get (stack := [i64 7, i64 0]) (i := ⟨0⟩) (v := i32 1) rfl)))
+  have last := first.tail (edge (.numeric (rest := [])
+    (.get (stack := [i64 7, i64 0, i32 1]) (i := ⟨4⟩) (v := i64 0) rfl)))
+  exact (last.tail (edge (.leaveValues alternateUpdated alternateResults))).tail
+    (edge (.leaveFrame alternateUpdated (.values alternateResults) rfl))
+
+-- The inner alternate returns into already-entered blocks. The remaining
+-- tails update local zero and preserve the default i64, without a table.
+example : (coreControl false).tables = [] := rfl
+example : (limeControl false).tables = [] := rfl
+
+example : Core.Steps spec noHost (coreSource (coreControl false) outer ⟨0⟩ (args 0 1))
+    ⟨coreControl false, outer.toCore, coreValues alternateResults⟩ :=
+  (Control.core_alternate_run (readyControl 0 1) rfl alternatePath (coreLinks false)).mpr
+    (.inr ⟨_, alternateFinished, .done rfl, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost (limeSource (limeControl false) outer ⟨0⟩ (args 0 1))
+    ⟨limeControl false, outer, Lime1.Execution.values alternateResults⟩ :=
+  (Control.lime_alternate_run (readyControl 0 1) rfl alternatePath (limeLinks false)).mpr
+    (.inr ⟨_, alternateFinished, .done rfl, rfl⟩)
+
+-- Choosing the site with zero divisor reaches the intermediate native
+-- unwind after two label exits. The outer label and its saved i64 remain.
+example : Core.Steps spec noHost (coreSource (coreControl false) outer ⟨0⟩ (args 0 0))
+    (entry.coreCleanup (coreControl false) outer (entry.frame (args 0 0))
+      (.label [] (middleBlock.tail.map Graph.coreEmit) [⟨1, [i64 7], outerBlock.tail.map Graph.coreEmit⟩])) :=
+  (Control.core_operand_trap (readyControl 0 0) rfl (sitePath 0) zeroTrace).mpr
+    (.inr ⟨_, twoExits Graph.coreEmit (i64 42) [] _, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost (limeSource (limeControl false) outer ⟨0⟩ (args 0 0))
+    (entry.limeCleanup (limeControl false) outer (entry.frame (args 0 0))
+      (.label [] (middleBlock.tail.map Graph.limeEmit) [⟨1, [i64 7], outerBlock.tail.map Graph.limeEmit⟩])) :=
+  (Control.lime_operand_trap (readyControl 0 0) rfl (sitePath 0) zeroTrace).mpr
+    (.inr ⟨_, twoExits Graph.limeEmit (i64 42) [] _, rfl⟩)
+
+end ControlFixture

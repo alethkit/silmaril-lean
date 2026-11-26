@@ -388,44 +388,6 @@ private theorem compare_loopFree {r : Region Φ} {hr : ValueBranches [X] r [D]} 
     apply (ofRegion_eq_iff _ _).2
     exact .symm (.cfgEta (.native (.base (.entry (.cfgZero hp.hasType blocks)))))
 
-omit [SymmetricCategory V] [DistributivePremonoidalCategory C] [Iteration C] [ElgotCategory C]
-  [StrongElgotFreydCategory J] [FreydCategory.CentralUnit J] [InstructionModel J M Φ]
-  [RegionTypingCoherent (Φ := Φ) J M] in
-private theorem source_distributor_inl :
-    (M.productIso X A).hom ≫ (M.obj X ◁ inlMap M A B) ≫
-      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
-    inlMap M (Silmaril.product X A) (Silmaril.product X B) := by
-  unfold packedDistributor inlMap
-  simp only [Category.assoc, Iso.inv_hom_id_assoc, ← MonoidalCategory.whiskerLeft_comp_assoc,
-    Iso.inv_hom_id, Category.comp_id]
-  have h : (M.obj X ◁ (coprod.inl : M.obj A ⟶ M.obj A ⨿ M.obj B)) ≫
-      (DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)).inv = coprod.inl := by
-    rw [← DistributiveTensor.inl_leftHom]
-    let e := DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)
-    change (coprod.inl ≫ e.hom) ≫ e.inv = _
-    rw [Category.assoc, e.hom_inv_id, Category.comp_id]
-  rw [← Category.assoc _ (DistributiveTensor.leftIso _ _ _).inv, h, coprod.inl_map_assoc,
-    Iso.hom_inv_id_assoc]
-
-omit [SymmetricCategory V] [DistributivePremonoidalCategory C] [Iteration C] [ElgotCategory C]
-  [StrongElgotFreydCategory J] [FreydCategory.CentralUnit J] [InstructionModel J M Φ]
-  [RegionTypingCoherent (Φ := Φ) J M] in
-private theorem source_distributor_inr :
-    (M.productIso X B).hom ≫ (M.obj X ◁ inrMap M A B) ≫
-      (M.productIso X (Silmaril.coprod A B)).inv ≫ packedDistributor M X A B =
-    inrMap M (Silmaril.product X A) (Silmaril.product X B) := by
-  unfold packedDistributor inrMap
-  simp only [Category.assoc, Iso.inv_hom_id_assoc, ← MonoidalCategory.whiskerLeft_comp_assoc,
-    Iso.inv_hom_id, Category.comp_id]
-  have h : (M.obj X ◁ (coprod.inr : M.obj B ⟶ M.obj A ⨿ M.obj B)) ≫
-      (DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)).inv = coprod.inr := by
-    rw [← DistributiveTensor.inr_leftHom]
-    let e := DistributiveTensor.leftIso (M.obj X) (M.obj A) (M.obj B)
-    change (coprod.inr ≫ e.hom) ≫ e.inv = _
-    rw [Category.assoc, e.hom_inv_id, Category.comp_id]
-  rw [← Category.assoc _ (DistributiveTensor.leftIso _ _ _).inv, h, coprod.inr_map_assoc,
-    Iso.hom_inv_id_assoc]
-
 set_option backward.isDefEq.respectTransparency false in
 omit [FreydCategory.CentralUnit J] [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M] in
 private theorem retain_pure {R S T : V} (f : S ⟶ T) :
@@ -442,12 +404,12 @@ private theorem compare_distributor :
   · rw [left_distributor_inl, ← inl A B, ← whisker, retain_pure, ← J.map_comp_assoc,
       ← J.map_comp, ← transport_comp, ← J.map_comp]
     simp only [Category.assoc]
-    exact congrArg (fun f => reindexHom J M objIso (J.map f)) (source_distributor_inl (B := B) M) |>.trans
+    exact congrArg (fun f => reindexHom J M objIso (J.map f)) (CfgEta.TypeCategory.Retained.packedDistributor_inl M X A B) |>.trans
       (inl (Silmaril.product X A) (Silmaril.product X B))
   · rw [left_distributor_inr, ← inr A B, ← whisker, retain_pure, ← J.map_comp_assoc,
       ← J.map_comp, ← transport_comp, ← J.map_comp]
     simp only [Category.assoc]
-    exact congrArg (fun f => reindexHom J M objIso (J.map f)) (source_distributor_inr (A := A) M) |>.trans
+    exact congrArg (fun f => reindexHom J M objIso (J.map f)) (CfgEta.TypeCategory.Retained.packedDistributor_inr M X A B) |>.trans
       (inr (Silmaril.product X A) (Silmaril.product X B))
 
 end Model
