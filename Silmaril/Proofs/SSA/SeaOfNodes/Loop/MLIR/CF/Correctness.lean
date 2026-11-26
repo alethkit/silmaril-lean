@@ -12,16 +12,16 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Proofs
 
 open Diamond (Val ValueSort dataPorts)
-open RVSDG (Tuple extend)
+open RVSDG (Tuple Wires Locals extend)
 open SeaOfNodes.MLIR (Word sourceInputs)
 open SeaOfNodes.MLIR.Lowering
 open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF (Cfg Frame Terminator)
 open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 
-variable {Γ : List Width} {carried result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+variable {Γ carried : List Width} {result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 
-private theorem opcode_correct {ins : List (ValueSort Width)} {out : ValueSort Width}
+theorem opcode_correct {ins : List (ValueSort Width)} {out : ValueSort Width}
     (op : Op ins out) (input : Tuple (Val Word) (dataPorts ins)) :
     evalOp (opcode op) (encodeValues input) = valueBits (model.run op input) := by
   cases op with
@@ -54,47 +54,75 @@ private theorem append_names {Δ : List Width} {left right : List (Diamond.Ty Wi
       | head => exact first .head
       | tail port => exact ih (fun pos => first (.tail pos)) port
 
-private def latchValue (value : Word carried) : Tuple (Val Word) (dataPorts [.data carried]) :=
-  .cons value .nil
+open Bank (Values bankEnv bankOperands prependNames bankNames)
 
-private def headerFrame (value : Word carried) : Frame (Label carried result) :=
-  ⟨.header, .cons value .nil⟩
+private theorem captured_names (input : Env Γ) {widths : List Width} (old : Values widths) :
+    NamesAgree ((bankEnv old).append input) (prependNames widths (inputNames Γ)) (sourceInputs input) := by
+  induction widths with
+  | nil => exact inputs_agree input
+  | cons width rest ih =>
+    cases old with
+    | cons value tail => exact weaken_names (ih tail) value
 
-private def exitFrame (value : Word result) : Frame (Label carried result) :=
+private theorem carried_names (input : Env Γ) {widths : List Width} (old : Values widths) :
+    NamesAgree ((bankEnv old).append input) (bankNames Γ widths) old := by
+  induction widths with
+  | nil => intro sort port; cases port
+  | cons width rest ih =>
+    cases old with
+    | cons value tail =>
+      intro sort port
+      cases port with
+      | head => rfl
+      | tail p => exact weaken_names (ih tail) value p
+
+private theorem bankOperands_eval {args : List (Diamond.Ty Width)} {past : List (List (Diamond.Ty Width))}
+    {Δ widths : List Width} {scope : Scope args past Δ} {env : Env Δ}
+    {values : Tuple (Val Word) args} {locals : Locals (Val Word) past}
+    (ok : scope.Agrees env values locals) (wires : Wires args past (dataPorts (inputSorts widths))) :
+    (bankOperands scope wires).eval env = bankEnv (wires.read values locals) := by
+  induction widths with
+  | nil => rfl
+  | cons width rest ih =>
+    cases wires with
+    | cons wire tail =>
+      change Env.cons (env.get (scope.resolveValue wire)) ((bankOperands scope tail).eval env) =
+        Env.cons (Diamond.read model wire values locals) (bankEnv (Wires.read tail values locals))
+      rw [ok.resolve wire, ih tail]
+      rfl
+
+private def headerFrame (values : Values carried) : Frame (Bank.Label carried result) :=
+  ⟨.header, bankEnv values⟩
+
+private def exitFrame (value : Word result) : Frame (Bank.Label carried result) :=
   ⟨.exit, .cons value .nil⟩
 
 private def resultEnv (value : Word result) : Env [result] :=
   .cons value .nil
 
-private def stepFrame : Word result ⊕ Tuple (Val Word) (dataPorts [.data carried]) →
-    Frame (Label carried result)
+private def stepFrame : Word result ⊕ Values carried → Frame (Bank.Label carried result)
   | .inl value => exitFrame value
-  | .inr next => headerFrame (next.get .head)
+  | .inr next => headerFrame next
 
-variable (g : Program Γ carried result entrySigs headerSigs) (input : Env Γ)
+variable (g : Bank.Program Γ carried result entrySigs headerSigs) (input : Env Γ)
 
 private theorem entry_eval :
-    (lower g).entry.eval evalOp (fun term env => term.eval env) input =
-      .inl (headerFrame ((g.initial model (sourceInputs input)).get .head)) := by
+    (Bank.lower g).entry.eval evalOp (fun term env => term.eval env) input =
+      .inl (headerFrame (g.initial model (sourceInputs input))) := by
   refine lowerCode_eval opcode evalOp model.run opcode_correct g.preheader _ input (sourceInputs input) PUnit.unit
-    ⟨inputs_agree input, trivial⟩ (entryTerm g) (fun term env => term.eval env) _ ?_
+    ⟨inputs_agree input, trivial⟩ (Bank.entryTerm g) (fun term env => term.eval env) _ ?_
   intro Δ scope env ok
-  have wire := (ok.resolve ((g.phiInputs .entry).get .head)).trans
-    (g.latch_get model .entry (sourceInputs input) (g.preheader.eval model (sourceInputs input) PUnit.unit) .head).symm
-  exact congrArg (fun v => Sum.inl (headerFrame v)) wire
+  exact congrArg (fun args => Sum.inl (Frame.mk Bank.Label.header args))
+    (bankOperands_eval ok (g.phiInputs .entry))
 
-private theorem header_eval (old : Word carried) :
-    ((lower g).block .header).eval evalOp (fun term env => term.eval env) (.cons old input) =
-      .inl (stepFrame (g.step model (sourceInputs input) (latchValue old))) := by
-  let args := appendTuple (latchValue old) (sourceInputs input)
-  have bindings : (headerScope Γ carried).Agrees (.cons old input) args PUnit.unit :=
-    ⟨append_names (weaken_names (inputs_agree input) old) (by
-      intro s p
-      cases p with
-      | head => rfl
-      | tail p => cases p), trivial⟩
+private theorem header_eval (old : Values carried) :
+    ((Bank.lower g).block .header).eval evalOp (fun term env => term.eval env) ((bankEnv old).append input) =
+      .inl (stepFrame (g.step model (sourceInputs input) old)) := by
+  let args := appendTuple old (sourceInputs input)
+  have bindings : (Bank.headerScope Γ carried).Agrees ((bankEnv old).append input) args PUnit.unit :=
+    ⟨append_names (captured_names input old) (carried_names input old), trivial⟩
   refine lowerCode_eval opcode evalOp model.run opcode_correct g.header _ _ args _ bindings
-    (headerTerm g) (fun term env => term.eval env) _ ?_
+    (Bank.headerTerm g) (fun term env => term.eval env) _ ?_
   intro Δ scope env ok
   let locals := g.header.eval model args PUnit.unit
   have testBit (b : Bool) : (BitVec.ofBool b).getLsbD 0 = b := by cases b <;> rfl
@@ -102,68 +130,73 @@ private theorem header_eval (old : Word carried) :
       (Diamond.read model g.predicate args locals).down :=
     (congrArg (fun bits : BitVec 1 => bits.getLsbD 0) (ok.resolve g.predicate)).trans
       (testBit (Diamond.read model g.predicate args locals).down)
-  have update : env.get (scope.resolveValue ((g.phiInputs .backedge).get .head)) =
-      (g.latch model .backedge args locals).get .head :=
-    (ok.resolve ((g.phiInputs .backedge).get .head)).trans
-      (g.latch_get model .backedge args locals .head).symm
+  have update : (bankOperands scope (g.phiInputs .backedge)).eval env =
+      bankEnv (g.latch model .backedge args locals) :=
+    bankOperands_eval ok (g.phiInputs .backedge)
   have readback : env.get (scope.resolveValue g.result) = Diamond.read model g.result args locals :=
     ok.resolve g.result
   change Sum.inl (if (env.get (scope.resolveValue g.predicate)).getLsbD 0 then
-      headerFrame (env.get (scope.resolveValue ((g.phiInputs .backedge).get .head)))
+      (⟨.header, (bankOperands scope (g.phiInputs .backedge)).eval env⟩ : Frame (Bank.Label carried result))
     else exitFrame (env.get (scope.resolveValue g.result))) = _
-  rw [guard, update, readback]
-  have route (test : Bool) (next : Tuple (Val Word) (dataPorts [.data carried])) (out : Word result) :
-      (if test then headerFrame (next.get .head) else exitFrame out) =
+  erw [guard, update, readback]
+  have route (test : Bool) (next : Values carried) (out : Word result) :
+      (if test then headerFrame next else exitFrame out) =
         stepFrame (if test then .inr next else .inl out) := by
     cases test <;> rfl
   exact congrArg Sum.inl (route _ _ _)
 
 private theorem run_entry (fuel : Nat) :
-    (lower g).run evalOp (fuel + 1) input =
-      (lower g).runFrom evalOp fuel input (headerFrame ((g.initial model (sourceInputs input)).get .head)) := by
+    (Bank.lower g).run evalOp (fuel + 1) input =
+      (Bank.lower g).runFrom evalOp fuel input (headerFrame (g.initial model (sourceInputs input))) := by
   unfold Cfg.run
   rw [Cfg.runBlock, entry_eval]
   rfl
 
-private theorem run_header (fuel : Nat) (old : Word carried) :
-    (lower g).runFrom evalOp (fuel + 1) input (headerFrame old) =
-      (lower g).runFrom evalOp fuel input (stepFrame (g.step model (sourceInputs input) (latchValue old))) := by
-  change (lower g).runBlock evalOp input (fuel + 1) ((lower g).block .header) (.cons old input) = _
+theorem entry_frame :
+    (Bank.lower g).entry.eval evalOp (fun term env => term.eval env) input =
+      .inl ⟨.header, bankEnv (g.initial model (sourceInputs input))⟩ :=
+  entry_eval g input
+
+theorem header_frame (old : Values carried) :
+    ((Bank.lower g).block .header).eval evalOp (fun term env => term.eval env) ((bankEnv old).append input) =
+      .inl (match g.step model (sourceInputs input) old with
+        | .inl value => ⟨.exit, .cons value .nil⟩
+        | .inr next => ⟨.header, bankEnv next⟩) :=
+  header_eval g input old
+
+private theorem run_header (fuel : Nat) (old : Values carried) :
+    (Bank.lower g).runFrom evalOp (fuel + 1) input (headerFrame old) =
+      (Bank.lower g).runFrom evalOp fuel input (stepFrame (g.step model (sourceInputs input) old)) := by
+  change (Bank.lower g).runBlock evalOp input (fuel + 1) ((Bank.lower g).block .header) ((bankEnv old).append input) = _
   rw [Cfg.runBlock, header_eval]
   rfl
 
-private theorem run_header_budget (budget : Nat) (old : Word carried) :
-    (lower g).runFrom evalOp (budget + 2) input (headerFrame old) =
-      (g.evalFrom model (sourceInputs input) budget (latchValue old)).map resultEnv := by
+private theorem run_header_budget (budget : Nat) (old : Values carried) :
+    (Bank.lower g).runFrom evalOp (budget + 2) input (headerFrame old) =
+      (g.evalFrom model (sourceInputs input) budget old).map resultEnv := by
   induction budget generalizing old with
   | zero =>
-    erw [Graph.evalFrom.eq_1 g model (sourceInputs input) (latchValue old)]
+    erw [Graph.evalFrom.eq_1 g model (sourceInputs input) old]
     rw [show 0 + 2 = 1 + 1 by rfl, run_header]
-    cases g.step model (sourceInputs input) (latchValue old) with
+    cases g.step model (sourceInputs input) old with
     | inl value => rfl
-    | inr next => exact run_header g input 0 (next.get .head)
+    | inr next => exact run_header g input 0 next
   | succ fuel ih =>
-    erw [Graph.evalFrom.eq_2 g model (sourceInputs input) (latchValue old) fuel]
+    erw [Graph.evalFrom.eq_2 g model (sourceInputs input) old fuel]
     rw [show fuel + 1 + 2 = (fuel + 2) + 1 by rfl, run_header]
-    cases g.step model (sourceInputs input) (latchValue old) with
+    cases g.step model (sourceInputs input) old with
     | inl value => rfl
-    | inr next =>
-      cases next with
-      | cons value tail =>
-        cases tail
-        exact ih value
+    | inr next => exact ih next
 
 theorem run_budget (budget : Nat) :
-    (lower g).run evalOp (budget + 3) input =
+    (Bank.lower g).run evalOp (budget + 3) input =
       (g.evalBackedges model budget (sourceInputs input)).map (fun value => Env.cons value .nil) := by
   erw [show budget + 3 = (budget + 2) + 1 by rfl, run_entry, run_header_budget]
-  unfold Graph.evalBackedges
-  cases g.initial model (sourceInputs input) with
-  | cons value tail => cases tail; rfl
+  rfl
 
 theorem returns_iff (value : Word result) :
     g.Returns model (sourceInputs input) value ↔
-      ∃ fuel, (lower g).run evalOp fuel input = some (.cons value .nil) := by
+      ∃ fuel, (Bank.lower g).run evalOp fuel input = some (.cons value .nil) := by
   refine (g.returns_iff_evalBackedges model (sourceInputs input) value).trans ?_
   constructor
   · rintro ⟨budget, run⟩
@@ -182,7 +215,7 @@ theorem returns_iff (value : Word result) :
     exact ⟨budget, observed.trans (congrArg (fun env : Env [result] => some (env.get .here)) same)⟩
 
 theorem denotePart_eq :
-    (Silmaril.MLIR.CF.SwitchAssert.Cfg.embed (lower g)).denotePart evalOp input =
+    (Silmaril.MLIR.CF.SwitchAssert.Cfg.embed (Bank.lower g)).denotePart evalOp input =
       (g.denote model (sourceInputs input)).map (fun value => Outcome.returned (.cons value .nil)) := by
   apply Part.ext
   intro outcome

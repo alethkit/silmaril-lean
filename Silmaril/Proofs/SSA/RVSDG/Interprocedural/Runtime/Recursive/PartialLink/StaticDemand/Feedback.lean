@@ -13,13 +13,13 @@ open Feedback.Proofs (DemandLE selectWires_mono reads_mono close_isLeast include
 universe u v
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))} {loops : Bool}
-variable {member : Option (MemberSummary V S)}
+variable {member : Option (MemberSummaries V S)}
 
-private theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
-    DemandLE (resultDemand pc low) (resultDemand pc high) :=
+theorem resultDemand_mono {pc : Nat} {low high : DemandPlan} (le : low.live ⊆ high.live) :
+    ∀ p, resultDemand pc low p = true → resultDemand pc high p = true :=
   fun _ live => List.contains_iff_mem.2 (le (List.contains_iff_mem.1 live))
 
-private theorem applyReads_mono {context params : Ports (Ty V S)} {low high : List Address}
+theorem applyReads_mono {context params : Ports (Ty V S)} {low high : List Address}
     (le : low ⊆ high) (captures : Wires entry [] context) (arguments : Wires entry past params) :
     applyReads low captures arguments ⊆ applyReads high captures arguments := by
   intro a h
@@ -30,15 +30,15 @@ private theorem applyReads_mono {context params : Ports (Ty V S)} {low high : Li
     (fun present => selectWires_mono arguments
       (fun _ _ h => List.contains_iff_mem.2 (le (List.contains_iff_mem.1 h))) present)
 
-private theorem prepend_mono {pc : Nat} {less more : List Address} {low high : DemandPlan}
+theorem prepend_mono {pc : Nat} {less more : List Address} {low high : DemandPlan}
     (next : low.live ⊆ high.live) (reads : less ⊆ more) :
     (low.prepend pc less).live ⊆ (high.prepend pc more).live := by
   intro a h
   simp only [DemandPlan.prepend, transfer, List.mem_append, List.mem_filter] at h ⊢
   exact h.imp (fun h => reads h) (fun ⟨live, kept⟩ => ⟨next live, kept⟩)
 
-private theorem plan_mono (code : Code Op entry past sigs results loops member) {low high : Demand}
-    (more : DemandLE low high) : (code.plan low).live ⊆ (code.plan high).live := by
+theorem plan_mono (code : Code Op entry past sigs results loops member) {low high : Demand}
+    (more : ∀ p, low p = true → high p = true) : (code.plan low).live ⊆ (code.plan high).live := by
   induction code generalizing low high with
   | ret wires =>
     apply prepend_mono (fun _ h => h) (selectWires_mono wires ?_)
@@ -60,9 +60,9 @@ private theorem plan_mono (code : Code Op entry past sigs results loops member) 
       (reads_mono (.theta (Op := Instruction Op) carried) wires _ (ihRest more)
         (fun _ requested => (body.plan requested).live) (fun _ _ _ more => ihBody more))
 
-  | @memberCall _ _ _ _ summary _ captures arguments _ ih =>
+  | @familyCall _ _ _ _ table i _ captures arguments _ ih =>
     exact prepend_mono (ih more)
-      (applyReads_mono (summary.monotone (resultDemand_mono (ih more))) captures arguments)
+      (applyReads_mono (table.monotone i (resultDemand_mono (ih more))) captures arguments)
 
 theorem feedback_isLeast {carried : Ports (Ty V S)}
     (body : Code Op carried [] sigs (Theta.BodyResults carried) true member) (exit : Demand) :

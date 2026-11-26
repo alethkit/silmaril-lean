@@ -79,6 +79,14 @@ def WhileProgram.localRef (p : WhileProgram P params out) (r : Port p.core.nodes
     Port p.layout t :=
   .tail (.tail (.tail (portLeft r)))
 
+/-- The θ row for a carried slot, after the guard and body emissions. -/
+def WhileProgram.carriedPort (p : WhileProgram P params out) (slot : Port params t) :
+    Port p.layout t :=
+  p.localRef (p.core.code.lift slot)
+
+def WhileProgram.passPort (p : WhileProgram P params out) : Port p.layout .count :=
+  .tail .head
+
 def WhileProgram.paramRef (p : WhileProgram P params out) (r : Port params t) :
     Port p.layout t :=
   .tail (.tail (.tail (portRight p.core.nodes r)))
@@ -116,6 +124,12 @@ def WhileProgram.translate (p : WhileProgram P params out) (neg : P [.bool] .boo
     let r := p.row neg (portAt p.layout i)
     .ofLabel r.label (r.refs.map fun _ q => numberPort q)
   roots := .cons (numberPort Port.head) .nil
+
+def WhileProgram.readPort (p : WhileProgram P params out) (neg : P [.bool] .bool)
+    (m : Interpretation.{u,v,w} P) (values : (p.translate neg).Valuation m)
+    {t : Ty Data} (slot : Port p.layout t) (idx : Index 1) : Option (m.Value t) :=
+  let ref := numberPort slot
+  ref.read m.carrier (values (ref.id, idx))
 
 def WhileProgram.rank (p : WhileProgram P params out) : DemandRank p.layout.length 1 :=
   [.phase (fun i => 3 - i.val), .counter 0, .phase (fun i => p.layout.length - i.val)]

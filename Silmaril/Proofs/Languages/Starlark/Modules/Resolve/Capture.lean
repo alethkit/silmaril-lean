@@ -187,7 +187,7 @@ theorem parent_layout (commands : List Command) (globals : List String)
   rw [moduleBlock_eq declared, collectFunctionLayout_eq _ parameterDecls bodyDecls localDecls]
   simp [LexicalBlock.context]
 
-theorem mixed_definition (parent : BlockContext) (name : String) (parameters locals : List String)
+theorem mixed_definition_linked (parent : BlockContext) (name : String) (parameters locals : List String)
     (body : MixedBody) (localDecls : LocalBinders parameters [body.destination] locals)
     (targetProfile : TargetInProfile .local body.target) (rhsProfile : RhsInProfile body.rhs)
     (returnProfile : OperandInProfile body.returned) (program next : Program)
@@ -199,6 +199,8 @@ theorem mixed_definition (parent : BlockContext) (name : String) (parameters loc
     (resolvedReturn : resolveTracked (childBlock parent parameters locals).context body.returned =
       .ok (returned, returnReads)) :
     ∃ free,
+      LeafCode (childBlock parent parameters locals) body
+        (.seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)) ∧
       BodyReads (childBlock parent parameters locals) body.statement
           ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads) ∧
       Selects (childBlock parent parameters locals) ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads)
@@ -228,7 +230,31 @@ theorem mixed_definition (parent : BlockContext) (name : String) (parameters loc
     ⟨locals, block⟩ _ collected compiled
   have exactCaptures := capture_names selected
   change captureNames (parameters ++ locals) _ = free at exactCaptures
-  exact ⟨free, bodyRelated, selected, by simpa only [exactCaptures] using exactDefinition⟩
+  exact ⟨free, .linked assignment returned returnReads related returnedRelated, bodyRelated, selected, by simpa only [exactCaptures] using exactDefinition⟩
+
+theorem mixed_definition (parent : BlockContext) (name : String) (parameters locals : List String)
+    (body : MixedBody) (localDecls : LocalBinders parameters [body.destination] locals)
+    (targetProfile : TargetInProfile .local body.target) (rhsProfile : RhsInProfile body.rhs)
+    (returnProfile : OperandInProfile body.returned) (program next : Program)
+    (assignment : ResolvedPatternAssignment) (returned : Expr) (returnReads : List Binding)
+    (assigned : (do
+      let layout ← collectFunctionLayout parent.reads (.required parameters) body.statement
+      elaboratePatternAssignment layout.block.reads layout.block.writes body.target body.rhs program) =
+      .ok (assignment, next))
+    (resolvedReturn : resolveTracked (childBlock parent parameters locals).context body.returned =
+      .ok (returned, returnReads)) :
+    ∃ free,
+      BodyReads (childBlock parent parameters locals) body.statement
+          ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads) ∧
+      Selects (childBlock parent parameters locals) ((assignment.rhsReads ++ assignment.targetReads) ++ returnReads)
+        free ∧
+      compileBody parent (.define name (.required parameters) body.statement) program =
+        .ok (⟨.define (fileSlot name) program.size, free.map FreeName.source⟩,
+          program.push ⟨requiredSignature parameters, locals.map fileSlot, free,
+            .seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)⟩) := by
+  obtain ⟨free, _, related, selected, compiled⟩ := mixed_definition_linked parent name parameters locals body localDecls
+    targetProfile rhsProfile returnProfile program next assignment returned returnReads assigned resolvedReturn
+  exact ⟨free, related, selected, compiled⟩
 
 private theorem write_keeps_slots (state : State) (binding : Binding)
     (value : Silmaril.Languages.Starlark.Lists.Value) : (state.write binding value).slots = state.slots := by
@@ -312,7 +338,7 @@ theorem activate_capture (state : State) (declaration : Declaration)
   rw [write_arguments_keep_slots, allocateSlots _ _ disjoint]
   simp [capturedSlots, found]
 
-private theorem selected_outside_owned {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
+theorem selected_outside_owned {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
     (selected : Selects block reads free) (entry : FreeName) (present : entry ∈ free)
     (name : String) (owned : name ∈ block.owned) : entry.target ≠ fileSlot name := by
   induction selected with

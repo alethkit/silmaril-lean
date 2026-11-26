@@ -40,7 +40,7 @@ theorem phi_point?_eq_some_iff (source : BlockId Label) (slot : EdgeSlot) (argum
 theorem checkPlacement_sound {operands : List (Point Label)} {uses : List (Use Label)}
     {candidate : Point Label} (checked : checkPlacement tree operands uses candidate = true) :
     Legal cfg operands uses candidate := by
-  simp only [checkPlacement, Bool.and_eq_true, List.all_eq_true] at checked
+  simp only [checkPlacement, checkPlacementWith, Bool.and_eq_true, List.all_eq_true] at checked
   have candidateValid := valid_of_check tree checked.1.1
   refine ⟨candidateValid, ?_, ?_⟩
   · intro operand member

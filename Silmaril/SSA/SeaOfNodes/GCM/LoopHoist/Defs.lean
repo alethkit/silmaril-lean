@@ -248,18 +248,27 @@ def findBinding : (index cut : Nat) → {Γ : List Width} → Origins Input Γ �
     (findBinding index (cut + 1) (afterBinding origins (cut + 1)) rest).map
       fun ⟨saved, binding⟩ => ⟨saved, binding.prepend op operands⟩
 
-/-- Hoist the nominated binding when its exact use sites and operand origins
-lead the loop ranker to preheader cut zero and the operands are captured inputs. -/
-def pickBindingAndHoist? (g : Program Input carried result entrySigs headerSigs)
-    (tree : DominatorTree (lower g)) (index : Nat) :
+/-- Apply the existing emitter to the chooser's exact cut for the nominated
+binding. The caller supplies the placement check through `choose`. The
+emitter accepts preheader cut zero and captured operands. -/
+def hoistBindingWith? (g : Program Input carried result entrySigs headerSigs) (index : Nat)
+    (choose : List (Point (SourceLabel carried result)) → List (Use (SourceLabel carried result)) →
+      Option (Point (SourceLabel carried result))) :
     Option (Point (SourceLabel carried result) × Output Input carried result) := do
   let ⟨saved, binding⟩ ← findBinding index 0 headerOrigins ((lower g).block .header)
-  let cut ← LoopForest.choosePlacement tree blocks binding.operands binding.uses
+  let cut ← choose binding.operands binding.uses
   if cut.block.isNone && cut.cut == 0 then
     let captured ← binding.captured?
     let header := binding.rewrite Var.there .here
     pure (cut, ⟨saved, emitHeader (lower g).entry binding.op captured header⟩)
   else none
+
+/-- Hoist the nominated binding when its exact use sites and operand origins
+lead the loop ranker to preheader cut zero and the operands are captured inputs. -/
+def pickBindingAndHoist? (g : Program Input carried result entrySigs headerSigs)
+    (tree : DominatorTree (lower g)) (index : Nat) :
+    Option (Point (SourceLabel carried result) × Output Input carried result) :=
+  hoistBindingWith? g index (LoopForest.choosePlacement tree blocks)
 
 /-- At the consumer, the prerequisite is an input to the preheader's
 second binding. Other local origins retain their original definition cuts. -/
@@ -291,36 +300,74 @@ def Slice.prepend (op : TargetOp args w) (operands : Operands Γ args)
       .letOp op (For.renameOperands rename operands)
         (slice.rewrite (under rename) (.there keepConsumer) (.there keepPrerequisite)) }
 
-/-- Search for two adjacent bindings at the given prerequisite index.
-The consumer must read the prerequisite, and both capture checks must
-succeed in dependency order. -/
-def findSlice : (index cut : Nat) → {Γ : List Width} → Origins Input Γ →
+/-- The consumer with its captured inputs and a rewrite through the retained
+bindings between it and the prerequisite. -/
+structure SliceConsumer (Input Γ : List Width) (prerequisite consumer carried result : Width) where
+  args : List Width
+  op : TargetOp args consumer
+  inputs : Operands (prerequisite :: Input) args
+  sites : List (Point (SourceLabel carried result))
+  uses : List (Use (SourceLabel carried result))
+  rewrite : ∀ {Δ : List Width}, Rename Γ Δ → Var Δ consumer → Var Δ prerequisite →
+    Block TargetOp (Label prerequisite carried result [consumer]) Δ [result]
+
+def SliceConsumer.prepend (op : TargetOp args w) (operands : Operands Γ args)
+    (binding : SliceConsumer Input (w :: Γ) prerequisite consumer carried result) :
+    SliceConsumer Input Γ prerequisite consumer carried result :=
+  { binding with
+    rewrite := fun rename keepConsumer keepPrerequisite =>
+      .letOp op (For.renameOperands rename operands)
+        (binding.rewrite (under rename) (.there keepConsumer) (.there keepPrerequisite)) }
+
+/-- Follow the selected prerequisite through the retained bindings. Their
+results are local origins and never become available to the preheader. -/
+def findSliceConsumer : (gap cut : Nat) → {Γ : List Width} → Var Γ prerequisite →
+    Origins (prerequisite :: Input) Γ → Block TargetOp (SourceLabel carried result) Γ [result] →
+    Option ((consumer : Width) × SliceConsumer Input Γ prerequisite consumer carried result)
+  | _, _, _, _, _, .terminator _ => none
+  | 0, cut, _, prerequisiteRef, origins, .letOp (w := consumer) op operands rest => do
+    if (positions prerequisiteRef.index operands 0).isEmpty then none else
+      let inputs ← captureOrigins? origins operands
+      pure ⟨consumer, ⟨_, op, inputs, originSites origins operands, useSites 0 (cut + 1) rest,
+        fun rename keepConsumer keepPrerequisite =>
+          routeCodeWith (replaceBinding rename keepConsumer)
+            (.cons keepConsumer (.cons keepPrerequisite .nil)) rest⟩⟩
+  | gap + 1, cut, _, prerequisiteRef, origins, .letOp op operands rest =>
+    (findSliceConsumer gap (cut + 1) (.there prerequisiteRef) (afterBinding origins (cut + 1)) rest).map
+      (fun ⟨consumer, binding⟩ => ⟨consumer, binding.prepend op operands⟩)
+
+/-- Locate the prerequisite by its zero-based index and the consumer by the
+number of bindings kept between them. Scan all uses of the prerequisite,
+including retained instructions and both successor occurrences. -/
+def findSliceAcross : (index gap cut : Nat) → {Γ : List Width} → Origins Input Γ →
     Block TargetOp (SourceLabel carried result) Γ [result] →
     Option ((prerequisite : Width) × (consumer : Width) × Slice Input Γ prerequisite consumer carried result)
-  | _, _, _, _, .terminator _ => none
-  | 0, cut, _, origins, .letOp (w := prerequisite) first firstArgs
-      (.letOp (w := consumer) second secondArgs rest) => do
-    if (positions 0 secondArgs 0).isEmpty then none else
-      let firstInputs ← captureOrigins? origins firstArgs
-      let secondInputs ← captureOrigins? (afterPrerequisite origins) secondArgs
-      pure ⟨prerequisite, consumer, {
-        prerequisiteArgs := _
-        prerequisiteOp := first
-        prerequisiteInputs := firstInputs
-        prerequisiteSites := originSites origins firstArgs
-        prerequisiteUses := .ordinary ⟨headerId, cut + 1⟩ :: useSites 1 (cut + 2) rest
-        consumerArgs := _
-        consumerOp := second
-        consumerInputs := secondInputs
-        consumerSites := originSites (afterPrerequisite origins) secondArgs
-        consumerUses := useSites 0 (cut + 2) rest
-        rewrite := fun rename keepConsumer keepPrerequisite =>
-          routeCodeWith (replaceBinding (replaceBinding rename keepPrerequisite) keepConsumer)
-            (.cons keepConsumer (.cons keepPrerequisite .nil)) rest }⟩
-  | 0, _, _, _, .letOp _ _ (.terminator _) => none
-  | index + 1, cut, _, origins, .letOp op operands rest =>
-    (findSlice index (cut + 1) (afterBinding origins (cut + 1)) rest).map
+  | _, _, _, _, _, .terminator _ => none
+  | 0, gap, cut, _, origins, .letOp (w := prerequisite) op operands rest => do
+    let inputs ← captureOrigins? origins operands
+    let ⟨consumer, binding⟩ ← findSliceConsumer gap (cut + 1) .here (afterPrerequisite origins) rest
+    pure ⟨prerequisite, consumer, {
+      prerequisiteArgs := _
+      prerequisiteOp := op
+      prerequisiteInputs := inputs
+      prerequisiteSites := originSites origins operands
+      prerequisiteUses := useSites 0 (cut + 1) rest
+      consumerArgs := binding.args
+      consumerOp := binding.op
+      consumerInputs := binding.inputs
+      consumerSites := binding.sites
+      consumerUses := binding.uses
+      rewrite := fun rename keepConsumer keepPrerequisite =>
+        binding.rewrite (replaceBinding rename keepPrerequisite) keepConsumer keepPrerequisite }⟩
+  | index + 1, gap, cut, _, origins, .letOp op operands rest =>
+    (findSliceAcross index gap (cut + 1) (afterBinding origins (cut + 1)) rest).map
       (fun ⟨first, second, slice⟩ => ⟨first, second, slice.prepend op operands⟩)
+
+/-- The adjacent pair is the case with no retained bindings in the gap. -/
+def findSlice (index cut : Nat) (origins : Origins Input Γ)
+    (code : Block TargetOp (SourceLabel carried result) Γ [result]) :
+    Option ((prerequisite : Width) × (consumer : Width) × Slice Input Γ prerequisite consumer carried result) :=
+  findSliceAcross index 0 cut origins code
 
 structure SliceOutput (Input : List Width) (carried result : Width) where
   prerequisite : Width
@@ -339,20 +386,24 @@ def emitSlice (entry : Block TargetOp (SourceLabel carried result) Input [result
       | .header => slice.rewrite (fun ref => .there (.there ref)) .here (.there .here)
       | .exit => .terminator (.ret (.cons .here .nil)) }⟩
 
-/-- Rank both definitions at the shared preheader cut. The internal use
-is satisfied by emitting the prerequisite before the consumer there. -/
+/-- Rank both definitions at preheader cut zero. Entry evaluates them in
+dependency order. The gap counts retained bindings between the pair. -/
+def pickSliceAcrossAndHoist? (g : Program Input carried result entrySigs headerSigs)
+    (tree : DominatorTree (lower g)) (prerequisiteIndex gap : Nat) :
+    Option (SliceOutput Input carried result) := do
+  let ⟨_, _, slice⟩ ← findSliceAcross prerequisiteIndex gap 0 headerOrigins ((lower g).block .header)
+  let first ← LoopForest.choosePlacement tree blocks slice.prerequisiteSites slice.prerequisiteUses
+  let second ← LoopForest.choosePlacement tree blocks slice.consumerSites slice.consumerUses
+  if first.block.isNone && first.cut == 0 && second.block.isNone && second.cut == 0 then
+    some (emitSlice (lower g).entry slice)
+  else none
+
 def pickSliceAndHoist? (g : Program Input carried result entrySigs headerSigs)
     (tree : DominatorTree (lower g)) (consumerIndex : Nat) :
     Option (SliceOutput Input carried result) :=
   match consumerIndex with
   | 0 => none
-  | prerequisiteIndex + 1 => do
-    let ⟨_, _, slice⟩ ← findSlice prerequisiteIndex 0 headerOrigins ((lower g).block .header)
-    let first ← LoopForest.choosePlacement tree blocks slice.prerequisiteSites slice.prerequisiteUses
-    let second ← LoopForest.choosePlacement tree blocks slice.consumerSites slice.consumerUses
-    if first.block.isNone && first.cut == 0 && second.block.isNone && second.cut == 0 then
-      some (emitSlice (lower g).entry slice)
-    else none
+  | prerequisiteIndex + 1 => pickSliceAcrossAndHoist? g tree prerequisiteIndex 0
 
 def Slice.savedValues (slice : Slice Input Γ prerequisite consumer carried result)
     (input : Env Input) : Env [consumer, prerequisite] :=

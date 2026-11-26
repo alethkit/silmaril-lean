@@ -17,35 +17,35 @@ open SeaOfNodes.Loop (Graph headerPorts)
 universe u v w
 
 variable {Data : Type u} {Op : Diamond.Signature.{u, v} Data}
-variable {regs : List (ValueSort Data)} {out : ValueSort Data}
+variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 
-inductive Destination (regs : List (ValueSort Data)) (out : ValueSort Data) where
-  | jump (block : Fin 3)
+inductive Destination (regs : List (ValueSort Data)) (out : ValueSort Data) (size : Nat := 3) where
+  | jump (block : Fin size)
   | ret (result : Port (dataPorts regs) (.value out))
 
-inductive Terminator (regs : List (ValueSort Data)) (out : ValueSort Data) where
-  | transfer (destination : Destination regs out)
+inductive Terminator (regs : List (ValueSort Data)) (out : ValueSort Data) (size : Nat := 3) where
+  | transfer (destination : Destination regs out size)
   | branch (test : Port (dataPorts regs) (.value .predicate))
-      (onTrue onFalse : Destination regs out)
+      (onTrue onFalse : Destination regs out size)
 
 def Terminator.select (m : Model.{u, v, w} Op) (bank : Bank (regs := regs) m) :
-    Terminator regs out → Destination regs out
+    Terminator regs out size → Destination regs out size
   | .transfer dest => dest
   | .branch test onTrue onFalse => if (bank.get test).down then onTrue else onFalse
 
 structure SourceBlock (Op : Diamond.Signature.{u, v} Data) (regs : List (ValueSort Data))
-    (out : ValueSort Data) where
+    (out : ValueSort Data) (size : Nat := 3) where
   body : Block Op regs
-  terminator : Terminator regs out
+  terminator : Terminator regs out size
 
 /-- A source table can express edges outside the admitted single-loop shape. -/
 abbrev Source (Op : Diamond.Signature.{u, v} Data) (regs : List (ValueSort Data))
-    (out : ValueSort Data) := Fin 3 → SourceBlock Op regs out
+    (out : ValueSort Data) (size : Nat := 3) := Fin size → SourceBlock Op regs out size
 
 /-- Execute one source block per fuel unit, including entry and the returning
 latch. The branch reads the register bank after the block's assignments. -/
-def Source.runFrom (src : Source Op regs out) (m : Model.{u, v, w} Op) :
-    Nat → Fin 3 → Bank (regs := regs) m → Option (sortValue m.value out)
+def Source.runFrom (src : Source Op regs out size) (m : Model.{u, v, w} Op) :
+    Nat → Fin size → Bank (regs := regs) m → Option (sortValue m.value out)
   | 0, _, _ => none
   | fuel + 1, index, bank =>
     let block := src index

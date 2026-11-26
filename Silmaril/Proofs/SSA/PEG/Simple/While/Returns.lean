@@ -26,19 +26,14 @@ private theorem setClock (i : Index 1) (k : Nat) : i.set 0 k = clock k := by
   subst j
   rfl
 
-private def thetaRef {t : Ty Data} (slot : Port params t) : Port p.layout t :=
-  p.localRef (p.core.code.lift slot)
-
 private def guardRef : Port p.layout .bool := p.localRef (p.core.refs.get .head)
 
 private def exitRef : Port p.layout .bool := .tail (.tail .head)
 
-private def passRef : Port p.layout .count := .tail .head
-
 variable (read : ∀ {t}, Port p.layout t → Index 1 → Option (m.Value t))
 
 private def Carries (k : Nat) (store : Tuple m.Value params) : Prop :=
-  ∀ t (slot : Port params t), read (thetaRef p slot) (clock k) = some (store.get slot)
+  ∀ t (slot : Port params t), read (p.carriedPort slot) (clock k) = some (store.get slot)
 
 variable (eqs : ∀ (i : Index 1) t (r : Port p.layout t),
   read r i = rowValue m env (p.row neg r) read i)
@@ -46,9 +41,9 @@ variable (eqs : ∀ (i : Index 1) t (r : Port p.layout t),
 include eqs
 
 private theorem thetaEq {t : Ty Data} (slot : Port params t) (k : Nat) :
-    read (thetaRef p slot) (clock k) = rowValue m env (p.thetaRow slot) read (clock k) := by
+    read (p.carriedPort slot) (clock k) = rowValue m env (p.thetaRow slot) read (clock k) := by
   rw [eqs]
-  unfold thetaRef
+  unfold WhileProgram.carriedPort
   rw [localRow, liftedRow]
 
 private theorem atEntry : Carries p m read 0 env := by
@@ -59,7 +54,7 @@ private theorem atEntry : Carries p m read 0 env := by
   rfl
 
 private theorem thetaNext {t : Ty Data} (slot : Port params t) (k : Nat) :
-    read (thetaRef p slot) (clock (k + 1)) =
+    read (p.carriedPort slot) (clock (k + 1)) =
       read (p.localRef (p.core.refs.get (.tail slot))) (clock k) := by
   refine (thetaEq p neg m env read eqs slot (k + 1)).trans ?_
   change read (p.localRef (p.core.refs.get (.tail slot))) ((clock (k + 1)).set 0 k) = _
@@ -98,7 +93,7 @@ private theorem bodyAt {k : Nat} {store next : Tuple m.Value params}
     (entry : Carries p m read k store) (run : Exec m p.body.enableWhile store (some next)) :
     Carries p m read (k + 1) next := by
   intro t slot
-  change read (thetaRef p slot) (clock (k + 1)) = _
+  change read (p.carriedPort slot) (clock (k + 1)) = _
   rw [thetaNext p neg m env read eqs, evalCore p neg m env read eqs entry]
   let c := p.guard.lower (params := params) (ports params)
   let a := p.body.lower (params := params) (c.code.liftRefs (ports params))
@@ -132,7 +127,7 @@ private structure Reaches (i k : Nat) (final : Tuple m.Value params) : Prop wher
   exit : read (exitRef p) (clock (i + k)) = some ⟨true⟩
   earlier : ∀ j < k, read (exitRef p) (clock (i + j)) = some ⟨false⟩
   defined : ∀ j < k, ∀ t (slot : Port params t),
-    (read (thetaRef p slot) (clock (i + j))).isSome
+    (read (p.carriedPort slot) (clock (i + j))).isSome
 
 private theorem traceCorrect
     (notSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
@@ -165,16 +160,45 @@ private theorem traceCorrect
       cases j with
       | zero =>
         have sample := entry t slot
-        change read (thetaRef p slot) (clock i) = _ at sample
+        change read (p.carriedPort slot) (clock i) = _ at sample
         rw [Nat.add_zero, sample]
         rfl
       | succ j =>
         rw [offset]
         exact reached.defined j (by omega) t slot
 
+omit eqs in
+private theorem firstTrue_samples {flags : Nat → Option Bool} {k : Nat}
+    (first : firstTrue flags = some k) :
+    flags k = some true ∧ ∀ j < k, flags j = some false := by
+  obtain ⟨hit, before⟩ := (firstTrue_eq_some_iff _ _).mp first
+  obtain ⟨here, definedBefore⟩ := (monotonize_eq_some_iff _ _ _).mp hit
+  refine ⟨here, fun j lt => ?_⟩
+  have earlier := definedBefore j lt
+  cases h : flags j with
+  | none => simp [h] at earlier
+  | some b =>
+    cases b
+    · rfl
+    · exact (before j lt ((monotonize_eq_some_iff _ _ _).mpr
+        ⟨h, fun t ht => definedBefore t (Nat.lt_trans ht lt)⟩)).elim
+
+omit eqs in
+theorem firstTrue_eq_some_iff_samples (flags : Nat → Option Bool) (k : Nat) :
+    firstTrue flags = some k ↔ flags k = some true ∧ ∀ j < k, flags j = some false := by
+  refine ⟨firstTrue_samples, fun ⟨stop, again⟩ => (firstTrue_eq_some_iff _ _).mpr ?_⟩
+  refine ⟨(monotonize_eq_some_iff _ _ _).mpr ⟨stop, ?_⟩, ?_⟩
+  · intro j hj
+    rw [again j hj]
+    rfl
+  · intro j hj hit
+    have atJ := ((monotonize_eq_some_iff _ _ _).mp hit).1
+    rw [again j hj] at atJ
+    cases atJ
+
 private theorem passAt {k : Nat} {final : Tuple m.Value params}
     (reached : Reaches p m read 0 k final) (i : Index 1) :
-    read (passRef p) i = some ⟨k⟩ := by
+    read p.passPort i = some ⟨k⟩ := by
   rw [eqs]
   change (firstTrue (fun j => (read (exitRef p) (i.set 0 j)).map ULift.down)).map ULift.up = _
   have stream (j : Nat) : (read (exitRef p) (i.set 0 j)).map ULift.down =
@@ -195,16 +219,7 @@ private theorem passAt {k : Nat} {final : Tuple m.Value params}
     unfold flags
     rw [sample]
     rfl
-  have first : firstTrue flags = some k := by
-    apply (firstTrue_eq_some_iff _ _).mpr
-    refine ⟨(monotonize_eq_some_iff _ _ _).mpr ⟨atExit, ?_⟩, ?_⟩
-    · intro j lt
-      rw [before j lt]
-      rfl
-    · intro j lt hit
-      have pick := ((monotonize_eq_some_iff _ _ _).mp hit).1
-      rw [before j lt] at pick
-      contradiction
+  have first := (firstTrue_eq_some_iff_samples flags k).mpr ⟨atExit, before⟩
   change (firstTrue flags).map ULift.up = _
   rw [first]
   rfl
@@ -213,10 +228,10 @@ private theorem evalAt {k : Nat} {final : Tuple m.Value params}
     (reached : Reaches p m read 0 k final) (i : Index 1) :
     read (Port.head : Port p.layout out) i = some (final.get p.retvar) := by
   rw [eqs]
-  change (read (passRef p) i).elim none (fun count =>
-    monotonize (fun j => read (thetaRef p p.retvar) (i.set 0 j)) count.down) = _
+  change (read p.passPort i).elim none (fun count =>
+    monotonize (fun j => read (p.carriedPort p.retvar) (i.set 0 j)) count.down) = _
   rw [passAt p neg m env read eqs reached i]
-  change monotonize (fun j => read (thetaRef p p.retvar) (i.set 0 j)) k = _
+  change monotonize (fun j => read (p.carriedPort p.retvar) (i.set 0 j)) k = _
   apply (monotonize_eq_some_iff _ _ _).mpr
   constructor
   · rw [setClock]
@@ -234,7 +249,7 @@ theorem returns
     (p.translate neg).observe m values i = .cons (some value) .nil := by
   obtain ⟨final, exec, returnValue⟩ := run
   obtain ⟨k, trace⟩ := whileTrace exec
-  let read := fun {t} (slot : Port p.layout t) => readPort m p neg values slot
+  let read := fun {t} (slot : Port p.layout t) => p.readPort neg m values slot
   have eqs := fun i t slot => equationAt m env p neg solves i t slot
   have reached := traceCorrect p neg m env read eqs notSem trace 0 (atEntry p neg m env read eqs)
   have output := evalAt p neg m env read eqs reached i
@@ -242,5 +257,85 @@ theorem returns
   rw [output]
   change final.get p.retvar = value at returnValue
   rw [returnValue]
+
+private theorem guardFromExit (total : p.Total m)
+    (notSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    {k : Nat} {store : Tuple m.Value params} (entry : Carries p m read k store) {b : Bool}
+    (sample : (read (exitRef p) (clock k)).map ULift.down = some (!b)) :
+    p.guard.eval m store = some ⟨b⟩ := by
+  obtain ⟨actual, test⟩ := total.guard store
+  rw [exitAt p neg m env read eqs notSem entry test] at sample
+  cases actual <;> cases b <;> simp_all
+
+private theorem traceFromPass (total : p.Total m)
+    (notSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (i k : Nat) {store : Tuple m.Value params} (entry : Carries p m read i store)
+    (stop : (read (exitRef p) (clock (i + k))).map ULift.down = some true)
+    (again : ∀ j < k, (read (exitRef p) (clock (i + j))).map ULift.down = some false) :
+    ∃ final, WhileTrace m p.guard p.body.enableWhile k store final ∧
+      Carries p m read (i + k) final := by
+  induction k generalizing i store with
+  | zero =>
+    have test := guardFromExit p neg m env read eqs total notSem entry (b := false)
+      (by simpa using stop)
+    exact ⟨store, .stop test, by simpa only [Nat.add_zero] using entry⟩
+  | succ k ih =>
+    have test := guardFromExit p neg m env read eqs total notSem entry (b := true)
+      (by simpa using again 0 (Nat.zero_lt_succ _))
+    obtain ⟨next, ran⟩ := total.body store
+    have nextEntry := bodyAt p neg m env read eqs entry ran
+    have offset (j : Nat) : i + 1 + j = i + (j + 1) := by omega
+    obtain ⟨final, trace, carries⟩ := ih (i + 1) nextEntry
+      (by rw [offset]; exact stop)
+      (fun j hj => by rw [offset]; exact again (j + 1) (by omega))
+    exact ⟨final, .step test ran trace, by rw [← offset]; exact carries⟩
+
+omit eqs in
+theorem exitWitness (total : p.Total m)
+    (notSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    {values : (p.translate neg).Valuation m} (solves : (p.translate neg).Solves m env values)
+    (i : Index 1) {value : m.Value out}
+    (defined : (p.translate neg).observe m values i = .cons (some value) .nil) :
+    ∃ k final, p.ExitWitness neg m env values i k final value := by
+  let read := fun {t} (slot : Port p.layout t) => p.readPort neg m values slot
+  have eqs (i : Index 1) (t : Ty Data) (slot : Port p.layout t) :
+      read slot i = rowValue m env (p.row neg slot) read i :=
+    equationAt m env p neg solves i t slot
+  have root : read (Port.head : Port p.layout out) i = some value :=
+    congrArg (fun xs : Tuple (fun t => Option (m.Value t)) [out] => xs.get .head) defined
+  rw [eqs i out (Port.head : Port p.layout out)] at root
+  change (read p.passPort i).elim none (fun count =>
+    monotonize (fun j => read (p.carriedPort p.retvar) (i.set 0 j)) count.down) = _ at root
+  cases pass : read p.passPort i with
+  | none => rw [pass] at root; cases root
+  | some count =>
+    rcases count with ⟨k⟩
+    rw [pass] at root
+    have evalSample : monotonize (fun j => read (p.carriedPort p.retvar) (clock j)) k =
+        some value := by
+      change monotonize (fun j => read (p.carriedPort p.retvar) (i.set 0 j)) k = some value at root
+      simpa only [setClock] using root
+    obtain ⟨sample, definedBefore⟩ := (monotonize_eq_some_iff _ _ _).mp evalSample
+    let flags := fun j => (read (exitRef p) (clock j)).map ULift.down
+    have passEq := eqs i .count p.passPort
+    change read p.passPort i =
+      (firstTrue (fun j => (read (exitRef p) (i.set 0 j)).map ULift.down)).map ULift.up at passEq
+    simp only [setClock] at passEq
+    change read p.passPort i = (firstTrue flags).map ULift.up at passEq
+    rw [pass] at passEq
+    have first : firstTrue flags = some k := by
+      cases h : firstTrue flags with
+      | none => rw [h] at passEq; cases passEq
+      | some j =>
+        rw [h] at passEq
+        exact congrArg some (congrArg ULift.down (Option.some.inj passEq)).symm
+    obtain ⟨stop, again⟩ := (firstTrue_eq_some_iff_samples flags k).mp first
+    obtain ⟨final, trace, carries⟩ := traceFromPass p neg m env read eqs total notSem 0 k
+      (atEntry p neg m env read eqs)
+      (by simpa only [Nat.zero_add] using stop)
+      (fun j hj => by simpa only [Nat.zero_add] using again j hj)
+    have last : read (p.carriedPort p.retvar) (clock k) = some (final.get p.retvar) := by
+      simpa only [Nat.zero_add] using carries _ p.retvar
+    exact ⟨k, final, trace, Option.some.inj (last.symm.trans sample), pass, sample, definedBefore⟩
 
 end Silmaril.SSA.PEG.Simple.WhileProofs

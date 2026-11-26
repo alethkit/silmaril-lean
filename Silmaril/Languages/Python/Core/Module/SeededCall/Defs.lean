@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Closure.Defs
+public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 
 /-! # Closed callables for explicitly seeded module entry -/
 
@@ -57,6 +58,9 @@ inductive Builtin where
   | bool
   | callable
   | len
+  | ord
+  | list
+  | tuple
   | isinstance
   deriving DecidableEq, Repr
 
@@ -64,6 +68,8 @@ inductive Value where
   | int (value : Int)
   | bool (value : Bool)
   | none
+  | listObject (object : Core.Module.ListObject)
+  | returnedTuple (items : List Core.Module.Value)
   | exceptionClass (kind : ExceptionClass)
   | helper (descriptor : Helper)
   | builtin (descriptor : Builtin)
@@ -186,7 +192,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
-  | .none, _ | .int _, _ | .bool _, _ => .nonCallable
+  | .none, _ | .int _, _ | .bool _, _ | .listObject _, _ | .returnedTuple _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the

@@ -57,3 +57,26 @@ private meta def observed (fuel : Nat) : Option Nat := do
 make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Blocks.Prune.LambdaSSA.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Blocks.Prune.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Blocks.LambdaSSA.Regression'
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks.Prune.LambdaSSA.Thms
 ```
+
+## Partial observations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Blocks.Prune.LambdaSSA.Partial.Thms
+```
+
+`Partial.observe` reads finite evaluations of the emitted region
+through `Region.Eval`. It retains the exit label, payload, and final
+ambient state. For a successful emission, `Partial.observe_eq`
+identifies this partial value with the original full-bank loop's
+partial result, encoded at exit zero with the initial state unchanged.
+`Partial.mem_observe_iff_run` ties membership to a successful execution
+of the same region at some fuel when primitive sort tags have decidable
+equality. `Partial.observe_eq_none_iff` equates undefinedness with
+exhaustion at every source backedge budget.
+[Public theorems](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Blocks/Prune/LambdaSSA/Partial/Thms.lean)
+
+The partial-observation regression executes the two-backedge fixture to
+obtain 29 and checks the ambient state. The same emitted code under a
+pure interpretation with an always-true feedback test has no finite
+return.
+[Partial-observation regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Blocks/Prune/LambdaSSA/Partial/Regression.lean)
