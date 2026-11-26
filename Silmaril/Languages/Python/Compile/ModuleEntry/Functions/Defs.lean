@@ -146,12 +146,16 @@ def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
 
 inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
+  | intTrueDiv (numerator divisor : Int)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
 
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
+  | intTrueDiv {left right numerator divisor}
+      (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
+      CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
       CallValueTranslation scope (.tuple elements) (.tuple items)
   | text {points value} (checked : Core.Text.ofPoints? points = some value) :
@@ -161,6 +165,10 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     Except Error {value // CallValueTranslation scope source value}
   | .tuple elements =>
     (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | .binary .trueDiv left right =>
+    match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
+    | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩
+    | _, _ => .error (.scalar .expressionProfile)
   | .text points =>
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩

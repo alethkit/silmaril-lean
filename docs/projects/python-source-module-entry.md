@@ -108,14 +108,24 @@ starts at the midpoint between maximum finite and the virtual value
 `2^1024`. The rule matches the arithmetic contract of CPython 3.13.5
 [`long_true_divide`](https://github.com/python/cpython/blob/v3.13.5/Objects/longobject.c#L4493-L4588).
 
-The module call path still needs a float value tag and a checked error
-delivery rule for reached division. The closure integer-equality operation
-also needs a checked float case before it can receive those values. Line 28
-of `test_int_float_primitives.py` supplies the differential's `5 / 2` witness.
-Its first assertion still stops at the positional addition operand, and the
-isolated division assertion still stops at source expression checking.
+The module call path checks closed integer operands in a positional
+division argument and evaluates the quotient after resolving the live callee.
+Each runner carries a finite binary64 value, preserving the exact bits in
+returned bindings and seeded receipts. The seeded path enters a same-run
+published function with a single finite float through the ordinary binder.
+Reached arithmetic errors leave the earlier bindings, heaps and receipts
+intact. An argument that raises before call entry produces no outer receipt.
+Integer-only closure equality and arithmetic report a profile fault if
+reached with a finite float.
+
+Line 28 of `test_int_float_primitives.py` supplies the differential's `5 / 2`
+witness. The original isolated assertion also requires float literal
+lowering and numeric equality in the assertion helper. The first assertion
+in the full file still stops at the positional addition operand.
+Run the transport differential with
+`python3.13 -I scripts/check-python-division-call-transport.py --upstream /path/to/pinned/rigorous`.
 Negative exponent power uses CPython's separate floating power path, which
-includes platform libm behavior. Run the pinned differential with
+includes platform libm behavior. Run the quotient differential with
 `python3.13 -I scripts/check-python-integer-true-division.py --upstream /path/to/pinned/rigorous`.
 
 The function-aware checker can omit an `if` whose closed guard selects an

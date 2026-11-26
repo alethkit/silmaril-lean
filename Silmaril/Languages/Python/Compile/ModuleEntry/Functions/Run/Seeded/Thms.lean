@@ -22,6 +22,17 @@ open Core.Closure (Function Heap)
 open Core.Module (ListHeap ListObject)
 open Core.Closure.Executor (Fault labelledIn)
 
+theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (numerator divisor : Int) :
+    (lowerCallOperand (.intTrueDiv numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intTrueDiv numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intTrueDiv_operand_agrees
+    space globals heap frame numerator divisor
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls :=
@@ -654,8 +665,12 @@ theorem observeNestedCallIn_settledArguments {space : Namespace} {context : Call
     (evaluated : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
       (.ok values, calls, heap)) :
     observeNestedCallIn space context destination name arguments =
-      let outer := acceptObservation destination name (Core.Module.SeededCall.invokeObserved callee values)
-      ({ outer with calls := calls ++ outer.calls }, heap) := by
+      match invokeNestedTarget space { context with heap } callee values with
+      | (.ok result, residual) =>
+        let outer := acceptObservation destination name result
+        ({ outer with calls := calls ++ outer.calls }, residual)
+      | (.error error, residual) => (⟨.error error, calls⟩, residual) := by
   simp [observeNestedCallIn, found, evaluated]
+  rfl
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

@@ -13,6 +13,18 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Core.Closure (Function)
 
+theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (numerator divisor : Int) :
+    (lowerCallOperand (.intTrueDiv numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intTrueDiv numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases Core.Closure.trueDivideInt numerator divisor <;> rfl
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls := by
@@ -155,7 +167,7 @@ theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {conte
     simp [CallContext.acceptsTupleResult, CallContext.acceptsPublishedCall, CallContext.acceptsCallFrom, unpublished]
   cases operands : factoryOperands values <;>
     simp [runInstructionsIn, effectWithLists, effect, resolved, invokeFlatCall, operands, denied, deniedTuple,
-      acceptObservation, ModuleFailure.ofCall, Except.bind, Except.mapError]
+      invokePublishedFloat, unpublished, acceptObservation, ModuleFailure.ofCall, Except.bind, Except.mapError]
 
 theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}

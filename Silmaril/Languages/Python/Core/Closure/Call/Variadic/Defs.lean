@@ -31,7 +31,7 @@ this positional operand profile. -/
 def expandPositional : Value → Except PositionalInputFailure (List Value)
   | .tuple items => .ok (items.map Value.ofScalar)
   | .tupleObject object => .ok (object.contents.map Value.ofScalar)
-  | .none | .int _ | .bool _ | .function _ => .error .notIterable
+  | .none | .int _ | .bool _ | .float64 _ | .function _ => .error .notIterable
   | .text _ => .error .unsupportedIterable
 
 def PositionalOperand.evaluate {Operand State : Type} (read : ReadOperand Operand State)

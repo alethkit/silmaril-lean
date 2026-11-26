@@ -43,11 +43,13 @@ def Session.publish (session : Session) (table : CodeTable) (name : GlobalName)
 inductive Operand where
   | literal (value : Closure.Value)
   | readGlobal (name : GlobalName)
+  | intTrueDiv (numerator divisor : Int)
   | tuple (items : List GlobalTupleItem)
 
 def Operand.lower {layout : Layout} : Operand → Executor.Operand layout
   | .literal value => .literal value
   | .readGlobal name => .readGlobal name
+  | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
   | .tuple items => .tuple (items.map GlobalTupleItem.lower)
 
 inductive Destination where

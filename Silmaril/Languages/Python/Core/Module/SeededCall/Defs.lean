@@ -19,6 +19,7 @@ inductive ExceptionClass where
   | unboundLocalError
   | typeError
   | zeroDivisionError
+  | overflowError
   deriving DecidableEq, Repr
 
 inductive AssertionArgument where
@@ -42,6 +43,7 @@ def Raised.classify : Raised → ExceptionClass
   | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
   | .runtime .multiplicationTypeError | .runtime .tupleArgumentNotIterable => .typeError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
+  | .runtime .overflowError => .overflowError
 
 def ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=
   expected = actual ∨ (expected = .nameError ∧ actual = .unboundLocalError)
@@ -72,6 +74,7 @@ inductive Builtin where
 inductive Value where
   | int (value : Int)
   | bool (value : Bool)
+  | float64 (value : Silmaril.Numeric.Ieee754.F64.Finite)
   | text (value : Core.Text)
   | none
   | listObject (object : Core.Module.ListObject)
@@ -87,7 +90,7 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _
+  | .float64 _ | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _
   | .returnedTuple _ | .tupleObject _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
@@ -133,6 +136,7 @@ def Namespace.bindGlobal (space : Namespace) (name : String) (value : Value) : N
 /-- Lexical resolution makes the local/global choice before execution. -/
 inductive Operand (slots : Nat) where
   | literal (value : Value)
+  | intTrueDiv (numerator divisor : Int)
   | local (slot : Fin slots)
   | global (name : String)
   | tuple (items : List Core.Closure.GlobalTupleItem)
@@ -152,6 +156,8 @@ def evalTupleContents (space : Namespace) (items : List Core.Closure.GlobalTuple
 
 def Operand.eval {slots : Nat} (space : Namespace) (locals : Locals slots) : Operand slots → Result
   | .literal value => .ok value
+  | .intTrueDiv numerator divisor =>
+    (Core.Closure.trueDivideInt numerator divisor).map Value.float64 |>.mapError (Failure.raised ∘ .runtime)
   | .local slot =>
     (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok
   | .global name =>
@@ -254,7 +260,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
   | .builtin .tuple, [.returnedTuple items] => .copyTuple items
   | .builtin .tuple, [.tupleObject object] => .copyTupleObject object
-  | .none, _ | .int _, _ | .bool _, _ | .text _, _ | .listObject _, _ | .returnedTuple _, _
+  | .none, _ | .int _, _ | .bool _, _ | .float64 _, _ | .text _, _ | .listObject _, _ | .returnedTuple _, _
   | .tupleObject _, _ => .nonCallable
   | _, _ => .unsupported
 
