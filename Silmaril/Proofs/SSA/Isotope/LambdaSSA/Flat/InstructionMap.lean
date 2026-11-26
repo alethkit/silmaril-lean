@@ -17,4 +17,11 @@ theorem erase_mapInstr (f : Φ → Ψ) (r : Flat Φ labels n) :
   induction r <;> simp_all [Flat.erase, Flat.mapInstr, Region.mapInstr,
     Silmaril.Isotope.Morphism.CaseSSA.erase_mapInstr]
 
+theorem mapInstr_id (r : Flat Φ labels n) : r.mapInstr id = r := by
+  induction r <;> simp_all [Flat.mapInstr]
+
+theorem mapInstr_comp {Ω : Type u} (f : Φ → Ψ) (g : Ψ → Ω) (r : Flat Φ labels n) :
+    (r.mapInstr f).mapInstr g = r.mapInstr (g ∘ f) := by
+  induction r <;> simp_all [Flat.mapInstr]
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Flat

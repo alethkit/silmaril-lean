@@ -446,6 +446,34 @@ equality and strict satisfaction against a silent self-loop. The separating
 trace uses the capture reply and follows the back edge to the next tick.
 [Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
 
+### Institution of ordered flat comparisons
+
+`FlatInstitution.institution` uses the existing room and corridor API.
+A sentence pairs two capture-free typed flat tables with one ordered
+external payload profile and the unit entry of packed execution. Each side
+keeps its own internal labels and types. Sentence translation maps the
+actual tables, with identity and composition checked on the syntax and
+proof irrelevance for the typing witnesses.
+[Signatures and sentences](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Institution/Defs.lean)
+
+Models are discrete categories of the compatible typed and erased weak
+ITree interpretations with fixed atomic carriers and a shared event family.
+The signature maps have identity type component and preserve bottom in the
+Boolean effect component. Model reduct is the existing primitive reduct.
+It respects identity and composition as equality of models. The proof
+recovers the typed computations from the erased primitive interpretation
+using injective result encoding, then recovers the pure functions on
+bottom-effect instructions. The corridor's satisfaction field is the
+ordered packed comparison square on the two written tables.
+[Institution and functor laws](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Institution/Thms.lean)
+
+An open table is input to the executable partial `Capture.close` front end.
+A successful result supplies a capture-free table for a sentence. In the
+cyclic non-injective fixture, the institution translates to the table
+returned by relabelling and rerunning closure. The corridor checks strict
+satisfaction using the existing visible back-edge trace.
+[Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
