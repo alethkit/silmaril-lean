@@ -11,6 +11,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.S
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.IndirectExamples
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.MemoryExamples
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.CycleExamples
+import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.MemoryFunctionBranchExamples
 import Silmaril.Proofs.Wasm.Institution.Operational.HostCall.Lime1.GrowthExamples
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms

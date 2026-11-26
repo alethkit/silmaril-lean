@@ -947,4 +947,18 @@ theorem step_iff {phase : Phase H} (linked : site.MemoryLinked mem host .recursi
     subst dst
     exact sound linked registered allocated rfl ready live edge
 
+theorem frame_result_iff {args payload : List Value} (typed : payload.map Value.type = callee.fn.declaration.results) :
+    Step host (config mem caller saved tail callee bytes (.exit args (.values payload))) dst ↔
+      dst = ⟨mem.store bytes, caller, values (saved ++ payload) ++ tail⟩ := by
+  have exits := leave_frame_iff (mem := mem) (bytes := bytes) (caller := caller) (callee := callee)
+    (saved := saved) (tail := tail) (dst := dst) (args := args) (out := .values payload)
+    (types := callee.fn.declaration.results) rfl typed
+  constructor
+  · intro step
+    have internal := internal_of_absent (by simp [decompose?, configAt, renderUnder, frameCode, result]) step
+    simpa [configAt, renderUnder, result, values_append, List.append_assoc] using exits.mp internal
+  · intro same
+    exact Step.of_internal (exits.mpr (by
+      simpa [configAt, renderUnder, result, values_append, List.append_assoc] using same))
+
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee.Proofs

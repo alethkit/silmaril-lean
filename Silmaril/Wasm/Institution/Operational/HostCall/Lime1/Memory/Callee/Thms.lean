@@ -45,18 +45,28 @@ the embedding contract to recover the returned store, with a self-step for
 declared divergence. Parameterless conditionals select a source block and
 enter its arm label in distinct native steps. The arm uses its own result
 signature and the same live frame and store. A checked `br_if` can target
-an explicit arm label. Zero consumes only the guard. A nonzero guard leaves
-a pending native branch. Each crossed label lowers the depth and skips its
-own suffix, keeping the live operands for the next step. The target label
-then delivers the typed payload above its saved operands. Native label and
-frame exits are distinct. A child's frame exit restores the checked suffix
-or exposes a trap for cleanup. -/
+an explicit arm label or the implicit function result label. Zero consumes
+only the guard. A nonzero guard leaves a pending native branch. Each
+crossed label lowers the depth and skips its own suffix, keeping the live
+operands for the next step. The target label
+then delivers the typed payload. An explicit label resumes above its
+saved operands. The function label leaves the payload inside the frame
+until a separate frame exit restores the caller's saved operands and
+continuation. A child's frame exit can also expose a trap for cleanup. -/
 theorem step_iff (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
     Step host (config mem caller saved tail callee bytes phase) dst ↔
       ∃ written next, Edge mem host site callee bytes phase written next ∧ dst = config mem caller saved tail callee written next :=
   Proofs.step_iff linked registered allocated ready live notDone
+
+/-- After the function label delivers its ordered results, the next native
+step restores the caller with its saved operands, the delivered values,
+the live bytes, and one copy of the suspended continuation. -/
+theorem frame_result_iff {args payload : List Value} (typed : payload.map Value.type = callee.fn.declaration.results) :
+    Step host (config mem caller saved tail callee bytes (.exit args (.values payload))) dst ↔
+      dst = ⟨mem.store bytes, caller, values (saved ++ payload) ++ tail⟩ :=
+  Proofs.frame_result_iff typed
 
 /-- The caller's surrounding label remains in place while the callee steps. -/
 theorem stays (notDone : ∀ out, phase ≠ .done out)
