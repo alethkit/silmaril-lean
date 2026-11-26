@@ -1174,6 +1174,62 @@ open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.
 #eval report
 ```
 
+### Normalize a complete log that entered θ early
+
+An overwritten preheader definition can leave a producer pending after
+all θ input wires become readable. The example adds one `selector := 42`
+before the existing `selector := 3` in the checked 152 source table.
+The emitted θ can enter before the first write publishes. One legal
+log then publishes that write and completes with 152. The original
+`Log.scan` refuses at θ entry because `finished` on the preheader
+still returns `none`.
+
+The opt-in `Log.Normalize.Thms` import exposes
+`Log.scanNormalized` and `scanNormalized_isSome_iff`. Acceptance
+requires adjacent original `Fire` steps from pending and completion at
+the original last marking. The checker then moves preheader publications
+before θ entry. The typed cut lemma `Cut.tail_after_prefix` ensures
+that publishing further colours preserves every colour a continuation
+step already read.
+
+`normalize_theta` preserves the complete ordered sequence of changes
+in the actual θ marking, including live child markings, chosen γ arms,
+and the typed restart and commit banks. Consecutive repeated projections
+from activity across the cut are omitted. The normalized scan's standard
+CF/Φ packet comparisons apply to the recovered activations, and
+`normalized_returned` reads the same result directly from the original
+last marking. This proof covers finite completed logs of the admitted
+`Shared.Outer` profile. Firing positions can change, and the theorem
+makes no claim about completion of unfinished or infinite schedules.
+[Normalization API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Normalize/Thms.lean) ·
+[Cut lemma](../../Silmaril/SSA/RVSDG/NestedTheta/Petri/Cut/Commutation/Thms.lean) ·
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Normalize/Regression.lean)
+
+Build the import below with `lake build --wfail +<module>`. Paste it into
+`QuadSharedPetriEarlyEntry.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadSharedPetriEarlyEntry.lean`.
+
+```lean
+module
+
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Trace.Log.Normalize.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Log.Normalize.Example
+
+#eval report
+```
+
+```text
+(some false, some 152, false, some ([((6, 0), 15, true, 17), ((6, 0), 73, true, 75), ((7, 0), 150, false, 152)], 152),
+  true, true, true)
+```
+
+The first three fields report preheader readiness at θ entry, the original
+completion word, and acceptance by the original scanner. The fourth field
+gives the normalized scan's predecessor slots, outer values, restart bits,
+latch values, and output. The final booleans check θ history equality,
+refusal of a missing commit, and refusal of an inserted non-firing.
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
