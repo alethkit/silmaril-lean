@@ -10,6 +10,29 @@ public section
 
 namespace Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits
 
+section Alignment
+
+open LambdaSSA (FiniteCFG)
+open LambdaSSA.Semantics (Env)
+open LambdaSSA.Semantics.Interaction (Primitive region)
+open Readback (Alignment resultCodec)
+
+universe u v w
+
+/-- Local alignment preserves weak execution with the ordered packed exit
+tag and encoded payload. -/
+theorem Readback.Alignment.packed {Events : Type w → Type w} {F : Type v} {α β : Type u}
+    {blocks publicBlocks exits publicExits captures publicCaptures : Nat}
+    {source : FiniteCFG F blocks exits captures} {target : FiniteCFG F publicBlocks publicExits publicCaptures}
+    {left : Primitive Events F α} {right : Primitive Events F β}
+    {leftEnv : Env α} {rightEnv : Env β} {atom : α → β}
+    (align : Alignment source target left right leftEnv rightEnv atom) :
+    resultCodec atom <$> (region left leftEnv source.erase >>= fun out => pure (FiniteCFG.packedTreeOutput out)) =
+      (region right rightEnv target.erase >>= fun out => pure (FiniteCFG.packedTreeOutput out)) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.packed align
+
+end Alignment
+
 open LambdaSSA.Semantics (Env)
 open LambdaSSA.Semantics.Interaction (Transfer)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues)
