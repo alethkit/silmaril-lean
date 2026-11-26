@@ -22,9 +22,13 @@ inductive BindStep : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop wh
       (hℓ : At L ℓ A) (ha : Tm.HasType Γ a A) :
       BindStep Γ (.br ℓ a) (.let₁ a (.br ℓ (.var 0))) L
 
+/-- Add the typed branch rule to a seed for the Paper contextual closure. -/
+abbrev AddBinding (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (Γ : VCtx τ) (r s : Region Φ) (L : LCtx τ) : Prop :=
+  Seed Γ r s L ∨ BindStep Γ r s L
+
 /-- Start with the projection-return and unit-η join and add the typed branch rule. -/
-abbrev Step (Γ : VCtx τ) (r s : Region Φ) (L : LCtx τ) : Prop :=
-  Old Γ r s L ∨ BindStep Γ r s L
+abbrev Step := AddBinding (Old)
 
 abbrev Eqv := Extension.Eqv (Step (τ := τ) (Φ := Φ))
 
