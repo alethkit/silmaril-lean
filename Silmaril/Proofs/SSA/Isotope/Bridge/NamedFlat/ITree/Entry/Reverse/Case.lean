@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -49,10 +49,7 @@ private def leftExit : Label := ⟨22⟩
 private def rightExit : Label := ⟨11⟩
 
 private abbrev ports : Interface SortName Reg Label :=
-  ⟨1, .snoc .nil choice, fun _ => ⟨0⟩, fun _ _ _ => Subsingleton.elim _ _,
-    [leftExit, rightExit], fun _ => num⟩
-
-private def registers : Registers Reg := ⟨⟨1⟩, fun i => ⟨2 + i⟩⟩
+  numberedInterface (.snoc .nil choice) [leftExit, rightExit] (fun _ => num)
 private def label (_ : Fin 1) : Label := ⟨7⟩
 private def fields (_ : Label) : List (Reg × Ty SortName) := [(⟨2⟩, num)]
 
@@ -68,17 +65,17 @@ private theorem typed : flat.HasType ports.context (fun _ => choice)
   NamedFlat.check_sound flat ports.context (fun _ => choice) _ (by decide)
 
 private def lowered : Lowered ports fields flat :=
-  (lowerChecked ports fields registers label flat).get (by decide)
+  (lowerFresh label ports.context ports.exits ports.external fields flat).get (by decide)
 
--- The actual reversion carries the sum parameter and the open input
--- register in its support record.
-private def versionedProfile
-    (_ : Fin (CFG.Cyclic.Versioning.compile (withLiveOut (P := signature) fields
-      lowered.source)).blocks.length) : Ty SortName :=
-  .product choice (.product choice .unit)
+-- The actual packet holds the sum argument and one saved sum capture.
+example : ∀ i, lowered.savedRegisters i = [⟨0⟩] := by decide
+
+private def profile := (lowered.synthesizeProfile (fun _ => choice)).get (by decide)
+
+example : ∀ i, profile i = .product choice (.product choice .unit) := by decide
 
 private def recompiled : LiveOut.Admission signature ports fields lowered.source :=
-  (LiveOut.admit (P := signature) ports fields lowered.source versionedProfile).get (by decide)
+  (lowered.reAdmit (fun _ => choice)).get (by decide)
 
 private abbrev Input := Ty.denote (AtomValues.carrier (κ := SortName))
   (Region.packedInputType ports.context.toList)

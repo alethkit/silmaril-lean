@@ -734,3 +734,33 @@ re-admission and proves the selected result for every input to either arm.
 · [Weak-tree agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Thms.lean)
 · [Checked swap](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Swap.lean)
 · [Checked sum case](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Reversion packet profile synthesis
+
+`Reverse.lowerFresh` numbers the newest-first capture slots from zero,
+uses the next number for the common block parameter, and assigns successive
+numbers to local binders by scope depth. The selected exit registers use
+this same numbering. The ordinary exact reverse readback and packet closure
+checks still decide whether the source table is accepted.
+
+For every successful numbered lowering, `Lowered.savesCaptures_of_lowerFresh`
+proves that the cyclic versioner's saved registers all come from the typed
+entry context. Exact entry readback accounts for the entry's free reads.
+Packet closure confines a block's free reads to its parameter, and the
+versioner omits that common parameter from the saved record. The synthesized
+type at each destination pairs its original typed block argument with the
+types of the saved captures in the versioner's actual slot order, ending
+the record in unit. The versioner's block map preserves the block indices.
+
+`Lowered.reAdmit` feeds that profile to the existing compiler and admission
+checker. The remaining certificate is successful scoped elaboration of
+the actual versioned table and a local typing check of the entry and every
+block at the synthesized profile. `Lowered.admitOfChecks` constructs the
+admission from those conditions. The swap and two ordered sum exits run the
+actual checker with the synthesized profiles, then use the existing weak-tree
+round trip.
+
+[Profile synthesis](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Defs.lean)
+· [Scope and admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Thms.lean)
+· [Swap](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Swap.lean)
+· [Ordered sum exits](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
