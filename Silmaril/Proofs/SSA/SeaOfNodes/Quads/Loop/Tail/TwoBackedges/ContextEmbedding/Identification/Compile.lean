@@ -83,12 +83,17 @@ theorem compile_source (map : PortMap S T) (p : AdmittedAt S result) (target : G
     @Admitted.source _ _ T.bankEq target.source = program map (@Admitted.source _ _ S.bankEq p) :=
   (admit_fields _ _ _ (compile_admit map p target ok)).1
 
+theorem compile_facts (map : PortMap S T) (p : AdmittedAt S result) (target : Generated T result)
+    (ok : compile map p = .ok target) :
+    pushFacts map (@Admitted.facts _ _ S.bankEq p) = some (@Admitted.facts _ _ T.bankEq target.source) := by
+  obtain ⟨_, facts, pushed, admitted⟩ := replay_ok map p target.source (compile_ok map p target ok)
+  rw [(admit_fields _ facts _ admitted).2]
+  exact pushed
+
 theorem compile_coverage (map : PortMap S T) (p : AdmittedAt S result) (target : Generated T result)
     (ok : compile map p = .ok target) (input : Valuation T) :
     TupleCovers (@Admitted.facts _ _ T.bankEq target.source) input ↔
       TupleCovers (@Admitted.facts _ _ S.bankEq p) (reduct map input) := by
-  obtain ⟨_, facts, pushed, admitted⟩ := replay_ok map p target.source (compile_ok map p target ok)
-  rw [(admit_fields _ facts _ admitted).2]
-  exact pushFacts_covers map _ facts pushed input
+  exact pushFacts_covers map _ _ (compile_facts map p target ok) input
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.ContextEmbedding.Identification.Proofs

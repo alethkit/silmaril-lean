@@ -88,17 +88,17 @@ private theorem quad_identity (q : Quad Op old) : quad (fun _ port => port) q = 
   cases q
   simp only [quad, operandsId]
 
+theorem program_identity (p : Program Op old out) : program (fun _ port => port) p = p := by
+  have identity : (quad (fun _ port => port) : Quad Op old → Quad Op old) = id :=
+    funext quad_identity
+  cases p
+  simp [program, identity]
+
 theorem embedding_source (path : Embedding S T) {result : Width} (p : AdmittedAt S result) :
     @Admitted.source _ _ T.bankEq (path.mapAdmitted p) =
       program path.portMap (@Admitted.source _ _ S.bankEq p) := by
   induction path with
-  | id S =>
-    change @Admitted.source _ _ S.bankEq p = program (fun _ port => port) (@Admitted.source _ _ S.bankEq p)
-    generalize @Admitted.source _ _ S.bankEq p = source
-    cases source
-    have identity : (quad (fun _ port => port) : Quad Op S.regs → Quad Op S.regs) = id :=
-      funext quad_identity
-    simp [program, identity]
+  | id S => exact (program_identity (@Admitted.source _ _ S.bankEq p)).symm
   | permute order rest ih =>
     rw [Embedding.mapAdmitted, ih]
     exact program_thenMap (fun t => order t) rest.portMap _

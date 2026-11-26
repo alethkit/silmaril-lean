@@ -55,6 +55,14 @@ theorem program_thenMap (first : BankMap old middle) (second : BankMap middle ne
     program second (program first p) = program (thenMap first second) p :=
   Proofs.program_thenMap first second p
 
+theorem program_identity (p : Program Op old out) : program (fun _ port => port) p = p :=
+  Proofs.program_identity p
+
+theorem embedding_source (path : Embedding S T) (p : AdmittedAt S result) :
+    @Admitted.source _ _ T.bankEq (path.mapAdmitted p) =
+      program path.portMap (@Admitted.source _ _ S.bankEq p) :=
+  Proofs.embedding_source path p
+
 theorem safeWrites_of_thenMap (first : BankMap old middle) (second : BankMap middle new)
     (p : Program Op old out) (safe : SafeWrites (thenMap first second) p) : SafeWrites first p :=
   Proofs.safeWrites_of_thenMap first second p safe
