@@ -441,9 +441,6 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
-  | omittedIf {index statement value rest tail}
-      (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
-      Translation tree index (statement :: rest) tail
   | assertNot {index condition operand rest tail}
       (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
@@ -464,6 +461,9 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleChainTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
+  | omittedIf {index statement value rest tail}
+      (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) tail
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
       (remaining : Translation tree index rest tail) :
       Translation tree index
