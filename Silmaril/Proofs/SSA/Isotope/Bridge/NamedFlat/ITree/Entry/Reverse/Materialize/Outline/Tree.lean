@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Outline.Defs
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.FlatLetCase.Thms
 
+import Silmaril.Semantics.Elgot.Partition.Thms
+
 public section
 
 namespace Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline
@@ -14,8 +16,8 @@ open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction
 open LetCase.LocallyNameless (Tm)
 open Morphism.CaseSSA (erase)
-open Silmaril.Elgot (iter flatten flattenBody)
-open Silmaril.Elgot.ITree (Tree diverge_bind iterate_fixpoint iterate_uniformity iterate_codiagonal)
+open Silmaril.Elgot (iter partitionTransfer partitionStepByTarget iter_partition_target)
+open Silmaril.Elgot.ITree (Tree diverge_bind iterate_fixpoint iterate_uniformity)
 
 universe u v w
 variable {Events : Type u → Type u} {F : Type v} {α : Type w} {blocks exits labels labelCount n : Nat}
@@ -52,45 +54,36 @@ private theorem split_relocate (i : Fin (blocks + exits)) (v : Value α) :
     have moved : ¬ blocks + 1 + j.val < blocks + 1 := by omega
     simp [relocate, splitTransfer, outside, moved]
 
-private def phaseTransfer (out : Transfer α ⊕ BlockInput α (blocks + 1)) :
-    (Transfer α ⊕ BlockInput α (blocks + 1)) ⊕ BlockInput α (blocks + 1) :=
-  match out with
-  | .inr next => if next.1.val < blocks then .inl out else .inr next
-  | .inl ret => .inl (.inl ret)
+private def isFresh (p : BlockInput α (blocks + 1)) : Bool := decide (blocks ≤ p.1.val)
+
+private abbrev phaseTransfer (out : Transfer α ⊕ BlockInput α (blocks + 1)) :=
+  partitionTransfer isFresh out
 
 private theorem phase_old (out : Transfer α ⊕ BlockInput α blocks) :
     phaseTransfer (out.map id embed) = .inl (out.map id embed) := by
   cases out with
   | inl ret => rfl
-  | inr next => exact ite_eq_left next.1.isLt
+  | inr next =>
+    change partitionTransfer isFresh (.inr (embed next)) = .inl (.inr (embed next))
+    simp [partitionTransfer, isFresh, embed, Nat.not_le_of_lt next.1.isLt]
 
 private theorem phase_fresh (payload : Value α) :
-    phaseTransfer (.inr (Fin.last blocks, payload)) = .inr (Fin.last blocks, payload) :=
-  ite_eq_right (Nat.lt_irrefl blocks)
-
-private theorem flatten_phase (out : Transfer α ⊕ BlockInput α (blocks + 1)) :
-    flatten (phaseTransfer out) = out := by
-  cases out with
-  | inl ret => rfl
-  | inr next => by_cases old : next.1.val < blocks <;> simp [phaseTransfer, flatten, old]
+    phaseTransfer (.inr (Fin.last blocks, payload)) = .inr (Fin.last blocks, payload) := by
+  simp [phaseTransfer, partitionTransfer, isFresh]
 
 private noncomputable def step (raw : Primitive Events F α) (env : Env α)
     (g : FiniteCFG F blocks exits n) (p : BlockInput α blocks) :
     Tree Events (Transfer α ⊕ BlockInput α blocks) :=
   region raw (extend env p.2) (g.block p.1).erase >>= fun out => pure (splitTransfer blocks out)
 
-private noncomputable def phased (f : BlockInput α (blocks + 1) →
-    Tree Events (Transfer α ⊕ BlockInput α (blocks + 1))) (p : BlockInput α (blocks + 1)) :=
-  f p >>= fun out => pure (phaseTransfer out)
+private noncomputable abbrev phased (f : BlockInput α (blocks + 1) →
+    Tree Events (Transfer α ⊕ BlockInput α (blocks + 1))) :=
+  partitionStepByTarget f isFresh
 
-private theorem phase_iter (f : BlockInput α (blocks + 1) →
-    Tree Events (Transfer α ⊕ BlockInput α (blocks + 1))) :
-    iter (iter (phased f)) = iter f := by
-  rw [iterate_codiagonal]
-  congr 1
-  funext p
-  change ((f p >>= fun out => pure (phaseTransfer out)) >>= fun out => pure (flatten out)) = f p
-  simp only [bind_assoc, pure_bind, flatten_phase, bind_pure]
+private theorem phased_apply (f : BlockInput α (blocks + 1) →
+    Tree Events (Transfer α ⊕ BlockInput α (blocks + 1))) (p : BlockInput α (blocks + 1)) :
+    phased f p = (f p >>= fun out => pure (phaseTransfer out)) := by
+  simp only [phased, partitionStepByTarget, map_eq_pure_bind]
 
 private theorem continuation_step (raw : Primitive Events F α) (env : Env α)
     {g : FiniteCFG F blocks exits n} (s : Selection g) (packet payload : Value α) :
@@ -114,8 +107,7 @@ private theorem continuation_iter (raw : Primitive Events F α) (env : Env α)
       (region raw (extend (extend env packet) payload) (Flat.br s.arm.destination s.arm.operand).erase >>=
         fun out => pure ((splitTransfer blocks out).map id embed)) := by
   rw [congrFun (iterate_fixpoint (phased (step raw env (graph s)))) (Fin.last blocks, .pair packet payload)]
-  unfold phased
-  rw [continuation_step]
+  rw [phased_apply, continuation_step]
   simp only [bind_assoc, pure_bind, phase_old, Sum.elim_inl]
 
 private theorem inner_old (raw : Primitive Events F α) (env : Env α)
@@ -129,7 +121,7 @@ private theorem inner_old (raw : Primitive Events F α) (env : Env α)
   have relocated (i : Fin (blocks + exits)) (v : Value α) :
       after ((relocate blocks exits i).val, v) = before (i.val, v) := by
     simp only [after, before, split_relocate, phase_old, Sum.elim_inl]
-  rw [congrFun (iterate_fixpoint (phased (step raw env (graph s)))) (embed p)]
+  rw [congrFun (iterate_fixpoint (phased (step raw env (graph s)))) (embed p), phased_apply]
   change (((region raw (extend env p.2) ((graph s).block p.1.castSucc).erase >>= _) >>= _) >>= _) =
     ((region raw (extend env p.2) (g.block p.1).erase >>= _) >>= _)
   simp only [bind_assoc, pure_bind]
@@ -138,20 +130,24 @@ private theorem inner_old (raw : Primitive Events F α) (env : Env α)
   by_cases selected : p.1 = s.selected
   · simp only [graph, Fin.lastCases_castSucc, selected, ↓reduceIte]
     rw [s.readback]
-    simp only [Arm.dispatch, Arm.source, Flat.erase, region, bind_assoc]
-    apply bind_congr
-    intro v
-    cases v <;> simp only [diverge_bind]
-    next payload =>
-      simp only [term, erase, Fin.val_zero, pure_bind]
+    have active (payload : Value α) :
+        after (blocks, .pair p.2 payload) =
+          (region raw (extend (extend env p.2) payload) (Flat.br s.arm.destination s.arm.operand).erase >>=
+            before) := by
       have fresh : splitTransfer (blocks + 1)
           (blocks, .pair p.2 payload) = .inr (Fin.last blocks, .pair p.2 payload) := by
         simp [splitTransfer]
         rfl
-      change after (blocks, .pair p.2 payload) = _
       simp only [after, fresh, phase_fresh, Sum.elim_inr, next, continuation_iter, Flat.erase, region, bind_assoc, before]
-    next payload =>
-      exact renamed_then raw _ s.arm.bypass _ before after relocated
+    cases side : s.arm.side <;>
+      simp only [Arm.dispatch, Arm.source, Side.branch, side, Side.choose, Flat.erase, region, bind_assoc] <;>
+      apply bind_congr <;> intro value <;> cases value <;> simp only [diverge_bind]
+    · simp only [term, erase, Fin.val_zero, pure_bind]
+      exact active _
+    · exact renamed_then raw _ s.arm.bypass _ before after relocated
+    · exact renamed_then raw _ s.arm.bypass _ before after relocated
+    · simp only [term, erase, Fin.val_zero, pure_bind]
+      exact active _
   · simp only [graph, Fin.lastCases_castSucc, selected, ↓reduceIte]
     exact renamed_then raw _ (g.block p.1) _ before after relocated
 
@@ -167,7 +163,7 @@ theorem graph_tree (raw : Primitive Events F α) (env : Env α)
   have loop (p : BlockInput α blocks) : iter newStep (embed p) = iter (step raw env g) p := by
     have agree := congrFun uniform p
     change iter (step raw env g) p = (pure (embed p) >>= iter (iter (phased newStep))) at agree
-    rw [pure_bind, phase_iter] at agree
+    rw [pure_bind, iter_partition_target newStep isFresh] at agree
     exact agree.symm
   change (region raw env (renameLabels (relocate blocks exits) g.entry).erase >>= fun out =>
     Sum.elim pure (iter newStep) (splitTransfer (blocks + 1) out)) =

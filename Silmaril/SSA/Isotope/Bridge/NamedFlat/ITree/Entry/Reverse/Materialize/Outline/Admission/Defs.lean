@@ -29,9 +29,17 @@ abbrev Compiled (s : Selection g) :=
 The register plan covers both its packet decoder and operand binding.
 The existing exact readback still checks their use at the chosen live-outs. -/
 def compile? [DecidableEq κ] [DecidableEq P.Instr] (s : Selection g)
-    (R : Fin blocks → Ty κ) (left : Ty κ)
+    (R : Fin blocks → Ty κ) (active : Ty κ)
     (registers : Registers Register) (labels : Fin (blocks + 1) → K) :
     Option (Compiled (context := context) (external := external) (fields := fields) s) :=
-  compileFlatInferred? (Materialize.graph (graph s)) (packets R s.selected left) registers labels
+  compileFlatInferred? (Materialize.graph (graph s)) (packets R s.selected active) registers labels
+
+/-- Run one named emission after both outlines, with names for both appended
+blocks and an exact checker for the resulting register plan. -/
+def compileBoth? [DecidableEq κ] [DecidableEq P.Instr] (s : TwoArms g)
+    (R : Fin blocks → Ty κ) (firstActive secondActive : Ty κ)
+    (registers : Registers Register) (labels : Fin (blocks + 1 + 1) → K) :
+    Option (Compiled (context := context) (external := external) (fields := fields) s.second) :=
+  compile? s.second (packets R s.first.selected firstActive) secondActive registers labels
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.Materialize.Outline

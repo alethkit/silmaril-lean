@@ -1119,25 +1119,32 @@ register comes from the supplied plan. A plan that overwrites a used
 caller input is rejected by exact readback. The flat and witnessed
 routes use the same inferred capture, readback, versioning and rank gates.
 
-`Materialize.Outline.read` recognizes a nominated flat block beginning
-with a case whose left arm jumps with a leading operand let. The active
-arm sends its payload and the original block packet to one appended
-row. That row decodes both fields and the ordinary materializer puts
-the computation in its let prefix. The right arm keeps its original
-code with relocated labels. Old block indices and packet types, the
-typed caller record, and the ordered exit types are preserved. Only
-absolute outward indices shift by one. Remaining caller reads use the
-same inferred capture list mechanism as ordinary materialization.
+`Materialize.Outline.read` recognizes either side of a nominated flat
+block beginning with a case. The selected arm must jump with a leading
+operand let. It sends its sum payload and the original block packet
+to one appended row. That row decodes the fields and the ordinary
+materializer puts the computation in its let prefix. The bypass keeps
+its original computation with relocated labels. Old block indices and
+packet types, the typed caller record, and the ordered exit types
+stay intact. Only absolute outward indices shift. Other caller reads
+use the inferred capture list.
 
-`Outline.graph_tree` groups only transfers to the fresh destination
-into the inner weak iterator. Both arms may still target original
-internal rows. Uniformity and codiagonal prove equality of the
-whole weak tree, with no termination premise. The scoped reverse
-admission still checks the supplied names, register plan, live-out
-reattachment, typing, and reachable rank. The regression admits the
-outlined table, observes a request and its reply at the first ordered
-exit, and observes a pure return at the second. Both outcomes include
-the original packet as a selected live-out.
+`Outline.graph_tree` groups only transfers to the newly appended
+destination into the inner weak iterator. Both arms may target
+original internal rows, including a backedge to the selecting row.
+The weak-tree equality has no termination premise. `Outline.readBoth`
+selects left first and reads right from the first emitted flat graph at
+the same row index. The second pass treats the first appended row as
+an old destination. `Outline.compileBoth?` runs the existing admission
+checks on the resulting graph with caller-supplied labels and registers.
+
+The admission regressions cover the left and right outlines with a
+pure bypass, then a double outline with one visible request on each
+arm. The double outline returns at different ordered exits and
+projects the old packet on the left and the case payload on the right.
+A separate weak-tree regression checks an original bypass self-loop
+after outlining the right arm. Exact readback, typing, and reachable
+rank still gate named admission.
 
 On success, the original written LetCase tree agrees at every caller
 record with the actual named run and its packed LambdaSSA reversion.
