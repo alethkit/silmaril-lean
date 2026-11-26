@@ -33,7 +33,7 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
     rw [Core.Module.SeededCall.invoke_assertTrue_true]
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
     Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval, Core.Module.SeededCall.Operand.evalList,
-    lowerCallOperand, helper, probe, classBinding, invokeArgumentIn, invokeNestedTarget, acceptObservation,
+    lowerCallOperand, helper, probe, classBinding, invokeArgumentIn, invokeNestedTarget, invokeDescriptor, acceptObservation,
     acceptCall, tested, asserted, Except.bind, Except.map, Except.mapError]
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
