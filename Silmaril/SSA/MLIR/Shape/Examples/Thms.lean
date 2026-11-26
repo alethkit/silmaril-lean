@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.MLIR.Shape.Thms
+public import Silmaril.SSA.MLIR.Shape.Extents.Thms
 public import Silmaril.SSA.MLIR.Shape.Variadic.Thms
 
 public section
@@ -156,5 +157,61 @@ theorem cstrBroadcastableMany_requires_two_operands :
 
 theorem cstrBroadcastableMany_unknown_outside_profile :
     cstrBroadcastableMany? [.ofStatic [0], .ranked [none]] = none := rfl
+
+theorem concat_rank_zero : concat? (.ofStatic []) (.ofStatic [0, 5]) = some (.ofStatic [0, 5]) :=
+  rfl
+
+theorem concatExtentTensor_keeps_extent_order :
+    (concatExtentTensor (extentTensor [3, 0]) (extentTensor [1, 5])).toShape = [3, 0, 1, 5] := rfl
+
+theorem concat_invalid_propagates : concat? (.ranked [none]) .invalid = some .invalid := rfl
+
+theorem concat_unknown_outside_fragment : concat? (.ranked [none]) (.ofStatic [4]) = none := rfl
+
+theorem dim_zero_extent :
+    dimSize (Tensor.splat (shape := [4, 0]) ()) 1 = .known 0 ∧
+      dimIndex (Tensor.splat (shape := [4, 0]) ()) 1 = .defined 0 := ⟨rfl, rfl⟩
+
+theorem dim_at_concat_boundary :
+    dimSize (Tensor.splat (shape := [4, 0] ++ [6]) ()) 1 = .known 0 ∧
+      dimSize (Tensor.splat (shape := [4, 0] ++ [6]) ()) 2 = .known 6 := ⟨rfl, rfl⟩
+
+theorem dim_signed_index_bounds :
+    dimSize (Tensor.splat (shape := [4, 0]) ()) (-1) = .invalid ∧
+      dimIndex (Tensor.splat (shape := [4, 0]) ()) 2 = .undefined := ⟨rfl, rfl⟩
+
+theorem dim_rank_zero : dimSize (Tensor.splat (shape := []) ()) 0 = .invalid := rfl
+
+theorem splitAt_rank_zero :
+    splitAt? (.ofStatic []) 0 = some (.ofStatic [], .ofStatic []) ∧
+      splitAtExtentTensor (extentTensor []) 1 = .undefined := ⟨rfl, rfl⟩
+
+theorem splitAt_endpoints :
+    splitAt? (.ofStatic [4, 0, 6]) 0 = some (.ofStatic [], .ofStatic [4, 0, 6]) ∧
+      splitAt? (.ofStatic [4, 0, 6]) (-3) = some (.ofStatic [], .ofStatic [4, 0, 6]) ∧
+      splitAt? (.ofStatic [4, 0, 6]) 3 = some (.ofStatic [4, 0, 6], .ofStatic []) :=
+  ⟨rfl, rfl, rfl⟩
+
+theorem splitAt_negative_position :
+    splitAt? (.ofStatic [4, 0, 6]) (-2) = some (.ofStatic [4], .ofStatic [0, 6]) := rfl
+
+theorem splitAt_extent_tensor_negative_position :
+    splitAtExtentTensor (extentTensor [4, 0, 6]) (-1) =
+      .defined (extentTensor [4, 0], extentTensor [6]) := rfl
+
+theorem splitAt_shape_error_outside_fragment :
+    splitAt? (.ofStatic [4, 0, 6]) (-4) = none ∧ splitAt? (.ofStatic [4, 0, 6]) 4 = none :=
+  ⟨rfl, rfl⟩
+
+theorem splitAt_extent_tensor_out_of_range :
+    splitAtExtentTensor (extentTensor [4, 0, 6]) (-4) = .undefined ∧
+      splitAtExtentTensor (extentTensor [4, 0, 6]) 4 = .undefined := ⟨rfl, rfl⟩
+
+theorem splitAtExtentTensor_round_trip :
+    splitAtExtentTensor (concatExtentTensor (extentTensor [4]) (extentTensor [0, 6])) 1 =
+      .defined (extentTensor [4], extentTensor [0, 6]) :=
+  splitAtExtentTensor_concatExtentTensor _ _
+
+theorem splitAt_invalid_outside_fragment : splitAt? .invalid 0 = none := rfl
 
 end Silmaril.MLIR.Shape.Examples
