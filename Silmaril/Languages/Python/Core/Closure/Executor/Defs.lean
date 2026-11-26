@@ -177,7 +177,7 @@ def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except 
       match field.select definition with
       | some names => .ok names
       | none => .error (field.unavailable fn.code definition)
-  | .int _ | .bool _ | .none | .tuple _ => .error .nonFunction
+  | .int _ | .bool _ | .none | .text _ | .tuple _ => .error .nonFunction
 
 abbrev readFreevars := readMetadata .freevars
 abbrev readCellvars := readMetadata .cellvars
@@ -385,6 +385,8 @@ inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
   | nonCallableNone : Rejects table arguments heap .none (.call (.defined .notCallable))
   | nonCallable (value : Int) : Rejects table arguments heap (.int value) (.call (.defined .notCallable))
   | nonCallableBool (value : Bool) : Rejects table arguments heap (.bool value) (.call (.defined .notCallable))
+  | nonCallableText (value : Core.Text) :
+      Rejects table arguments heap (.text value) (.call (.defined .notCallable))
   | nonCallableTuple (items : List Core.Module.Value) :
       Rejects table arguments heap (.tuple items) (.call (.defined .notCallable))
   | missing (fn : Function) (absent : table fn.code.key = none) :

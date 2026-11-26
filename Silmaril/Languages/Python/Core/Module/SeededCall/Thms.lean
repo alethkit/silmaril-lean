@@ -35,6 +35,23 @@ theorem invoke_int_bool (value : Bool) :
     invoke (.builtin .int) [.bool value] = .ok (.int (Int.ofNat value.toNat)) :=
   invoke_iff.mpr (.intFromBool value)
 
+theorem invoke_stockStr {value : Value} {text : Core.Text} (checked : value.stockStr? = some text) :
+    invoke (.builtin .str) [value] = .ok (.text text) := by
+  apply invoke_iff.mpr
+  simpa [Request.decode, checked] using (Executes.textConversion (arity := 1) text)
+
+theorem invoke_stockBool {value : Value} {result : Bool} (checked : value.stockBool? = some result) :
+    invoke (.builtin .bool) [value] = .ok (.bool result) := by
+  apply invoke_iff.mpr
+  simpa [Request.decode, checked] using (Executes.truthConversion (arity := 1) result)
+
+theorem invoke_assertEqual_text (left right : Core.Text) :
+    invoke (.helper .assertEqual) [.text left, .text right] =
+      if left = right then .ok .none else .error (.raised (.assertionError (.textPair left right))) := by
+  split
+  · exact invoke_iff.mpr (.equalText left right ‹_›)
+  · exact invoke_iff.mpr (.unequalText left right ‹_›)
+
 theorem invoke_assertIsNot_int_bool (integer : Int) (truth : Bool) :
     invoke (.helper .assertIsNot) [.int integer, .bool truth] = .ok .none :=
   invoke_iff.mpr .distinctIntBool

@@ -57,6 +57,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
 def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
   | .scalar operand => callOperand? operand
   | .tuple items => some (.tuple items)
+  | .text value => some (.literal (.text value))
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .value operand => (callValue? operand).map .scalar
@@ -165,7 +166,7 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .tuple _ => .nonCallable
+    | .int _ | .bool _ | .text _ | .tuple _ => .nonCallable
     | .function _ => .outsideProfile
 
 def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest scope) : Except Completion Unit :=
