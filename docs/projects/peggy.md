@@ -128,7 +128,7 @@ remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1
    signature direction needs sentences backward and models forward.
    A one-way compiler theorem supplies simulation or refinement. Exact
    satisfaction and consequence reflection require separate proofs,
-   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg-mlir-regionless.md) ·
+   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg/mlir/rvsdg-mlir-regionless.md) ·
    [SSA and machine boundaries](ssa.md)
 6. **Paper view and Java profile**. Add a leaf under
    `Silmaril.Papers.TateSteppTatlockLerner2011` once the reusable theorems
