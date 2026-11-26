@@ -128,6 +128,59 @@ private theorem all_covered (input : Bank (regs := new) model) :
   rw [get_tabulate]
   exact True.intro
 
+private def NoBottom {regs : List (ValueSort Width)} (facts : EntryFacts regs) : Prop :=
+  ∀ t (port : Port (dataPorts regs) t), facts.get port ≠ .bottom
+
+private theorem merge_nonbottom (sort : ValueSort Width) (left right combined : Fact Word (.value sort))
+    (merged : merge sort left right = some combined) : combined ≠ .bottom := by
+  cases left <;> cases right <;> simp [merge] at merged
+  all_goals first
+  | subst combined
+    intro impossible
+    cases impossible
+  | rename_i left right
+    by_cases same : left = right
+    · simp [same] at merged
+      subst combined
+      intro impossible
+      cases impossible
+    · simp [same] at merged
+
+private theorem write_nonbottom (acc : EntryFacts new) (prior : NoBottom acc)
+    {t : SeaOfNodes.Diamond.Ty Width} (dest : Port (dataPorts new) t) (fact : Fact Word t)
+    (kept : fact ≠ .bottom) : NoBottom (write dest fact acc) := by
+  intro sort port
+  by_cases same : slot port = slot dest
+  · obtain ⟨rfl, atDest⟩ := Sigma.mk.inj_iff.mp (Reindex.slot_eq _ _ same)
+    obtain rfl := eq_of_heq atDest
+    rw [get_write_same]
+    exact kept
+  · rw [get_write_other _ _ _ _ same]
+    exact prior sort port
+
+private theorem collect_nonbottom (map : BankMap old new) (facts : EntryFacts old) (acc output : EntryFacts new)
+    (prior : NoBottom acc) (pushed : collectFacts facts map acc = some output) : NoBottom output := by
+  induction old generalizing acc with
+  | nil =>
+    cases facts
+    cases pushed
+    exact prior
+  | cons sort rest ih =>
+    cases facts with
+    | cons head tail =>
+      simp only [collectFacts] at pushed
+      cases merged : merge sort head (acc.get (map _ .head)) with
+      | none => simp [merged] at pushed
+      | some fact =>
+        rw [merged] at pushed
+        exact ih _ _ _ (write_nonbottom acc prior _ _ (merge_nonbottom _ _ _ _ merged)) pushed
+
+theorem pushFacts_nonbottom (map : BankMap old new) (facts : EntryFacts old) (output : EntryFacts new)
+    (pushed : pushFacts map facts = some output) {t : SeaOfNodes.Diamond.Ty Width}
+    (port : Port (dataPorts new) t) : output.get port ≠ .bottom :=
+  collect_nonbottom map facts _ output
+    (fun _ p => by rw [get_tabulate]; intro impossible; cases impossible) pushed t port
+
 theorem pushFacts_covers (map : BankMap old new) (facts : EntryFacts old) (combined : EntryFacts new)
     (ok : pushFacts map facts = some combined) (input : Bank (regs := new) model) :
     TupleCovers combined input ↔ TupleCovers facts (pull map input) :=
