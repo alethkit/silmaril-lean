@@ -26,6 +26,29 @@ theorem request_denote {Γ : List (Silmaril.Ty Empty)} (M : Shape.Model.{0,0,v,w
         | .diverge => M.raw.prim f .unit s} :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest.request_denote M f s
 
+/-- Literal returns and UB have the same observation in every ambient context. -/
+theorem exit_denote {Γ : List (Silmaril.Ty Empty)} (e : Exit)
+    (M : Institution.Observational.Model.{0,v,w} Instr Γ.length) (s : M.σ) :
+    Overlay.denote (e.region (Γ := Γ)) M s = e.behaviour s :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest.exit_denote e M s
+
+theorem exit_order {α : Type v} {σ : Type w} (p q : Exit) (s : σ) :
+    (p.behaviour s : Behaviour Exits.length α σ) ≤ q.behaviour s ↔ p.Refines q :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest.exit_order p q s
+
+/-- Bind an actual native request to typed continuations in a deterministic
+handler. The selected continuation receives unit at the reply's final state. -/
+theorem request_bind_finite {Γ : List (Silmaril.Ty Empty)} {n : Nat} (h : Handler n)
+    (env : Syntax.Bindings Γ) (f : Instr) (s : Fin n)
+    (k : (i : Tag) → Overlay.Region Instr (Exits.get i :: Γ) Exits) :
+    Shape.denote (.lsubst (.native (request f Γ)) k) (Syntax.model h.primitives env) s =
+      match h f s with
+      | .reply i t => Shape.denote (k i)
+          (Syntax.model h.primitives (env.push ⟨.unit, exit_type i ▸ .unit⟩)) t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest.request_bind_finite h env f s k
+
 /-- Fresh top occurs exactly when two successful replies reach a selected UB
 continuation. Competing ordinary observations cannot prevent a reached UB. -/
 theorem endpoint_top (p : Endpoint) (M : Shape.Model.{0,0,v,w} Instr []) (s : M.raw.σ) :
