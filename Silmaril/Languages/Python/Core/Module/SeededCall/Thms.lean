@@ -53,6 +53,12 @@ theorem invoke_assertTrue_returnedTuple (items : List Core.Module.TupleDispatch.
       if items.isEmpty then .error (.raised (.assertionError .emptyTuple)) else .ok .none := by
   cases items <;> exact invoke_iff.mpr (by constructor)
 
+theorem invoke_assertTrue_listObject (object : Core.Module.ListObject) :
+    invoke (.helper .assertTrue) [.listObject object] =
+      if object.contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none := by
+  rw [invoke]
+  rfl
+
 theorem invoke_assertTrue_tupleObject (object : Core.Module.TupleDispatch.Object) :
     invoke (.helper .assertTrue) [.tupleObject object] =
       if object.contents.isEmpty then .error (.raised (.assertionError .emptyTuple)) else .ok .none := by

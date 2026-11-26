@@ -25,8 +25,6 @@ IMMUTABLE_ALIAS_SHA = "e5c11007f121cac93bfb3cbb9aa9ec74b48ac1e617400434a42b4668b
 
 TUPLE_TRUTH_PIN = "tests/python/programs/original/lambda-py/python-reference/tuple/tuple-truth.py"
 TUPLE_TRUTH_SHA = "b2cadc65b6d30d9998a4b5ae435d2452705ae82bd74dd3d98dbfb5275f0e8e44"
-HARNESS_PIN = "tests/python/evaluation/programs.py"
-HARNESS_SHA = "55091465bd9ff2b6f784d31b48798f50dfffb98b712e22c96fe4092b6e4eb37f"
 
 LIVE_COMPARISON_PIN = "tests/python/programs/original/k-python/programs/testtuples11.py"
 LIVE_COMPARISON_SHA = "b1e88db0dfe2d8470404900de6cac22eb9067b7042ad2a1af0b941a9e3cd7aab"
@@ -981,14 +979,7 @@ def replay_tuple_truth(checkout, source_path, lean_path):
     source = SUITE["pinned_source"](checkout, TUPLE_TRUTH_PIN, TUPLE_TRUTH_SHA)
     raw = (checkout / TUPLE_TRUTH_PIN).read_bytes()
     assert raw == source.encode("utf-8")
-    harness = SUITE["pinned_source"](checkout, HARNESS_PIN, HARNESS_SHA)
-    preamble, = (ast.literal_eval(stmt.value) for stmt in ast.parse(harness).body
-                 if isinstance(stmt, ast.Assign) and any(
-                     isinstance(target, ast.Name) and target.id == "LAMBDA_PY_PREAMBLE"
-                     for target in stmt.targets))
-    helper_namespace = {}
-    exec(compile(preamble, HARNESS_PIN, "exec", dont_inherit=True, optimize=0), helper_namespace)
-    stock_helper = helper_namespace["___assertTrue"]
+    stock_helper = SUITE["pinned_truth_helper"](checkout)
     missing = "NameError:___assertTrue"
     assert execute(raw, {}, expected={}) == missing
     failed = '[("___assertTrue", .error (.raised (.runtime (.nameError "___assertTrue"))))]'

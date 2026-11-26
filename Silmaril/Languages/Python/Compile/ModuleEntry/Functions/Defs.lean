@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
@@ -319,9 +320,7 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
     return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
   | _ => .error .argumentProfile
 
-def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value
-  | .none_ => some .none
-  | source => scalarLiteral? source
+def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value := ListDisplay.literal?
 
 /-- A direct stock-tuple candidate or a first argument converting a
 closed flat scalar list display. -/
@@ -666,6 +665,8 @@ inductive Action (scope : Scope) where
       (test : TupleIdentity.Test)
   | callTupleFromListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (contents : List Core.Module.Value) (remaining : Option (List (CallArgument scope)))
+  | callListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (display : ListDisplay.Display)
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
@@ -732,6 +733,11 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleListDisplayArguments tree.scope name arguments contents operands)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.callTupleFromListDisplay destination name reference contents operands :: tail)
+  | callListDisplay {index statement rest target name arguments destination reference display tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (checked : ListDisplay.Argument tree.scope arguments display)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.callListDisplay destination name reference display :: tail)
   | nestedCall {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -871,6 +877,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
         let tail ← lowerPlan tree index rest
         return ⟨.callTupleFromListDisplay destination.val name reference operands.val.1 operands.val.2 :: tail.val,
           .callTupleFromListDisplay site destination.property operands.property tail.property⟩
+      if let some display := ListDisplay.argument? tree.scope arguments then
+        let tail ← lowerPlan tree index rest
+        return ⟨.callListDisplay destination.val name reference display.val :: tail.val,
+          .callListDisplay site destination.property display.property tail.property⟩
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest
