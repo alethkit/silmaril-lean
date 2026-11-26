@@ -61,14 +61,14 @@ private theorem mapDerivation_comp {t : Tm Empty P.Instr n} (d : Derivation P.In
     all_goals stripDerivationCasts
     all_goals first | assumption | simp [SignatureMap.comp]
 
-private theorem mapOperand_id (a : Operand P.Instr β A) :
+theorem mapOperand_id (a : Operand P.Instr β A) :
     HEq (a.mapSignature (SignatureMap.id (Φ := P.Instr) (τ := τ) (ε := ε))) a := by
   obtain ⟨t, d⟩ := a
   have hd := mapDerivation_id d
   unfold Operand.mapSignature
   congr! (config := .unfoldSameFun) 1 <;> simp [SignatureMap.id]
 
-private theorem mapOperand_comp (a : Operand P.Instr β A) :
+theorem mapOperand_comp (a : Operand P.Instr β A) :
     HEq (a.mapSignature (h.comp g)) ((a.mapSignature g).mapSignature h) := by
   obtain ⟨t, d⟩ := a
   have hd := mapDerivation_comp g h d
@@ -87,14 +87,14 @@ private theorem mapOperand_cast_heq {n : Nat} {γ : BoundCtx υ n} {A B : υ}
   subst B
   rfl
 
-private theorem mapOperand_comp_cast (a : Operand P.Instr β A) {B : υ} {D : κ}
+theorem mapOperand_comp_cast (a : Operand P.Instr β A) {B : υ} {D : κ}
     (eg : g.ty A = B) (eh : h.ty B = D) (ec : (h.comp g).ty A = D) :
     HEq ((a.mapSignature (h.comp g)).castResult ec)
       ((((a.mapSignature g).castResult eg).mapSignature h).castResult eh) :=
   (castOperand_heq ec _).trans ((mapOperand_comp g h a).trans
     ((castOperand_heq eh _).trans (mapOperand_cast_heq h eg _)).symm)
 
-private theorem codeSignature_id_heq (c : Code P.Instr β A) :
+theorem codeSignature_id_heq (c : Code P.Instr β A) :
     HEq (c.mapSignature (SignatureMap.id (Φ := P.Instr) (τ := τ) (ε := ε))) c := by
   induction c with
   | br a =>
@@ -122,7 +122,7 @@ private theorem codeSignature_id_heq (c : Code P.Instr β A) :
     congr! (config := .unfoldSameFun) 1
     simp [SignatureMap.id]
 
-private theorem codeSignature_comp_heq (c : Code P.Instr β A) :
+theorem codeSignature_comp_heq (c : Code P.Instr β A) :
     HEq (c.mapSignature (h.comp g)) ((c.mapSignature g).mapSignature h) := by
   induction c with
   | br a =>

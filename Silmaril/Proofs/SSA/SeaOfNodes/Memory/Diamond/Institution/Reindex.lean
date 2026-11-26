@@ -34,11 +34,11 @@ private theorem mapOrigin_comp (rename : PortMap args target) (rename' : PortMap
     mapOrigin (fun p => rename' (rename p)) wire = mapOrigin rename' (mapOrigin rename wire) := by
   cases wire <;> rfl
 
-private theorem mapBody_id (body : Body args past version) :
+theorem mapBody_id (body : Body args past version) :
     mapBody (fun p => p) body = body := by
   induction body <;> simp only [mapBody, mapOrigin_id, *]
 
-private theorem mapBody_comp (rename : PortMap args target) (rename' : PortMap target next)
+theorem mapBody_comp (rename : PortMap args target) (rename' : PortMap target next)
     (body : Body args past version) :
     mapBody (fun p => rename' (rename p)) body = mapBody rename' (mapBody rename body) := by
   induction body <;> simp only [mapBody, mapOrigin_comp, *]
@@ -110,7 +110,7 @@ private theorem read_mapOrigin (rename : PortMap args target) {sort : ValueSort}
   | arg p => exact (pullInput_get rename input p).symm
   | output _ _ => rfl
 
-private theorem denote_mapBody (rename : PortMap args target) (body : Body args past version)
+theorem denote_mapBody (rename : PortMap args target) (body : Body args past version)
     (input : Tuple (Val cells) target) (locals : Locals (Val cells) past) (initial : Heap cells) :
     (mapBody rename body).denote input locals initial =
       body.denote (pullInput rename input) locals initial := by

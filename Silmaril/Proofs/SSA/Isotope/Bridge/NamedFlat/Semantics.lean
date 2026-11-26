@@ -11,7 +11,7 @@ open LambdaSSA.Semantics (Env extend)
 open LetCase.LocallyNameless (Tm)
 open Silmaril.Isotope.Morphism.CaseSSA (erase)
 
-universe u
+universe u v
 variable {V K F α : Type u} {n labels : Nat}
 variable (prim : F → Value α → Part (Value α))
 
@@ -71,7 +71,7 @@ private theorem evalOperand (src : Op V F) {names : Names V n} {target : Tm Empt
 
 variable [DecidableEq V]
 
-private theorem agrees_bind {names : Names V n} {store : V → Value α} {env : Env α}
+theorem agrees_bind {names : Names V n} {store : V → Value α} {env : Env α}
     (agrees : Agrees names store env) (reg : V) (arg : Value α) :
     Agrees (bindName names reg) (upd store reg arg) (extend env arg) := by
   intro x i found
@@ -227,7 +227,7 @@ private theorem body_numbered (index : K → Option (Fin labels)) (src : CFG.Bod
     exact ih hc ran
 
 omit [DecidableEq V] in
-private theorem tabulate_at {A : Type u} {count : Nat} {f : Fin count → Option A}
+theorem tabulate_at {A : Type u} {count : Nat} {f : Fin count → Option A}
     {table : Fin count → A} (elaborated : tabulate count f = some table) (i : Fin count) :
     f i = some (table i) := by
   induction count with
@@ -273,7 +273,7 @@ theorem block_iff (graph : CFG V K F) (exits : List K) (captures : Fin n → V)
   exact agrees_bind hidden _ payload
 
 omit [DecidableEq V] in
-theorem lookup_index (blocks : List (K × CFG.Block V K F)) (label : K) :
+theorem lookup_index {G : Type v} (blocks : List (K × CFG.Block V K G)) (label : K) :
     blocks.lookup label = (blocks.findFinIdx? (fun item => label == item.1)).map
       (fun i => blocks[i].2) := by
   induction blocks with

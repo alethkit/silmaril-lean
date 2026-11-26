@@ -75,6 +75,47 @@ theorem alternating_fold_square {A B : Q} (g : A ⟶ B ⨿ A) :
       coprod.desc (𝟙 A) (𝟙 A) ≫ g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.alternating_fold_square pe g
 
+/-- A fold square is uniform when one mode only recurs into itself.
+The other mode can still recur into either mode. -/
+theorem binary_fold_of_closed_mode {A B : Q}
+    (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (closed :
+      coprod.inl ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A) ∨
+      coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inr : A ⟶ A ⨿ A)) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.binary_fold_of_closed_mode
+    Seed f g square closed
+
+/-- When the right mode always switches on recurrence, doubling the left
+row at its enlarged outward coproduct suffices for fold uniformity. -/
+theorem binary_fold_of_right_switch_and_double {A B : Q}
+    (f : A ⨿ A ⟶ B ⨿ (A ⨿ A)) (g : A ⟶ B ⨿ A)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 A) (𝟙 A)) =
+      coprod.desc (𝟙 A) (𝟙 A) ≫ g)
+    (switch : coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : A ⟶ A ⨿ A))
+    (double :
+      let p := (coprod.inl ≫ f) ≫ (coprod.associator B A A).inv
+      I (p ≫ coprod.desc coprod.inl p) = I p) :
+    I f = coprod.desc (𝟙 A) (𝟙 A) ≫ I g :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.binary_fold_of_right_switch_and_double
+    Seed f g square switch double
+
+/-- The alternating reduction uses the same chosen iteration in any contextual quotient. -/
+theorem alternating_fold_iff_double_of_seed
+    (S : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    {A B : Paper.Extension.Singleton.TypeCategory S} (g : A ⟶ B ⨿ A) :
+    iterateChosen S (coprod.desc (g ≫ coprod.map (𝟙 B) coprod.inr)
+      (g ≫ coprod.map (𝟙 B) coprod.inl)) =
+        coprod.desc (𝟙 A) (𝟙 A) ≫ iterateChosen S g ↔
+      iterateChosen S (g ≫ coprod.desc coprod.inl g) = iterateChosen S g := by
+  have alt := coprod.hom_ext
+    ((Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_row_routes S g).1.trans (coprod.inl_desc _ _).symm)
+    ((Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_row_routes S g).2.trans (coprod.inr_desc _ _).symm)
+  rw [← alt]
+  exact Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.HiddenBitFeedback.TwoMode.alternate_uniform_iff S g
+
 /-- Uniformity for the binary fold on an alternating step is exactly the double-step equation. -/
 theorem alternating_fold_iff_double {A B : Q} (g : A ⟶ B ⨿ A) :
     I (alternatingStep pe g) = coprod.desc (𝟙 A) (𝟙 A) ≫ I g ↔

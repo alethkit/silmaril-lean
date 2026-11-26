@@ -120,23 +120,24 @@ private theorem tracked_local (context : Context) (name : String)
   simp [resolveScalar, resolveRead, resolveReadValue, Silmaril.Languages.Starlark.resolveName, legal, member,
     fileSlot, Except.map]
 
-theorem compile_chain {globals : List String} {program : Program}
+theorem compile_chain_scoped {globals : List String} {program : Program}
     {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
-    ∃ head rest, Emits globals outer chain (head :: rest) ∧
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals outer chain (head :: rest) ∧
       compileBody (parentContext globals outer) chain.definition program =
         .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
           EmittedProgram program (head :: rest)) := by
   induction accepted with
   | @mixed outer name parameters locals body next assignment returned returnReads
       localDecls targetProfile rhsProfile returnProfile assigned resolvedReturn =>
-    obtain ⟨free, reads, selected, compiled⟩ := mixed_definition (parentContext globals outer) name parameters locals
+    obtain ⟨free, leaf, reads, selected, compiled⟩ := mixed_definition_linked (parentContext globals outer) name parameters locals
       body localDecls targetProfile rhsProfile returnProfile program next assignment returned returnReads
       assigned resolvedReturn
     let frame : Frame := ⟨parameters, locals, free,
       .seq (assignPatternCode assignment.pattern assignment.rhs directStages) (.returnExpr returned)⟩
-    exact ⟨frame, [], .mixed localDecls reads selected, compiled⟩
+    exact ⟨frame, [], .mixed localDecls reads selected, .mixed _ _ _ _ _ leaf, .mixed leaf, compiled⟩
   | @wrapper outer name parameters locals child localDecls legal childAccepted ih =>
-    obtain ⟨head, rest, emitted, compiledChild⟩ := ih
+    obtain ⟨head, rest, emitted, linked, scopes, compiledChild⟩ := ih
     have named := wrapper_owns_child parameters locals child.name localDecls
     let block : LexicalBlock := ⟨parameters ++ locals, outer.flatten, globals⟩
     let reads := head.free.map FreeName.source ++ [fileSlot child.name]
@@ -163,12 +164,30 @@ theorem compile_chain {globals : List String} {program : Program}
     let frame : Frame := ⟨parameters, locals, free, .seq
       (.define (fileSlot child.name) (EmittedProgram program rest).size)
       (.returnExpr (.atom (.read (.bound (fileSlot child.name)))))⟩
-    refine ⟨frame, head :: rest, .wrapper localDecls emitted selected, ?_⟩
+    refine ⟨frame, head :: rest, .wrapper localDecls emitted selected, .wrapper named rfl linked, .wrapper scopes, ?_⟩
     change captureNames (parameters ++ locals) (head.free.map FreeName.source ++ [fileSlot child.name]) =
       free at exactFree
     dsimp only at compiled
     rw [exactFree] at compiled
     exact compiled
+
+theorem compile_chain_linked {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) := by
+  obtain ⟨head, rest, emitted, linked, _, compiled⟩ := compile_chain_scoped accepted
+  exact ⟨head, rest, emitted, linked, compiled⟩
+
+theorem compile_chain {globals : List String} {program : Program}
+    {outer : List (List String)} {chain : Chain} (accepted : Accepted globals program outer chain) :
+    ∃ head rest, Emits globals outer chain (head :: rest) ∧
+      compileBody (parentContext globals outer) chain.definition program =
+        .ok (⟨.define (fileSlot chain.name) (EmittedProgram program rest).size, head.free.map FreeName.source⟩,
+          EmittedProgram program (head :: rest)) := by
+  obtain ⟨head, rest, emitted, _, compiled⟩ := compile_chain_linked accepted
+  exact ⟨head, rest, emitted, compiled⟩
 
 theorem emitted_declaration (program : Program) (frames : List Frame) (frame : Frame)
     (present : frame ∈ frames) : ∃ id : Nat, (EmittedProgram program frames)[id]? = some frame.declaration := by

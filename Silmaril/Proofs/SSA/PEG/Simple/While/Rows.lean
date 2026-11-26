@@ -80,17 +80,12 @@ variable (m : Interpretation.{u,v,w} P) (env : Tuple m.Value params)
     Option (m.Value out) :=
   r.label.interpret m env i fun k j _ => reads (r.refs.get (portAt r.inputs k)) j
 
-@[expose] noncomputable def readPort (p : WhileProgram P params out) (neg : P [.bool] .bool)
-    (values : (p.translate neg).Valuation m) {t : Ty Data} (r : Port p.layout t) (i : Index 1) :
-    Option (m.Value t) :=
-  (numberPort r).read m.carrier (values ((numberPort r).id, i))
-
 theorem equationAt (p : WhileProgram P params out) (neg : P [.bool] .bool)
     {values : (p.translate neg).Valuation m} (h : (p.translate neg).Solves m env values)
     (i : Index 1) (t : Ty Data) (r : Port p.layout t) :
-    readPort m p neg values r i = rowValue m env (p.row neg r) (readPort m p neg values) i := by
-  refine portForall p.layout (fun t r => readPort m p neg values r i =
-    rowValue m env (p.row neg r) (readPort m p neg values) i) ?_ t r
+    p.readPort neg m values r i = rowValue m env (p.row neg r) (p.readPort neg m values) i := by
+  refine portForall p.layout (fun t r => p.readPort neg m values r i =
+    rowValue m env (p.row neg r) (p.readPort neg m values) i) ?_ t r
   intro j
   have ref : numberPort (portAt p.layout j) = Ref.ofId (p.translate neg).sort j := by
     have idEq := Proofs.number_portAt p.layout j
@@ -100,7 +95,7 @@ theorem equationAt (p : WhileProgram P params out) (neg : P [.bool] .bool)
       change id = j at idEq
       subst id
       rfl
-  unfold readPort
+  unfold WhileProgram.readPort
   rw [ref]
   change values (j, i) = _
   rw [h (j, i)]

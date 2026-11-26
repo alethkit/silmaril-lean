@@ -14,7 +14,10 @@ closes a supplied table of ground obligations and checks a cyclic
 selection with structural row evidence. The
 [bounded root optimizer](peggy-optimizer.md) matches supplied schemas,
 generates and checks single-result PEG candidates, and selects by an
-explicit static metric.
+explicit static metric. The
+[contextual optimizer](peggy-contextual-optimizer.md) rewrites shared
+internal rows across ordered outputs and counts distinct reachable
+application vertices.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -83,7 +86,7 @@ guard makes the evaluation demands well founded. [Definition 5.1 and Fig. 11](ht
 ## Checked loop-free reversion
 
 [Simple.Revert.Thms](../../Silmaril/SSA/PEG/Simple/Revert/Thms.lean) admits typed,
-single-result PEGs with zero loops and a caller-supplied schedule. Call
+single-result PEGs with zero loops. The manual certificate path calls
 `Certificate.check g rank plan` on a typed graph, optionally obtained with
 `RawGraph.check`. The rank must strictly decrease along every operand edge,
 including edges in dead rows. Vertex identities need no particular numbering.
@@ -104,6 +107,30 @@ The restriction rejects some valid loop-free graphs and placements, including
 cases that would need to duplicate a vertex across disjoint arms or justify
 moving it with stronger demand information.
 [Certificate and lowering](../../Silmaril/SSA/PEG/Simple/Revert/Defs.lean)
+
+### Automatic scheduling
+
+`Automatic.check g` computes a candidate rank by propagating dependency
+heights through a finite table, then synthesizes the schedule. Use
+`Automatic.checkRanked g rank` when a graph producer already has a rank.
+Each scope scans vertices from higher to lower rank, exposing the strict
+operands of demanded nodes. It emits bindings in the reverse order. A φ
+recursively schedules each selected operand with the locals available at
+the branch. A shared budget of one writer per vertex bounds generation.
+The existing certificate checker validates the generated plan, including
+the whole-table rank and unique writer sites.
+[`Automatic.Defs`](../../Silmaril/SSA/PEG/Simple/Revert/Automatic/Defs.lean)
+
+`inferRank_ordered` proves that inference succeeds whenever a valid rank
+exists. `check_accepts_straightLine` proves that the graph-only entry point
+admits every such graph with only parameter and primitive rows. Arbitrary vertex
+numbering, dead rows and repeated wires are allowed. For graphs with φ,
+the planner conservatively rejects placements that would bind a vertex
+in more than one scope. Scope placement is determined by rank order, so
+some graphs with legal manual schedules can also be rejected. The planner
+uses strict dependency discovery within each scope. Cross-arm demand
+analysis and the paper's full MustEval progress obligations remain open.
+[Acceptance theorem](../../Silmaril/SSA/PEG/Simple/Revert/Automatic/Thms.lean)
 
 The output is the existing `Simple.Program P false params result` and runs
 using `Program.runLoopFree`, which realizes the existing `Exec` relation.
@@ -128,16 +155,25 @@ chosen representative and its schedule.
 | Paper obligation | Status |
 | --- | --- |
 | [Fig. 19 and §7.1](https://arxiv.org/pdf/1012.1802v3#page=40) | Depth-zero single-return admission. General Type-Theta, Type-Assume, Type-Reduce and Type-Eval-Pass remain open, including same-loop pass pairing and the recursive assumption side condition. The printed Type-Eval-Pass premise is `ℓ = ℓ′ + 1`, where `ℓ` is the surrounding depth and `ℓ′` is the sampled loop depth. An inner loop sampled from its parent instead calls for `ℓ′ = ℓ + 1`. A future loop judgment must formalize that direction and prove its scope and demand guarantees. |
-| [§§7.2–7.5](https://arxiv.org/pdf/1012.1802v3#page=41) | One-result branch extraction and sequencing from supplied certificates. Automatic plan synthesis, general branch-region extraction and multi-result joins remain open. Loop extraction must relate θ initialization and simultaneous feedback copies, first defined pass, and eval's earlier-prefix demands to the emitted loop. |
+| [§§7.2–7.5](https://arxiv.org/pdf/1012.1802v3#page=41) | Automatic plan synthesis, one-result scope placement and sequencing for the admitted fragment. General branch-region extraction and multi-result joins remain open. Loop extraction must relate θ initialization and simultaneous feedback copies, first defined pass, and eval's earlier-prefix demands to the emitted loop. |
 | [§§7.6–7.7](https://arxiv.org/pdf/1012.1802v3#page=49) | Loop and branch fusion remain open. Fusion must preserve exit predicates, feedback dependencies and demands under the chosen observation. |
 | [§7.8](https://arxiv.org/pdf/1012.1802v3#page=53) | Checked local hints use the strict operation and φ-guard rules. A computed MustEval analysis with Definition 7's progress requirements, statement/loop contexts and automatic redundancy hoisting remains open. |
 | [§7.9](https://arxiv.org/pdf/1012.1802v3#page=56) | LICM remains open. Invariance and demand on entry need separate justification, including zero-iteration and partial-operation cases. |
 
-Run `make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.Revert.Thms PEGCoreTests'`
+Run `make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.Revert.Automatic.Thms PEGCoreTests'`
 for the scoped build and repository gates. The
 [fixture](../../tests/ssa/PEGRevert.lean) runs both φ choices, checks a
 bottom unselected arm and a dominating shared value, and exercises rejected
-speculation, scope, duplicate-binding and rank certificates.
+speculation, scope, duplicate-binding and rank certificates. It also checks
+automatic admission and runs the synthesized syntax.
+
+## Checked SIMPLE optimization
+
+The executable SIMPLE pipeline combines frontend lowering, contextual
+discovery and replay, and automatic reversion. It preserves successful
+SIMPLE returns under rule laws over partial values. The worked example
+optimizes a shared computation inside a φ arm and executes the emitted
+SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
 
 ## Follow-up roadmap
 
@@ -177,7 +213,10 @@ for the current priorities.
    order independence for a fixed table of ground reasons. It derives
    candidate equations for same-label rewiring. The
    [root optimizer](peggy-optimizer.md) adds rows and finds typed
-   instances in a bounded loop-free search. Extend matching and node
+   instances in a bounded loop-free search. The
+   [cyclic optimizer](peggy-cyclic-optimizer.md) discovers guarded θ
+   self-feedback and checks the compacted candidate on a one-loop profile.
+   Extend matching and node
    generation to more general contexts, and prove reversion. The
    [acyclic bridge](peggy-egg.md) reuses sorted Egg replay. The full
    node-generating form of §4 remains a separate proof obligation. Use an independent graph and
@@ -201,7 +240,7 @@ for the current priorities.
    signature direction needs sentences backward and models forward.
    A one-way compiler theorem supplies simulation or refinement. Exact
    satisfaction and consequence reflection require separate proofs,
-   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg-mlir-regionless.md) ·
+   with model expansiveness for reflection. [RVSDG–MLIR model bridge](rvsdg/mlir/rvsdg-mlir-regionless.md) ·
    [SSA and machine boundaries](ssa.md)
 6. **Paper view and Java profile**. Add a leaf under
    `Silmaril.Papers.TateSteppTatlockLerner2011` once the reusable theorems

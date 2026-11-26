@@ -42,7 +42,7 @@ variable {entry users : Ports Ty} {scope : List (Ports Ty)}
   ∀ {ty} (source : Origin entry scope ty), source.address ∈ live →
     valueAt source left localsL = valueAt source right localsR
 
-private theorem get_read (wires : Wires entry scope users) (input : Tuple F entry)
+theorem get_read (wires : Wires entry scope users) (input : Tuple F entry)
     (locals : Locals F scope) {ty : Ty} (p : Port users ty) :
     (wires.read input locals).get p = valueAt (wires.get p) input locals := by
   induction p with

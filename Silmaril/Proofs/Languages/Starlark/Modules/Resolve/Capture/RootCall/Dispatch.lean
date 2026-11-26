@@ -33,6 +33,16 @@ theorem checked_call_site (before after : List Command) (callee : SourceExpr) (p
   obtain ⟨reads, operand⟩ := resolves_call related arguments
   exact checked_eval_site before after _ _ reads globals linked resolved binders checked operand
 
+theorem checked_call_assignment_site (before after : List Command) (destination : String) (callee : SourceExpr) (positional : List SourceExpr)
+    (function : ResolvedExpr) (actuals : List ResolvedExpr) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .assign destination (.call callee positional [] none none) :: after) globals)
+    (checked : resolve (before ++ .assign destination (.call callee positional [] none none) :: after) linked = .ok resolved)
+    (related : Operand globals callee function) (arguments : InOrder (Operand globals) positional actuals) :
+    resolved.source.commands[before.length]? = some (.exec (.assignExpr destination (.call function actuals [] none none))) := by
+  obtain ⟨reads, operand⟩ := resolves_call related arguments
+  exact checked_assign_site before after destination _ _ reads globals linked resolved binders checked operand
+
 theorem checked_root_setup (before after : List Command) (chain : Forwarding.Chain) (globals : List String)
     (linked : Program) (resolved : ResolvedModule)
     (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
@@ -52,16 +62,23 @@ theorem checked_root_setup (before after : List Command) (chain : Forwarding.Cha
     (List.mem_append_right _ List.mem_cons_self) caller id found
   exact ⟨head, frames, id, next, captures, emits, command, found, ran, distinct, live⟩
 
+theorem operand_error_expr (program : Program) (available : List DeclarationId) {globals : List String}
+    {state next : State} {callee : SourceExpr} {positional : List SourceExpr}
+    {function : ResolvedExpr} {actuals : List ResolvedExpr} {error : Silmaril.Languages.Starlark.Lists.Error}
+    (related : Operand globals callee function) (arguments : InOrder (Operand globals) positional actuals)
+    (evaluated : EvaluatesOperands state (callee :: positional) (.error error next)) :
+    ExecExpr program available state (.call function actuals [] none none) (.error error next) := by
+  have operands := evaluates_operands program available (fun _ _ _ => False) (.cons related arguments) evaluated
+  apply ExecExpr.evaluates (calls := fun _ _ _ => False) (fun _ _ _ impossible => impossible.elim)
+  exact .callError (by simpa [Lowering.sourceOperands] using operands)
+
 theorem operand_error (program : Program) (available : List DeclarationId) {globals : List String}
     {state next : State} {callee : SourceExpr} {positional : List SourceExpr}
     {function : ResolvedExpr} {actuals : List ResolvedExpr} {error : Silmaril.Languages.Starlark.Lists.Error}
     (related : Operand globals callee function) (arguments : InOrder (Operand globals) positional actuals)
     (evaluated : EvaluatesOperands state (callee :: positional) (.error error next)) :
-    Exec program available state (.evalExpr (.call function actuals [] none none)) (.error error next) := by
-  have operands := evaluates_operands program available (fun _ _ _ => False) (.cons related arguments) evaluated
-  apply Exec.evalExpr (out := .error error next)
-  apply ExecExpr.evaluates (calls := fun _ _ _ => False) (fun _ _ _ impossible => impossible.elim)
-  exact .callError (by simpa [Lowering.sourceOperands] using operands)
+    Exec program available state (.evalExpr (.call function actuals [] none none)) (.error error next) :=
+  .evalExpr (operand_error_expr program available related arguments evaluated)
 
 private theorem evaluation_length {state next : State} {source : List SourceExpr} {values : List Value}
     (evaluated : EvaluatesOperands state source (.ok values next)) : source.length = values.length := by
@@ -91,10 +108,58 @@ private theorem positioned {code : List ResolvedExpr} {values : List Value} (sta
   simpa only [List.append_nil] using Lowering.Expands.success (args := ⟨values, [], none, none⟩) (keys := [])
     (values := []) (next := state) rfl .empty
 
-private theorem callee_read {state : State} {name : String} {address : Address} {id : Nat}
-    {captures : List Capture} {frozen : Bool} (live : Live state name address id captures frozen) :
+private theorem callee_read {state : State} {name : String} {address : Address}
+    (binding : state.bindingValue (globalSlot name) = .ok (.function address)) :
     Evaluates state (.scalar (.read name)) (.ok (.function address) state) := by
-  simpa [State.read, live.binding] using Evaluates.name (state := state) name
+  simpa [State.read, binding] using Evaluates.name (state := state) name
+
+theorem checked_invocation_expr {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    {globals : List String} {name : String} {state : State} {positional : List SourceExpr} {actuals : List ResolvedExpr}
+    {address : Address} {id : Nat} {captures : List Capture} {frozen : Bool} {frame : Forwarding.Frame}
+    {values : List Value} (checked : resolve commands linked = .ok resolved)
+    (callee : Operand globals (.scalar (.read name)) (.atom (.read (.bound (globalSlot name)))))
+    (arguments : InOrder (Operand globals) positional actuals)
+    (binding : state.bindingValue (globalSlot name) = .ok (.function address))
+    (cell : state.heap[address]? = some ⟨.function ⟨id, captures, []⟩, frozen⟩)
+    (found : resolved.program[id]? = some frame.declaration)
+    (evaluated : EvaluatesOperands state positional (.ok values state))
+    {result : Except Silmaril.Languages.Starlark.Lists.Error (List (Silmaril.Languages.Starlark.Binding × Value))}
+    (binds : Entry.Binds frame.parameters values result) (out : Outcome Flow)
+    (bodyRun : ∀ assigned, result = .ok assigned →
+      Exec resolved.program (withoutDeclaration (List.range resolved.program.size) id)
+        (activate state frame.declaration captures assigned) frame.code out) :
+    ExecExpr resolved.program (List.range resolved.program.size) state
+      (.call (.atom (.read (.bound (globalSlot name)))) actuals [] none none)
+      (match result with
+      | .error error => .error error state
+      | .ok _ => match out with
+        | .ok flow final => .ok (Lowering.callValue flow) (restoreCaller state final)
+        | .error error final => .error error (restoreCaller state final)) := by
+  let available := List.range resolved.program.size
+  have permitted : id ∈ available := List.mem_range.mpr (Array.getElem?_eq_some_iff.mp found).choose
+  have prepare := Entry.checked_prepare checked available frame id permitted state address captures frozen values result
+    cell found binds
+  have length := (evaluation_length evaluated).symm.trans (resolution_length arguments)
+  have expansion := positioned state length
+  have ordered : EvaluatesOperands state (.scalar (.read name) :: positional)
+      (.ok (.function address :: values) state) := .cons (callee_read binding) evaluated
+  let calls : ClosureRuns available := fun plan next outcome =>
+    Exec resolved.program (withoutDeclaration available plan.id) next plan.body outcome
+  have operands := evaluates_operands resolved.program available calls (.cons callee arguments) ordered
+  have spine : Lowering.sourceOperands (.atom (.read (.bound (globalSlot name)))) actuals [] none none =
+      .atom (.read (.bound (globalSlot name))) :: actuals := by simp [Lowering.sourceOperands]
+  rw [← spine] at operands
+  cases result with
+  | error error =>
+    exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.reject prepare)))
+  | ok assigned =>
+    have runs : calls ⟨id, permitted, frame.code⟩ (activate state frame.declaration captures assigned) out :=
+      bodyRun assigned rfl
+    cases out with
+    | ok flow final =>
+      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.returned prepare runs)))
+    | error error final =>
+      exact .evaluates (fun _ _ _ ran => ran) (.call operands (.expanded expansion (.failed prepare runs)))
 
 theorem checked_invocation {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     {globals : List String} {name : String} {state : State} {positional : List SourceExpr} {actuals : List ResolvedExpr}
@@ -114,36 +179,12 @@ theorem checked_invocation {commands : List Command} {linked : Program} {resolve
           (match result with
           | .error error => .error error state
           | .ok _ => completeCall state none out) := by
-  let available := List.range resolved.program.size
-  have permitted : id ∈ available := List.mem_range.mpr (Array.getElem?_eq_some_iff.mp found).choose
   obtain ⟨result, binds⟩ := Entry.binds_total frame.parameters values
-  have prepare := Entry.checked_prepare checked available frame id permitted state address captures frozen values result
-    live.cell found binds
-  have length := (evaluation_length evaluated).symm.trans (resolution_length arguments)
-  have expansion := positioned state length
-  have ordered : EvaluatesOperands state (.scalar (.read name) :: positional)
-      (.ok (.function address :: values) state) := .cons (callee_read live) evaluated
   refine ⟨result, binds, ?_⟩
   intro out bodyRun
-  let calls : ClosureRuns available := fun plan next outcome =>
-    Exec resolved.program (withoutDeclaration available plan.id) next plan.body outcome
-  have operands := evaluates_operands resolved.program available calls (.cons callee arguments) ordered
-  have spine : Lowering.sourceOperands (.atom (.read (.bound (globalSlot name)))) actuals [] none none =
-      .atom (.read (.bound (globalSlot name))) :: actuals := by simp [Lowering.sourceOperands]
-  rw [← spine] at operands
+  have invoked := checked_invocation_expr checked callee arguments live.binding live.cell found evaluated binds out bodyRun
   cases result with
-  | error error =>
-    exact .evalExpr (.evaluates (fun _ _ _ ran => ran)
-      (.call operands (.expanded expansion (.reject prepare))))
-  | ok assigned =>
-    have runs : calls ⟨id, permitted, frame.code⟩ (activate state frame.declaration captures assigned) out :=
-      bodyRun assigned rfl
-    cases out with
-    | ok flow final =>
-      exact .evalExpr (.evaluates (fun _ _ _ ran => ran)
-        (.call operands (.expanded expansion (.returned prepare runs))))
-    | error error final =>
-      exact .evalExpr (.evaluates (fun _ _ _ ran => ran)
-        (.call operands (.expanded expansion (.failed prepare runs))))
+  | error error => exact .evalExpr invoked
+  | ok assigned => cases out <;> exact .evalExpr invoked
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.RootCall

@@ -23,7 +23,7 @@ universe u v
 
 variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
-variable {observation : TermObservation}
+variable {observation : TermObservation (α := α) Φ}
 
 local notation "evalTerm" => evalTermWith observation
 local notation "evalRegion" => evalRegionWith observation

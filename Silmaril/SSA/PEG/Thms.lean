@@ -101,4 +101,9 @@ theorem RawGraph.toRaw_of_check {raw : RawGraph P params results n l} {g : Graph
     (h : raw.check = some g) : g.toRaw = raw :=
   Proofs.toRaw_of_check h
 
+theorem Graph.eq_of_toRaw_eq {a b : Graph P params results n l}
+    (h : a.toRaw = b.toRaw) : a = b := by
+  have eq := congrArg RawGraph.check h
+  simpa only [Graph.check_roundTrip, Option.some.injEq] using eq
+
 end Silmaril.SSA.PEG

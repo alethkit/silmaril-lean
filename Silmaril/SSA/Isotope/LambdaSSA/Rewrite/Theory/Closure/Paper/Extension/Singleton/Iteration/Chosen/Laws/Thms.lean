@@ -22,6 +22,28 @@ local notation "Q" => TypeCategory Seed
 local notation "P" => Paper.TypeCategory (τ := τ) Φ
 local notation "proj" => projection Seed
 
+/-- Projection carries the exact-to-chosen sum comparison to the quotient's
+sum comparison followed by the canonical coproduct comparison. -/
+theorem projection_mapIso_sumIso (A B : τ) :
+    (proj).mapIso (Paper.TypeCategory.sumIso A B) =
+      sumIso Seed A B ≪≫
+        PreservesColimitPair.iso (proj) (Paper.TypeCategory.ofType A) (Paper.TypeCategory.ofType B) :=
+  ProjectedElgot.sumIso_map Seed A B
+
+/-- Normalizing a projected step gives the projection of the normalized
+ordinary step. Both normalizations use the exact syntax sum. -/
+theorem projectStep_comp_sumIso_inv {A B : τ}
+    (f : Paper.TypeCategory.ofType (Φ := Φ) A ⟶ Paper.TypeCategory.ofType B ⨿ Paper.TypeCategory.ofType A) :
+    projectStep Seed f ≫ (sumIso Seed B A).inv =
+      (proj).map (f ≫ (Paper.TypeCategory.sumIso B A).inv) :=
+  ProjectedElgot.projectStep_comp_sumIso_inv Seed f
+
+/-- Every quotient step at the chosen coproduct lifts to a step at the
+ordinary chosen coproduct. -/
+theorem exists_projectStep {X Y : Q} (f : X ⟶ Y ⨿ X) :
+    ∃ f₀ : X.as ⟶ Y.as ⨿ X.as, projectStep Seed f₀ = f :=
+  ProjectedElgot.exists_projectStep Seed f
+
 /-- The chosen quotient iteration of a projected step is the image of standard Paper iteration. -/
 theorem iterateChosen_projectStep {X Y : P} (f : X ⟶ Y ⨿ X) :
     iterateChosen Seed (projectStep Seed f) = (proj).map (Paper.TypeCategory.iterate f) :=

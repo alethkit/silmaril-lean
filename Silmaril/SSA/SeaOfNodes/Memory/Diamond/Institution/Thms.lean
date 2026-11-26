@@ -11,10 +11,26 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution
 
 open CategoryTheory Silmaril.Logic.Institution
-open RVSDG (Port Tuple)
+open RVSDG (Locals Port Tuple)
 
 variable {P Q R : Signature}
-variable {args target : List ValueSort} {cells : Nat}
+variable {args target next : List ValueSort} {past : List (List ValueSort)} {cells version : Nat}
+
+theorem mapBody_id (body : Body args past version) :
+    mapBody (fun p => p) body = body :=
+  Proofs.mapBody_id body
+
+theorem mapBody_comp (rename : PortMap args target) (rename' : PortMap target next)
+    (body : Body args past version) :
+    mapBody (fun p => rename' (rename p)) body = mapBody rename' (mapBody rename body) :=
+  Proofs.mapBody_comp rename rename' body
+
+/-- Renaming a memory body is equivalent to reading the pulled-back inputs. -/
+theorem denote_mapBody (rename : PortMap args target) (body : Body args past version)
+    (input : Tuple (Val cells) target) (locals : Locals (Val cells) past) (initial : Heap cells) :
+    (mapBody rename body).denote input locals initial =
+      body.denote (pullInput rename input) locals initial :=
+  Proofs.denote_mapBody rename body input locals initial
 
 @[simp] theorem mapGraph_id (graph : Graph P.args) : mapGraph (𝟙 P) graph = graph :=
   Proofs.mapGraph_id graph

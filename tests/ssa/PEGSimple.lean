@@ -2,7 +2,12 @@ module
 
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Simple.While.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Thms
 import Silmaril.SSA.PEG.Thms
+meta import Silmaril.SSA.PEG.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Defs
+meta import Silmaril.SSA.PEG.Simple.While.Defs
+meta import Silmaril.SSA.PEG.Simple.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Tests
 
@@ -374,5 +379,157 @@ example : branchingLoop.source.Fails model (carry 0 1) :=
 
 example : factorial.rank.check (factorial.translate .not) = true := by decide
 example : (branchingLoop.translate .not).WellFormed := branchingLoop.translate_wellFormed .not
+
+private noncomputable def structured {params : List (Ty Unit)} {t : Ty Unit}
+    (p : Program Op true params t) (input : Tuple model.Value params) :
+    Tuple (fun ty => Option (model.Value ty)) [t] :=
+  let g := Structured.translate p .not
+  g.observe model (g.denote model input (Structured.translate_demandWellFounded p .not)) (fun _ => 17)
+
+/-- The second while is selected by a branch and initialized using the first
+while's exit. The alternative contains a failing primitive. -/
+private def siblingLoops : Program Op true [.count, .count] .count where
+  locals := [.count, .count]
+  body := .seq factorial.source.body
+    (.branch (.op .positive (.cons (.var .head) .nil))
+      (.seq (.project (.cons .head (.cons .head .nil))) factorial.source.body)
+      (.seq (.assign (.op .bad .nil))
+        (.project (.cons (.tail .head) (.cons (.tail (.tail .head)) .nil)))))
+  retvar := .head
+
+private theorem siblingReturns : siblingLoops.Returns model (carry 1 3) ⟨4320⟩ := by
+  refine ⟨carry 4320 0, ?_, rfl⟩
+  exact .seq (next := carry 6 0) (factorialExec 1 3)
+    (.branchTrue rfl (.seq (next := carry 6 6) .project (factorialExec 6 6)))
+
+example : structured siblingLoops (carry 1 3) = .cons (some ⟨4320⟩) .nil :=
+  Structured.translate_returns siblingLoops .not model (carry 1 3) (fun _ => rfl)
+    siblingReturns (fun _ => 17)
+
+private def triple (acc outer inner : Nat) : Tuple model.Value [.count, .count, .count] :=
+  .cons ⟨acc⟩ (.cons ⟨outer⟩ (.cons ⟨inner⟩ .nil))
+
+private def innerTest : Expr Op [.count, .count, .count] .bool :=
+  .op .positive (.cons (.var (.tail (.tail .head))) .nil)
+
+private def innerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .seq (.assign (.op .add (.cons (.var .head) (.cons (.var (.tail (.tail .head))) .nil))))
+    (.seq (.assign (.op .pred (.cons (.var (.tail (.tail (.tail .head)))) .nil)))
+      (.project (.cons (.tail .head) (.cons (.tail (.tail (.tail .head))) (.cons .head .nil)))))
+
+private def innerLoop : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .while rfl innerTest innerBody
+
+private def innerResult (acc : Nat) : Nat → Nat
+  | 0 => acc
+  | k + 1 => innerResult (acc + (k + 1)) k
+
+private theorem innerExec (acc outer k : Nat) :
+    Exec model innerLoop (triple acc outer k) (some (triple (innerResult acc k) outer 0)) := by
+  induction k generalizing acc with
+  | zero => exact .whileStop rfl
+  | succ k ih =>
+    apply Exec.whileStep (next := triple (acc + (k + 1)) outer k) rfl ?_ (ih _)
+    exact .seq (next := prependCount (acc + (k + 1)) (triple acc outer (k + 1))) (.assign rfl)
+      (.seq (next := prependCount k (prependCount (acc + (k + 1)) (triple acc outer (k + 1))))
+        (.assign rfl) .project)
+
+private def outerTest : Expr Op [.count, .count, .count] .bool :=
+  .op .positive (.cons (.var (.tail .head)) .nil)
+
+private def outerBody : Stmt Op true [.count, .count, .count] [.count, .count, .count] :=
+  .seq (.project (.cons .head (.cons (.tail .head) (.cons (.tail .head) .nil))))
+    (.seq innerLoop
+      (.seq (.assign (.op .pred (.cons (.var (.tail .head)) .nil)))
+        (.project (.cons (.tail .head) (.cons .head (.cons (.tail (.tail (.tail .head))) .nil))))))
+
+private def outerResult (acc : Nat) : Nat → Nat
+  | 0 => acc
+  | k + 1 => outerResult (innerResult acc (k + 1)) k
+
+private theorem outerExec (acc k : Nat) :
+    Exec model (.while rfl outerTest outerBody) (triple acc k 0)
+      (some (triple (outerResult acc k) 0 0)) := by
+  induction k generalizing acc with
+  | zero => exact .whileStop rfl
+  | succ k ih =>
+    apply Exec.whileStep (next := triple (innerResult acc (k + 1)) k 0) rfl ?_ (ih _)
+    exact .seq (next := triple acc (k + 1) (k + 1)) .project
+      (.seq (next := triple (innerResult acc (k + 1)) (k + 1) 0) (innerExec acc (k + 1) (k + 1))
+        (.seq (next := prependCount k (triple (innerResult acc (k + 1)) (k + 1) 0))
+          (.assign rfl) .project))
+
+/-- The inner loop's trip count is the current outer counter. For an outer
+input of three the inner exits occur at three, two and one, respectively. -/
+private def nestedLoops : Program Op true [.count, .count, .count] .count where
+  locals := [.count, .count, .count]
+  body := .while rfl outerTest outerBody
+  retvar := .head
+
+example (acc n : Nat) : structured nestedLoops (triple acc n 0) =
+    .cons (some ⟨outerResult acc n⟩) .nil :=
+  Structured.translate_returns nestedLoops .not model (triple acc n 0) (fun _ => rfl)
+    ⟨triple (outerResult acc n) 0 0, outerExec acc n, rfl⟩ (fun _ => 17)
+
+example : structured nestedLoops (triple 0 3 0) = .cons (some ⟨10⟩) .nil :=
+  Structured.translate_returns nestedLoops .not model (triple 0 3 0) (fun _ => rfl)
+    ⟨triple 10 0 0, outerExec 0 3, rfl⟩ (fun _ => 17)
+
+private def passParents {params : List (Ty Unit)} (p : Program Op true params .count) :
+    List (Nat × Option Nat) :=
+  let g := Structured.translate p .not
+  (List.finRange (Structured.program p .not).nodes.length).filterMap fun i =>
+    (Structured.passLoop (g.node i).label).map fun loop =>
+      (loop.val, (g.forest.parent loop).map Fin.val)
+
+#guard match passParents siblingLoops with
+  | [(a, none), (b, none)] => a < b
+  | _ => False
+
+#guard match passParents nestedLoops with
+  | [(outer, none), (inner, some parent)] => parent = outer ∧ outer < inner
+  | _ => False
+
+-- The structural admission also supplies existence and uniqueness for the
+-- graph whose inner trip count changes with the enclosing iteration.
+example :
+    ∃! value, (Structured.translate nestedLoops .not).Solves model (triple 0 3 0) value :=
+  (Structured.translate nestedLoops .not).existsUnique_solves_of_wellFormed model (triple 0 3 0)
+    (Structured.translate_wellFormed nestedLoops .not)
+
+example : (Structured.translate siblingLoops .not).Scoped :=
+  (Structured.translate_wellFormed siblingLoops .not).loopScope
+
+example : (Structured.translate nestedLoops .not).OuterFeedbackCycles :=
+  (Structured.translate_wellFormed nestedLoops .not).outerFeedback
+
+private def nestedIdentity : Program Op true [.bool] .bool where
+  locals := [.bool]
+  body := .while rfl (.var .head)
+    (.while rfl (.var .head) (.project (.cons .head .nil)))
+  retvar := .head
+
+private def nestedId (i : Fin 9) : Fin (Structured.program nestedIdentity .not).nodes.length := i
+
+/-- The outer θ depends on the inner exit. This cycle traverses the
+inner eval's index edge and the shared pass. -/
+private theorem nestedIndexCycle :
+    let g := Structured.translate nestedIdentity .not
+    Walk g.Edge (nestedId 7)
+      [.feedback (nestedId 1), .index (nestedId 4), .sample (nestedId 4),
+        .ordinary, .initial (nestedId 4)] (nestedId 7) := by
+  dsimp only
+  refine .cons (b := nestedId 3) ⟨⟨1, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 4) ⟨⟨1, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 5) ⟨⟨0, by decide⟩, rfl, rfl⟩ ?_
+  refine .cons (b := nestedId 6) ⟨⟨0, by decide⟩, rfl, rfl⟩ ?_
+  exact .cons ⟨⟨0, by decide⟩, rfl, rfl⟩ (.nil _)
+
+example : (Structured.translate nestedIdentity .not).forest.StrictlyEncloses (nestedId 1) (nestedId 4) := by
+  have wf := Structured.translate_wellFormed nestedIdentity .not
+  obtain ⟨outer, encloses, feedback⟩ := wf.outerFeedback _ _ nestedIndexCycle
+    (.index (nestedId 4)) (by simp) (nestedId 4) (.inr rfl)
+  have onlyOuter : outer = nestedId 1 := by simpa using feedback
+  rwa [onlyOuter] at encloses
 
 end Silmaril.SSA.PEG.Simple.Tests

@@ -137,6 +137,25 @@ arithmetic blocks above. [Pure MLIR institutions](mlir-institutions.md)
 | Minimal LLVM and future x86 validation | Start with pure single-block scalar integers, concrete defined inputs, constants, unflagged modular add/subtract/multiply and a return. Reject every instruction outside the profile. Initially exclude flags, shifts/division, `freeze`, `undef`, poison inputs and instructions that can produce poison, pointers, memory, calls and control flow. Keep unsupported syntax an admission error, immediate UB a separate execution outcome or semantic condition, poison a deferred value state and `undef` a use-dependent choice in extensions. Add one feature at a time and prove semantic refinement on the admitted defined inputs against a specified x86 observation and ABI. |
 | Larger dialects | Add small pure static-shape **StableHLO** operators first. For **Triton/Gluon**, start with layout-indexed pure tensor operations, then specify memory and parallel execution explicitly. For a **C dialect**, start with pure scalar expressions whose C types and definedness preconditions are explicit and relate those to the C semantics. |
 
+## Initialized MemRef execution
+
+The executable `Pure.Code` sequence binds exactly one `Width`-typed
+bitvector per operation. Its evaluator receives the bitvector operands,
+and typed CF passes only those values between blocks. A rank-one
+MemRef load needs a typed buffer reference and access to its cells.
+A store needs an ordered zero-result operation whose effect reaches
+later operations and the final heap observation.
+[Executable code](../../Silmaril/SSA/MLIR/Pure/Defs.lean) ·
+[Typed CF evaluator](../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean)
+
+The equational signature can describe zero results. Its
+`Term.app` must select a result, and its block syntax is a tuple of
+pure expressions. The missing interface is shared typed sequential
+syntax that admits zero-result operations, with a state-threaded
+interpretation for buffer-reference operands.
+[Operation profiles](../../Silmaril/SSA/MLIR/Signature/Defs.lean) ·
+[Equational syntax](../../Silmaril/SSA/MLIR/Institution/Defs.lean)
+
 ## Sources
 
 - The [MLIR Language Reference](https://mlir.llvm.org/docs/LangRef/) specifies

@@ -105,6 +105,123 @@ dominance-scoped SSA), `versionTop_evalSSA` and `versionTop_evalObs`
 (`(versionTop r).evalSSA m ρ = r.evalObs m σ` when `ρ (y, 0) = σ y`), assuming the
 model is pair-lawful (`unpair (pair a b) = pure (a, b)`).
 
+Deversioning (`RoundTrip.Thms`): `roundTrip_evalObs` compares acyclic λRTL with
+its versioned region renamed back to the original register type. Both runs use
+the same initial store and have equal computations of the exit label and
+payload. The theorem assumes a lawful monad, a pair-lawful model, decidable
+register and label equality, and infinitely many register names. Deversioning
+fixes version-zero registers and injectively assigns the remaining versions
+used by the region to fresh names.
+
+For cyclic named CFGs, [`Cyclic.Versioning.roundTrip_run_obs`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/RoundTrip/Thms.lean)
+gives the same-store equality of the whole Elgot computation of the exit
+label and payload. The mutable readback keeps each incoming packet and its
+decoder. A block receives its live-ins in that packet, so decoding never
+depends on stale register values. The result adds lawful Elgot iteration to
+the acyclic assumptions and projects away the final store.
+
+In the lexical-to-mutable-to-lexical direction, [`Cyclic.RoundTrip.runSSA_deversion_reversion`](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/RoundTrip/Thms.lean)
+compares the original and re-versioned graphs in the same lexical environment.
+The entry reads only version-zero names and each labelled body reads its free
+inputs from its packet parameter. The general renaming theorem only requires
+agreement on the entry's free inputs after renaming. The source can use a
+handwritten packet layout, as in the [non-image back-edge regression](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/RoundTrip/Regression.lean).
+
+[Named cyclic observational classes](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Comparison/Thms.lean)
+fix the register and label types, instruction alphabet, value carrier and
+lawful Elgot monad. Equivalence compares the entire exit-label and payload
+computation for every pair-lawful model and every common store on the original
+register type. Lexical entry inputs are the corresponding version-zero values,
+and every block has a singleton packet context. `classEquiv` makes versioning
+and deversioning inverse maps on these classes, including admitted handwritten
+tables. The satisfaction theorems transport equations between classes in each
+common model, with signatures held fixed.
+
+[Named cyclic equation institutions](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Thms.lean)
+use primitive alphabets as signatures and functions as renamings. The model
+category at each signature is discrete on the pair-lawful models. Reduct
+precomposes the primitive interpretation and preserves the packet operations.
+Both signature actions preserve identity and composition and satisfy the
+change-of-signature law on equations. `comparisonIso` is a natural isomorphism
+of room functors over this signature category. Its sentence translations
+commute with renamings on observational classes, with identity on models.
+
+[Named cyclic refinement](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Thms.lean)
+uses the same signatures and the inclusion order on `Part`. A sentence
+`lhs ≤ rhs` requires every terminating exit and payload of `lhs` to be
+returned by `rhs` at the same store. Divergence and failure both give the
+empty result, and the final store is projected out. Versioning and
+deversioning give an order isomorphism on the observational classes and a
+natural isomorphism of the two refinement institutions. The comparison
+transports semantic refinement between the named interfaces.
+
+[Plugging exit continuations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Thms.lean)
+is monotone in both the program and a pointwise ordered continuation on the
+exit label and packet. A continuation can use a common external store. For a
+raw handler called with the producer's final store, independence from that
+store is equivalent to factoring through the observed label and packet.
+A packet-closed continuation table has this property: each labelled body
+reads its free inputs from the incoming packet, even across back edges.
+With a store-reading continuation, a single discarded assignment suffices
+to [distinguish equal classes](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Regression.lean).
+
+[Executable cyclic linking](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Thms.lean)
+uses finite input and output ports carrying one value of the common carrier.
+Every private address names a packet-closed block. Linking allocates disjoint
+private ranges and a forwarding block per intermediate port. The right stage
+can loop within its own range and can exit through its public ports. Running
+the resulting ordinary named CFG agrees with staged exit plugging.
+Observational classes of these graphs form a category with the wire identity
+and linker composition, which is monotone for terminating-result inclusion.
+
+[The named refinement interpretation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Institution/Thms.lean)
+widens private addresses to naturals and keeps public ports tagged. It maps
+each packet arrow to one named program class per input port, with the packet
+in the designated register. Refinement of the arrow agrees with named
+refinement at every port. Primitive renaming commutes with the executable
+linker and wire identity and acts by monotone functors on classes. The named
+interpretations commute with this action. Versioning and deversioning
+compare the images on classes. The ordinary versioner wraps internal
+transfers in a carry tuple, including version-zero live-in slots at entry,
+so the resulting syntax can have a wider entry interface than a single wire.
+
+[Syntactic packet CFG simulation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Simulation/Thms.lean)
+checks a finite map on private labels and preserves public exits. A source
+block either matches a target block after relabelling or forwards its packet
+unchanged to the same mapped address. The forwarding check tracks which
+registers hold the packet, starting with the block parameter. A copy reads
+from that context before adding its destination. A final variable jump must
+read from the resulting context. The typed body returns exactly the checked
+jump target and incoming packet in every lawful monad. The simulation preserves
+every terminating `Part` result, and the executable linker combines the
+certificates, including at handoff blocks.
+
+Against direct wiring, `CopyChain.check` follows each chain of typed forwarding
+bodies for at most the number of private blocks. A terminating chain cannot
+revisit a private label, so that bound finds its unique terminal port.
+`CopyChain.certificate` maps each private block to its computed port and checks
+the wire's routing at each input. With a common pair-lawful `Part` model, the
+check is complete for refinement when every private block reaches a public
+port through typed forwarding bodies, including blocks unused by the inputs.
+
+For a table of typed forwarders, a failed terminal search at an input implies
+`Part.none` there. The older one-way simulation may still certify inclusion
+from a cycle into a wire, since the cycle contributes no terminating result.
+The total traversal also rejects cycles in unused blocks, even when their
+absence from all input paths makes them observationally invisible. The
+[regressions](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Link/Simulation/Regression.lean)
+exercise a linked multi-block chain and both reachable and unused cycles.
+
+`CopyChain.refinement?` decides the same comparison on the larger fragment in
+which only private blocks reachable from the inputs must be typed forwarders.
+It visits each private label at most once per input. A repeat witnesses a
+reachable typed cycle and `Part.none`, including when all private labels have
+been visited. A terminating path must match the wire's port, while any
+reachable unsupported body yields `none` for the decision. Unused blocks can
+contain cycles or unsupported bodies. The decision gives a proved semantic
+verdict. `CopyChain.certificate` is the separate total-table API for obtaining a
+label map usable with the linker.
+
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
 `Region.alphaEq_ofDB_toDB`, `Region.evalSSA_eq_of_alphaEq`, `Region.close_toLN`
@@ -350,9 +467,7 @@ The continuation cannot jump back to its own label.
   typing coherence from the target model. Both maps preserve identity
   and composition, and `ssaSat_map_iff` gives satisfaction invariance.
   `reifyComorphism` bundles reification and the LetCase algebra reduct
-  over the identity signature functor. Its model class is the stated
-  coherent region model class. Expansion of arbitrary LetCase algebras
-  is a separate question.
+  over the identity signature functor on the stated coherent model class.
   [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
 - For type-changing `SignatureMap`s, `pullbackTypes` and
   `pullbackInstructions` reuse the target's chosen type-former isomorphisms
@@ -384,8 +499,131 @@ The continuation cannot jump back to its own label.
   On the included primitive maps, both signature actions and the
   reification components agree with the fixed-type comorphism.
   The comparison uses forward transport of source witnesses.
-  Reconstruction of arbitrary target witnesses remains separate.
   [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
+- Given a chosen distributive Freyd interpretation of the types, the
+  exact LetCase arrow carriers determine where to read back each primitive
+  arrow. The algebra has that Freyd presentation exactly when all its
+  operations agree with the readback interpretation. This already
+  interprets single-exit acyclic code on the SSA context and exit objects.
+  For expansion into the existing SSA room, the ambient computation
+  category needs strong Elgot iteration on the same distributive structure
+  and central unit. The recovered interpretation must also satisfy
+  `RegionTypingCoherent`, which requires two region denotation witnesses
+  at the same typing to yield equal arrows. With these data, the selected
+  SSA denotation agrees with the iteration-free interpretation, and the
+  expansion preserves exact satisfaction. Reification reflects equational
+  consequence on the class of algebras in the image of the reduct.
+  [Expansion criterion and section](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Thms.lean)
+- A validated LetCase algebra carries this presentation and coherence on
+  chosen types. Its reduct uses the existing LetCase operation map, with
+  carriers identified by the dependent type pullback. Primitive readback
+  after reduct gives exactly the restricted instruction model. Expanding
+  the reduced algebra therefore gives the same coherent SSA model as
+  expanding first and applying the witnessed SSA pullback.
+  [Object-level expansion square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/TypeChange/Thms.lean)
+- The validated LetCase institution keeps the original exact equations,
+  with equality arrows between models carrying a chosen presentation.
+  Expansion and validation are inverse model functors onto the entire
+  discrete coherent SSA room. Forgetting the chosen presentation has
+  the same object image as the original SSA reduct. The algebra arrows
+  it carries are exactly the transports along equalities of validated
+  models. Reification and compilation are natural over the type-changing
+  signature category and preserve satisfaction. Compiling a reified
+  equation gives the original LetCase equation. Reifying a compiled SSA
+  equation can change the structured code while preserving truth in every
+  coherent model. Its fixed points are exactly the reified sentences.
+  Equational consequence agrees on the validated class.
+  [Validated institutional retraction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Thms.lean)
+- The retraction becomes an institution isomorphism when each sentence
+  is taken up to agreement on satisfaction in every model of its room.
+  Signature maps respect this relation by evaluating each mapped sentence
+  in the target model's reduct. Compilation and reification are inverse
+  on the quotient classes, and their discrete model functors are the same
+  inverse pair as before. The checked straight-line let and its reified
+  join have distinct exact code and the same semantic class, including
+  after the composite signature change. Completeness of a syntactic
+  rewrite theory still requires deriving equivalence from this model-wise
+  agreement.
+  [Semantic quotient isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Quotient/Thms.lean) ·
+  [Let-to-join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- The two-exit comparison uses native positional regions with exits
+  `[A, B]`. Its structured fragment has left and right branches, case
+  trees, and the acyclic binary dispatcher for existing single-exit code.
+  Encoding uses `A ⊕ B` and the decoder dispatches to the original labels.
+  An isomorphism identifies the two native label summands with the
+  singleton carrying that coproduct. The actual positional denotations
+  commute with these maps, so the exact compiled LetCase equation and
+  the native two-exit equation have the same satisfaction in each
+  coherent model. The typed equation translation and native satisfaction
+  both commute with type-changing reduct, even if it identifies the two
+  payload types. Every existing validated algebra expands on this
+  fragment with the same coherence and central-unit assumptions.
+  The joined guarded finite-interface comparison treats a separate
+  quotient and model interface.
+  [Native encoding](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Categorical/Thms.lean) ·
+  [Two-exit satisfaction and signature squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Institution/Thms.lean) ·
+  [Joined guarded comparison](https://github.com/hiloopai/silmaril-lean/pull/3532)
+- The native structured fragment extends to every finite ordered label list.
+  Its branches select an index, case trees share the outward interface, and
+  single-entry joins bind one local payload with a continuation that cannot
+  jump back to that label. Encoding uses the existing right-associated sum
+  ending in the empty type. At nonempty interfaces, the acyclic decoder
+  dispatches to the original labels and uses an abort expression only on
+  the impossible empty summand. Both round trips preserve the corresponding
+  arrows in coherent models with central unit. The empty interface is
+  uninhabited by this structured syntax because every path must have an
+  outward branch. The binary embedding retains the exact native regions
+  and their arrows. The three-label probe retains all positions when their
+  types collapse and checks composite signature change.
+  The finite-exit institution evaluates its sentences using native
+  positional denotation and compares to validated LetCase by a
+  comorphism. This construction covers the stated structured region
+  forms at arbitrary finite interfaces.
+  [Finite-exit typing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Thms.lean) ·
+  [Categorical round trips](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Categorical/Thms.lean) ·
+  [Native institution](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FiniteExit/Institution/Thms.lean)
+- A forward-numbered positional table uses the existing typed jump and
+  case blocks and an executable check of their target lists. All local
+  edges increase in the supplied order, including in unreachable blocks.
+  Every block reads its own payload, and the entry can evaluate an
+  arbitrary exact operand in its surrounding context. The lowering
+  unfolds later blocks into the finite-exit fragment and preserves the
+  actual native positional arrow at the original ordered exits. The
+  LetCase theorem applies the existing context comparison and exit
+  decoder. In the four-block diamond both arms target one shared
+  classifier, and the categorical equation runs only the selected arm
+  before the shared classifier and its two distinct exits. Unfolding can
+  duplicate shared block code. This checker expects a supplied forward
+  order and covers one CFG table of payload-only blocks.
+  [Checker and lowering](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Defs.lean) ·
+  [Denotation](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Categorical/Thms.lean) ·
+  [Diamond regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Regression.lean)
+- At fixed source syntax, value context, and exits, lifting all target
+  denotation witnesses up to equality of transported arrows is equivalent
+  to reflection of region typing. Once the source judgement is typable,
+  forward transport and target coherence give the arrow equality. A
+  type-former-preserving reverse signature map that is a left inverse on
+  types and primitives suffices for reflection. A collapsing type map
+  makes a branch between distinct source types well-typed at the target.
+  Even for a split map, a target typing can choose an unused local
+  parameter outside the image. Reflection recovers the judgement, and
+  that particular local layout has no preimage.
+  [Witness lifting criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Lift/Thms.lean) ·
+  [Split and collapsing probes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- In a distributive Freyd interpretation with central unit, binding a term
+  and returning the newest variable satisfies let-η. The exact LetCase room
+  also contains a Boolean operation algebra that rejects the closed unit
+  instance, so unrestricted entailment reflection fails. Separately,
+  ordinary total functions cannot interpret unrestricted coproduct iteration:
+  a loop that always takes the recursive arm would give a function from the
+  unit type to the empty type. The branch/join calculation compares a
+  shared block applying a primitive to the passed payload with copies of
+  that block in the two arms. It uses the transported-diagonal centrality
+  condition from the case/continuation law, and the same equality holds
+  for the actual SSA regions in the coherent expansion.
+  [Let-η obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Laws/Thms.lean) ·
+  [Branch/join satisfaction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/BranchJoin/Thms.lean) ·
+  [Checked examples](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/Expansion/Thms.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
   Soundness of the full exact equational presentation remains separate.

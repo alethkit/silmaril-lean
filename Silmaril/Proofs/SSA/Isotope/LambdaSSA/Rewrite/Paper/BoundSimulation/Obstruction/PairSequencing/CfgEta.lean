@@ -20,9 +20,9 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
 
 universe u v
 
-variable {α : Type u} {Φ : Type v}
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
 
-variable {observation : TermObservation}
+variable {observation : TermObservation (α := α) Φ}
 
 local notation "evalTerm" => evalTermWith observation
 local notation "evalRegion" => evalRegionWith observation
@@ -31,7 +31,7 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-def SameWith (observation : TermObservation) (Γ : VCtx (Ty α)) (r s : Region Φ) : Prop :=
+def SameWith (observation : TermObservation (α := α) Φ) (Γ : VCtx (Ty α)) (r s : Region Φ) : Prop :=
   ∀ env, EnvTy Γ env → evalRegionWith observation r env = evalRegionWith observation s env
 
 local notation "Same" => SameWith observation
@@ -45,8 +45,6 @@ theorem SameWith.symm {Γ : VCtx (Ty α)} {r s : Region Φ}
 theorem SameWith.trans {Γ : VCtx (Ty α)} {r s t : Region Φ}
     (h : Same Γ r s) (h' : Same Γ s t) : Same Γ r t :=
   fun env he => (h env he).trans (h' env he)
-
-variable [HasTy Φ (Ty α)]
 
 theorem SameWith.let₁ {Γ : VCtx (Ty α)} {t : Tm Φ} {A : Ty α} {r s : Region Φ}
     (ht : Tm.HasType Γ t A) (h : Same (A :: Γ) r s) :

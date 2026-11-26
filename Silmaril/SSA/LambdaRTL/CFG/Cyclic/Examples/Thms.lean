@@ -5,6 +5,7 @@ import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Version.Thms
 import Silmaril.Semantics.Elgot.Thms
 import Mathlib.Data.Nat.Pairing
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Infinite.Thms
 
 /-! The edge from block 20 to block 10 is taken twice. Block 10 stops when the
 countdown reaches zero and returns the number of visits to block 20. -/
@@ -306,8 +307,10 @@ private def closed := (NamedFlat.Capture.close (captureTypes num)
 
 private def ambient : Env Nat := fun _ => .unit
 
-private theorem read_packet (original : Env Nat) (v : Value Nat) (state : Unit) :
-    Silmaril.Isotope.LambdaSSA.Semantics.Tm.Eval (NamedFlat.instr (primWithInput original)) ambient
+private theorem read_packet_for (operation : Primitive → Value Nat → Part (Value Nat))
+    (original : Env Nat) (reader : operation .readCaptures .unit =
+      Part.some (NamedFlat.Capture.packEnv 2 original)) (v : Value Nat) (state : Unit) :
+    Silmaril.Isotope.LambdaSSA.Semantics.Tm.Eval (NamedFlat.instr operation) ambient
       (CaseSSA.erase readCaptures) () v state ↔
       v = NamedFlat.Capture.packEnv 2 original ∧ state = () := by
   cases state
@@ -316,9 +319,20 @@ private theorem read_packet (original : Env Nat) (v : Value Nat) (state : Unit) 
     cases run with
     | op arg result =>
       cases arg
+      change v ∈ operation .readCaptures .unit at result
+      rw [reader] at result
       exact ⟨Part.mem_some_iff.mp result, rfl⟩
   · rintro ⟨rfl, _⟩
-    exact .op .unit (Part.mem_some _)
+    refine .op .unit ?_
+    change NamedFlat.Capture.packEnv 2 original ∈ operation .readCaptures .unit
+    rw [reader]
+    exact Part.mem_some _
+
+private theorem read_packet (original : Env Nat) (v : Value Nat) (state : Unit) :
+    Silmaril.Isotope.LambdaSSA.Semantics.Tm.Eval (NamedFlat.instr (primWithInput original)) ambient
+      (CaseSSA.erase readCaptures) () v state ↔
+      v = NamedFlat.Capture.packEnv 2 original ∧ state = () :=
+  read_packet_for (primWithInput original) original rfl v state
 
 example : closed.val.HasType .nil (fun _ => packet num) (fun _ => num) := closed.property.1
 
@@ -415,5 +429,89 @@ example : stepWithin 5 (10, payload 2 0) = Part.none := by
 example : stepWithin 6 (10, payload 2 0) = Part.some (99, .atom 2) := by
   simp only [stepWithin, classified_more, increment_back, classified_done, compiled_exit,
     Part.bind_eq_bind, Part.bind_some, Sum.elim_inr, Sum.elim_inl]
+
+/-! ## Infinite transfers and a stuck primitive on the admitted table -/
+
+open Silmaril.Isotope.LambdaSSA.Semantics (Diverges)
+
+-- The classifier always takes the internal branch, and both fields stay fixed.
+private def repeatingPrim : Primitive → Value Nat → Part (Value Nat)
+  | .classify, .atom n => Part.some (.inr (.atom n))
+  | .increment, v => Part.some v
+  | f, v => prim f v
+
+private def blockedPrim : Primitive → Value Nat → Part (Value Nat)
+  | .classify, _ => Part.none
+  | f, v => prim f v
+
+private abbrev generated := Versioning.compile profiledLoop
+
+private def fixtureStep (operation : Primitive → Value Nat → Part (Value Nat)) :=
+  Cyclic.stepSSA (NamedFlat.model operation) generated.blocks namedInput
+
+private theorem repeating_header :
+    fixtureStep repeatingPrim (10, payload 2 0) = Part.some (.inr (20, payload 2 0)) := by
+  change Sum.inr <$> expectedClassifyBlock.body.evalJump (NamedFlat.model repeatingPrim)
+    (upd namedInput (false, 0) (payload 2 0)) = _
+  simp [expectedClassifyBlock, Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval,
+    NamedFlat.model, repeatingPrim, upd, payload, Part.map_eq_map, Part.map_some,
+    Part.bind_eq_bind, Part.bind_some]
+
+private theorem repeating_back :
+    fixtureStep repeatingPrim (20, payload 2 0) = Part.some (.inr (10, payload 2 0)) := by
+  change Sum.inr <$> (expectedBackEdgeBlock.mapOp (fun _ => Primitive.increment)).body.evalJump
+    (NamedFlat.model repeatingPrim) (upd namedInput (false, 0) (payload 2 0)) = _
+  simp [expectedBackEdgeBlock, Block.mapOp, Body.mapOp, Term.mapOp, Op.mapOp,
+    Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval, NamedFlat.model,
+    repeatingPrim, upd, payload, Part.map_eq_map, Part.map_some, Part.bind_eq_bind, Part.bind_some]
+
+private theorem repeats : NamedFlat.InfiniteRun repeatingPrim generated namedInput := by
+  let path (i : Nat) := if i % 2 = 0 then (10, payload 2 0) else (20, payload 2 0)
+  refine ⟨path, Part.mem_some (10, payload 2 0), ?_⟩
+  intro i
+  change Sum.inr (path (i + 1)) ∈ fixtureStep repeatingPrim (path i)
+  by_cases even : i % 2 = 0
+  · have odd : (i + 1) % 2 ≠ 0 := by omega
+    simpa only [path, even, odd, ite_true, ite_false] using Part.eq_some_iff.mp repeating_header
+  · have odd : (i + 1) % 2 = 0 := by omega
+    simpa only [path, even, odd, ite_true, ite_false] using Part.eq_some_iff.mp repeating_back
+
+example : Cyclic.runSSA (NamedFlat.model repeatingPrim) generated namedInput = Part.none :=
+  repeats.runSSA_eq_none
+
+example : Diverges (NamedFlat.instr repeatingPrim)
+    (.region ambient (FiniteCFG.packedExecutionRegion closed.property.1) ()) :=
+  (NamedFlat.packed_infinite_run_iff (prim := repeatingPrim) admitted.property.1 captureAgreement
+    closed.property.1 closed.property.2 (read_packet_for repeatingPrim capturedEnv rfl)).mp repeats
+
+private theorem blocked_step : fixtureStep blockedPrim (10, payload 2 0) = Part.none := by
+  change Sum.inr <$> expectedClassifyBlock.body.evalJump (NamedFlat.model blockedPrim)
+    (upd namedInput (false, 0) (payload 2 0)) = _
+  simp [expectedClassifyBlock, Body.evalJump, Body.exec, Term.exec, Op.eval, Val.eval,
+    NamedFlat.model, blockedPrim, upd, payload, Part.map_eq_map, Part.map_none,
+    Part.bind_eq_bind, Part.bind_some, Part.bind_none]
+
+example : Cyclic.runSSA (NamedFlat.model blockedPrim) generated namedInput = Part.none := by
+  have entry : generated.entry.evalJump (NamedFlat.model blockedPrim) namedInput =
+      Part.some (10, payload 2 0) := rfl
+  rw [Cyclic.runSSA, entry, Part.bind_eq_bind, Part.bind_some]
+  change iter (fixtureStep blockedPrim) (10, payload 2 0) = Part.none
+  rw [Silmaril.Elgot.Part.fixpoint (fixtureStep blockedPrim)]
+  dsimp only
+  rw [blocked_step, Part.bind_eq_bind, Part.bind_none]
+
+private theorem blocked_has_no_path : ¬ NamedFlat.InfiniteRun blockedPrim generated namedInput := by
+  rintro ⟨path, entry, steps⟩
+  have initial : path 0 = (10, payload 2 0) := Part.mem_some_iff.mp entry
+  have first := steps 0
+  change Sum.inr (path 1) ∈ fixtureStep blockedPrim (path 0) at first
+  rw [initial, blocked_step] at first
+  exact Part.notMem_none _ first
+
+example : ¬ Diverges (NamedFlat.instr blockedPrim)
+    (.region ambient (FiniteCFG.packedExecutionRegion closed.property.1) ()) :=
+  fun diverges => blocked_has_no_path
+    ((NamedFlat.packed_infinite_run_iff (prim := blockedPrim) admitted.property.1 captureAgreement
+      closed.property.1 closed.property.2 (read_packet_for blockedPrim capturedEnv rfl)).mpr diverges)
 
 end Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples

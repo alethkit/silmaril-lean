@@ -55,12 +55,13 @@ private theorem append_frame (program : Program) (frames : List Capture.Forwardi
 
 private theorem chain_step (globals : List String) (program : Program) (chain : Chain)
     (accepted : Accepted globals program [] chain) :
-    ∃ head rest, Emits globals [] chain (head :: rest) ∧
+    ∃ head rest, Emits globals [] chain (head :: rest) ∧ Links program chain (head :: rest) ∧
+      ScopedLeaves globals [] chain (head :: rest) ∧
       elaborateCommand ⟨(parentContext globals []).reads, .global⟩
         (.define chain.name (.required chain.parameters) chain.body) program =
         .ok (.exec (.define chain.name (EmittedProgram program rest).size), EmittedProgram program (head :: rest)) := by
-  obtain ⟨head, rest, emits, compiled⟩ := compile_chain accepted
-  exact ⟨head, rest, emits,
+  obtain ⟨head, rest, emits, linked, scopes, compiled⟩ := compile_chain_scoped accepted
+  exact ⟨head, rest, emits, linked, scopes,
     elaborateCommand_requiredDefinition (parentContext globals []) .global _ _ _ _ _ _ _ compiled⟩
 
 private theorem simple_step (globals : List String) (program : Program) (command : SourceCommand)
@@ -85,7 +86,7 @@ private theorem step_preserves {globals : List String} {head : SourceCommand} {r
   | assign => simpa [simple_step globals program _ (.inl ⟨_, _, rfl⟩) compiled] using found
   | eval => simpa [simple_step globals program _ (.inr ⟨_, rfl⟩) compiled] using found
   | define chain accepted _ =>
-    obtain ⟨frame, frames, _, step⟩ := chain_step globals program chain (accepted program)
+    obtain ⟨frame, frames, _, _, _, step⟩ := chain_step globals program chain (accepted program)
     rw [step] at compiled
     cases compiled
     exact append_frame program (frame :: frames) found
@@ -138,6 +139,12 @@ private theorem segment_length (block : BlockContext) (source : List SourceComma
         rcases compiled with ⟨rfl, rfl⟩
         simp [ih middle _ _ tail]
 
+theorem checked_command_count {commands : List SourceCommand} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) :
+    resolved.source.commands.length = commands.length :=
+  segment_length (moduleBlock commands) commands linked resolved.program resolved.source.commands
+    (checked_of_resolve checked).1
+
 private theorem split_site (block : BlockContext) (before after : List SourceCommand)
     (atSite : SourceCommand) (linked final : Program) (code : List Modules.Command)
     (compiled : compileSegment block (before ++ atSite :: after) linked = .ok (code, final)) :
@@ -165,6 +172,39 @@ private theorem split_site (block : BlockContext) (before after : List SourceCom
         rcases compiled with ⟨rfl, rfl⟩
         exact ⟨_, _, _, _, _, rfl, step, tail, rfl, segment_length block before linked _ _ front⟩
 
+theorem checked_chain_scoped_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
+    (checked : resolve (before ++ .define chain.name (.required chain.parameters) chain.body :: after) linked =
+      .ok resolved)
+    (accepted : ∀ program, Accepted globals program [] chain) (suffixProfile : Segment globals after) :
+    ∃ seed head frames, Emits globals [] chain (head :: frames) ∧ Links seed chain (head :: frames) ∧
+      ScopedLeaves globals [] chain (head :: frames) ∧
+      resolved.source.commands[before.length]? = some (.exec (.define chain.name (EmittedProgram seed frames).size)) ∧
+      (∀ (index : Nat) (declaration : Functions.Declaration), (EmittedProgram seed (head :: frames))[index]? = some declaration →
+        resolved.program[index]? = some declaration) := by
+  obtain ⟨earlier, later, middle, next, code, _, step, tail, commands, length⟩ :=
+    split_site _ before after _ linked _ _ (checked_segment binders checked)
+  obtain ⟨head, frames, emits, links, scopes, actual⟩ := chain_step globals middle chain (accepted middle)
+  rw [actual] at step
+  cases step
+  exact ⟨middle, head, frames, emits, links, scopes, by simp [commands, ← length],
+    fun _ _ found => segment_preserves suffixProfile _ _ later tail found⟩
+
+theorem checked_chain_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
+    (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
+    (checked : resolve (before ++ .define chain.name (.required chain.parameters) chain.body :: after) linked =
+      .ok resolved)
+    (accepted : ∀ program, Accepted globals program [] chain) (suffixProfile : Segment globals after) :
+    ∃ seed head frames, Emits globals [] chain (head :: frames) ∧ Links seed chain (head :: frames) ∧
+      resolved.source.commands[before.length]? = some (.exec (.define chain.name (EmittedProgram seed frames).size)) ∧
+      (∀ (index : Nat) (declaration : Functions.Declaration), (EmittedProgram seed (head :: frames))[index]? = some declaration →
+        resolved.program[index]? = some declaration) := by
+  obtain ⟨seed, head, rest, emits, links, _, site, keeps⟩ :=
+    checked_chain_scoped_site before after chain globals linked resolved binders checked accepted suffixProfile
+  exact ⟨seed, head, rest, emits, links, site, keeps⟩
+
 theorem checked_root_site (before after : List SourceCommand) (chain : Chain) (globals : List String)
     (linked : Program) (resolved : ResolvedModule)
     (binders : ModuleBinders (before ++ .define chain.name (.required chain.parameters) chain.body :: after) globals)
@@ -174,17 +214,25 @@ theorem checked_root_site (before after : List SourceCommand) (chain : Chain) (g
     ∃ head frames id, Emits globals [] chain (head :: frames) ∧
       resolved.source.commands[before.length]? = some (.exec (.define chain.name id)) ∧
       resolved.program[id]? = some head.declaration := by
+  obtain ⟨seed, head, frames, emits, _, command, keeps⟩ :=
+    checked_chain_site before after chain globals linked resolved binders checked accepted suffixProfile
+  exact ⟨head, frames, _, emits, command, keeps _ _ (by simp [EmittedProgram])⟩
+
+theorem checked_single_emission (before after : List SourceCommand) (command : SourceCommand) (name : String)
+    (globals : List String) (linked : Program) (resolved : ResolvedModule) (declaration : Functions.Declaration)
+    (binders : ModuleBinders (before ++ command :: after) globals)
+    (checked : resolve (before ++ command :: after) linked = .ok resolved)
+    (suffix : Segment globals after)
+    (emits : ∀ program, elaborateCommand ⟨(parentContext globals []).reads, .global⟩ command program =
+      .ok (.exec (.define name program.size), program.push declaration)) :
+    ∃ id, resolved.source.commands[before.length]? = some (.exec (.define name id)) ∧
+      resolved.program[id]? = some declaration := by
   obtain ⟨earlier, later, middle, next, code, _, step, tail, commands, length⟩ :=
-    split_site _ before after _ linked _ _ (checked_segment binders checked)
-  obtain ⟨head, frames, emits, actual⟩ := chain_step globals middle chain (accepted middle)
-  rw [actual] at step
+    split_site _ before after command linked _ _ (checked_segment binders checked)
+  rw [emits middle] at step
   cases step
-  let index := (EmittedProgram middle frames).size
-  have here : (EmittedProgram middle (head :: frames))[index]? = some head.declaration := by
-    simp [index, EmittedProgram]
-  exact ⟨head, frames, index, emits,
-    by simp [commands, ← length, index],
-    segment_preserves suffixProfile _ _ later tail here⟩
+  exact ⟨middle.size, by simp [commands, ← length],
+    segment_preserves suffix _ _ later tail (by simp)⟩
 
 theorem checked_eval_site (before after : List SourceCommand)
     (source : Functions.Lowering.Resolve.SourceExpr) (code : Functions.Lowering.Expr) (reads : List Binding)
@@ -198,6 +246,21 @@ theorem checked_eval_site (before after : List SourceCommand)
   have resolvedOperand : Functions.Lowering.Resolve.resolveTracked (parentContext globals []).reads source =
       .ok (code, reads) := operand
   rw [elaborateCommand_eval, resolvedOperand] at step
+  cases step
+  simp [commands, ← length]
+
+theorem checked_assign_site (before after : List SourceCommand) (destination : String)
+    (source : Functions.Lowering.Resolve.SourceExpr) (code : Functions.Lowering.Expr) (reads : List Binding)
+    (globals : List String) (linked : Program) (resolved : ResolvedModule)
+    (binders : ModuleBinders (before ++ .assign destination source :: after) globals)
+    (checked : resolve (before ++ .assign destination source :: after) linked = .ok resolved)
+    (operand : Functions.Lowering.Resolve.resolveTracked ⟨[], globals⟩ source = .ok (code, reads)) :
+    resolved.source.commands[before.length]? = some (.exec (.assignExpr destination code)) := by
+  obtain ⟨earlier, later, middle, next, command, _, step, _, commands, length⟩ :=
+    split_site _ before after (.assign destination source) linked _ _ (checked_segment binders checked)
+  have resolvedOperand : Functions.Lowering.Resolve.resolveTracked (parentContext globals []).reads source =
+      .ok (code, reads) := operand
+  rw [elaborateCommand_assign, resolvedOperand] at step
   cases step
   simp [commands, ← length]
 
