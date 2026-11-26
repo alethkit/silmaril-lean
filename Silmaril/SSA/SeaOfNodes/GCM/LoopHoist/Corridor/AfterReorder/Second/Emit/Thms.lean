@@ -12,6 +12,7 @@ open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Block Cfg Terminator)
 open Silmaril.MLIR.Pure (Operands)
 open Header.Earlier (operations)
+open Header.Typed (edgePackets)
 open Header.Sequence (State)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
@@ -77,6 +78,23 @@ theorem emitAt?_step {saved : Width} {extra : List Width}
     Saved.StepRoutes cfg target input values value ∧
       Saved.Prefix.Matches target.entry input (.cons value values) :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.emitAt?_step matched found emitted
+
+/-- On the related header environments, every conditional occurrence
+    transports its own argument packet, including the untaken edge. -/
+theorem emitAt?_edgePackets {saved : Width} {extra : List Width}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {candidate : Candidate Input saved carried result extra} {index : Nat}
+    {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
+    (found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate)
+    (emitted : emitAt? cfg index candidate.op candidate.inputs = some target)
+    (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val) :
+    let value := evalOp candidate.op (candidate.inputs.eval (values.append input))
+    let source := (values.append (.cons latch .nil)).append input
+    (target.block .header).eval evalOp edgePackets (.cons value source) =
+      ((cfg.block .header).eval evalOp edgePackets source).map
+        (fun packet => (packet.1, Saved.prependFrame value packet.2)) :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.emitAt?_edgePackets
+    found emitted input values latch
 
 /-- Substitution and edge lifting preserve the order of every retained let. -/
 theorem rewriteAt?_operations {Γ Δ extra : List Width} {saved consumer : Width}
