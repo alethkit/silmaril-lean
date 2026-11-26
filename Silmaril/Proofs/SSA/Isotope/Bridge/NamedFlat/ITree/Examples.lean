@@ -3,6 +3,8 @@ module
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.PackedTrace.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.InstructionMap.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Ordered.Flat.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -15,7 +17,8 @@ open LambdaSSA.Semantics.Interaction (region Primitive Transfer BlockInput split
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree Compatible)
 open Silmaril.Elgot (iter)
 open Silmaril.Elgot.ITree (Tree Trace TraceLE HasTrace vis vis_bind diverge diverge_bind iterate_fixpoint
-    traceLE_diverge hasTrace_diverge_iff hasTrace_vis_exchange_iff out_ret)
+    traceLE_diverge hasTrace_diverge_iff hasTrace_vis_exchange_iff hasTrace_vis_request
+    iterate_pure_loop out_ret)
 open LambdaSSA.FiniteCFG (packedExecutionRegion packedExecution_tree packedTreeOutput)
 
 private abbrev SortName := ULift.{1} Unit
@@ -64,7 +67,7 @@ private def instr : Primitive Event Opcode Runtime
   | .capture, .unit => vis .capture fun reply => pure (.pair .unit (atom reply))
   | op, _ => vis (.malformed op) Empty.elim
 
-example : Compatible (κ' := SortName) typed instr := by
+private theorem compatible : Compatible (κ' := SortName) typed instr := by
   intro op arg
   cases op with
   | seed =>
@@ -358,5 +361,150 @@ example : TraceLE (region partialTick ambient (packedExecutionRegion closed.prop
         | pair arg _ => exact (tick_refines arg).bind_left _
         | _ => exact TraceLE.refl _
     exact block i
+
+/-! ## Relabelling before executable closure and packing -/
+
+open LambdaSSA.Semantics.Interaction.Typed.Ordered
+open Silmaril.Isotope.Morphism (SignatureMap)
+
+private instance : HasEff Opcode Bool := ⟨fun _ => true⟩
+
+attribute [local instance] LambdaSSA.Semantics.Interaction.Typed.typeModel
+
+private def model : Model (κ := SortName) Event Opcode where
+  instructions :=
+    { denote := typed.eval
+      denotePure := fun _ hf => Bool.noConfusion hf
+      denote_pure := fun _ hf => Bool.noConfusion hf }
+  raw := instr
+  compatible := compatible
+
+-- Both seed and tick now request tick. The capture operation keeps its profile.
+private def rename : SignatureMap Opcode Opcode (Ty SortName) (Ty SortName) Bool Bool where
+  instr
+    | .seed | .tick => .tick
+    | .capture => .capture
+  ty := id
+  eff := id
+  source op := by cases op <;> rfl
+  target op := by cases op <;> rfl
+  effect _ := rfl
+
+private theorem rename_types : rename.ty = id := rfl
+private theorem rename_bottom : rename.eff ⊥ = ⊥ := rfl
+
+private theorem captureInput : LetCase.LocallyNameless.HasType Opcode .nil .nil packetRead inputType :=
+  .op .unit
+
+private abbrev mappedInput := Capture.mapInput_hasType rename.instr
+    (flatProfiles rename rename_types) captureInput
+
+private def closedMapped := (Capture.close captures (fun _ => edgeType) (fun _ => num)
+  (admitted.val.mapInstr rename.instr) (admitted.property.2.mapInstr (flatProfiles rename rename_types))
+  (packetRead.mapInstr rename.instr) mappedInput).get (by decide)
+
+private theorem closedMapped_eq : closedMapped.val = closed.val.mapInstr rename.instr := by
+  have h := Capture.close_mapInstr rename.instr (flatProfiles rename rename_types) captures
+    (fun _ => edgeType) (fun _ => num) admitted.val admitted.property.2 packetRead captureInput mappedInput
+  have sourceClose : Capture.close captures (fun _ => edgeType) (fun _ => num)
+      admitted.val admitted.property.2 packetRead captureInput = some closed := rfl
+  have targetClose : Capture.close captures (fun _ => edgeType) (fun _ => num)
+      (admitted.val.mapInstr rename.instr) (admitted.property.2.mapInstr (flatProfiles rename rename_types))
+      (packetRead.mapInstr rename.instr) mappedInput = some closedMapped := rfl
+  rw [sourceClose, targetClose] at h
+  exact Option.some.inj h
+
+private theorem ofCFG_congr {b e : Nat} {g h : LambdaSSA.FiniteCFG Opcode b e 0}
+    {R : Fin b → Ty SortName} {D : Fin e → Ty SortName} (eq : g = h)
+    (hg : g.HasType .nil R D) (hh : h.HasType .nil R D) :
+    Program.ofCFG hg = Program.ofCFG hh := by
+  subst h
+  rfl
+
+-- The packer receives the actual table returned by the target closure run.
+example : Program.ofCFG closedMapped.property.1 = (Program.ofCFG closed.property.1).map rename rename_types :=
+  (ofCFG_congr closedMapped_eq _ _).trans (Program.ofCFG_mapInstr rename rename_types closed.property.1)
+
+private def silent : LambdaSSA.FiniteCFG Opcode 1 1 0 :=
+  ⟨.br 0 .unit, fun _ => .br 0 (.bv 0)⟩
+
+private theorem silentTyped : silent.HasType .nil (fun _ => Ty.unit) (fun _ => num) :=
+  ⟨.br .unit, fun _ => .br .bv⟩
+
+private theorem silent_tree (raw : Primitive Event Opcode Runtime) :
+    region raw ambient (packedExecutionRegion silentTyped) = diverge := by
+  rw [packedExecution_tree]
+  have h : region raw ambient silent.erase = diverge := by
+    simp only [silent, LambdaSSA.FiniteCFG.erase, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase,
+      region, LambdaSSA.Semantics.Interaction.term, pure_bind]
+    exact iterate_pure_loop (fun p : BlockInput Runtime 1 => (0, p.2)) (0, .unit)
+  rw [h, diverge_bind]
+
+private def reduct := model.reduct rename rename_types rename_bottom
+
+private theorem reduct_packet :
+    LambdaSSA.Semantics.Interaction.term reduct.raw ambient (Morphism.CaseSSA.erase packetRead) =
+      (captureProducer >>= fun reply => pure (Capture.packEnv 1 (env reply.down))) :=
+  capture_packet
+
+private theorem reduct_entry (capture : Nat) :
+    region reduct.raw (env capture) admitted.val.entry.erase =
+      vis (.call .tick capture) (fun reply => pure (0, packet reply)) := by
+  change region reduct.raw (env capture)
+    (.let₁ (.op .seed (.var 0)) (.br 0 (.pair (.var 0) .unit))) = _
+  simp only [region, LambdaSSA.Semantics.Interaction.term, pure_bind, vis_bind, env, reduct,
+    LambdaSSA.Semantics.Interaction.Typed.Ordered.Model.reduct, model, rename, instr, LambdaSSA.Semantics.extend_zero, packet, atom]
+
+private theorem reduct_steps (capture : Nat) :
+    (fun p : BlockInput Runtime 2 =>
+      region reduct.raw (extend (env capture) p.2) (admitted.val.block p.1).erase >>=
+        fun out => pure (splitTransfer 2 out)) = openStep capture := by
+  funext p
+  have block (i : Fin 2) :
+      region reduct.raw (extend (env capture) p.2) (admitted.val.block i).erase =
+        region instr (extend (env capture) p.2) (admitted.val.block i).erase := by
+    refine Fin.cases ?_ (Fin.cases ?_ (fun j => j.elim0)) i <;> rfl
+  exact congrArg (fun t => t >>= fun out => pure (splitTransfer 2 out)) (block p.1)
+
+private def cycleTrace : Trace Event (Transfer Runtime) :=
+  .exchange .capture 7 (.exchange (.call .tick 7) 3 (.exchange (.call .tick 3) 5
+    (.request (.call .tick 5))))
+
+-- The captured value reaches the mapped seed request. A reply to the first
+-- tick in the back-edge block then determines the next tick request.
+private theorem captured_cycle :
+    HasTrace (region reduct.raw ambient (packedExecutionRegion closed.property.1)) cycleTrace := by
+  rw [packedExecution_tree, Capture.graph_tree reduct.raw closed.property.2 reduct_packet]
+  simp only [captureProducer, vis_bind, pure_bind, cycleTrace, hasTrace_vis_exchange_iff]
+  change HasTrace ((region reduct.raw (env 7) admitted.val.entry.erase >>= fun out =>
+    Sum.elim pure (iter (fun p : BlockInput Runtime 2 =>
+      region reduct.raw (extend (env 7) p.2) (admitted.val.block p.1).erase >>=
+        fun out => pure (splitTransfer 2 out))) (splitTransfer 2 out)) >>= _) _
+  rw [reduct_steps 7, reduct_entry 7]
+  simp only [vis_bind, pure_bind, hasTrace_vis_exchange_iff]
+  change HasTrace (iter (openStep 7) (0, packet 3) >>= _) _
+  rw [tick_loop, vis_bind]
+  simp only [hasTrace_vis_exchange_iff]
+  rw [tick_loop, vis_bind]
+  exact hasTrace_vis_request _ _
+
+-- A silent self-loop refines the effectful cycle, strictly, after both
+-- tables have been relabelled and the mapped capture has been closed.
+example :
+    model.Satisfies (Program.ofCFG (silentTyped.mapInstr (flatProfiles rename rename_types)))
+      (Program.ofCFG closedMapped.property.1) ∧
+    ¬ model.Satisfies (Program.ofCFG closedMapped.property.1)
+      (Program.ofCFG (silentTyped.mapInstr (flatProfiles rename rename_types))) := by
+  rw [ofCFG_congr closedMapped_eq closedMapped.property.1
+      (closed.property.1.mapInstr (flatProfiles rename rename_types))]
+  rw [satisfies_ofCFG_map_iff model rename rename_types rename_bottom silentTyped closed.property.1,
+    satisfies_ofCFG_map_iff model rename rename_types rename_bottom closed.property.1 silentTyped]
+  change reduct.Satisfies (Program.ofCFG silentTyped) (Program.ofCFG closed.property.1) ∧
+    ¬ reduct.Satisfies (Program.ofCFG closed.property.1) (Program.ofCFG silentTyped)
+  rw [satisfies_ofCFG_iff reduct silentTyped closed.property.1 ambient,
+    satisfies_ofCFG_iff reduct closed.property.1 silentTyped ambient, silent_tree]
+  refine ⟨traceLE_diverge _, fun h => ?_⟩
+  have pending := h cycleTrace captured_cycle
+  simp [cycleTrace, hasTrace_diverge_iff] at pending
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples
