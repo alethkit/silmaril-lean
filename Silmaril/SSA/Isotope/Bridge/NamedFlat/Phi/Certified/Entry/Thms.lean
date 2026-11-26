@@ -33,6 +33,23 @@ theorem Captures.store_rename (I : Captures V β) (rename : V ≃ W) (record : R
     (I.rename rename).store record = I.store record ∘ rename.symm :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.store_rename I rename record
 
+/-- Each supplied slot agrees with the independent runner's capture projection. -/
+theorem Captures.inputEnv_eq (I : Captures V β) (record : Record) (i : Fin n) :
+    NamedFlat.Entry.inputEnv β record i.val = captureEnv I.names (I.store record) i.val :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.capture_agrees I record i
+
+/-- A source store can supply additional names. The typed entry calculation
+depends only on the values in the selected capture slots. -/
+theorem Admitted.observe_toFlat_of_capture (a : Admitted P I K D)
+    (M : Model (κ := κ) Events P.Instr) (record : Record) (ambient : Env (Sigma C))
+    (store : V → Value (Sigma C))
+    (agrees : ∀ i : Fin n, NamedFlat.Entry.inputEnv β record i.val = captureEnv I.names store i.val) :
+    PureCapture.sourceObservation M.raw a.source store =
+      region M.raw (extend ambient (encodeValue C A record))
+        (Program.ofCFGEntry a.toSSA.table.typed).code :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.observe_entry_of_capture
+    a M record ambient store agrees
+
 /-- Evaluation of the translated typed table uses exactly the supplied record
 and preserves the independent φ observation. -/
 theorem Admitted.observe_toFlat (a : Admitted P I K D) (M : Model (κ := κ) Events P.Instr)
