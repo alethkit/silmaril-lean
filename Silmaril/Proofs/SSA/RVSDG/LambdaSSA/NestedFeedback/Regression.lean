@@ -1,5 +1,8 @@
 module
 
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedRows.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Thms
@@ -1579,9 +1582,7 @@ private abbrev MixedExit := LabelDen [Silmaril.product number number]
 private def gammaActions := Translation.PureGamma.actions runnerActions
 
 private def gammaCode : NestedTheta.Equality.OpcodeCode (Translation.PureGamma.Op (τ := Ty) Op Bool) :=
-  NestedTheta.ExplicitRuntime.PurePrefix.opcodeCode
-    (Flat.Numbered.Recognize.opcodeCode (τ := Ty) (Φ := Op))
-    (Translation.PureGamma.valueCode (τ := Ty) (Φ := Op) (ε := Bool))
+  Translation.MixedRows.opcodeCode
 
 private def swapChild : NestedTheta.Isomorphism.Mapping :=
   fun path => if path == [(0,0)] then ⟨swapFirstRows, swapFirstRows⟩ else ⟨id, id⟩
@@ -1757,11 +1758,15 @@ private def staleFeedbackBody {past rows : List (Ports (OrderedRuntime.Structure
   | .ret results => .ret (results.map fun sort origin =>
     if h : runtime = sort then h ▸ .arg (runtimePort (carried number)) else origin)
 
-private def staleFeedback : MixedThetaTerm :=
+private def thetaTerm {rows : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    (body : NestedTheta.Term (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (carried number)) [] rows
+      (Threaded (OrderedTheta.results number))) : MixedThetaTerm :=
   .bind (NestedTheta.ExplicitRuntime.thetaNode (ins := carried number)
-      (.arg (runtimePort (carried number))) (.cons (.arg .head) .nil) (Translation.PureTheta.bodyRows number true))
-    (fun _ => staleFeedbackBody (mixedLoop.body true).1)
+      (.arg (runtimePort (carried number))) (.cons (.arg .head) .nil) rows)
+    (fun _ => body)
     (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))
+
+private def staleFeedback : MixedThetaTerm := thetaTerm (staleFeedbackBody (mixedLoop.body true).1)
 
 private def acceptsTheta (mapping : NestedTheta.Isomorphism.Mapping)
     (other : NestedTheta.Graph (Translation.PureGamma.Op (τ := Ty) Op Bool) (Threaded (carried number)) []
@@ -1784,6 +1789,55 @@ private def acceptsTheta (mapping : NestedTheta.Isomorphism.Mapping)
     | _ => throw (IO.userError "theta returned the wrong payload or feedback token")
     unless (mixedLoop.run runnerActions placement 3 (98 : Nat) 2).isNone do
       throw (IO.userError "theta returned after an undefined ordered feedback action")
+
+namespace MixedThetaReverse
+
+open Translation.PureTheta.Reverse (Fibre recover candidate)
+open OrderedTheta (carriedData resultData results)
+open OrderedRuntime.Structured (nextRuntime withRuntime)
+open NestedTheta.ExplicitRuntime.PurePrefix (orderedBind)
+open LinearChain.Wiring (newest)
+
+private def recoveredTheta (pureFirst : Bool) : Fibre (mixedLoop.compile pureFirst) :=
+  (recover (mixedLoop.compile pureFirst)).get (by simp [Translation.PureTheta.Reverse.recover_generated])
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredTheta pureFirst).typing (PUnit.unit, (0 : Nat))).run 2 =
+      Part.some (OrderedTheta.exit (A := number) (3 : Nat), 2777) :=
+  ((recoveredTheta pureFirst).run_iff runnerActions coherent (PUnit.unit, (0 : Nat)) (3 : Nat) 2 2777).mp
+    ((mixedLoop.run_iff runnerActions pureFirst coherent (PUnit.unit, (0 : Nat)) (3 : Nat) 2 2777).mpr
+      (flat_theta_return coherent))
+
+example (coherent : Coherent) (pureFirst : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredTheta pureFirst).typing (PUnit.unit, (98 : Nat))).run 2 =
+      Part.none :=
+  ((recoveredTheta pureFirst).no_return_iff coherent (PUnit.unit, (98 : Nat)) 2).mp
+    ((mixedLoop.no_return_iff pureFirst coherent (PUnit.unit, (98 : Nat)) 2).mpr (flat_theta_no_return coherent))
+
+-- Give the bottom-effect value instruction a token input and output.
+private def threadedValue : MixedThetaTerm :=
+  let past := [Threaded (carried number)]
+  let classified := results (Translation.PureGamma.Choice number)
+  thetaTerm <|
+    orderedBind (.arg (runtimePort (carried number))) (carriedData number) (carriedData number)
+      (Translation.PurePrefix.orderedCall (op .addOne)) (.cons (.arg .head) .nil) <|
+    orderedBind (nextRuntime [] (carried number)) (carriedData number) (resultData _)
+      (Translation.PureTheta.decision (op .loopDecision)) (.cons (.arg .head) .nil) <|
+    .ret (withRuntime (nextRuntime past classified)
+      (.cons (newest .head past) (.cons (.output (0 : Fin 2) .head) .nil)))
+
+#eval show IO Unit from do
+  for order in [false, true] do
+    let some recovered := recover (mixedLoop.compile order)
+      | throw (IO.userError "could not recover the numbered theta child")
+    unless recovered.pureFirst == order do
+      throw (IO.userError "mixed theta recovery changed row order")
+  unless (candidate staleFeedback.toGraph).isSome && (recover staleFeedback.toGraph).isNone do
+    throw (IO.userError "mixed theta did not reject stale feedback after parsing")
+  unless (recover threadedValue.toGraph).isNone do
+    throw (IO.userError "mixed theta accepted a value row with runtime ports")
+
+end MixedThetaReverse
 
 end Composition
 
