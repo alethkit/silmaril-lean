@@ -107,4 +107,30 @@ theorem quote_frameValue {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {fram
         then .inr (.var 0) else .inl (.var 0)))) L :=
   RedundantSelectedTest.quote_frameValue pos table slots v
 
+/-- A prefix of typed emits preserves the outward interface. -/
+theorem prependEmits_typed {Γ L : List (Ty Empty)} {r : Region signature.Instr}
+    (emits : List Bool) (hr : ValueBranches Γ r L) : ValueBranches Γ (prependEmits emits r) L :=
+  RedundantSelectedTest.prependEmits_typed emits hr
+
+/-- Select the actual framed branch at a constructor packet, preserving the prefix and its payload. -/
+theorem framed_case_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits slot.term).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars
+      (Tm.singleSubst v.elaborate.val))
+      (prependEmits emits ((if (slot.read v).1 then r else l).substVars
+        (Tm.singleSubst (.pair v.elaborate.val (slot.read v).2.val)))) L :=
+  RedundantSelectedTest.framed_case_at slot emits v hl hr
+
+/-- Forward the incoming unit into the new frame and retain the ordered emit prefix. -/
+theorem forwardUnit_at {Γ L : List (Ty Empty)} {X : Ty Empty} {v u : Tm signature.Instr}
+    (emits : List Bool) (hv : Tm.BranchValue Γ v X) (hu : Tm.BranchValue Γ u unit)
+    {r : Region signature.Instr} (hr : ValueBranches [product (product X unit) unit] r L) :
+    E Γ ((prependEmits emits (.let₁ (Term.snd (Φ := signature.Instr) X unit).elaborate.val
+        (Paper.PackedBody.applyPacked r))).substVars (Tm.singleSubst (.pair v u)))
+      (prependEmits emits (r.substVars (Tm.singleSubst (.pair (.pair v u) u)))) L :=
+  RedundantSelectedTest.forwardUnit_at emits hv hu hr
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay

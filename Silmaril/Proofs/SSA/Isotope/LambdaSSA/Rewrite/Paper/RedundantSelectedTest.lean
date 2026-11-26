@@ -52,6 +52,12 @@ theorem prependEmits_congr {Γ L : List (Ty Empty)} {r s : Region signature.Inst
   | nil => exact h
   | cons b bs ih => exact .let₁ (.op .unit) (ih.renameVars (Ren.wk Γ unit))
 
+theorem prependEmits_typed {Γ L : List (Ty Empty)} {r : Region signature.Instr}
+    (emits : List Bool) (hr : ValueBranches Γ r L) : ValueBranches Γ (prependEmits emits r) L := by
+  induction emits with
+  | nil => exact hr
+  | cons b bs ih => exact .let₁ (.op .unit) (ih.renameVars (Ren.wk Γ unit))
+
 private theorem prefix_lsubst (bits : List Bool) (r : Region signature.Instr) (σ : Nat → Region signature.Instr) :
     (prependEmits bits r).lsubst σ = prependEmits bits (r.lsubst σ) := by
   induction bits with
@@ -80,10 +86,7 @@ private theorem prefix_post {X D : Ty Empty} {L : List (Ty Empty)}
     E [X] ((returnRegion (emitPrefix bits t).elaborate.val).lsubst (fun _ => k))
       (prependEmits bits r) L := by
   have moved := (prefix_return bits t).lsubstPost (returnRegion_typed (emitPrefix bits t).elaborate.property)
-    (by
-      induction bits with
-      | nil => exact returnRegion_typed t.elaborate.property
-      | cons b bs ih => exact .let₁ (.op .unit) (ih.renameVars (Ren.wk [X] unit)))
+    (prependEmits_typed bits (returnRegion_typed t.elaborate.property))
     (fun _ _ hi => by
       have eq : _ = D := List.mem_singleton.mp (List.mem_of_getElem? hi)
       exact eq.symm ▸ hk.hasType)
@@ -160,6 +163,14 @@ private theorem weaken_value {Γ : VCtx (Ty Empty)} {X : Ty Empty} {a : Tm signa
     (ha : Tm.BranchValue Γ a X) : Tm.BranchValue (unit :: Γ) (a.rename Nat.succ) X := by
   rw [Tm.rename_eq_subst]
   exact ha.subst (fun _ _ h => .var (Ren.wk Γ unit h))
+
+private theorem liftedFrameSubst {Γ : List (Ty Empty)} {X : Ty Empty} {a : Tm signature.Instr}
+    (ha : Tm.BranchValue Γ a X) :
+    ∀ ⦃j D⦄, At [unit, X] j D → Tm.BranchValue (unit :: Γ) (Tm.liftSubst (Tm.singleSubst a) j) D := by
+  intro j D hj
+  cases j with
+  | zero => cases Option.some.inj hj; exact .var (i := 0) rfl
+  | succ j => exact weaken_value (constructorSubst ha hj)
 
 private theorem slot_return_rename {X : Ty Empty} (t : Term signature.Instr X Bit) (a : Tm signature.Instr) :
     ((t.elaborate.val.subst (Tm.singleSubst a)).rename Nat.succ) =
@@ -409,14 +420,8 @@ private theorem quote_subst_no_emits {Γ L : List (Ty Empty)} {n : Nat} {X : Ty 
     let older (j : Fin n) := retainSlot (A := unit) (slots j.succ)
     let low := (selectTerminal pos (Finite.Expr.quote n (fun row => table (row.push false))) older []).elaborate
     let high := (selectTerminal pos (Finite.Expr.quote n (fun row => table (row.push true))) older []).elaborate
-    have sub : ∀ ⦃j D⦄, At [unit, X] j D →
-        Tm.BranchValue (unit :: Γ) (Tm.liftSubst (Tm.singleSubst a) j) D := by
-      intro j D hj
-      cases j with
-      | zero => cases Option.some.inj hj; exact .var (i := 0) rfl
-      | succ j => exact weaken_value (constructorSubst ha hj)
-    let hl := (applyPacked_typed_exits low.property).substVars sub
-    let hr := (applyPacked_typed_exits high.property).substVars sub
+    let hl := (applyPacked_typed_exits low.property).substVars (liftedFrameSubst ha)
+    let hr := (applyPacked_typed_exits high.property).substVars (liftedFrameSubst ha)
     let test := (slots 0).elaborate.property.subst (fun _ _ hj => (constructorSubst ha hj).hasType)
     have chosen := case_choose (env 0) test (hu 0) hl hr (slot 0)
     have recover : env.tail.push (env 0) = env := by
@@ -535,5 +540,66 @@ theorem quote_frameValue {Γ L : List (Ty Empty)} {n : Nat} {X : Ty Empty} {fram
   quote_subst_no_emits pos table _ v.elaborate.property
     (fun j => ((slots j).read v).1) (fun j => ((slots j).read v).2.val)
     (fun j => ((slots j).read v).2.property) (fun j => frameSlot_return (slots j) v)
+
+private theorem prependEmits_subst (emits : List Bool) (r : Region signature.Instr)
+    (σ : Nat → Tm signature.Instr) :
+    (prependEmits emits r).substVars σ = prependEmits emits (r.substVars σ) := by
+  induction emits with
+  | nil => rfl
+  | cons b bs ih =>
+    simp only [prependEmits, substVars, Tm.subst, substVars_renameVars, renameVars_substVars, ← ih]
+    rfl
+
+set_option backward.isDefEq.respectTransparency false in
+theorem framed_case_at {Γ L : List (Ty Empty)} {X : Ty Empty} {frame : ReplyFrame X}
+    (slot : ReplyFrame.Slot frame) (emits : List Bool) (v : ReplyFrame.Value Γ frame)
+    {l r : Region signature.Instr}
+    (hl : ValueBranches [product X unit] l L) (hr : ValueBranches [product X unit] r L) :
+    E Γ ((Region.case (emitPrefix emits slot.term).elaborate.val
+        (Paper.PackedBody.applyPacked l) (Paper.PackedBody.applyPacked r)).substVars
+      (Tm.singleSubst v.elaborate.val))
+      (prependEmits emits ((if (slot.read v).1 then r else l).substVars
+        (Tm.singleSubst (.pair v.elaborate.val (slot.read v).2.val)))) L := by
+  let a := v.elaborate
+  let reply := slot.read v
+  let left := applyPacked_typed_exits hl
+  let right := applyPacked_typed_exits hr
+  have factored := (prefix_case emits slot.term left right).substVars (constructorSubst a.property)
+  rw [prependEmits_subst] at factored
+  let test := slot.term.elaborate.property.subst (fun _ _ hi => (constructorSubst a.property hi).hasType)
+  have choose := case_choose reply.1 test reply.2.property
+    (left.substVars (liftedFrameSubst a.property)) (right.substVars (liftedFrameSubst a.property))
+    (frameSlot_return slot v)
+  refine factored.trans (prependEmits_congr emits ?_)
+  cases h : reply.1
+  · simp only [h, Bool.false_eq_true, ↓reduceIte] at choose ⊢
+    rw [packed_payload_subst hl.hasType] at choose
+    exact choose
+  · simp only [h, ↓reduceIte] at choose ⊢
+    rw [packed_payload_subst hr.hasType] at choose
+    exact choose
+
+set_option backward.isDefEq.respectTransparency false in
+theorem forwardUnit_at {Γ L : List (Ty Empty)} {X : Ty Empty} {v u : Tm signature.Instr}
+    (emits : List Bool) (hv : Tm.BranchValue Γ v X) (hu : Tm.BranchValue Γ u unit)
+    {r : Region signature.Instr} (hr : ValueBranches [product (product X unit) unit] r L) :
+    E Γ ((prependEmits emits (.let₁ (Term.snd (Φ := signature.Instr) X unit).elaborate.val
+        (Paper.PackedBody.applyPacked r))).substVars (Tm.singleSubst (.pair v u)))
+      (prependEmits emits (r.substVars (Tm.singleSubst (.pair (.pair v u) u)))) L := by
+  rw [prependEmits_subst]
+  apply prependEmits_congr
+  let projected := (Term.snd (Φ := signature.Instr) X unit).elaborate
+  let value := Tm.BranchValue.pair hv hu
+  let typed := projected.property.subst (fun _ _ hi => (constructorSubst value hi).hasType)
+  let k := (applyPacked_typed_exits hr).substVars (liftedFrameSubst value)
+  have route : LSubst.HasType Γ [unit] L (fun _ => (Paper.PackedBody.applyPacked r).substVars
+      (Tm.liftSubst (Tm.singleSubst (.pair v u)))) :=
+    fun _ _ hi => (List.mem_singleton.mp (List.mem_of_getElem? hi)).symm ▸ k.hasType
+  have eq := (snd_returnOnce hv hu).lsubstPost (returnOnce_valueBranches typed) (.br rfl hu) route
+  rw [oncePost] at eq
+  change E Γ _ (((Paper.PackedBody.applyPacked r).substVars (Tm.liftSubst (Tm.singleSubst (.pair v u)))).substVars
+    (Tm.singleSubst u)) L at eq
+  rw [packed_payload_subst hr.hasType] at eq
+  exact eq
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
