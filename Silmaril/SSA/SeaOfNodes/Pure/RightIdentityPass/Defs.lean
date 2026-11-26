@@ -52,16 +52,20 @@ structure Result (inputs : List (ValueSort Unit)) (out : ValueSort Unit) where
   program : Program SubZero.Opcode inputs out
   deletions : Nat
 
-/-- Spend one unit of fuel per deletion. Each new scan uses the rewritten
-table, so it sees both redirected operands and shifted producer addresses. -/
-def run : Nat → Program SubZero.Opcode inputs out → Result inputs out
+/-- Spend one unit of fuel per successful step on the current program. -/
+def runWith (advance : Program SubZero.Opcode inputs out → Option (Program SubZero.Opcode inputs out)) :
+    Nat → Program SubZero.Opcode inputs out → Result inputs out
   | 0, current => ⟨current, 0⟩
   | fuel + 1, current =>
-    match step? current with
+    match advance current with
     | none => ⟨current, 0⟩
     | some next =>
-      let final := run fuel next
+      let final := runWith advance fuel next
       ⟨final.program, final.deletions + 1⟩
+
+/-- Scan the rewritten table at each step for another right identity. -/
+def run (fuel : Nat) (program : Program SubZero.Opcode inputs out) : Result inputs out :=
+  runWith step? fuel program
 
 /-- Enough fuel for every possible deletion and a final search. -/
 def normalize (program : Program SubZero.Opcode inputs out) : Result inputs out :=

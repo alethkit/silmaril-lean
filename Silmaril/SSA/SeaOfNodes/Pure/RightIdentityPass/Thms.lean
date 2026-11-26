@@ -15,6 +15,36 @@ open RVSDG (Tuple)
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 variable {program next : Program SubZero.Opcode inputs out}
 
+section Driver
+
+variable (advance : Program SubZero.Opcode inputs out → Option (Program SubZero.Opcode inputs out))
+
+/-- Observational equality composes through the bounded driver. -/
+theorem runWith_eval_eq (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (preserves : ∀ {current next}, advance current = some next →
+      ∀ (entry : Tuple (Val model.value) (dataPorts inputs)),
+        next.eval model entry = current.eval model entry)
+    (entry : Tuple (Val model.value) (dataPorts inputs)) :
+    (runWith advance fuel program).program.eval model entry = program.eval model entry :=
+  Silmaril.Proofs.SSA.SeaOfNodes.Pure.RightIdentityPass.runWith_eval_eq advance fuel program preserves entry
+
+/-- One-binding steps give exact deletion and fuel accounting. -/
+theorem runWith_progress (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (shrinks : ∀ {current next}, advance current = some next →
+      next.sigs.length + 1 = current.sigs.length) :
+    let final := runWith advance fuel program
+    final.program.sigs.length + final.deletions = program.sigs.length ∧ final.deletions ≤ fuel :=
+  Silmaril.Proofs.SSA.SeaOfNodes.Pure.RightIdentityPass.runWith_progress advance fuel program shrinks
+
+/-- Initial table length suffices for a driver that removes one binding per step. -/
+theorem runWith_stopped (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (shrinks : ∀ {current next}, advance current = some next →
+      next.sigs.length + 1 = current.sigs.length) (enough : program.sigs.length ≤ fuel) :
+    advance (runWith advance fuel program).program = none :=
+  Silmaril.Proofs.SSA.SeaOfNodes.Pure.RightIdentityPass.runWith_stopped advance fuel program shrinks enough
+
+end Driver
+
 /-- Search failure excludes every nomination accepted by the shared checker. -/
 theorem step?_eq_none_iff (program : Program SubZero.Opcode inputs out) :
     step? program = none ↔ Normal program :=
