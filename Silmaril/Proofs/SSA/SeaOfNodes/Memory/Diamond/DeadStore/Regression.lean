@@ -357,7 +357,8 @@ private def lowerWithLiveStore (rightAddress : Address 4) : Entry.Composition.Re
 example : (Entry.lowerRepeated (source .onFalse).diamond entryWithLiveStore input).entry = residualWithSide := rfl
 example : Entry.Composition.Retained.rewrite (source .onFalse).diamond
     (liveStore.prepend (source .onFalse).store.table) 2 input =
-      some ⟨liveStore, ⟨inferred .onFalse, target .onFalse⟩⟩ := rfl
+      some ⟨Entry.Composition.Retained.storeTable entryWord 0 [liveStore],
+        ⟨inferred .onFalse, target .onFalse⟩⟩ := rfl
 example : Entry.Composition.Retained.rewrite (source .onFalse).diamond residualWithSide 3 input = none := rfl
 
 private def runWithLiveStore (rightAddress : Address 4) (guard : Bool) :
@@ -386,5 +387,52 @@ example : (lowerWithLiveStore headCell).programs =
     (Entry.lowerRepeated (source .onFalse).diamond entryWithLiveStore (input headCell)).programs := rfl
 #guard runWithLiveStore headCell false ==
   (1, false, [99, 33, 3, 55], some ([99, 33, 33, 3, 55], [99, 33, 33, 3, 55]))
+
+private def chainInput (left right : Address 4) : Tuple (Val 4) args :=
+  .cons headCell (.cons left (.cons right
+    (.cons (99 : Word) (.cons (11 : Word) (.cons (33 : Word) .nil)))))
+
+private def lastSideStore : PrefixStore args := ⟨rightPort, rightWord⟩
+private def middleStore : PrefixStore args := (source .onFalse).store
+private def threeStoreResidual : Memory.Graph args :=
+  sideStore.prepend (middleStore.prepend lastSideStore.table)
+private def entryWithChain : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend threeStoreResidual
+
+private def chainDiamond : Graph args := (source .onFalse true rightPort).diamond
+private def retainedAliases : Tuple (Val 4) args := input leftCell
+private def nominatedAliases : Tuple (Val 4) args := chainInput headCell rightCell
+
+example : (Entry.lowerRepeated chainDiamond entryWithChain retainedAliases).entry = threeStoreResidual := rfl
+example : (Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 2 retainedAliases).map
+    (fun edit => edit.retained) = some (sideStore.prepend lastSideStore.table) := rfl
+example : Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 0 retainedAliases = none := rfl
+example : Entry.Composition.Retained.rewrite chainDiamond entryWithRead 1 retainedAliases = none := rfl
+
+private def runChain (valuation : Tuple (Val 4) args) (guard : Bool) :
+    Nat × Bool × List Nat × Option (List Nat × List Nat) :=
+  let result := Entry.Composition.Retained.lower chainDiamond entryWithChain 2 valuation
+  let programs := result.programs
+  let entered := (Discovery.MemRef.CF.entryTransition programs.optimized programs.input guard ⟨initial⟩).2
+  let returned := (runEntryPrograms programs guard 3).map fun (_, _, before, after) =>
+    (before.map BitVec.toNat, after.map BitVec.toNat)
+  (result.entryDeleted, result.allPathDeleted, (List.finRange 4).map (fun i => (entered.cell i).toNat), returned)
+
+-- The retained Stores alias on cell one. Both routes read the last write, 33.
+/-- info: (1, true, [7, 33, 3, 55], some ([33, 33, 33, 3, 55], [33, 33, 33, 3, 55])) -/
+#guard_msgs in
+#eval runChain retainedAliases false
+
+#guard runChain retainedAliases true ==
+  (1, true, [7, 33, 3, 55], some ([33, 11, 11, 3, 55], [33, 11, 11, 3, 55]))
+
+-- Both route certificates pass, but the nominated Store aliases the first
+-- retained Store. Refusal keeps the earlier entry-local deletion.
+example : (Discovery.rewrite ⟨middleStore, chainDiamond⟩ nominatedAliases).isSome = true := rfl
+example : Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 2 nominatedAliases = none := rfl
+example : (Entry.Composition.Retained.lower chainDiamond entryWithChain 2 nominatedAliases).programs =
+    (Entry.lowerRepeated chainDiamond entryWithChain nominatedAliases).programs := rfl
+#guard runChain nominatedAliases false ==
+  (1, false, [99, 2, 33, 55], some ([33, 33, 2, 33, 55], [33, 33, 2, 33, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
