@@ -477,3 +477,34 @@ both accept the polling table. The emitted mutable body retains the
 self-edge, and both the emitted and re-admitted observations contain
 the complete request/reply trace and return at exit zero.
 [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Pure/Trace/Local/Split/Examples.lean)
+
+### Ordered external exits
+
+The ordered admission takes a list of distinct external labels disjoint
+from the internal block table. The checker requires each written branch
+to target a block or a declared exit. The existing φ arrival checker
+analyzes the graph with declared exits identified for scope analysis,
+which preserves their payload reads and the internal predecessor rows.
+
+The independent runner keeps the written label and payload on an
+external branch. On an internal branch it evaluates the selected φ
+operands in the predecessor snapshot. The lowerer uses the existing
+packet decoder and cyclic versioner. `Admission.observe_packed`
+relates the source observation to the actual typed table at the declared
+exit order. After accepted reverse readback, `Admission.observe_reverse`
+relates it to the emitted mutable RTL with its projected final store.
+Successful typed re-admission yields `Admission.observe_roundTrip`.
+Each exit supplies its own old-payload type and ordered live-out record.
+The φ admission uses a supplied block profile. The numbered regression
+uses the existing reverse re-admission and its
+[packet-profile synthesis](https://github.com/hiloopai/silmaril-lean/pull/3897).
+[Ordered admission and agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Thms.lean)
+
+The regression branches on a typed sum after a φ swap. Each arm returns
+the same old payload `13` and live-outs `(9, 7)`, using different
+physical registers for the two exit records. The right exit is declared
+first and the left second. The emitted and re-admitted runs
+preserve the distinct tags even though their payload records are equal.
+The checks reject an omitted exit and a reversal of the live-out reads
+at just one exit.
+[Two-exit regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
