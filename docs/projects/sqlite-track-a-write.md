@@ -9,6 +9,17 @@ fits in the leaf. The inventory records the selected SQLite source branches
 and the corresponding instrumented fixture.
 [Source profile and fixture](https://github.com/hiloopai/silmaril-lean/blob/627432c060169951a08c2454b1c524831ce48793/docs/projects/sqlite-track-a/header-inventory/operations.md#insert-and-commit)
 
+## Selected upstream Pager ordering
+
+When `pager_write` enters in `PAGER_WRITER_LOCKED`, it calls
+`pager_open_journal` before `sqlite3PcacheMakeDirty`. A journal-open
+failure returns before the dirty mark. For the selected existing page
+that has yet to be journalled, SQLite marks it dirty, records its old
+bytes in the rollback journal, and sets `PGHDR_WRITEABLE` only after that
+record succeeds. The fitting-cell path in `insertCellFast` edits the
+cached page after `sqlite3PagerWrite` succeeds.
+[Pager write admission](https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/pager.c#L6127-L6175) · [B-Tree leaf edit](https://github.com/sqlite/sqlite/blob/57520227c95396ce39ba6ecaac8d475b78dd3964/src/btree.c#L7496-L7531)
+
 ## Composition and backing
 
 1. The VM adapter takes the cursor and P2/P3 operands from the selected
@@ -72,11 +83,15 @@ and the corresponding instrumented fixture.
 The target is the repository's existing canonical two-page integer-table
 profile. The source fixture uses a 4096-byte SQLite database. The model
 uses the 512-byte packed encoder and rebuilds the leaf in memory. The
-initial context supplies the write cursor, the resident page, and a fresh
-open journal. The journal write represents only the old page bytes, and
-the database write represents only the target leaf. SQLite journal headers,
-record framing and checksums, the page-1 change counter, open and close,
-and the source's detailed sync substeps are outside the event alphabet.
+initial context supplies the write cursor and resident page. The initial
+backing starts with an empty open journal. Model write admission records
+the old bytes before the B-Tree installs the replacement in `Pager.Dirty`.
+That installation represents the cache edit. SQLite's earlier dirty-list
+mark, journal opening and its failure path are outside the model. The
+journal write represents only the old page bytes, and the database write
+represents only the target leaf. SQLite journal headers, record framing
+and checksums, the page-1 change counter, close, and the source's detailed
+sync substeps are outside the event alphabet.
 
 Sync acknowledgement expresses ordering in the model. Storage persistence,
 crash recovery and rollback after faults, lock upgrades and contention,
