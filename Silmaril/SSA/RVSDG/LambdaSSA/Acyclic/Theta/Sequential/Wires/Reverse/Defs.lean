@@ -28,7 +28,7 @@ def readKind :
     some (ExplicitRuntime.Reverse.primitive (.pure p))
   | _, _, .base (.simple (.ordered _ _ (.effect (.loop op)))), _ =>
     some (ExplicitRuntime.Reverse.primitive (.effect op))
-  | _, _, .base (.simple (.ordered _ _ (.effect .link))), _ => none
+  | _, _, .base (.simple (.ordered _ _ (.effect _))), _ => none
   | _, _, .base (.gamma _), children => .gamma <$> (List.ofFn children).mapM id
   | _, _, .theta _, children => .theta <$> children (0 : Fin 1)
 
@@ -50,7 +50,7 @@ abbrev ClosedTerm (Φ : Type u) [HasTy Φ τ] (A M E D : τ) :=
 
 def effectIsLink : {ins out : Ports (OrderedRuntime.Structured.Ty τ)} → Effect Φ ins out → Bool
   | _, _, .link => true
-  | _, _, .loop _ => false
+  | _, _, _ => false
 
 def isLink : {ins out : Ports (OrderedRuntime.Structured.Ty τ)} →
     NestedTheta.Kind (Op Φ) ins out → Bool

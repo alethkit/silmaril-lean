@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Defs
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Defs
+public import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
 
 /-! # Two numbered θ vertices linked by a single live runtime wire -/
 
@@ -28,6 +29,9 @@ It carries the first loop's token. Its guard only rejects a value that
 still represents a first-loop feedback request. -/
 inductive Effect (Φ : Type u) [HasTy Φ τ] : Dialect.{u,u} τ PUnit where
   | loop {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} : ExplicitRuntime.Effect Φ ins outs → Effect Φ ins outs
+  | nested {ins outs : Ports (OrderedRuntime.Structured.Ty τ)} : NestedFeedback.Effect Φ ins outs → Effect Φ ins outs
+  | enterNested {A M : τ} : Effect Φ (carried (First A M)) (carried (NestedFeedback.Carrier A M))
+  | exitNested {A M : τ} : Effect Φ (carried (NestedFeedback.Carrier A M)) (carried (First A M))
   | link {A M E D : τ} : Effect Φ (carried (First A M)) (carried (Second M E D))
 
 abbrev Op (Φ : Type u) [HasTy Φ τ] := OrderedRuntime.Structured.Opcode (Pure τ) (Effect Φ)

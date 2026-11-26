@@ -32,6 +32,15 @@ theorem denote_rounds {m : Type u → Type u} [Monad m] [LawfulMonad m] [Iterate
       iter (round (ε := ε) s) env.2 >>= fun d => pure (Sum.inl d) :=
   Proofs.region_round s coherent env
 
+/-- Widening the external context leaves every extra exit unreachable. -/
+theorem denote_rounds_withTail {m : Type u → Type u} [Monad m] [LawfulMonad m] [Iterate m]
+    [LawfulElgotMonad m] [InstructionModel Φ τ ε m]
+    (s : Loop Φ A B K D) (extra : List τ)
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :
+    Region.denote (ε := ε) (m := m) (regionTypingWithTail s extra) env =
+      iter (round (ε := ε) s) env.2 >>= fun d => pure (Sum.inl d) :=
+  Proofs.region_round_withTail s coherent env
+
 variable {σ : Type u} [InstructionModel Φ τ ε (StateT σ Part.{u})]
 variable {r : Isotope.LambdaSSA.Region Φ} {g : Graph Φ A D}
 

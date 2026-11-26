@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturnsAndUnitEta.Uniqueness.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedSingletonUniqueness
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Generation.Thms
 
 /-! # Uniqueness on the generated joined singleton category -/
 
@@ -11,7 +11,6 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEta.Uniqueness
 
 open Silmaril Silmaril.Isotope.LambdaSSA
-open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 open CategoryTheory CategoryTheory.Limits
 open Paper.Extension.Singleton (ofType sumCofan sumIso whiskerLeftFunctor whiskerRightFunctor
   iterateSum discardArrow productFst productSnd pairArrows diagonalArrow sumCofanIsColimit ofRegion)
@@ -37,13 +36,13 @@ variable (F : TypeCategory (τ := τ) (Φ := Φ) ⥤ C) (objIso : ∀ A : τ, F.
 omit [PremonoidalCategory C] [HasFiniteCoproducts C] [Iteration C] in
 @[simp] theorem mapInCoordinates_id (A : τ) :
     mapInCoordinates F objIso (𝟙 (Obj A)) = 𝟙 (X A) :=
-  JoinedSingletonUniqueness.mapInCoordinates_id F objIso A
+  Paper.Extension.Singleton.Generation.mapInCoordinates_id (Seed) F objIso A
 
 omit [PremonoidalCategory C] [HasFiniteCoproducts C] [Iteration C] in
 theorem mapInCoordinates_comp {A B D : τ} (f : Obj A ⟶ Obj B) (g : Obj B ⟶ Obj D) :
     mapInCoordinates F objIso (f ≫ g) =
       mapInCoordinates F objIso f ≫ mapInCoordinates F objIso g :=
-  JoinedSingletonUniqueness.mapInCoordinates_comp F objIso f g
+  Paper.Extension.Singleton.Generation.mapInCoordinates_comp (Seed) F objIso f g
 
 /-- Preservation of the two injections determines the image of the exact copair. -/
 theorem mapInCoordinates_exactCopair (T : Coordinates X) (h : Preserves F objIso T)
@@ -51,7 +50,7 @@ theorem mapInCoordinates_exactCopair (T : Coordinates X) (h : Preserves F objIso
     mapInCoordinates F objIso (exactCopair (Seed) f g) =
       (T.sumIso A B).hom ≫
         CategoryTheory.Limits.coprod.desc (mapInCoordinates F objIso f) (mapInCoordinates F objIso g) :=
-  JoinedSingletonUniqueness.mapInCoordinates_exactCopair F objIso T h f g
+  Paper.Extension.Singleton.Generation.mapInCoordinates_exactCopair (Seed) F objIso T h f g
 
 variable (G : TypeCategory (τ := τ) (Φ := Φ) ⥤ C) (otherIso : ∀ A : τ, G.obj (Obj A) ≅ X A)
 
@@ -62,7 +61,7 @@ theorem mapInCoordinates_eq_of_generated (T : Coordinates X)
     (hp : ∀ p : Φ, mapInCoordinates F objIso (primitive p) = mapInCoordinates G otherIso (primitive p))
     {A B : τ} {f : Obj A ⟶ Obj B} (hf : Generated f) :
     mapInCoordinates F objIso f = mapInCoordinates G otherIso f :=
-  JoinedSingletonUniqueness.mapInCoordinates_eq_of_generated F objIso G otherIso T hF hG hp hf
+  Paper.Extension.Singleton.Generation.mapInCoordinates_eq_of_generated (Seed) F objIso G otherIso T hF hG hp hf
 
 /-- The two designated type isomorphisms give a naturality square on each generated arrow. -/
 theorem naturality_of_generated (T : Coordinates X)
@@ -71,7 +70,7 @@ theorem naturality_of_generated (T : Coordinates X)
     {A B : τ} {f : Obj A ⟶ Obj B} (hf : Generated f) :
     F.map f ≫ (objIso B ≪≫ (otherIso B).symm).hom =
       (objIso A ≪≫ (otherIso A).symm).hom ≫ G.map f :=
-  JoinedSingletonUniqueness.naturality_of_generated F objIso G otherIso T hF hG hp hf
+  Paper.Extension.Singleton.Generation.naturality_of_generated (Seed) F objIso G otherIso T hF hG hp hf
 
 /-- The comparisons are naturally isomorphic on the generated wide subcategory, with components
 `objIso A ≪≫ (otherIso A).symm` at the exact syntax types. -/
@@ -79,7 +78,7 @@ noncomputable def generatedIso (T : Coordinates X)
     (hF : Preserves F objIso T) (hG : Preserves G otherIso T)
     (hp : ∀ p : Φ, mapInCoordinates F objIso (primitive p) = mapInCoordinates G otherIso (primitive p)) :
     generatedInclusion ⋙ F ≅ generatedInclusion ⋙ G :=
-  JoinedSingletonUniqueness.generatedIso F objIso G otherIso T hF hG hp
+  Paper.Extension.Singleton.Generation.generatedIso (Seed) F objIso G otherIso T hF hG hp
 
 end Target
 
@@ -92,33 +91,33 @@ local notation "Lit" => ofRegion (Seed)
 theorem exactCopair_ofRegion {A B D : τ} {r s : Region Φ}
     (hr : ValueBranches [A] r [D]) (hs : ValueBranches [B] s [D]) :
     exactCopair (Seed) (Lit hr) (Lit hs) = Lit (caseValueBranches hr hs) :=
-  JoinedSingletonUniqueness.exactCopair_ofRegion hr hs
+  Paper.Extension.Singleton.Generation.exactCopair_ofRegion (Seed) hr hs
 
 theorem Generated.caseOnInput {A B D : τ} {r s : Region Φ}
     (hr : ValueBranches [A] r [D]) (hs : ValueBranches [B] s [D])
     (gr : Generated (Lit hr)) (gs : Generated (Lit hs)) :
     Generated (Lit (caseValueBranches hr hs)) :=
-  JoinedSingletonUniqueness.Generated.caseOnInput hr hs gr gs
+  Paper.Extension.Singleton.Generation.Generated.caseOnInput (Seed) hr hs gr gs
 
 theorem Generated.pair {X A B : τ} {f : Obj X ⟶ Obj A} {g : Obj X ⟶ Obj B}
     (hf : Generated f) (hg : Generated g) : Generated (pairArrows (Seed) f g) :=
-  JoinedSingletonUniqueness.Generated.pair hf hg
+  Paper.Extension.Singleton.Generation.Generated.pair (Seed) hf hg
 
 /-- The return of every typed constructor value is generated. -/
 theorem generated_branchValue {X A : τ} {a : Tm Φ} (ha : Tm.BranchValue [X] a A) :
     Generated (Lit (.br (ℓ := 0) rfl ha)) :=
-  JoinedSingletonUniqueness.generated_branchValue ha
+  Paper.Extension.Singleton.Generation.generated_branchValue (Seed) ha
 
 /-- A primitive applied to a constructor value is generated. -/
 theorem generated_primitive_branchValue {X : τ} {a : Tm Φ} (p : Φ)
     (ha : Tm.BranchValue [X] a (instrSrc p)) :
     Generated (Lit (returnRegion_typed (.op (f := p) ha.hasType))) :=
-  JoinedSingletonUniqueness.generated_primitive_branchValue p ha
+  Paper.Extension.Singleton.Generation.generated_primitive_branchValue (Seed) p ha
 
 /-- The exact distributor is generated as the inverse of the copair of the two whiskered injections. -/
 theorem generated_distributor (X A B : τ) :
     Generated (Lit (distributorRegion_typed X A B)) :=
-  JoinedSingletonUniqueness.generated_distributor X A B
+  Paper.Extension.Singleton.Generation.generated_distributor (Seed) X A B
 
 /-- A retained region case is generated from its retagging scrutinee and packed arms. -/
 theorem Generated.retainedCase {X A B D : τ} {a : Tm Φ} {l r : Region Φ}
@@ -128,6 +127,6 @@ theorem Generated.retainedCase {X A B D : τ} {a : Tm Φ} {l r : Region Φ}
     (gl : Generated (Lit (Paper.RetainedLet.unpackBody_typed hl)))
     (gr : Generated (Lit (Paper.RetainedLet.unpackBody_typed hr))) :
     Generated (Lit (.case ha hl hr)) :=
-  JoinedSingletonUniqueness.Generated.retainedCase ha hl hr gs gl gr
+  Paper.Extension.Singleton.Generation.Generated.retainedCase (Seed) ha hl hr gs gl gr
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEta.Uniqueness
