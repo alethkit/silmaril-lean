@@ -231,6 +231,14 @@ theorem serial_packed_replay (input : StructuralContext β) :
     ((reify_equiv_finite _ seq.2 (serial_equiv p q hp hq i j entry receive input)).trans
       (CheckedTable.ofLetCase_packed_replay (Reverse.exits_ne_nil_of_operand input seq) seq.2).symm)
 
+/-- Native weakening below the newest slot preserves its trace and the
+older ambient values. -/
+theorem underBinder_run {X Y A : Ty Empty} (b : Operand Φ (β.snoc Y) A)
+    (env : BoundEnv LetCase.Structural.Finite.Value β)
+    (x : LetCase.Structural.Finite.Value X) (y : LetCase.Structural.Finite.Value Y) :
+    run (b.2.underBinder (X := X)) ((env.snoc x).snoc y) = run b.2 (env.snoc y) :=
+  underBinder_run_proof b env x y
+
 /-- Adding an unused older binding keeps the actual emitter's run, with
 the newest intermediate packet and older ambient captures in place. -/
 theorem weaken_receiver_run {X Y : Ty Empty}
