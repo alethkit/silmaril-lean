@@ -1,0 +1,95 @@
+module
+
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Defs
+
+@[expose] public section
+
+namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Proofs
+
+open Execution.Runtime (FuncAddr MemAddr Value)
+open Computed
+
+private theorem split_i32 {stack : List Value} {resume : List NumType → Bool}
+    (checked : Graph.checkCondition (Prefix.stackTypes stack) resume = true) :
+    ∃ (saved : List Value) (bits : BitVec 32),
+      stack = saved ++ [Value.int .i32 bits] ∧ resume (Prefix.stackTypes saved) = true := by
+  cases stack using List.reverseRecOn with
+  | nil => simp [Prefix.stackTypes, Graph.checkCondition] at checked
+  | append_singleton saved v =>
+    rcases v with ⟨type, bits⟩
+    simp only [Prefix.stackTypes, List.map_append, List.map_cons, List.map_nil,
+      List.reverse_append, List.reverse_cons, List.reverse_nil, List.nil_append,
+      List.singleton_append] at checked
+    cases type with
+    | float kind => simp [Graph.checkCondition] at checked
+    | int kind =>
+      cases kind with
+      | i32 => exact ⟨saved, bits, rfl, checked⟩
+      | i64 => simp [Graph.checkCondition] at checked
+
+theorem load_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
+    (checked : fn.WellTyped stack (.load offset :: rest)) :
+    ∃ (saved : List Value) (address : BitVec 32),
+      stack = saved ++ [Value.int .i32 address] ∧
+      ∀ bits : BitVec 32, fn.WellTyped (saved ++ [Value.int .i32 bits]) rest := by
+  change Graph.checkCondition (Prefix.stackTypes stack)
+    (fun saved => fn.checkCode (.int .i32 :: saved) rest) = true at checked
+  obtain ⟨saved, address, rfl, resume⟩ := split_i32 checked
+  refine ⟨saved, address, rfl, fun bits => ?_⟩
+  simpa [Function.WellTyped, Prefix.stackTypes, Value.int, List.reverse_append] using resume
+
+theorem store_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
+    (checked : fn.WellTyped stack (.store offset :: rest)) :
+    ∃ (saved : List Value) (address word : BitVec 32),
+      stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.WellTyped saved rest := by
+  change Graph.checkCondition (Prefix.stackTypes stack)
+    (fun args => Graph.checkCondition args (fun saved => fn.checkCode saved rest)) = true at checked
+  obtain ⟨args, word, rfl, remaining⟩ := split_i32 checked
+  obtain ⟨saved, address, rfl, tail⟩ := split_i32 remaining
+  exact ⟨saved, address, word, by simp [List.append_assoc], tail⟩
+
+theorem lookup_table (program : Program) (address : FuncAddr) :
+    program.table.lookup address = (program.lookup address).map Function.entry := by
+  unfold Table.lookup Program.table Program.lookup
+  rw [List.getElem?_map]
+  cases program.functions[address.value]? with
+  | none => rfl
+  | some slot => cases slot <;> rfl
+
+private theorem lookup_mem {program : Program} {address : FuncAddr} {fn : Function}
+    (found : program.lookup address = some fn) : some fn ∈ program.functions := by
+  unfold Program.lookup at found
+  cases h : program.functions[address.value]? with
+  | none => simp [h] at found
+  | some slot =>
+    have eq : slot = some fn := by simpa [h] using found
+    exact List.mem_of_getElem? (eq ▸ h)
+
+theorem function_checked {program : Program} {memory : MemAddr} (checked : program.checkV1 memory = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
+    fn.declaration.results.length ≤ 1 ∧ fn.code.all Op.supported = true ∧
+      fn.WellTyped fn.initial fn.code ∧ fn.declaration.module.memories[0]? = some memory := by
+  have each := (Bool.and_eq_true_iff.mp checked).2
+  have body := List.all_eq_true.mp each (some fn) (lookup_mem found)
+  simp only [Option.map_some, Option.getD_some, Function.checkV1, Bool.and_eq_true,
+    decide_eq_true_eq, Function.WellTyped] at body ⊢
+  exact ⟨body.1.1.1, body.1.1.2, body.1.2, body.2⟩
+
+theorem linked_target {program : Program} {memory : MemAddr} (checked : program.checkV1 memory = true)
+    {address : FuncAddr} {fn : Function} {target : CallTarget}
+    (found : program.lookup address = some fn) (used : target ∈ fn.targets) :
+    ∃ callee, program.lookup target.address = some callee ∧
+      fn.declaration.module.funcs[target.index.toNat]? = some target.address ∧
+      callee.declaration = target.declaration ∧ callee.rank < fn.rank := by
+  have valid := (Bool.and_eq_true_iff.mp checked).1
+  have entry : program.table.lookup address = some fn.entry := by rw [lookup_table, found]; rfl
+  have member := List.mem_of_getElem? (show program.table.entries[address.value]? = some (some fn.entry) by
+    unfold Table.lookup at entry
+    cases h : program.table.entries[address.value]? <;> simp_all)
+  obtain ⟨callee, atTarget, resolves, declares, rank⟩ :=
+    (Table.check_iff program.table).mp valid _ member target used
+  rw [lookup_table] at atTarget
+  obtain ⟨body, foundBody, rfl⟩ := Option.map_eq_some_iff.mp atTarget
+  exact ⟨body, foundBody, resolves, declares, rank⟩
+
+end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Proofs
