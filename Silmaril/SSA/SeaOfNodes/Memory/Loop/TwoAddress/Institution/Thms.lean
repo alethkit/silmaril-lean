@@ -33,6 +33,14 @@ theorem runtimeObserve_eq_some_iff_native (graph : Graph P.args) (model : EntryM
       nativeReturns graph model initial word final :=
   Proofs.runtimeObserve_eq_some_iff_native graph model initial word final
 
+/-- Equality of the canonical partial observations is equality of the
+complete finite results. -/
+theorem runtimeObserve_eq_iff_native (lhs rhs : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) :
+    runtimeObserve lhs model initial = runtimeObserve rhs model initial ↔
+      ∀ word final, nativeReturns lhs model initial word final ↔ nativeReturns rhs model initial word final :=
+  Proofs.runtimeObserve_eq_iff_native lhs rhs model initial
+
 theorem runtimeObserve_dom_iff_native (graph : Graph P.args) (model : EntryModel P)
     (initial : Heap model.cells) :
     (runtimeObserve graph model initial).Dom ↔ ∃ word final, nativeReturns graph model initial word final :=

@@ -51,7 +51,7 @@ private theorem output_image (output : Tuple (WireVal cells) (Threaded wordPorts
   let result := (runtimeResult cells).symm output
   exact ⟨result.1, result.2, (runtimeResult cells).apply_symm_apply output⟩
 
-private theorem runtime_agrees (lhs rhs : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
+theorem runtimeObserve_eq_iff_native (lhs rhs : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
     runtimeObserve lhs model initial = runtimeObserve rhs model initial ↔
       ∀ word final, nativeReturns lhs model initial word final ↔ nativeReturns rhs model initial word final := by
   constructor
@@ -100,7 +100,7 @@ theorem numbered_satisfaction (s : Sentence P) (cells : Nat) :
     exact (forall_payload (cells := cells) (args := P.args) (fun raw =>
       RuntimeObservation.observe (thetaRuntime cells) (lowerProgram lhs).graph raw =
         RuntimeObservation.observe (thetaRuntime cells) (lowerProgram rhs).graph raw)).trans
-      (forall_congr' fun input => forall_congr' fun heap => runtime_agrees lhs rhs ⟨cells, input⟩ heap)
+      (forall_congr' fun input => forall_congr' fun heap => runtimeObserve_eq_iff_native lhs rhs ⟨cells, input⟩ heap)
   | terminates graph =>
     change (∀ raw, (RuntimeObservation.observe (thetaRuntime cells) (lowerProgram graph).graph raw).Dom) ↔ _
     exact (forall_payload (cells := cells) (args := P.args) (fun raw =>

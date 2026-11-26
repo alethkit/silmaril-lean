@@ -740,6 +740,47 @@ import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.MemRefRoom.Thm
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.MemRefRoom.Regression
 ```
 
+#### Generated numbered institution for two addresses
+
+`TwoAddress.Institution.RuntimeRoom.comparison` is an `Inst.CoHom` over
+the existing typed capture-port category. Each sentence retains the
+source and the emitted whole θ. A capture map re-emits from the
+renamed source, and the model reduct pulls back the typed valuation
+at the same cell count. `GeneratedProgram.observe_map` compares the
+complete partial results at that reduct using `RuntimeObservation`
+on the stored programs.
+[Numbered institution](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/RuntimeRoom/Thms.lean)
+
+Models choose the canonical memory runtime at their cell count and fix
+one typed capture valuation. Equations compare the returned word and
+every cell over all initialized heaps. Termination requires a finite
+return for each such heap. `Sentence.numbered` exposes the stored
+programs in the existing numbered room. At its canonical runtime,
+`Sentence.numbered_satisfaction_map` quantifies over the target
+valuations pulled back by the capture map.
+
+`toMemRefComparison` re-emits the same source as a MemRef sentence at
+the same models. `comparison_factors` identifies the composed
+native-to-numbered-to-MemRef comorphism with the direct MemRef one.
+`Sentence.toMemRef_satisfaction_map` transfers both sentence forms at
+the reduct. Complete finite observations retain their own execution
+witnesses in each backend.
+[MemRef coherence](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/RuntimeRoom/MemRef/Thms.lean)
+
+The regression rejects the distinct-address equation by cell 1,
+then checks the same comparison after a noninjective port map
+identifies the address captures. It checks the numbered room, the
+existing runtime sentence, and the direct MemRef path.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/RuntimeRoom/Regression.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.RuntimeRoom.MemRef.Thms
+```
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.RuntimeRoom.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
