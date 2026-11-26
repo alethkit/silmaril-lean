@@ -999,10 +999,7 @@ give the exact packet in the existing runtime and firing semantics.
 
 `splice_observe` and `splice_finishes_iff` establish the behaviour of
 the actual splice with any consumer admitted at the routed packet.
-Linking the two whole θ graphs still requires a checked producer that
-returns the ambient captures with its word and live heap, and a
-checked consumer that runs the second θ while carrying the reserved
-word to the final pair.
+The whole-loop splice below supplies that consumer.
 
 ```lean
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Thms
@@ -1019,6 +1016,41 @@ the selected stop capture.
 
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Regression
+```
+
+##### One linked numbered graph and coloured net
+
+`Wrapper.producer` returns the original ambient captures with the
+first θ's word and live heap. `Wrapper.consumer` reads the routed
+captures and heap, retaining the reserved first word outside its θ.
+Both wrappers use the existing emitted activation as their child and
+are admitted by the explicit-runtime check. Their `*_observe` and
+`*_absent_iff` laws compare each full boundary with its original θ.
+[Wrapper API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Wrapper/Thms.lean)
+
+`Linked.lower` uses the checked splice twice to emit one graph with
+two θ vertices. The first graph's input is the ambient bank. The
+caller supplies the second program and a `Boundary.Wiring` that
+selects one dependent word capture and fixes the ambient port for
+every other capture. `observe_eq_numbered` compares the linked graph
+to `Sequential.numbered` at this wiring, including both words, the
+whole heap, and absence. `returns_iff_numbered`,
+`finishes_iff_coloured`, and the two absence laws use finite
+observations with independent witnesses.
+[Linked graph and completion laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Thms
+```
+
+The disjoint-write regression runs the single linked graph. Each θ
+takes one backedge and the result retains words `(3, 3)` and heap
+`[11, 73, 11, 22, 91, 22]`. The linked firing law concerns existence
+of finite completion at that same typed entry.
+[Runnable linked regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Regression
 ```
 
 ### Equations for coloured Petri completion
