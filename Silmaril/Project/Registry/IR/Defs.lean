@@ -22,10 +22,16 @@ private def requireRecord (kind field target : String) (fs : Fields) : CoreM Uni
   unless (findRecord? (← getEnv) target name).isSome do
     throwError "silmaril {kind}: no `silmaril {target} {name}` is declared or imported"
 
+private def checkDescription (kind : String) (fs : Fields) : CoreM Unit := do
+  let _ ← fs.str kind "title"
+  if let some doc := fs.get? "doc" then
+    unless doc.getStr?.isOk do
+      throwError "silmaril {kind}: `doc` must be a string"
+
 private def irNamed : Handler where
   mainKey := "title"
   run? := some fun kind name? fs => do
-    let _ ← liftCoreM (fs.str kind "title")
+    liftCoreM (checkDescription kind fs)
     return #[(← liftCoreM (needName kind name?), fs)]
 
 @[silmaril_kind ir_family] def irFamilyHandler : Handler := irNamed
@@ -38,8 +44,7 @@ private def irNamed : Handler where
     liftCoreM do
       requireRecord kind "family" "ir_family" fs
       requireRecord kind "syntax_kind" "ir_syntax_kind" fs
-      let _ ← fs.str kind "title"
-      pure ()
+      checkDescription kind fs
     liftTermElabM do
       forallTelescopeReducing (← constType decl) fun _ result => do
         unless result.isSort && !result.isProp do
@@ -63,7 +68,7 @@ private def acceptsPrograms (decl programs : Name) : MetaM Bool := do
       let reading ← fs.str kind "semantics"
       unless ["operational", "denotational"].contains reading do
         throwError "silmaril {kind}: `semantics` must be operational or denotational"
-      let _ ← fs.str kind "title"
+      checkDescription kind fs
       if (fs.get? "institution").isSome then
         requireRecord kind "institution" "institution" fs
       recordDecl kind "ir_subset" subset

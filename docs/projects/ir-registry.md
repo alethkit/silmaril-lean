@@ -44,8 +44,9 @@ The LLVM slice has regionless bodies. Scoped application belongs to the
 landed Arith subset. The two pure MLIR institutions are bundled as
 `ssa.mlir.regionless` and `ssa.mlir.isolated` for the logic graph. The Arith
 link uses the existing `Silmaril.MLIR.Institution.Arith.translate_denote`
-theorem at the arithmetic signature and model. The sequential LLVM evaluator
-has no recorded institution link. [LLVM model](mlir-llvm-scalar.md) ·
+theorem at the arithmetic signature and bitvector model. The sequential LLVM evaluator
+has no recorded institution link. [Arith correspondence theorem](../../Silmaril/SSA/MLIR/Institution/Arith/Thms.lean#L19) ·
+[LLVM model](mlir-llvm-scalar.md) ·
 [Pure institutions](mlir-institutions.md) ·
 [Registrations](../../Silmaril/LogicGraph/Nodes/SSA/MLIR/Defs.lean)
 

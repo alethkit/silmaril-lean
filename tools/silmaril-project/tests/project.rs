@@ -103,9 +103,24 @@ fn ir_registry_exports_models_and_checks_references() {
     let (ok, output) = sil(dir, &["init"]);
     assert!(ok, "{output}");
 
+    let dependency = dir.join("dependency");
+    fs::create_dir(&dependency).unwrap();
+    fs::write(
+        dependency.join("lakefile.toml"),
+        "name = \"dependency\"\n[[lean_lib]]\nname = \"Imported\"\n",
+    )
+    .unwrap();
+    let (ok, output) = sil(&dependency, &["init"]);
+    assert!(ok, "{output}");
+    fs::write(
+        dir.join("lake-manifest.json"),
+        r#"{"packages":[{"name":"dependency","type":"path","dir":"dependency"}]}"#,
+    )
+    .unwrap();
+
     let records = vec![
         json!({"kind": "ir_family", "name": "demo.family", "title": "Family", "module": "Demo"}),
-        json!({"kind": "ir_syntax_kind", "name": "demo.extension", "title": "New kind", "module": "Demo"}),
+        json!({"kind": "ir_syntax_kind", "name": "demo.extension", "title": "New kind", "module": "Imported"}),
         json!({"kind": "ir_subset", "name": "demo.subset", "title": "Subset", "module": "Demo",
                "family": "demo.family", "syntax_kind": "demo.extension", "decl": "Demo.Program"}),
         json!({"kind": "ir_model", "name": "demo.eval", "title": "Evaluator", "module": "Demo",
@@ -113,8 +128,8 @@ fn ir_registry_exports_models_and_checks_references() {
         json!({"kind": "ir_model", "name": "demo.denote", "title": "Denotation", "module": "Demo",
                "subset": "demo.subset", "semantics": "denotational", "decl": "Demo.denote",
                "institution": "demo.logic"}),
-        json!({"kind": "institution", "name": "demo.logic", "module": "Demo",
-               "decl": "Demo.logic", "arity": 0, "type": "Inst", "levels": ""}),
+        json!({"kind": "institution", "name": "demo.logic", "module": "Imported",
+               "decl": "Imported.logic", "arity": 0, "type": "Inst", "levels": ""}),
     ];
     let write_dump = |records| {
         let dump = json!({
@@ -149,9 +164,11 @@ fn ir_registry_exports_models_and_checks_references() {
              JOIN ir_families f ON s.family = f.name
              JOIN ir_syntax_kinds k ON s.syntax_kind = k.name
              JOIN logic_nodes n ON m.institution = n.name AND n.kind = 'institution'
+             JOIN institutions i ON i.name = n.name
              WHERE f.name = 'demo.family' AND k.name = 'demo.extension'
                AND s.name = 'demo.subset' AND m.name = 'demo.denote'
-               AND m.semantics = 'denotational' AND n.name = 'demo.logic'"
+               AND m.semantics = 'denotational' AND n.name = 'demo.logic'
+               AND k.origin = 'imported' AND i.origin = 'imported'"
         ),
         1
     );
@@ -202,6 +219,17 @@ fn ir_registry_exports_models_and_checks_references() {
     let (ok, output) = sil(dir, &["check", "--dump", "dump.json"]);
     assert!(
         !ok && output.contains("ir_model demo.eval: declared twice"),
+        "{output}"
+    );
+
+    let mut reused_sid = records;
+    let sid = "a".repeat(64);
+    reused_sid[3]["sid"] = json!(sid);
+    reused_sid[4]["sid"] = json!(sid);
+    write_dump(reused_sid);
+    let (ok, output) = sil(dir, &["check", "--dump", "dump.json"]);
+    assert!(
+        !ok && output.contains("shared by ir_model demo.eval and ir_model demo.denote"),
         "{output}"
     );
 }
