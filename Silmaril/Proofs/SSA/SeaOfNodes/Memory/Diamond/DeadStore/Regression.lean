@@ -409,9 +409,9 @@ example : (Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 2 
 example : Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 0 retainedAliases = none := rfl
 example : Entry.Composition.Retained.rewrite chainDiamond entryWithRead 1 retainedAliases = none := rfl
 
-private def runChain (valuation : Tuple (Val 4) args) (guard : Bool) :
+private def runChain (entry : Memory.Graph args) (valuation : Tuple (Val 4) args) (guard : Bool) :
     Nat × Bool × List Nat × Option (List Nat × List Nat) :=
-  let result := Entry.Composition.Retained.lower chainDiamond entryWithChain 2 valuation
+  let result := Entry.Composition.Retained.lower chainDiamond entry 2 valuation
   let programs := result.programs
   let entered := (Discovery.MemRef.CF.entryTransition programs.optimized programs.input guard ⟨initial⟩).2
   let returned := (runEntryPrograms programs guard 3).map fun (_, _, before, after) =>
@@ -421,18 +421,37 @@ private def runChain (valuation : Tuple (Val 4) args) (guard : Bool) :
 -- The retained Stores alias on cell one. Both routes read the last write, 33.
 /-- info: (1, true, [7, 33, 3, 55], some ([33, 33, 33, 3, 55], [33, 33, 33, 3, 55])) -/
 #guard_msgs in
-#eval runChain retainedAliases false
+#eval runChain entryWithChain retainedAliases false
 
-#guard runChain retainedAliases true ==
+#guard runChain entryWithChain retainedAliases true ==
   (1, true, [7, 33, 3, 55], some ([33, 11, 11, 3, 55], [33, 11, 11, 3, 55]))
 
--- Both route certificates pass, but the nominated Store aliases the first
--- retained Store. Refusal keeps the earlier entry-local deletion.
+-- The prefix alias survives entry-local deletion because the address ports
+-- differ. Only the disjoint suffix is crossed. The retained entry exposes 11
+-- in cell zero until the selected route overwrites it.
+example : (Entry.lowerRepeated chainDiamond entryWithChain nominatedAliases).entry = threeStoreResidual := rfl
+example : (Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 2 nominatedAliases).map
+    (fun edit => edit.retained) = some (sideStore.prepend lastSideStore.table) := rfl
+
+/-- info: (1, true, [11, 2, 33, 55], some ([33, 33, 2, 33, 55], [33, 33, 2, 33, 55])) -/
+#guard_msgs in
+#eval runChain entryWithChain nominatedAliases false
+
+#guard runChain entryWithChain nominatedAliases true ==
+  (1, true, [11, 2, 33, 55], some ([33, 11, 2, 33, 55], [33, 11, 2, 33, 55]))
+
+private def suffixAliasResidual : Memory.Graph args := lastSideStore.prepend (middleStore.prepend sideStore.table)
+private def suffixAliasEntry : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend suffixAliasResidual
+
+-- The same concrete alias now lies after the nomination. Both route
+-- certificates pass on their own. The suffix refusal keeps stage one.
+example : (Entry.lowerRepeated chainDiamond suffixAliasEntry nominatedAliases).entry = suffixAliasResidual := rfl
 example : (Discovery.rewrite ⟨middleStore, chainDiamond⟩ nominatedAliases).isSome = true := rfl
-example : Entry.Composition.Retained.rewrite chainDiamond threeStoreResidual 2 nominatedAliases = none := rfl
-example : (Entry.Composition.Retained.lower chainDiamond entryWithChain 2 nominatedAliases).programs =
-    (Entry.lowerRepeated chainDiamond entryWithChain nominatedAliases).programs := rfl
-#guard runChain nominatedAliases false ==
-  (1, false, [99, 2, 33, 55], some ([33, 33, 2, 33, 55], [33, 33, 2, 33, 55]))
+example : Entry.Composition.Retained.rewrite chainDiamond suffixAliasResidual 2 nominatedAliases = none := rfl
+example : (Entry.Composition.Retained.lower chainDiamond suffixAliasEntry 2 nominatedAliases).programs =
+    (Entry.lowerRepeated chainDiamond suffixAliasEntry nominatedAliases).programs := rfl
+#guard runChain suffixAliasEntry nominatedAliases false ==
+  (1, false, [11, 2, 33, 55], some ([33, 33, 2, 33, 55], [33, 33, 2, 33, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

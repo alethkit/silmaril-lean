@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Module.Defs
+public import Silmaril.Languages.Python.Core.Text.Defs
 
 /-! # Slot and cell interfaces for lowered Python closures -/
 
@@ -65,6 +66,7 @@ inductive Value where
   | none
   | int (value : Int)
   | bool (value : Bool)
+  | text (value : Core.Text)
   | function (value : Function)
   | tuple (items : List Core.Module.Value)
   deriving Repr
@@ -73,6 +75,7 @@ def Value.truth : Value → Bool
   | .none => false
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .text value => value.truth
   | .function _ => true
   | .tuple items => !items.isEmpty
 
@@ -81,13 +84,13 @@ def Value.equalInt : Value → Int → Bool
   | .int value, right => decide (value = right)
   | .bool false, right => decide (0 = right)
   | .bool true, right => decide (1 = right)
-  | .none, _ | .function _, _ | .tuple _, _ => false
+  | .none, _ | .text _, _ | .function _, _ | .tuple _, _ => false
 
 def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .function _ | .tuple _ => Option.none
+  | .text _ | .function _ | .tuple _ => Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
@@ -147,7 +150,7 @@ def Value.asInt? : Value → Option Int
   | .int value => some value
   | .bool false => some 0
   | .bool true => some 1
-  | .none | .function _ | .tuple _ => Option.none
+  | .none | .text _ | .function _ | .tuple _ => Option.none
 
 inductive IntegerOp where
   | add

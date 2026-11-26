@@ -13,6 +13,7 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Ret
 
 open RVSDG (Locals Port Tuple)
 open Memory.Forwarding.Disjoint (Certificate cell)
+open SeaOfNodes.Diamond (Projection)
 open Silmaril.MLIR.MemRef (Buffer)
 open Discovery.MemRef.CF (entryTransition lowerDiamond lowerDiamond_entryTransition lowerDiamond_run run)
 open Memory.DeadStore.Search.Selection.Readers.Repeat renaming rewrite_denote → repeatDenote
@@ -73,7 +74,7 @@ private theorem foldl_commute (input : Tuple (Val cells) args) (selected : Prefi
 
 private theorem foldl_erase (input : Tuple (Val cells) args) (chain : List (PrefixStore args))
     (index : Nat) {selected : PrefixStore args} (found : chain[index]? = some selected)
-    (distinct : ∀ store ∈ chain.eraseIdx index, cell input selected.address ≠ cell input store.address)
+    (distinct : ∀ store ∈ chain.drop (index + 1), cell input selected.address ≠ cell input store.address)
     (initial : Heap cells) :
     chain.foldl (writeStore input) initial =
       writeStore input ((chain.eraseIdx index).foldl (writeStore input) initial) selected := by
@@ -86,14 +87,13 @@ private theorem foldl_erase (input : Tuple (Val cells) args) (chain : List (Pref
       subst selected
       exact foldl_commute input store rest distinct initial
     | succ index =>
-      exact ih index found (fun other member => distinct other (List.mem_cons_of_mem _ member))
-        (writeStore input initial store)
+      exact ih index found distinct (writeStore input initial store)
 
 theorem erase_heap {chain : List (PrefixStore args)} {word : Port args .word}
     (recognized : stores entry = some (chain, word)) (index : Nat)
     {selected : PrefixStore args} (found : chain[index]? = some selected)
     (input : Tuple (Val cells) args)
-    (distinct : ∀ store ∈ chain.eraseIdx index, cell input selected.address ≠ cell input store.address)
+    (distinct : ∀ store ∈ chain.drop (index + 1), cell input selected.address ≠ cell input store.address)
     (initial : Heap cells) :
     (entry.denote input initial).2 =
       (selected.table.denote input (Memory.Graph.denote (storeTable word 0 (chain.eraseIdx index)) input initial).2).2 := by
@@ -104,6 +104,28 @@ theorem erase_heap {chain : List (PrefixStore args)} {word : Port args .word}
     table_heap _ word 0 input initial]
   exact foldl_erase input chain index found distinct initial
 
+theorem rewrite_checked (index : Nat) (input : Tuple (Val cells) args)
+    (accepted : rewrite graph entry (index + 1) input = some edit) :
+    ∃ chain word selected,
+      stores entry = some (chain, word) ∧ chain[index]? = some selected ∧
+      edit.retained = storeTable word 0 (chain.take index ++ chain.drop (index + 1)) ∧
+      (∀ store ∈ chain.drop (index + 1), cell input selected.address ≠ cell input store.address) ∧
+      Discovery.rewrite ⟨selected, graph⟩ input = some edit.routes := by
+  obtain ⟨⟨chain, word⟩, recognized, rest⟩ := Option.bind_eq_some_iff.mp accepted
+  obtain ⟨selected, found, checked⟩ := Option.bind_eq_some_iff.mp rest
+  let suffix := chain.drop (index + 1)
+  let facts : Certificate args := ⟨selected.address, suffix.map PrefixStore.address⟩
+  change (if facts.check input then
+    (Discovery.rewrite ⟨selected, graph⟩ input).map (Edit.mk (storeTable word 0 (chain.eraseIdx index)))
+    else none) = some edit at checked
+  split at checked
+  next valid =>
+    obtain ⟨result, routes, rfl⟩ := Option.map_eq_some_iff.mp checked
+    refine ⟨chain, word, selected, recognized, found, ?_, ?_, routes⟩
+    · exact congrArg (storeTable word 0) (List.eraseIdx_eq_take_drop_succ chain index)
+    · exact fun store member => (facts.check_iff_valid input).mp valid _ (List.mem_map_of_mem member)
+  next => contradiction
+
 theorem rewrite_denote (input : Tuple (Val cells) args) (accepted : rewrite graph entry version input = some edit)
     (guard : Bool) (initial : Heap cells) :
     edit.routes.graph.denote guard input (edit.retained.denote input initial).2 =
@@ -111,21 +133,11 @@ theorem rewrite_denote (input : Tuple (Val cells) args) (accepted : rewrite grap
   cases version with
   | zero => contradiction
   | succ index =>
-    obtain ⟨⟨chain, word⟩, recognized, rest⟩ := Option.bind_eq_some_iff.mp accepted
-    obtain ⟨selected, found, checked⟩ := Option.bind_eq_some_iff.mp rest
-    let retained := chain.eraseIdx index
-    let facts : Certificate args := ⟨selected.address, retained.map PrefixStore.address⟩
-    change (if facts.check input then
-      (Discovery.rewrite ⟨selected, graph⟩ input).map (Edit.mk (storeTable word 0 retained))
-      else none) = some edit at checked
-    split at checked
-    next valid =>
-      obtain ⟨result, routes, rfl⟩ := Option.map_eq_some_iff.mp checked
-      have distinct : ∀ store ∈ retained, cell input selected.address ≠ cell input store.address :=
-        fun store member => (facts.check_iff_valid input).mp valid _ (List.mem_map_of_mem member)
-      have heap := erase_heap recognized index found input distinct initial
-      exact (Discovery.rewrite_denote input routes guard _).trans (congrArg (graph.denote guard input) heap.symm)
-    next => contradiction
+    obtain ⟨chain, word, selected, recognized, found, retained, distinct, routes⟩ :=
+      rewrite_checked index input accepted
+    rw [retained, ← List.eraseIdx_eq_take_drop_succ]
+    have heap := erase_heap recognized index found input distinct initial
+    exact (Discovery.rewrite_denote input routes guard _).trans (congrArg (graph.denote guard input) heap.symm)
 
 theorem lower_runs (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args) (guard : Bool) (fuel : Nat) (initial : Buffer cells) :
@@ -146,15 +158,21 @@ theorem lower_runs (graph : Graph args) (entry : Memory.Graph args) (version : N
       (congrArg (fun result : Word × Heap cells =>
         if fuel < 3 then none else some (result.1, Buffer.mk result.2)) same)
 
-theorem lower_retained_buffer (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
+theorem lower_retained_entry (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
     (input : Tuple (Val cells) args)
     (accepted : rewrite graph (Entry.lowerRepeated graph entry input).entry version input = some edit)
     (guard : Bool) (initial : Buffer cells) :
     let programs := (lower graph entry version input).programs
-    (entryTransition programs.optimized programs.input guard initial).2 =
-      Buffer.mk (edit.retained.denote input initial.cell).2 := by
-  simp only [lower, accepted]
-  exact congrArg Prod.snd (lowerDiamond_entryTransition edit.routes.graph (some edit.retained)
-    input guard initial)
+    entryTransition programs.optimized programs.input guard initial =
+      (.inl ⟨.arm (graph.merge.slot (Projection.ofBool guard)), .nil⟩,
+        Buffer.mk (edit.retained.denote input initial.cell).2) := by
+  cases version with
+  | zero => contradiction
+  | succ index =>
+    obtain ⟨_, _, _, _, _, _, _, routes⟩ := rewrite_checked index input accepted
+    have merge := Discovery.rewrite_merge input routes
+    simp only [lower, accepted]
+    exact (lowerDiamond_entryTransition edit.routes.graph (some edit.retained) input guard initial).trans
+      (by rw [merge])
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Proofs

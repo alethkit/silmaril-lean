@@ -123,15 +123,19 @@ def ProgramBody.normal {L : List Sorts} (p : ProgramBody L) : Normal L :=
 def Normal.render {L : List Sorts} (p : Normal L) : ProgramBody L :=
   ⟨p.request, false, p.left.render, p.right.render⟩
 
-def ProgramBody.entry {L : List Sorts} (p : ProgramBody L) :
-    Operand signature.Instr .nil (packedExitType L) :=
-  let l := p.left.operand .nil
-  let r := p.right.operand .nil
-  if p.bound then
-    ⟨.let₁ (.op (.ask p.request) .unit) (.case (.bv 0) l.1.underBinder r.1.underBinder),
+/-- Both forms perform the request once. The bound form inserts the
+answer binder below the branch payload, weakening the open arms. -/
+def requestOperand {n : Nat} {β : BoundCtx Sorts n} {A : Sorts} (req bound : Bool)
+    (l r : Operand signature.Instr (β.snoc Bit) A) : Operand signature.Instr β A :=
+  if bound then
+    ⟨.let₁ (.op (.ask req) .unit) (.case (.bv 0) l.1.underBinder r.1.underBinder),
       .let₁ (.op .unit) (.case .bv l.2.underBinder r.2.underBinder)⟩
   else
-    ⟨.case (.op (.ask p.request) .unit) l.1 r.1, .case (.op .unit) l.2 r.2⟩
+    ⟨.case (.op (.ask req) .unit) l.1 r.1, .case (.op .unit) l.2 r.2⟩
+
+def ProgramBody.entry {L : List Sorts} (p : ProgramBody L) :
+    Operand signature.Instr .nil (packedExitType L) :=
+  requestOperand p.request p.bound (p.left.operand .nil) (p.right.operand .nil)
 
 def program (H : Sorts) (L : List Sorts) (p : ProgramBody (H :: L)) :
     Program signature.Instr .nil (H :: L) :=
@@ -162,10 +166,11 @@ def ArmNormal.traceTree {L : List Sorts} (a : ArmNormal L) (b : Bool) :
   a.emits.foldr Reply.Normal.emit (.ret (a.result b))
 
 /-- Two consecutive observations describe the reply to one request. -/
+def requestTree {R : Type} (req : Bool) (l r : Bool → Reply.Normal R) : Reply.Normal R :=
+  .ask req (.ask req (l false) (l true)) (.ask req (r false) (r true))
+
 def Normal.traceTree {L : List Sorts} (p : Normal L) : Reply.Normal (Exits.Exit L) :=
-  .ask p.request
-    (.ask p.request (p.left.traceTree false) (p.left.traceTree true))
-    (.ask p.request (p.right.traceTree false) (p.right.traceTree true))
+  requestTree p.request p.left.traceTree p.right.traceTree
 
 def Normal.outcomes {L : List Sorts} (p : Normal L) : Set (Outcome (value (packedExitType L))) :=
   p.traceTree.outcomesWith Exits.Exit.packed

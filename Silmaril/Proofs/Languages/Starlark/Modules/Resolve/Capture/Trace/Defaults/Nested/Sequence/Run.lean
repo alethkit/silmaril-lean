@@ -49,16 +49,6 @@ theorem preserves_declarations {block : LexicalBlock} {source : Statement}
     have old := (Array.getElem?_eq_some_iff.mp found).choose
     exact ih id declaration (by simp [Array.getElem?_push, Nat.ne_of_lt old, found])
 
-private theorem prefix_read_origins {block : LexicalBlock}
-    {source : List (String × Lowering.Resolve.SourceExpr)} {code : List (String × Lowering.Expr)}
-    {reads : List Binding} (leadingProfile : Body.ElaboratesPrefix block source code reads) :
-    ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin := by
-  induction leadingProfile with
-  | nil => simp
-  | cons _ operand _ ih =>
-    intro binding seen
-    exact (List.mem_append.mp seen).elim (Body.operand_origins operand binding) (ih binding)
-
 theorem selects {block : LexicalBlock} {source : Statement} {seed final : Program} {resolved : ResolvedBody}
     (profile : Elaborates block source seed resolved final) :
     ∃ free, Selects block resolved.reads free := by
@@ -68,7 +58,7 @@ theorem selects {block : LexicalBlock} {source : Statement} {seed final : Progra
   | define leadingProfile plan _ ih =>
     intro binding seen
     rcases List.mem_append.mp seen with leading | remaining
-    · exact prefix_read_origins leadingProfile binding leading
+    · exact Body.prefix_read_origins leadingProfile binding leading
     · exact (List.mem_append.mp remaining).elim (Nested.read_origins plan binding) (ih binding)
 
 private theorem keeps_trans {floor : Nat} {first middle last : State}

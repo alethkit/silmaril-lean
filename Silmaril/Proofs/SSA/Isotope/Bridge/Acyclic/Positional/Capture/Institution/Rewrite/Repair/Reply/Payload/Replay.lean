@@ -46,7 +46,7 @@ private theorem tag_congr {n : Nat} {β : BoundCtx Sorts n} (L : List Sorts) (i 
       exact .inl eq
     | succ i => exact .inr (ih i h)
 
-private theorem arm_replay {L : List Sorts} (a : Arm L) (effects : List Bool)
+theorem arm_replay_at_proof {L : List Sorts} (a : Arm L) (effects : List Bool)
     {n : Nat} (β : BoundCtx Sorts n) (i : Fin n) (h : β.get i = Bit) :
     Equiv false Γ₀ β (a.renderPrefix effects β i h).1
       (a.normal.render.renderPrefix effects β i h).1 (packedExitType L) := by
@@ -54,18 +54,22 @@ private theorem arm_replay {L : List Sorts} (a : Arm L) (effects : List Bool)
   | nil => exact tag_congr L _ _ _ _ (expr_replay_proof a.result β i h)
   | cons b effects ih => exact .let₁ (.refl (.op .unit)) (ih (β.snoc U) i.succ h)
 
-theorem entry_replay_proof {L : List Sorts} (p : ProgramBody L) :
-    Equiv false Γ₀ .nil p.entry.1 p.normal.render.entry.1 (packedExitType L) := by
-  obtain ⟨req, bound, l, r⟩ := p
-  let d : HasType signature.Instr Γ₀ .nil (.op (.ask req) .unit) Answer := .op .unit
-  have normal := Equiv.case (.refl d)
-    (arm_replay l l.emits (.snoc .nil Bit) 0 rfl)
-    (arm_replay r r.emits (.snoc .nil Bit) 0 rfl)
+theorem request_replay_proof {n : Nat} {β : BoundCtx Sorts n} {A : Sorts}
+    (req bound : Bool) (l r l' r' : Operand signature.Instr (β.snoc Bit) A)
+    (hl : Equiv false Γ₀ (β.snoc Bit) l.1 l'.1 A)
+    (hr : Equiv false Γ₀ (β.snoc Bit) r.1 r'.1 A) :
+    Equiv false Γ₀ β (requestOperand req bound l r).1 (requestOperand req false l' r').1 A := by
+  let d : HasType signature.Instr Γ₀ β (.op (.ask req) .unit) Answer := .op .unit
+  have normal := Equiv.case (.refl d) hl hr
   cases bound
   · exact normal
-  · have once := Equiv.bindCase (pureEff := false) d
-      (l.operand .nil).2.toHasType (r.operand .nil).2.toHasType
-    exact once.symm.trans normal
+  · exact (Equiv.bindCase (pureEff := false) d l.2.toHasType r.2.toHasType).symm.trans normal
+
+theorem entry_replay_proof {L : List Sorts} (p : ProgramBody L) :
+    Equiv false Γ₀ .nil p.entry.1 p.normal.render.entry.1 (packedExitType L) :=
+  request_replay_proof p.request p.bound _ _ _ _
+    (arm_replay_at_proof p.left p.left.emits (.snoc .nil Bit) 0 rfl)
+    (arm_replay_at_proof p.right p.right.emits (.snoc .nil Bit) 0 rfl)
 
 theorem derive_normal_proof (H : Sorts) (L : List Sorts) (p q : ProgramBody (H :: L))
     (h : p.normal = q.normal) : Derivable false (equation H L p q) := by

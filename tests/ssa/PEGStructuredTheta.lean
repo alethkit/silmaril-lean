@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.Thms
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
 
@@ -83,3 +84,126 @@ example (output : Tuple values.toPEG.Value [.count, Acc]) :
   contradiction
 
 end Silmaril.SSA.PEG.Bridge.Theta.Tests
+
+namespace Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
+
+open RVSDG (Tuple)
+open Simple.Revert.While.Region (Certificate Descriptor)
+
+private abbrev num : Ty Unit := .data ()
+private abbrev carried : List (Ty Unit) := [.count, num, num]
+
+private inductive Op : InstructionSet Unit
+  | pred : Op [.count] .count
+  | nonzero : Op [.count] .bool
+  | not : Op [.bool] .bool
+  | add : Op [num, num] num
+
+private def total : TotalModel Op where
+  carrier _ := Nat
+  run
+    | .pred, .cons c .nil => ⟨c.down - 1⟩
+    | .nonzero, .cons c .nil => ⟨c.down != 0⟩
+    | .not, .cons b .nil => ⟨!b.down⟩
+    | .add, .cons a (.cons b .nil) => Nat.add a b
+
+private def sorts (i : Fin 12) : Ty Unit :=
+  match i.val with
+  | 1 | 2 | 8 | 9 => .count
+  | 5 | 6 => .bool
+  | _ => num
+
+-- Parameters, θs, test and updates are interleaved. The next first
+-- accumulator is the old second one, which also feeds the sum.
+private def graph : Graph Op carried [num] 12 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sorts
+  node
+    | 0 => .ofLabel (.op .add) (.cons ⟨7, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
+    | 1 => .ofLabel (.theta 0) (.cons ⟨9, rfl⟩ (.cons ⟨8, rfl⟩ .nil))
+    | 2 => .ofLabel (.pass 0) (.cons ⟨6, rfl⟩ .nil)
+    | 3 => .ofLabel (.theta 0) (.cons ⟨10, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+    | 4 => .ofLabel (.eval 0) (.cons ⟨3, rfl⟩ (.cons ⟨2, rfl⟩ .nil))
+    | 5 => .ofLabel (.op .nonzero) (.cons ⟨1, rfl⟩ .nil)
+    | 6 => .ofLabel (.op .not) (.cons ⟨5, rfl⟩ .nil)
+    | 7 => .ofLabel (.theta 0) (.cons ⟨11, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
+    | 8 => .ofLabel (.op .pred) (.cons ⟨1, rfl⟩ .nil)
+    | 9 => .ofLabel (.param .head) .nil
+    | 10 => .ofLabel (.param (.tail (.tail .head))) .nil
+    | 11 => .ofLabel (.param (.tail .head)) .nil
+  roots := .cons ⟨4, rfl⟩ .nil
+
+private def descriptor : Descriptor graph where
+  theta := .cons ⟨1, rfl⟩ (.cons ⟨7, rfl⟩ (.cons ⟨3, rfl⟩ .nil))
+  initial := .cons ⟨9, rfl⟩ (.cons ⟨11, rfl⟩ (.cons ⟨10, rfl⟩ .nil))
+  next := .cons ⟨8, rfl⟩ (.cons ⟨3, rfl⟩ (.cons ⟨0, rfl⟩ .nil))
+  guard := ⟨5, rfl⟩
+  negated := ⟨6, rfl⟩
+  negate := .not
+  pass := ⟨2, rfl⟩
+  returnSlot := .tail (.tail .head)
+
+private def rank : DemandRank 12 1 :=
+  [.phase (fun i => if i = 4 then 2 else if i = 2 then 1 else 0), .counter 0,
+    .phase (fun i => match i.val with
+      | 6 => 3
+      | 0 | 5 | 8 => 2
+      | 1 | 3 | 7 => 1
+      | _ => 0)]
+
+private def cert : Certificate graph where
+  descriptor := descriptor
+  boundary :=
+    { parentless := rfl
+      initialRow := fun
+        | _, .head | _, .tail .head | _, .tail (.tail .head) => rfl
+      thetaRow := fun
+        | _, .head | _, .tail .head | _, .tail (.tail .head) => rfl
+      negationRow := rfl
+      passRow := rfl
+      evalRow := rfl }
+  rank := rank
+  ranked := by decide
+  guard :=
+    .bind 5 .nonzero _ (by decide) rfl (.cons .head rfl .nil) <|
+      .done (.cons .head rfl (.cons (.tail .head) rfl
+        (.cons (.tail (.tail .head)) rfl (.cons (.tail (.tail (.tail .head))) rfl .nil))))
+  update :=
+    .bind 8 .pred _ (by decide) rfl (.cons .head rfl .nil) <|
+    .bind 0 .add _ (by decide) rfl (.cons (.tail (.tail .head)) rfl
+      (.cons (.tail (.tail (.tail .head))) rfl .nil)) <|
+    .done (.cons (.tail .head) rfl (.cons (.tail (.tail (.tail (.tail .head)))) rfl
+      (.cons .head rfl .nil)))
+
+private def store (n a b : Nat) : Tuple total.toPEG.Value carried :=
+  .cons ⟨n⟩ (.cons a (.cons b .nil))
+
+private abbrev lowered := Region.compile cert
+private abbrev values := Region.model total
+private abbrev entry (n a b : Nat) := encode total (store n a b)
+
+-- Reading the new first accumulator in the sum would give 2, not 11.
+example : lowered.body.run values (entry 2 10 1) =
+    RVSDG.Theta.bodyResult values true (entry 1 1 11) := rfl
+
+example : lowered.body.run values (entry 1 1 11) =
+    RVSDG.Theta.bodyResult values true (entry 0 11 12) := rfl
+
+example : lowered.body.run values (entry 0 11 12) =
+    RVSDG.Theta.bodyResult values false (entry 0 11 12) := rfl
+
+private theorem returned : lowered.Returns values (entry 2 10 1) (entry 0 11 12) := by
+  apply RVSDG.Theta.Iterate.again (next := entry 1 1 11) rfl
+  apply RVSDG.Theta.Iterate.again (next := entry 0 11 12) rfl
+  exact RVSDG.Theta.Iterate.stop rfl
+
+example : lowered.Returns values (entry 0 10 1) (entry 0 10 1) :=
+  RVSDG.Theta.Iterate.stop rfl
+
+example (idx : Index 1) : graph.observe total.toPEG
+    (graph.denote total.toPEG (store 2 10 1) cert.demandWellFounded) idx =
+    .cons (some (12 : Nat)) .nil :=
+  (Region.returns_iff_observe cert total (store 2 10 1) (fun _ => rfl) idx (12 : Nat)).mp
+    ⟨store 0 11 12, returned, rfl⟩
+
+end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests

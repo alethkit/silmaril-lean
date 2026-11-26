@@ -34,6 +34,7 @@ The outer doubling test compares the inner `AddNode` with the right
 The rotated guard admits repeated columns when their folded sums
 differ. Equal sums take the source's constant materialization on
 the newly constructed Φ, so this checker declines that output shape.
+[Equal-sum materialization checker](sea-of-nodes-diamond-add-phi-rotate-pair-collapse.md) ·
 [Outer identity test](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/AddNode.java#L36-L43) ·
 [Constant materialization](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/Node.java#L243-L257)
 

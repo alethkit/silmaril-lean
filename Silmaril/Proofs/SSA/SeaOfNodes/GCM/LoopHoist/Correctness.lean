@@ -253,10 +253,6 @@ theorem pickAndHoist?_returns_iff (picked : pickAndHoist? g tree = some (cut, ou
     (exists_congr (fun fuel => by rw [← pickAndHoist?_run_eq picked input fuel]))
 
 
-private def CapturesAgree (origins : Origins Input Γ) (env : Env Γ) (input : Env Input) : Prop :=
-  ∀ {w} (ref : Var Γ w) (captured : Var Input w),
-    origins ref = .inl captured → env.get ref = input.get captured
-
 private theorem headerCapturesAgree (old : BitVec carried.val) (input : Env Input) :
     CapturesAgree headerOrigins (.cons old input) input := by
   intro _ ref cap origin
@@ -264,7 +260,7 @@ private theorem headerCapturesAgree (old : BitVec carried.val) (input : Env Inpu
   | here => cases origin
   | there ref => cases origin; rfl
 
-private theorem evalCaptureOrigins (origins : Origins Input Γ)
+theorem evalCaptureOrigins (origins : Origins Input Γ)
     (operands : Operands Γ args) {captured : Operands Input args}
     (found : captureOrigins? origins operands = some captured)
     (env : Env Γ) (input : Env Input) (agree : CapturesAgree origins env input) :

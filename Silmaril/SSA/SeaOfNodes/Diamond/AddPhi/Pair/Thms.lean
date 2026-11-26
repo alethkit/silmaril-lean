@@ -14,6 +14,16 @@ open RVSDG (Tuple extend)
 variable {inputs : List (ValueSort Unit)} {sigs : List (List (Ty Unit))}
 variable {g : Source inputs sigs} {target : Result inputs sigs}
 
+/-- Each checked row is the interpreted join tuple at its own predecessor. -/
+theorem literalRows?_slot_eval_eq {first second : Operands}
+    (found : literalRows? g = some (first, second))
+    (entry : Tuple (Val model.value) (dataPorts inputs)) (slot : Slot) :
+    (g.arms slot).eval model entry (g.shared.eval model entry PUnit.unit) =
+      match slot with
+      | .first => first
+      | .second => second :=
+  Proofs.SSA.SeaOfNodes.Diamond.AddPhi.Pair.literalRows_slot_eval_eq found entry slot
+
 /-- The guarded literal fold checks both ordered rows at their original occurrences. -/
 theorem rewriteWith?_admission {admit : Operands → Operands → Bool}
     (accepted : rewriteWith? admit g = some target) :

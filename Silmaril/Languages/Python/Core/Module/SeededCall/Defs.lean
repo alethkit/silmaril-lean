@@ -24,6 +24,7 @@ inductive AssertionArgument where
   | text (message : String)
   | integerPair (left right : Int)
   | booleanPair (left right : Bool)
+  | textPair (left right : Core.Text)
   deriving DecidableEq, Repr
 
 inductive Raised where
@@ -62,11 +63,13 @@ inductive Builtin where
   | list
   | tuple
   | isinstance
+  | str
   deriving DecidableEq, Repr
 
 inductive Value where
   | int (value : Int)
   | bool (value : Bool)
+  | text (value : Core.Text)
   | none
   | listObject (object : Core.Module.ListObject)
   | returnedTuple (items : List Core.Module.Value)
@@ -80,12 +83,24 @@ def Value.scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
   | .none => some .none
-  | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ | .returnedTuple _ => Option.none
+  | .text _ | .exceptionClass _ | .helper _ | .builtin _ | .function _ | .listObject _ | .returnedTuple _ =>
+    Option.none
 
 def Value.ofScalar : Core.Module.Value → Value
   | .int value => .int value
   | .bool value => .bool value
   | .none => .none
+
+def Value.stockStr? : Value → Option Core.Text
+  | .int value => Core.Text.decimal? value
+  | .bool value => some (Core.Text.ofString (if value then "True" else "False"))
+  | .text value => some value
+  | .none => some (Core.Text.ofString "None")
+  | _ => Option.none
+
+def Value.stockBool? : Value → Option Bool
+  | .text value => some value.truth
+  | value => value.scalar?.map Core.Module.Value.truth
 
 inductive Failure where
   | raised (error : Raised)
@@ -189,11 +204,15 @@ def InstanceProbe.result : InstanceProbe → Bool
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | compare (left right : Int)
+  | compareText (left right : Core.Text)
+  | textConversion (result : Core.Text)
+  | truthConversion (result : Bool)
   | intFromBool (value : Bool)
   | callable (probe : CallableProbe)
   | isinstance (probe : InstanceProbe)
   | boolIdentity (left right : Bool)
   | distinctIntBool
+  | emptyTuple
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
   | nonCallable
@@ -202,7 +221,13 @@ inductive Request (arity : Nat) where
 def Request.decode (callee : Value) (arguments : List Value) : Request arguments.length :=
   match callee, arguments with
   | .helper .assertEqual, [.int left, .int right] => .compare left right
+  | .helper .assertEqual, [.text left, .text right] => .compareText left right
+  | .builtin .str, [] => .textConversion (Core.Text.ofString "")
+  | .builtin .str, [value] => (value.stockStr?).elim .unsupported .textConversion
+  | .builtin .bool, [] => .truthConversion false
+  | .builtin .bool, [value] => (value.stockBool?).elim .unsupported .truthConversion
   | .builtin .int, [.bool value] => .intFromBool value
+  | .builtin .tuple, [] => .emptyTuple
   | .builtin .callable, [.builtin .len] => .callable .len
   | .builtin .callable, [.int _] => .callable .integer
   | .builtin .isinstance, [.bool _, .builtin .bool] => .isinstance .boolAgainstBool
@@ -212,7 +237,8 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
-  | .none, _ | .int _, _ | .bool _, _ | .listObject _, _ | .returnedTuple _, _ => .nonCallable
+  | .none, _ | .int _, _ | .bool _, _ | .text _, _
+  | .listObject _, _ | .returnedTuple _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the
@@ -221,6 +247,10 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   match Request.decode callee arguments with
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
+  | .compareText left right =>
+    if left = right then .ok .none else .error (.raised (.assertionError (.textPair left right)))
+  | .textConversion value => .ok (.text value)
+  | .truthConversion value => .ok (.bool value)
   | .intFromBool value => .ok (.int (Int.ofNat value.toNat))
   | .callable probe => .ok (.bool probe.result)
   | .isinstance probe => .ok (.bool probe.result)
@@ -228,6 +258,7 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
     if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
     else .error (.raised (.assertionError (.booleanPair left right)))
   | .distinctIntBool => .ok .none
+  | .emptyTuple => .ok (.returnedTuple [])
   | .expect expectation callback args _shorter =>
     expectation.deliver (invoke callback args)
   | .nonCallable => .error (.raised (.runtime .notCallable))
@@ -239,6 +270,15 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.compare left right) (.ok .none)
   | unequal {arity : Nat} (left right : Int) (different : left ≠ right) :
       Executes (arity := arity) (.compare left right) (.error (.raised (.assertionError (.integerPair left right))))
+  | equalText {arity : Nat} (left right : Core.Text) (same : left = right) :
+      Executes (arity := arity) (.compareText left right) (.ok .none)
+  | unequalText {arity : Nat} (left right : Core.Text) (different : left ≠ right) :
+      Executes (arity := arity) (.compareText left right)
+        (.error (.raised (.assertionError (.textPair left right))))
+  | textConversion {arity : Nat} (value : Core.Text) :
+      Executes (arity := arity) (.textConversion value) (.ok (.text value))
+  | truthConversion {arity : Nat} (value : Bool) :
+      Executes (arity := arity) (.truthConversion value) (.ok (.bool value))
   | intFromBool {arity : Nat} (value : Bool) :
       Executes (arity := arity) (.intFromBool value) (.ok (.int (Int.ofNat value.toNat)))
   | callable {arity : Nat} (probe : CallableProbe) :
@@ -253,6 +293,7 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.boolIdentity left right)
         (.error (.raised (.assertionError (.booleanPair left right))))
   | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
+  | emptyTuple {arity : Nat} : Executes (arity := arity) .emptyTuple (.ok (.returnedTuple []))
   | expected {arity : Nat} {expectation : Expectation} {callback : Value} {arguments : List Value}
       {shorter : arguments.length < arity} {inner outer : Result} :
       Executes (Request.decode callback arguments) inner → Delivers expectation inner outer →

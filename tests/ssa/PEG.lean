@@ -653,6 +653,31 @@ private def compiled := PEG.Simple.Structured.translate source Op.not
 #guard (Structured.check source .not 32).isSome
 #guard (Figure19.check compiled .printed 32).isNone
 
+example : CFGContext compiled (inferDepth compiled.forest
+    (PEG.Simple.Structured.program source Op.not).nodes.length) .inward :=
+  (PEG.Simple.Structured.translate_figure19 source .not).2
+
+private abbrev pairStore : List (Ty Unit) := [.count, .count]
+
+private def exchange (op : Op [.count] .count) : Stmt Op true pairStore pairStore :=
+  .seq (.assign (.op op (.cons (.var (.tail .head)) .nil)))
+    (.project (.cons .head (.cons (.tail .head) .nil)))
+
+-- Both values are captured by the child. Each child's next value
+-- depends on the other old value, with the first update selected by φ.
+private def nestedExchange : Program Op true pairStore .count :=
+  let test : Expr Op pairStore .bool := .op .positive (.cons (.var .head) .nil)
+  ⟨pairStore, .while rfl test (.while rfl test
+    (.branch (.op .odd (.cons (.var .head) .nil)) (exchange .pred) (exchange .predTwo))), .head⟩
+
+#guard (Structured.check nestedExchange .not 64).isSome
+
+example :
+    let g := PEG.Simple.Structured.translate nestedExchange Op.not
+    let depth := inferDepth g.forest (PEG.Simple.Structured.program nestedExchange Op.not).nodes.length
+    FitsForest g.forest depth ∧ CFGContext g depth .inward :=
+  PEG.Simple.Structured.translate_figure19 nestedExchange .not
+
 private theorem sourceReturns : source.Returns model (input 3) ⟨0⟩ := by
   have first : Exec model (step .pred) (input 3) (some (input 2)) :=
     .seq (.assign rfl) .project

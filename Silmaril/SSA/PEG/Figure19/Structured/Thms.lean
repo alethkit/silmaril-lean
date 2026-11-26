@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.PEG.Figure19.Structured.Defs
 public import Silmaril.SSA.PEG.Figure19.Thms
 public import Silmaril.SSA.PEG.Simple.Structured.Thms
+public import Silmaril.SSA.PEG.Simple.Structured.Figure19.Thms
 
 public section
 

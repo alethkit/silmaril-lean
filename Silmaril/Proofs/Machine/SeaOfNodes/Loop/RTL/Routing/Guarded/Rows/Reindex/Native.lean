@@ -165,22 +165,23 @@ private theorem local_append (flow : Dataflow WordOp (bankArgs arity) past sigs)
   | nil => exact last
   | cons op args rest ih => exact ⟨first.1, ih tail first.2 last⟩
 
-private theorem local_setup (limit : Silmaril.Machine.Lir.Word) (slot : Option (Fin arity)) :
-    LocalFlow (guardSetup (past := past) limit slot) := by
-  cases slot with
-  | none => exact ⟨local_nil, trivial⟩
-  | some _ => trivial
+private theorem local_setup {producers : Nat} (limit : Silmaril.Machine.Lir.Word)
+    (operand : GuardOperand arity producers) :
+    LocalFlow (guardSetup (past := past) limit operand) := by
+  cases operand with
+  | limit => exact ⟨local_nil, trivial⟩
+  | bank _ | computed _ => trivial
 
-private theorem local_rhs (slot : Option (Fin arity)) :
-    Local (guardRhsWire (past := past) slot) := by
-  cases slot with
-  | none => trivial
-  | some i => exact local_old (argumentPort arity i)
+private theorem local_rhs (p : Plan arity) (operand : GuardOperand arity p.updates.length) :
+    Local (guardRhsWire p.producerWire operand) := by
+  cases operand with
+  | limit | computed _ => trivial
+  | bank i => exact local_old (argumentPort arity i)
 
 private theorem local_test (p : Plan arity) : LocalFlow p.test :=
-  local_append p.guardSetup _ (local_setup p.limit p.guardSlot)
+  local_append p.guardSetup _ (local_setup p.limit p.guardOperand)
     ⟨local_cons (local_keep p.guardSetup (wire := p.guardWire) trivial)
-      (local_cons (local_rhs p.guardSlot) local_nil), trivial⟩
+      (local_cons (local_rhs p p.guardOperand) local_nil), trivial⟩
 
 private theorem local_feedback (p : Plan arity) : LocalColumn (p.graph.phiInputs .backedge) := by
   have base : LocalColumn (p.copies.map fun _ wire =>

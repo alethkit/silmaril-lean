@@ -40,7 +40,15 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equal _ _ same => contradiction
     | unequal => rfl
-  | intFromBool | callable | isinstance | distinctIntBool => cases right; rfl
+  | equalText left right same =>
+    cases right with
+    | equalText => rfl
+    | unequalText _ _ different => contradiction
+  | unequalText left right different =>
+    cases right with
+    | equalText _ _ same => contradiction
+    | unequalText => rfl
+  | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool => cases right; rfl
   | sameBool left right same =>
     cases right with
     | sameBool => rfl
@@ -56,6 +64,7 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
       calc
         _ = _ := (delivers_iff.mpr handled).symm
         _ = _ := equal ▸ delivers_iff.mpr delivered
+  | emptyTuple => cases right; rfl
   | nonCallable => cases right; rfl
   | unsupported => cases right; rfl
 
@@ -71,6 +80,19 @@ private theorem computed (callee : Value) (arguments : List Value) :
         exact .equal _ _ rfl
       · simp [same]
         exact .unequal _ _ same
+    | compareText left right =>
+      rw [invoke, decoded]
+      by_cases same : left = right
+      · simp [same]
+        exact .equalText _ _ rfl
+      · simp [same]
+        exact .unequalText _ _ same
+    | textConversion value =>
+      rw [invoke, decoded]
+      exact .textConversion value
+    | truthConversion value =>
+      rw [invoke, decoded]
+      exact .truthConversion value
     | intFromBool value =>
       rw [invoke, decoded]
       exact .intFromBool value
@@ -90,6 +112,9 @@ private theorem computed (callee : Value) (arguments : List Value) :
     | distinctIntBool =>
       rw [invoke, decoded]
       exact .distinctIntBool
+    | emptyTuple =>
+      rw [invoke, decoded]
+      exact .emptyTuple
     | expect expectation callback operands shorter =>
       rw [invoke, decoded]
       exact .expected (ih operands shorter callback) (delivers_iff.mp rfl)
