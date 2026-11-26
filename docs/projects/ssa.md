@@ -365,9 +365,7 @@ The continuation cannot jump back to its own label.
   typing coherence from the target model. Both maps preserve identity
   and composition, and `ssaSat_map_iff` gives satisfaction invariance.
   `reifyComorphism` bundles reification and the LetCase algebra reduct
-  over the identity signature functor. Its model class is the stated
-  coherent region model class. Expansion of arbitrary LetCase algebras
-  is a separate question.
+  over the identity signature functor on the stated coherent model class.
   [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
 - For type-changing `SignatureMap`s, `pullbackTypes` and
   `pullbackInstructions` reuse the target's chosen type-former isomorphisms
@@ -401,6 +399,34 @@ The continuation cannot jump back to its own label.
   The comparison uses forward transport of source witnesses.
   Reconstruction of arbitrary target witnesses remains separate.
   [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
+- Given a chosen distributive Freyd interpretation of the types, the
+  exact LetCase arrow carriers determine where to read back each primitive
+  arrow. The algebra has that Freyd presentation exactly when all its
+  operations agree with the readback interpretation. This already
+  interprets single-exit acyclic code on the SSA context and exit objects.
+  For expansion into the existing SSA room, the ambient computation
+  category needs strong Elgot iteration on the same distributive structure
+  and central unit. The recovered interpretation must also satisfy
+  `RegionTypingCoherent`, which requires two region denotation witnesses
+  at the same typing to yield equal arrows. With these data, the selected
+  SSA denotation agrees with the iteration-free interpretation, and the
+  expansion preserves exact satisfaction. Reification reflects equational
+  consequence on the class of algebras in the image of the reduct.
+  [Expansion criterion and section](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Thms.lean)
+- In a distributive Freyd interpretation with central unit, binding a term
+  and returning the newest variable satisfies let-η. The exact LetCase room
+  also contains a Boolean operation algebra that rejects the closed unit
+  instance, so unrestricted entailment reflection fails. Separately,
+  ordinary total functions cannot interpret unrestricted coproduct iteration:
+  a loop that always takes the recursive arm would give a function from the
+  unit type to the empty type. The branch/join calculation compares a
+  shared block applying a primitive to the passed payload with copies of
+  that block in the two arms. It uses the transported-diagonal centrality
+  condition from the case/continuation law, and the same equality holds
+  for the actual SSA regions in the coherent expansion.
+  [Let-η obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Laws/Thms.lean) ·
+  [Branch/join satisfaction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/BranchJoin/Thms.lean) ·
+  [Checked examples](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/Expansion/Thms.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
   Soundness of the full exact equational presentation remains separate.
