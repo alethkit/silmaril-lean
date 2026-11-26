@@ -21,7 +21,7 @@ variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {out : ValueSort Data} {flow : Dataflow Op args past sigs}
 
-private theorem mem_candidates (ref : Producer flow out) :
+theorem mem_candidates (ref : Producer flow out) :
     ⟨out, ref⟩ ∈ candidates flow := by
   induction ref with
   | here => exact List.mem_cons_self

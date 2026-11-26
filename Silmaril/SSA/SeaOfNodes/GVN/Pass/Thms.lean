@@ -16,6 +16,12 @@ universe u v w
 variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {flow : Dataflow Op args past sigs}
+
+/-- The table-order enumeration contains every typed producer reference. -/
+theorem mem_candidates {out : ValueSort Data} (ref : Producer flow out) :
+    ⟨out, ref⟩ ∈ candidates flow :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Pass.mem_candidates ref
+
 variable [DecidableEq (ValueSort Data)] [∀ ins out, DecidableEq (Op ins out)]
 
 /-- A scan stops exactly when the current table has no checker-accepted pair. -/
