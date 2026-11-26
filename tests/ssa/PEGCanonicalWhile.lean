@@ -2,13 +2,14 @@ module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
-import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
+import Mathlib.Data.Fin.Embedding
 import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
-meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Reindexed.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
@@ -707,5 +708,60 @@ private def sharedOperands (split : Bool) : Graph Op Outer [.count] 3 0 where
   let changed := sharedOperands true
   let infer new anchors := Silmaril.SSA.PEG.Reindex.Automatic.infer same new anchors
   ((infer same []).isNone, (infer same [(2, 2)]).isSome, (infer changed [(2, 2)]).isNone)
+
+private def paddedSort {n : Nat} (sort : Fin n → Ty Unit) (i : Fin (n + 1)) : Ty Unit :=
+  if h : i.val < n then sort (i.castLT h) else .count
+
+private def padRef {n : Nat} {sort : Fin n → Ty Unit} {t : Ty Unit} (r : Ref sort t) :
+    Ref (paddedSort sort) t :=
+  ⟨r.id.castSucc, by simpa [paddedSort, r.id.isLt] using r.typed⟩
+
+-- Add a dead primitive that consumes the designated result. Observing
+-- the result never demands its consumer. Keep the original loop table.
+private def pad {n l : Nat} (g : Graph Op Outer [.count] n l) : Graph Op Outer [.count] (n + 1) l where
+  forest := g.forest
+  sort := paddedSort g.sort
+  node i :=
+    if h : i.val < n then
+      let row := g.node (i.castLT h)
+      (show paddedSort g.sort i = g.sort (i.castLT h) by simp [paddedSort, h]).symm ▸
+        Node.ofLabel row.label (row.args.map fun _ r => padRef r)
+    else
+      (show paddedSort g.sort i = .count by simp [paddedSort, h]).symm ▸
+        Node.ofLabel (.op .pred) (.cons (padRef (g.roots.get .head)) .nil)
+  roots := g.roots.map fun _ r => padRef r
+
+private def padded := pad movedIndependently
+
+-- Structured compiler images have equally many row and loop keys.
+-- The padded graph cannot have both bijections to any such image.
+example {k : Nat} :
+    ¬ (Nonempty (Fin (form.size + 1) ≃ Fin k) ∧ Nonempty (Fin form.size ≃ Fin k)) :=
+  fun ⟨rows, loops⟩ =>
+    Nat.succ_ne_self _ ((Fin.equiv_iff_eq.mp rows).trans (Fin.equiv_iff_eq.mp loops).symm)
+
+private def runProjected : Option (Bool × Nat) := do
+  let a ← Projected.extract padded
+  let value ← a.core.form.runFuel model 3 3 (outerStore 3 0)
+  return (a.projection.rows.length == form.size, value.down)
+
+/-- info: some (true, 10) -/
+#guard_msgs in
+#eval runProjected
+
+-- Retain the child θ but delete its initializer from the proposed
+-- projection. The initializer is an outer θ, not the designated eval.
+private def rejectsMissingCapture : Option Bool := do
+  let cached := Automatic.cacheRows padded
+  let header ← Automatic.locate cached
+  let exit ← (Automatic.bundleIds cached header.childKey).head?
+  let slot ← Automatic.readSlotAt cached header.childKey header.childPass (Ref.ofId cached.sort exit)
+  let rows := (List.finRange (form.size + 1)).filter
+    (fun i => i != slot.initial.id && i != Fin.last form.size)
+  return decide (slot.theta.id ∈ rows) && (padded.checkProjection rows).isNone
+
+/-- info: some true -/
+#guard_msgs in
+#eval rejectsMissingCapture
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Tests
