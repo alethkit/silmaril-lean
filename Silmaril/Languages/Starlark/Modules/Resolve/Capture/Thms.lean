@@ -27,6 +27,11 @@ theorem installs_lookup (state : State) {free : List FreeName} {captures : List 
     (related : Installs state free captures) : free.mapM (captureName state) = .ok captures :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_addresses state related
 
+/-- Equal slot maps preserve all owned and forwarded capture addresses. -/
+theorem installs_in_same_slots {active final : State} {free : List FreeName} {captures : List Lists.Capture}
+    (slots : final.slots = active.slots) (installed : Installs active free captures) : Installs final free captures :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.installs_in_same_slots slots installed
+
 theorem captureNames_eq {block : LexicalBlock} {reads : List Binding} {free : List FreeName}
     (selected : Selects block reads free) : captureNames block.owned reads = free :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.capture_names selected

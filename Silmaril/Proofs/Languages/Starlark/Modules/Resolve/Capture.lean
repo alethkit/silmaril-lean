@@ -256,6 +256,18 @@ theorem mixed_definition (parent : BlockContext) (name : String) (parameters loc
     targetProfile rhsProfile returnProfile program next assignment returned returnReads assigned resolvedReturn
   exact ⟨free, related, selected, compiled⟩
 
+theorem installs_in_same_slots {active final : State} {free : List FreeName}
+    {captures : List Silmaril.Languages.Starlark.Lists.Capture} (slots : final.slots = active.slots)
+    (installed : Installs active free captures) : Installs final free captures := by
+  induction installed with
+  | nil => exact .nil
+  | cons received _ ih =>
+    cases received with
+    | enclosing proof => exact .cons (.enclosing (slots ▸ proof)) ih
+    | forwardedLocal proof => exact .cons (.forwardedLocal (slots ▸ proof)) ih
+    | ownedGlobal proof => exact .cons (.ownedGlobal (slots ▸ proof)) ih
+    | capturedGlobal proof => exact .cons (.capturedGlobal (slots ▸ proof)) ih
+
 private theorem write_keeps_slots (state : State) (binding : Binding)
     (value : Silmaril.Languages.Starlark.Lists.Value) : (state.write binding value).slots = state.slots := by
   unfold State.write

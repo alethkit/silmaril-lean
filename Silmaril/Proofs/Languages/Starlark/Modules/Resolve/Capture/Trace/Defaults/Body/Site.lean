@@ -45,7 +45,7 @@ private theorem resolves_at {block : LexicalBlock} {source : SourceExpr} {code :
     rw [resolveExpr.eq_def]
     simp [ih, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure]
 
-private theorem resolves {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
+theorem resolves {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
     {reads : List Binding} (operand : Operand block source code reads) :
     resolveTracked block.context source = .ok (code, reads) := by
   simp [resolveTracked, resolves_at operand, Except.map]
