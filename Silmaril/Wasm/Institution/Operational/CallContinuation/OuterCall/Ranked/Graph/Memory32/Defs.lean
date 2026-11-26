@@ -94,6 +94,13 @@ def Function.v1Func (fn : Function) : Wasm.V1.Func :=
   ⟨fn.declaration.typeIndex, fn.declaration.locals,
     fn.initial.map Graph.v1CodeSyntax.ops.value ++ fn.code.map Op.v1⟩
 
+/-- Each activation starts with the empty-continuation label opened by native
+invocation. Explicit block and conditional labels extend this context. -/
+def Function.entryLabels (fn : Function) : List (List NumType) := [fn.declaration.results]
+
+def Function.supports (fn : Function) (op : Op) : Bool :=
+  op.supportedIn fn.entryLabels
+
 mutual
 
 /-- Parameterless regions start on an empty stack and check their declared fallthrough.
@@ -124,7 +131,7 @@ def Function.checkRegionOp (fn : Function) (stack : List NumType) (labels : List
 end
 
 def Function.checkCode (fn : Function) (stack : List NumType) (code : List Op) : Bool :=
-  fn.checkRegion stack fn.declaration.results code
+  fn.checkRegion stack fn.declaration.results code fn.entryLabels
 
 def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op) : Prop :=
   fn.checkCode (Prefix.stackTypes stack) code = true
@@ -133,7 +140,7 @@ def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op) : P
 checking follows the admitted continuations. -/
 def Function.checkV1 (fn : Function) (memory : MemAddr) : Bool :=
   decide (fn.declaration.results.length ≤ 1) &&
-    fn.code.all Op.supported &&
+    fn.code.all fn.supports &&
     fn.checkCode (Prefix.stackTypes fn.initial) fn.code &&
     decide (fn.declaration.module.memories[0]? = some memory)
 

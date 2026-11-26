@@ -116,7 +116,7 @@ private theorem lookup_mem {program : Program} {address : FuncAddr} {fn : Functi
 
 theorem function_checked {program : Program} {memory : MemAddr} (checked : program.checkV1 memory = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
-    fn.declaration.results.length ≤ 1 ∧ fn.code.all Op.supported = true ∧
+    fn.declaration.results.length ≤ 1 ∧ fn.code.all fn.supports = true ∧
       fn.WellTyped fn.initial fn.code ∧ fn.declaration.module.memories[0]? = some memory := by
   have each := (Bool.and_eq_true_iff.mp checked).2
   have body := List.all_eq_true.mp each (some fn) (lookup_mem found)

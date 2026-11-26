@@ -104,7 +104,7 @@ theorem body_allowed {p : Program} {m : MemAddr} (checked : p.checkV1 m = true)
   refine ⟨values_allowed _, ?_⟩
   intro x member
   obtain ⟨op, used, rfl⟩ := List.mem_map.mp member
-  exact .source (op_source checked found slot op [] (List.all_eq_true.mp supported op used)
+  exact .source (op_source checked found slot op fn.entryLabels (List.all_eq_true.mp supported op used)
     (fun target h => List.mem_flatMap.mpr ⟨op, used, h⟩))
 
 theorem pure_allowed {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}

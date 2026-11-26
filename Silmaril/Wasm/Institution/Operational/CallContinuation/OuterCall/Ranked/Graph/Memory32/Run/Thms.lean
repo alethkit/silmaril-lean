@@ -69,6 +69,19 @@ theorem v1_call_run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} 
   have exactRun := v1_run_iff (dst := dst) checked layout (call_ready found resolved args initial.data)
   simpa only [render, layout.initial_store] using exactRun
 
+/-- A branch at the function label delivers the typed suffix inside the
+activation. A separate frame-completion step resumes the caller. -/
+theorem v1_function_branch_exit {H : Type} {s : Store H} {caller callee : Frame}
+    {saved extra payload : List Value} {bodyTail callerTail : List Admin} {results : List NumType}
+    (typed : payload.map Value.type = results) :
+    let arity := results.length
+    let done := ⟨s, caller, values saved ++ [.frame arity callee (values payload)] ++ callerTail⟩
+    Step CallFrame.v1NoHost
+      ⟨s, caller, values saved ++ [.frame arity callee [.label arity []
+        (values extra ++ values payload ++ [.source (.br ⟨0⟩)] ++ bodyTail)]] ++ callerTail⟩ done ∧
+    Step CallFrame.v1NoHost done ⟨s, caller, values saved ++ values payload ++ callerTail⟩ :=
+  RunProofs.function_branch_exit typed
+
 /-- Selection consumes the i32 condition and retains only the selected block. -/
 theorem v1_if_select_iff {H : Type} {s : Store H} {f : Frame} {saved : List Value}
     {condition : BitVec 32} {result : Option NumType} {left right : Wasm.V1.Expr}
