@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Host.Sequence.Defs
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Host.Body.Thms
 import Silmaril.Wasm.Institution.Operational.HostCall.V1.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.HostEntry
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.HostControl
@@ -19,13 +20,13 @@ open ControlProofs
 open HostEntry.Proofs (invoke_exact literal_expression numeric_expression framed_numeric_step framed_direct_step
   framed_trapped_step bytes_unique)
 
-private theorem encode_expression {H : Type} (seq : Sequence H) (rest : List (HostSegment H)) (branch : Option ForwardBranch) :
-    expression (encode Graph.v1CodeSyntax.ops (seq.endCode branch) rest) = seq.continuation rest branch := by
+private theorem encode_expression {H : Type} (seq : Sequence H) (rest : List (HostSegment H)) (nextSource : Option (Source H)) :
+    expression (encode Graph.v1CodeSyntax.ops (seq.endCode nextSource) rest) = seq.continuation rest nextSource := by
   induction rest with
   | nil => rfl
   | cons segment rest ih =>
     change expression (segment.operands.map (Prefix.emit Graph.v1CodeSyntax.ops) ++
-      .call segment.site.index :: encode Graph.v1CodeSyntax.ops (seq.endCode branch) rest) = _
+      .call segment.site.index :: encode Graph.v1CodeSyntax.ops (seq.endCode nextSource) rest) = _
     rw [expression_append, numeric_expression]
     exact congrArg (fun tail => segment.operands.map (Prefix.emit v1Syntax) ++ .source (.call segment.site.index) :: tail) ih
 
@@ -43,10 +44,10 @@ local notation "rootFn" => seq.root.function
 local notation "contextAt" => seq.context args
 
 private theorem render_hosts (bytes : ByteArray) (stack : List Value) (labels : List (OpenLabel H))
-    (first : HostSegment H) (later : List (HostSegment H)) (branch : Option ForwardBranch) :
-    renderPhase (.computing bytes stack first.operands first.site later labels branch) =
+    (first : HostSegment H) (later : List (HostSegment H)) (nextSource : Option (Source H)) :
+    renderPhase (.computing bytes stack first.operands first.site later labels nextSource) =
       ⟨live bytes, outer, (contextAt labels).plug value
-        (values stack ++ expression (encode Graph.v1CodeSyntax.ops (seq.endCode branch) (first :: later)))⟩ := by
+        (values stack ++ expression (encode Graph.v1CodeSyntax.ops (seq.endCode nextSource) (first :: later)))⟩ := by
   rw [encode_expression]
   simp only [continuation, encode, v1Syntax, Function.comp_apply, render, List.append_assoc]
 
@@ -70,8 +71,9 @@ private theorem render_begin (bytes : ByteArray) (stack : List Value) (labels : 
       ⟨live bytes, outer, (contextAt labels).plug value (values stack ++ expression (seq.sourceCode region))⟩ := by
   cases region with
   | root => exact render_hosts bytes stack labels seq.first seq.later none
-  | hosts first later branch => exact render_hosts bytes stack labels first later branch
-  | br branch => rfl
+  | hostSequence first later => exact render_hosts bytes stack labels first later none
+  | hostsThen first later tail => exact render_hosts bytes stack labels first later (some tail)
+  | br | brIf => rfl
   | plain code => exact render_finish bytes stack code labels
   | blockThen | ifThen => rfl
 
@@ -145,6 +147,20 @@ private theorem close_label_step {bytes : ByteArray} {stack : List Value} {label
   rw [scoped_result seq args (label :: rest) (fun _ : Unit => True) (fun _ => values stack) atLabel]
   simp [context_code, insert, EvalCtx.plug_comp, EvalCtx.plug, tailCode, values, List.append_assoc]
 
+private theorem branch_test_step {bytes : ByteArray} {saved : List Value} {branch : ForwardBranch}
+    {tail : Source H} {condition : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.branchTest bytes (saved ++ [Value.int .i32 condition]) branch tail labels)) dst ↔
+      dst = renderPhase (if condition = 0 then seq.beginBody outer args bytes saved labels tail
+        else .branching bytes saved branch (expression (seq.sourceCode tail)) labels) := by
+  have selected := scoped_br_if_iff (host := host) (s := live bytes) (outer := outer) seq args labels
+    (saved := saved) (condition := condition) (depth := branch.depth) (tail := expression (seq.sourceCode tail)) (dst := dst)
+  by_cases zero : condition = 0
+  · rw [ite_eq_left zero] at selected ⊢
+    rw [render_begin]
+    simpa only [render, List.append_assoc, List.nil_append] using selected
+  · rw [ite_eq_right zero] at selected ⊢
+    simpa only [render, List.append_assoc, List.singleton_append] using selected
+
 private theorem branch_step {bytes : ByteArray} {stack : List Value} {branch : ForwardBranch}
     {skipped : List Admin} {label : OpenLabel H} {rest : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.branching bytes stack branch skipped (label :: rest))) dst ↔
@@ -198,14 +214,14 @@ private theorem branch_step {bytes : ByteArray} {stack : List Value} {branch : F
     · exact ⟨none, positive, eq⟩
 
 private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Prefix.Op} {rest : List Prefix.Op}
-    {site : HostCall.V1.Site H} {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch} {dst : Config H} :
-    Step host (renderPhase (.computing bytes stack (op :: rest) site later labels branch)) dst ↔
+    {site : HostCall.V1.Site H} {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)} {dst : Config H} :
+    Step host (renderPhase (.computing bytes stack (op :: rest) site later labels nextSource)) dst ↔
       (∃ next, Prefix.Reduce (active).locals stack op (.values next) ∧
-        dst = renderPhase (.computing bytes next rest site later labels branch)) ∨
+        dst = renderPhase (.computing bytes next rest site later labels nextSource)) ∨
       (∃ saved, Prefix.Reduce (active).locals stack op (.trap saved) ∧
         dst = renderPhase (.trapped bytes saved (rest.map (Prefix.emit v1Syntax) ++
-          .source (.call site.index) :: seq.continuation later branch) labels)) := by
-  let tail := rest.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: seq.continuation later branch
+          .source (.call site.index) :: seq.continuation later nextSource) labels)) := by
+  let tail := rest.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: seq.continuation later nextSource
   let output out := [AdminInstr.label (OpenLabel.results (rootFn) labels).length [] (Prefix.outcomeCode values .trap tail out)]
   have atLabel :
       ∀ target : Config H, Step host ⟨live bytes, outer, [.frame (OpenLabel.results (rootFn) labels).length active
@@ -236,10 +252,10 @@ private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Pref
     · exact ⟨.trap saved, move, eq⟩
 
 private theorem host_call {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch} {dst : Config H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)} {dst : Config H}
     (linked : Linked site (rootFn).declaration.module base) :
-    Step host (renderPhase (.computing bytes (saved ++ actual) [] site later labels branch)) dst ↔
-      dst = renderPhase (.pending bytes saved actual site later labels branch) := by
+    Step host (renderPhase (.computing bytes (saved ++ actual) [] site later labels nextSource)) dst ↔
+      dst = renderPhase (.pending bytes saved actual site later labels nextSource) := by
   simp only [render, List.map_nil, List.append_nil]
   exact scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
     (fun _ => HostCall.V1.direct_step_iff (caller := active) linked.resolved)
@@ -294,33 +310,33 @@ private theorem trap_step {bytes : ByteArray} {saved : List Value} {tail : List 
     · exact ⟨none, ⟨empty, noTail⟩, eq⟩
 
 private theorem render_delivered {bytes : ByteArray} {saved : List Value} {later : List (HostSegment H)}
-    {labels : List (OpenLabel H)} {branch : Option ForwardBranch} (r : Execution.Runtime.Result) :
-    renderPhase (seq.delivered outer args bytes saved later r labels branch) =
-      ⟨live bytes, outer, (contextAt labels).plug value (values saved ++ result r ++ seq.continuation later branch)⟩ := by
+    {labels : List (OpenLabel H)} {nextSource : Option (Source H)} (r : Execution.Runtime.Result) :
+    renderPhase (seq.delivered outer args bytes saved later r labels nextSource) =
+      ⟨live bytes, outer, (contextAt labels).plug value (values saved ++ result r ++ seq.continuation later nextSource)⟩ := by
   cases r with
   | trap => simp [delivered, render, result, List.append_assoc]
   | values vs =>
     cases later with
     | nil =>
-      cases branch with
+      cases nextSource with
       | none => simp [delivered, resume, render_finish, continuation, encode, result, endCode, List.append_assoc]
-      | some => simp [delivered, resume, render, continuation, encode, result, endCode, expression, List.append_assoc]
+      | some => simp [delivered, resume, render_begin, continuation, encode, result, endCode, List.append_assoc]
     | cons => simp [delivered, resume, render, continuation, encode, v1Syntax, result, List.append_assoc]
 
 private theorem pending_step {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch} {dst : Config H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)} {dst : Config H}
     (linked : Linked site (rootFn).declaration.module base)
     (typed : actual.map Value.type = site.signature.params) :
-    Step host (renderPhase (.pending bytes saved actual site later labels branch)) dst ↔
+    Step host (renderPhase (.pending bytes saved actual site later labels nextSource)) dst ↔
       (∃ s' r, host site.target (live bytes) actual (.returned s' r) ∧
-        dst = ⟨s', outer, (contextAt labels).plug value (values saved ++ result r ++ seq.continuation later branch)⟩) ∨
+        dst = ⟨s', outer, (contextAt labels).plug value (values saved ++ result r ++ seq.continuation later nextSource)⟩) ∨
       (host site.target (live bytes) actual .diverged ∧
-        dst = renderPhase (.pending bytes saved actual site later labels branch)) := by
+        dst = renderPhase (.pending bytes saved actual site later labels nextSource)) := by
   have siteChecked : site.Checked (live bytes) ((contextAt labels).activeFrame outer) actual := by
     rw [active_frame]
     exact ⟨linked.resolved, linked.allocated, typed, linked.scalar⟩
   exact v1_host_pending_step_iff (k := contextAt labels) (outer := outer)
-    (saved := saved) (tail := seq.continuation later branch) siteChecked
+    (saved := saved) (tail := seq.continuation later nextSource) siteChecked
 
 private theorem label_scalar (checked : seq.Checked mode program memory calls base outer args source)
     (labels : List (OpenLabel H)) : (OpenLabel.results (rootFn) labels).length ≤ 1 := by
@@ -395,45 +411,17 @@ private theorem forward_checked {stack : List NumType} {branch : ForwardBranch} 
     Graph.checkBranch (OpenLabel.signatures labels) stack branch.depth branch.results = true := by
   simpa [checkForward, OpenLabel.targets] using typed
 
-private theorem resume_ready (checked : seq.Checked mode program memory calls base outer args source)
-    {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch}
-    (extent : mode.extent initial.data.size bytes) (listed : ∀ piece ∈ later, piece.site ∈ seq.sourceSites source)
-    (typed : checkRegionAt (rootFn) (Prefix.stackTypes stack) (OpenLabel.results (rootFn) labels)
-      (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) branch later = true)
-    (scopes : seq.ContextReady mode program memory calls source labels) :
-    seq.Ready mode program memory calls initial (seq.resume outer args bytes stack later labels branch) source := by
-  cases later with
-  | nil =>
-    cases branch with
-    | none =>
-      apply finish_ready checked extent typed scopes
-      apply RunProofs.tail_allowed (fn := rootFn) ?_ checked.slot checked.supportedTail
-      intro target used
-      obtain ⟨callee, found, _, linked, permitted⟩ := checked.linkedTail target used
-      exact ⟨callee, found, linked, permitted⟩
-    | some target => exact ⟨extent, forward_checked typed, scopes⟩
-  | cons piece rest =>
-    exact ⟨extent, listed piece (.head _), fun later used => listed later (.tail _ used), typed, scopes⟩
-
-theorem return_ready (checked : seq.Checked mode program memory calls base outer args source)
-    (layout : Layout program base memory initial) (contract : seq.Contract host mode memory initial base source)
-    {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch} {after : Store H} {r : Execution.Runtime.Result}
-    (ready : seq.Ready mode program memory calls initial (.pending bytes saved actual site later labels branch) source)
-    (returned : host site.target (live bytes) actual (.returned after r)) :
-    ∃ next, after = live next ∧ bytes.size ≤ next.size ∧ HostCall.V1.ResultTyped site.signature.results r ∧
-      Layout program after memory { initial with data := next } ∧
-      seq.Ready mode program memory calls initial (seq.delivered outer args next saved later r labels branch) source := by
-  obtain ⟨extent, listed, laterListed, typedArgs, continuation, scopes⟩ := ready
-  obtain ⟨typed, storeEffect⟩ := contract site listed bytes extent actual typedArgs after r returned
-  obtain ⟨next, stored, newExtent, mono, allocation⟩ := layout.host_store extent storeEffect
-  refine ⟨next, stored, mono, typed, allocation, ?_⟩
-  cases r with
-  | trap => exact ⟨newExtent, scopes⟩
-  | values payload =>
-    apply resume_ready checked newExtent laterListed _ scopes
-    have payloadTyped : payload.map Value.type = site.signature.results := typed
-    simpa [Prefix.stackTypes, payloadTyped] using continuation
+private theorem computing_ready {bytes : ByteArray} {stack : List Value} {first : HostSegment H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)}
+    (extent : mode.extent initial.data.size bytes)
+    (listed : ∀ site ∈ first.site :: later.map HostSegment.site, site ∈ seq.sourceSites source)
+    (typed : seq.checkContinuation labels nextSource (Prefix.stackTypes stack) (first :: later) = true)
+    (scopes : seq.ContextReady mode program memory calls source labels)
+    (tailGuard : seq.ContinuationReady mode program memory calls source nextSource) :
+    seq.Ready mode program memory calls initial (.computing bytes stack first.operands first.site later labels nextSource)
+      source :=
+  ⟨extent, listed _ (.head _), fun piece used => listed _ (.tail _ (List.mem_map.mpr ⟨piece, used, rfl⟩)),
+    typed, scopes, tailGuard⟩
 
 private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : List Value} {labels : List (OpenLabel H)}
     (checked : seq.Checked mode program memory calls base outer args source)
@@ -443,15 +431,58 @@ private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : Lis
   cases region with
   | root =>
     obtain ⟨scopes, _, listed, typed⟩ := ready
-    exact ⟨extent, listed _ (.head _), fun piece used => listed _ (.tail _ (List.mem_map.mpr ⟨piece, used, rfl⟩)),
-      typed, scopes⟩
-  | hosts first later branch =>
+    exact computing_ready (first := seq.first) (later := seq.later) extent listed typed scopes trivial
+  | hostSequence first later =>
     obtain ⟨scopes, _, listed, typed⟩ := ready
-    exact ⟨extent, listed _ (.head _), fun piece used => listed _ (.tail _ (List.mem_map.mpr ⟨piece, used, rfl⟩)),
-      typed, scopes⟩
+    exact computing_ready (first := first) (later := later) extent listed typed scopes trivial
+  | hostsThen first later tail =>
+    obtain ⟨scopes, allowed, listed, typed⟩ := ready
+    exact computing_ready extent (fun site used => listed site (List.mem_append_left _ used)) typed scopes
+      ⟨allowed, fun site used => listed site (List.mem_append_right _ used)⟩
   | br branch => exact ⟨extent, forward_checked ready.2.2.2, ready.1⟩
   | plain code => exact finish_ready checked extent ready.2.2.2 ready.1 ready.2.1
-  | blockThen | ifThen => exact ⟨extent, ready⟩
+  | blockThen | ifThen | brIf => exact ⟨extent, ready⟩
+
+private theorem resume_ready (checked : seq.Checked mode program memory calls base outer args source)
+    {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List (OpenLabel H)}
+    {nextSource : Option (Source H)}
+    (extent : mode.extent initial.data.size bytes) (listed : ∀ piece ∈ later, piece.site ∈ seq.sourceSites source)
+    (typed : seq.checkContinuation labels nextSource (Prefix.stackTypes stack) later = true)
+    (scopes : seq.ContextReady mode program memory calls source labels)
+    (tailGuard : seq.ContinuationReady mode program memory calls source nextSource) :
+    seq.Ready mode program memory calls initial (seq.resume outer args bytes stack later labels nextSource) source := by
+  cases later with
+  | nil =>
+    cases nextSource with
+    | none =>
+      apply finish_ready checked extent typed scopes
+      apply RunProofs.tail_allowed (fn := rootFn) ?_ checked.slot checked.supportedTail
+      intro target used
+      obtain ⟨callee, found, _, linked, permitted⟩ := checked.linkedTail target used
+      exact ⟨callee, found, linked, permitted⟩
+    | some region => exact begin_ready checked extent ⟨scopes, tailGuard.1, tailGuard.2, typed⟩
+  | cons piece rest =>
+    exact ⟨extent, listed piece (.head _), fun later used => listed later (.tail _ used), typed, scopes, tailGuard⟩
+
+theorem return_ready (checked : seq.Checked mode program memory calls base outer args source)
+    (layout : Layout program base memory initial) (contract : seq.Contract host mode memory initial base source)
+    {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)} {after : Store H} {r : Execution.Runtime.Result}
+    (ready : seq.Ready mode program memory calls initial (.pending bytes saved actual site later labels nextSource) source)
+    (returned : host site.target (live bytes) actual (.returned after r)) :
+    ∃ next, after = live next ∧ bytes.size ≤ next.size ∧ HostCall.V1.ResultTyped site.signature.results r ∧
+      Layout program after memory { initial with data := next } ∧
+      seq.Ready mode program memory calls initial (seq.delivered outer args next saved later r labels nextSource) source := by
+  obtain ⟨extent, listed, laterListed, typedArgs, continuation, scopes⟩ := ready
+  obtain ⟨typed, storeEffect⟩ := contract site listed bytes extent actual typedArgs after r returned
+  obtain ⟨next, stored, newExtent, mono, allocation⟩ := layout.host_store extent storeEffect
+  refine ⟨next, stored, mono, typed, allocation, ?_⟩
+  cases r with
+  | trap => exact ⟨newExtent, scopes.1⟩
+  | values payload =>
+    apply resume_ready checked newExtent laterListed _ scopes.1 scopes.2
+    have payloadTyped : payload.map Value.type = site.signature.results := typed
+    simpa [Prefix.stackTypes, payloadTyped] using continuation
 
 private theorem locals_typed (checked : seq.Checked mode program memory calls base outer args source) :
     (active).locals.map Value.type = (rootFn).declaration.params ++ (rootFn).declaration.locals := by
@@ -474,6 +505,21 @@ private theorem condition_found (checked : seq.Checked mode program memory calls
     rcases v with ⟨type, bits⟩
     cases same
     exact ⟨bits, rfl⟩
+
+private theorem branch_test_checked {saved : List Value} {condition : BitVec 32} {branch : ForwardBranch}
+    {tail : Source H} {labels : List (OpenLabel H)}
+    (ready : seq.SourceReady mode program memory calls labels (saved ++ [Value.int .i32 condition]) (.brIf branch tail) source) :
+    Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes saved) branch.depth branch.results = true ∧
+      seq.SourceReady mode program memory calls labels saved tail source := by
+  obtain ⟨scopes, allowed, listed, typed⟩ := ready
+  have checks : checkForward (rootFn) (Prefix.stackTypes saved) (OpenLabel.targets (rootFn) labels) branch = true ∧
+      seq.checkSourceAt (Prefix.stackTypes saved) (OpenLabel.results (rootFn) labels)
+        (OpenLabel.targets (rootFn) labels) (OpenLabel.needsResume labels) tail = true := by
+    have shape : Prefix.stackTypes (saved ++ [Value.int .i32 condition]) =
+        .int .i32 :: Prefix.stackTypes saved := by simp [Prefix.stackTypes, Value.int]
+    rw [checkSourceAt, shape] at typed
+    exact Bool.and_eq_true_iff.mp typed
+  exact ⟨forward_checked checks.1, scopes, allowed, listed, checks.2⟩
 
 private theorem branch_outer_ready {stack : List Value} {branch : ForwardBranch}
     {label : OpenLabel H} {rest : List (OpenLabel H)}
@@ -550,6 +596,8 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
   | closeLabel _ =>
     obtain ⟨liveExtent, types, typed, allowed, listed, scopes⟩ := ready
     exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using typed⟩
+  | branchZero => exact begin_ready checked ready.1 (branch_test_checked ready.2).2
+  | branchNonzero _ => exact ⟨ready.1, (branch_test_checked ready.2).1, ready.2.1⟩
   | branchOuter positive => exact ⟨ready.1, branch_outer_ready positive ready.2.1, ready.2.2.2.2.2⟩
   | branchExit count =>
     obtain ⟨liveExtent, typed, tailTyped, allowed, listed, scopes⟩ := ready
@@ -561,7 +609,7 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
     refine ⟨current, listed, later, ?_, scopes⟩
     rw [← locals]
     exact check_prefix_preserves (locals.symm ▸ check) moved
-  | prefixTrap _ => exact ⟨ready.1, ready.2.2.2.2⟩
+  | prefixTrap _ => exact ⟨ready.1, ready.2.2.2.2.1⟩
   | discard _ => exact ready
   | @closeTrap bytes labels =>
     obtain ⟨liveExtent, scopes⟩ := ready
@@ -601,6 +649,8 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | readCondition found => exact (condition_step found).mpr rfl
   | select => exact select_step.mpr rfl
   | closeLabel _ => exact close_label_step.mpr rfl
+  | branchZero => exact branch_test_step.mpr (ite_eq_left (rfl : (0 : BitVec 32) = 0) ▸ rfl)
+  | branchNonzero nonzero => exact branch_test_step.mpr (ite_eq_right nonzero ▸ rfl)
   | branchOuter positive => exact branch_step.mpr (.inr ⟨positive, rfl⟩)
   | branchExit count => exact branch_step.mpr (.inl ⟨_, _, rfl, count, rfl, rfl⟩)
   | numeric moved => exact numeric_step.mpr (.inl ⟨_, moved, rfl⟩)
@@ -638,6 +688,18 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
   | test => exact ⟨_, .select, select_step.mp step⟩
   | completed =>
     exact ⟨_, .closeLabel (by simpa using congrArg List.length ready.2.1), close_label_step.mp step⟩
+  | branchTest bytes stack branch fallthrough labels =>
+    have checkedTest := ready.2.2.2.2
+    simp only [checkSourceAt] at checkedTest
+    obtain ⟨saved, condition, split, _⟩ := Memory32.split_i32 checkedTest
+    subst stack
+    have selected := branch_test_step.mp step
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero] at selected
+      subst condition
+      exact ⟨_, .branchZero, selected⟩
+    · rw [ite_eq_right zero] at selected
+      exact ⟨_, .branchNonzero zero, selected⟩
   | branching bytes stack branch skipped labels =>
     cases labels with
     | nil =>
@@ -650,7 +712,7 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
         subst depth
         exact ⟨_, .branchExit count, eq⟩
       · exact ⟨_, .branchOuter positive, eq⟩
-  | computing bytes stack remaining site later labels branch =>
+  | computing bytes stack remaining site later labels nextSource =>
     cases remaining with
     | nil =>
       obtain ⟨saved, actual, rfl, typed, _⟩ := check_prefix_arguments ready.2.2.2.1
@@ -663,7 +725,7 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
     rcases trap_step.mp step with ⟨kept, rest, discarded, eq⟩ | ⟨rfl, rfl, eq⟩
     · exact ⟨_, .discard discarded, eq⟩
     · exact ⟨_, .closeTrap, eq⟩
-  | pending bytes saved actual site later labels branch =>
+  | pending bytes saved actual site later labels nextSource =>
     have ⟨_, listed, _, arguments, _⟩ := ready
     rcases (pending_step (checked.linkedHosts site listed) arguments).mp step with
       ⟨after, r, returned, eq⟩ | ⟨diverged, eq⟩

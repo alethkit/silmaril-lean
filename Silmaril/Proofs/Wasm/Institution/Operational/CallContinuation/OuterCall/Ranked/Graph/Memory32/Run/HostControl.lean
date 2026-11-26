@@ -292,4 +292,46 @@ theorem scoped_if_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
     have found := exists_callout_iff.mp ⟨c, located⟩
     simp [decompose?, asValue?] at found
 
+theorem scoped_br_if_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
+    {saved : List Value} {condition : BitVec 32} {depth : LabelIdx} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, (seq.context args labels).plug value
+      (values (saved ++ [Value.int .i32 condition]) ++ .source (.brIf depth) :: tail)⟩ dst ↔
+      dst = ⟨s, outer, (seq.context args labels).plug value
+        (values saved ++ (if condition = 0 then [] else [.source (.br depth)]) ++ tail)⟩ := by
+  apply scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
+  intro target
+  constructor
+  · intro move
+    have noCallout : ∀ call, ¬ CalloutAt
+        ⟨s, seq.root.function.declaration.frame args,
+          values (saved ++ [Value.int .i32 condition]) ++ .source (.brIf depth) :: tail⟩ call := by
+      intro call located
+      have found := exists_callout_iff.mp ⟨call, located⟩
+      simp [decompose?, asValue?] at found
+    have internal := (Step.internal_iff_of_not_callout noCallout).mp move
+    have projected := internal.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ err => err)
+    have reduced := (Computed.lime_br_if_iff (saved := saved) (condition := condition) (depth := depth)
+      (rest := codeToLime tail)).mp
+        (by simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons, AdminInstr.map,
+          Wasm.V1.Instr.toLime] using projected)
+    apply CallContinuation.config_toLime_injective H
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero] at reduced ⊢
+      simpa only [Config.toLime, codeToLime_append, map_values, List.append_nil] using reduced
+    · rw [ite_eq_right zero] at reduced ⊢
+      simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons, AdminInstr.map,
+        Wasm.V1.Instr.toLime, codeToLime_nil, List.nil_append, List.singleton_append] using reduced
+  · rintro rfl
+    rw [values_append]
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      simpa only [values, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using!
+        (Step.context (Step.pure (host := host) s (seq.root.function.declaration.frame args) (.brIfZero depth)) saved tail)
+    · rw [ite_eq_right zero]
+      simpa only [values, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        (Step.context (Step.pure (host := host) s (seq.root.function.declaration.frame args)
+          (.brIfNonzero depth condition zero)) saved tail)
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.HostEntry.Sequence.ControlProofs
