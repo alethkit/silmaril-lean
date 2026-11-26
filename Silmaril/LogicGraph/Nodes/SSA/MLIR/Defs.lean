@@ -1,8 +1,9 @@
 module
 
+public import Silmaril.Logic.Institution.Morphism
 public import Silmaril.Project.Registry.Institution.Defs
 public import Silmaril.Project.Registry.IR.Defs
-public import Silmaril.SSA.MLIR.Institution.Arith.Thms
+public import Silmaril.SSA.MLIR.Arith.Defs
 public import Silmaril.SSA.MLIR.Institution.Thms
 public import Silmaril.SSA.MLIR.LLVM.Defs
 
