@@ -22,6 +22,26 @@ universe u
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty} {A : Syntax.Ty}
 
 /-- A failed local head match has a separating terminal test at one available store. -/
+theorem HeadObserver.local_mismatch_refutes [DecidableEq Φ] (g : HeadObserver.{u,0} S R) (h : HeadObserver.{u,0} S T)
+    (p : Packet R) (q : Packet T)
+    (fuel : Nat) (mismatch : ¬ (g.head p).MatchesWith
+      (fun i j => (i, g.returnValue p i) = (j, h.returnValue q j)) (fun _ _ => True) (h.head q)) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observe prim p 0 ≤ h.observe prim q 0 :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.observer_local_mismatch_refutes
+    g h p q fuel mismatch
+
+theorem HeadObserver.prepend_refutation [DecidableEq Φ] (g : HeadObserver.{u,0} S R) (h : HeadObserver.{u,0} S T)
+    (p : Packet R) (q : Packet T) {f : Φ} {arg : Payload (instrSrc f)}
+    {next : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet R}
+    {route : (i : Fin (S.replies f).length) → Payload ((S.replies f).get i) → Packet T}
+    (lower : g.head p = .request f arg next) (upper : h.head q = .request f arg route)
+    (answer : Packet (S.replies f))
+    {fuel : Nat} (other : Primitives Φ fuel) (t : Fin fuel)
+    (bad : ¬ g.observe other (next answer.1 answer.2) t ≤ h.observe other (route answer.1 answer.2) t) :
+    ∃ prim : Primitives Φ (fuel + 1), ¬ g.observe prim p 0 ≤ h.observe prim q 0 :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.observer_prepend_refutation
+    g h p q lower upper answer other t bad
+
 theorem local_mismatch_refutes [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (a : Payload (R.get g.entry)) (b : Payload (T.get h.entry)) (p : Packet R) (q : Packet T)
     (fuel : Nat) (mismatch : ¬ (g.head a p).Matches (fun _ _ => True) (h.head b q)) :

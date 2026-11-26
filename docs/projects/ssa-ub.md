@@ -1541,11 +1541,23 @@ Silent transfers keep the store and issue no query.
 `Silent.Dispatch.Table.observe_entry` identifies the complete decorated
 observation of an exact-readback original CFG with feedback over the
 computed heads, including productive request replay, fault states and
-selected ordered exits. A single guarded row at each written label cannot
-encode all computed heads. The same label can expose an ordered exit for
-one packet and ordinary divergence for another. The reachable product
-still consumes the earlier guarded table interface.
+selected ordered exits.
 [Packet-indexed silent dispatch][ssa-ub-packet-dispatch]
+
+The dispatcher product explores paired full typed configurations at each
+fixed caller. Equal exposed requests generate a successor pair for every
+typed reply payload, and terminal heads have no reply edges. A certified
+closed product proves refinement over arbitrary deterministic stores.
+The maximum distinct reachable-pair count over the caller inventory
+suffices for a single finite-carrier comparison. A shortest mismatch path
+uses a fresh state per shared reply and one state for the terminal test.
+Rejection gives a caller, interpreter and initial state on this carrier
+that refute the original decorated endpoints. A failed exact readback
+returns unknown. Ordinary divergence remains distinct from both faults
+and selected UB. The regressions exercise two original CFGs in which the
+same effectful reply position reaches an ordered exit or a silent cycle
+at the same label depending on the returned packet.
+[Packet-indexed reachable product][ssa-ub-packet-dispatch-product]
 
 ## Coverage and gaps
 
@@ -1725,6 +1737,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-named-ordered-identity]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Silent/Identity/Thms.lean
 [ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
 [ssa-ub-packet-dispatch]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Thms.lean
+[ssa-ub-packet-dispatch-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Product/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 

@@ -10,11 +10,12 @@ namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.Nativ
 
 open Category.FiniteIteration
 open CFG.Dependent (Packet)
+open TwoRequest (Tag)
 open CFG.Dependent.Native (withExitUB exitContinuation)
 open ScheduleSearch (StateInventory)
 open Syntax (Payload Primitives model)
 
-universe u v
+universe u v w
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty} {states results : Nat}
@@ -33,6 +34,30 @@ theorem Endpoint.feedback_step {σ : Type v} (g : Endpoint S R A)
     g.feedback caller prim (blockPoint p s) = g.route caller p ((g.control.head caller p).execute prim s) :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.raw_step
     g caller prim p s
+
+theorem head_feedback_mapState {σ : Type v} {τ : Type w} (head : Packet R → Head S R) (output : Packet R → Tag → Value Unit)
+    (e : σ ↪ τ) (prim : Syntax.StatePrimitives Φ σ) (other : Syntax.StatePrimitives Φ τ)
+    (agree : ∀ f a s, other f a (e s) = (prim f a s).mapState e)
+    (f : Feedback.Run R (Exits A) Unit σ) (h : Feedback.Run R (Exits A) Unit τ)
+    (source : ∀ p s, f (blockPoint p s) =
+      match (head p).execute prim s with
+      | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (output p i) t)}
+      | .repeat q t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) q.1) q.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge})
+    (target : ∀ p s, h (blockPoint p s) =
+      match (head p).execute other s with
+      | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (output p i) t)}
+      | .repeat q t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) q.1) q.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge})
+    (selected : Tag → Bool) (p : Packet R) (s : σ) :
+    (Feedback.close h (blockPoint p (e s))).bind
+        (fun i a t => if selected i then ⊤ else WithTop.some {Outcome.ret i a t}) =
+      Behaviour.mapState e ((Feedback.close f (blockPoint p s)).bind
+        (fun i a t => if selected i then ⊤ else WithTop.some {Outcome.ret i a t})) :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Payload.head_feedback_mapState
+    head output e prim other agree f h source target selected p s
 
 /-- Replaying a deterministic interpreter in a larger state carrier maps
 only the final stores in the observation. -/

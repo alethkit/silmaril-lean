@@ -17,22 +17,15 @@ open ProductSearch (Visit)
 
 universe u
 
-variable {Φ : Type u} [HasTy Φ Syntax.Ty] [DecidableEq Φ] {S : RequestSignature Φ} {R T : List Syntax.Ty}
+variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
 
-variable (g : Table S R) (h : Table S T)
-  (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
-  (replies : ReplyEnumeration S)
-
-theorem visits_spec (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
-    let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
-    let edges := g.productEdges h caller caller' replies
-    let seen := g.productVisits h caller caller' replies left right
+theorem product_visits_spec (edges : ProductConfig R T → List (ProductEdge S R T))
+    (entry : ProductConfig R T) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    let seen := ProductSearch.visits edges entry left right
     (entry, []) ∈ seen ∧
       (∀ v ∈ seen, ProductPath edges entry v.2 v.1) ∧
       (∀ v ∈ seen, ∀ edge ∈ edges v.1, edge.2 ∈ seen.map Prod.fst) ∧
       (seen.map Prod.fst).Nodup := by
-  let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
-  let edges := g.productEdges h caller caller' replies
   let remaining := (left.configs.product right.configs).filter fun p => !productContains [entry] p.1 p.2
   let seeds : List (Visit S R T) := [(entry, [])]
   have cover (p : ProductConfig R T) : p ∈ remaining ∨ p ∈ seeds.map Prod.fst := by
@@ -54,18 +47,17 @@ theorem visits_spec (left : ConfigurationEnumeration R) (right : ConfigurationEn
     scan_spec entry remaining.length remaining seeds (Nat.le_refl _) cover initial (by simp [seeds]) disjoint
   exact ⟨retains _ (List.mem_singleton_self _), paths, closed, unique⟩
 
-theorem visits_exact (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
-    let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
-    let edges := g.productEdges h caller caller' replies
-    let seen := g.productVisits h caller caller' replies left right
+theorem product_visits_exact (edges : ProductConfig R T → List (ProductEdge S R T))
+    (entry : ProductConfig R T) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    let seen := ProductSearch.visits edges entry left right
     (seen.map Prod.fst).Nodup ∧
       ∀ p, p ∈ seen.map Prod.fst ↔ ∃ trail, ProductPath edges entry trail p := by
-  let seen := g.productVisits h caller caller' replies left right
-  obtain ⟨entry, paths, closed, unique⟩ := visits_spec g h caller caller' replies left right
-  have start : (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩) ∈ seen.map Prod.fst :=
-    List.mem_map.mpr ⟨_, entry, rfl⟩
+  let seen := ProductSearch.visits edges entry left right
+  obtain ⟨seed, paths, closed, unique⟩ := product_visits_spec edges entry left right
+  have start : entry ∈ seen.map Prod.fst :=
+    List.mem_map.mpr ⟨_, seed, rfl⟩
   have successor (p : ProductConfig R T) (listed : p ∈ seen.map Prod.fst)
-      (edge : ProductEdge S R T) (he : edge ∈ g.productEdges h caller caller' replies p) :
+      (edge : ProductEdge S R T) (he : edge ∈ edges p) :
       edge.2 ∈ seen.map Prod.fst := by
     obtain ⟨visit, member, rfl⟩ := List.mem_map.mp listed
     exact closed visit member edge he
@@ -73,6 +65,46 @@ theorem visits_exact (left : ConfigurationEnumeration R) (right : ConfigurationE
     obtain ⟨visit, member, rfl⟩ := List.mem_map.mp listed
     exact ⟨visit.2, paths visit member⟩,
     fun ⟨_, walk⟩ => (path_covered walk _ start successor).1⟩⟩
+
+theorem product_simple_path_bound
+    (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    {edges : ProductConfig R T → List (ProductEdge S R T)}
+    {start point : ProductConfig R T} {trail : List (ProductEdge S R T)}
+    (walk : ProductPath edges start trail point) (simple : (ProductPath.vertices start trail).Nodup) :
+    trail.length + 1 ≤ (ProductSearch.visits edges start left right).length := by
+  let seen := (ProductSearch.visits edges start left right).map Prod.fst
+  have exactVisits := (product_visits_exact edges start left right).2
+  have initial : start ∈ seen := (exactVisits _).mpr ⟨[], .start⟩
+  have closed (p : ProductConfig R T) (mem : p ∈ seen) (e : ProductEdge S R T)
+      (edge : e ∈ edges p) : e.2 ∈ seen := by
+    obtain ⟨_, path⟩ := (exactVisits p).mp mem
+    exact (exactVisits _).mpr ⟨_, .step path edge⟩
+  have bound := simple.length_le_of_subset (path_covered walk seen initial closed).2
+  simpa [seen, ProductPath.vertices, Nat.succ_eq_add_one] using bound
+
+variable [DecidableEq Φ]
+
+variable (g : Table S R) (h : Table S T)
+  (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+  (replies : ReplyEnumeration S)
+
+theorem visits_spec (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
+    let edges := g.productEdges h caller caller' replies
+    let seen := g.productVisits h caller caller' replies left right
+    (entry, []) ∈ seen ∧
+      (∀ v ∈ seen, ProductPath edges entry v.2 v.1) ∧
+      (∀ v ∈ seen, ∀ edge ∈ edges v.1, edge.2 ∈ seen.map Prod.fst) ∧
+      (seen.map Prod.fst).Nodup :=
+  product_visits_spec (g.productEdges h caller caller' replies) (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩) left right
+
+theorem visits_exact (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
+    let edges := g.productEdges h caller caller' replies
+    let seen := g.productVisits h caller caller' replies left right
+    (seen.map Prod.fst).Nodup ∧
+      ∀ p, p ∈ seen.map Prod.fst ↔ ∃ trail, ProductPath edges entry trail p :=
+  product_visits_exact (g.productEdges h caller caller' replies) (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩) left right
 
 theorem search_correct (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
     match g.searchProduct h caller caller' replies left right with

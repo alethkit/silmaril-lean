@@ -30,7 +30,7 @@ open ScheduleSearch (StateInventory)
 open Syntax (Payload Primitives model)
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.TwoRequest (Tag)
 
-universe u v
+universe u v w
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {A : Syntax.Ty}
@@ -124,25 +124,40 @@ theorem observe_state_step {σ : Type v} (g : Endpoint S R A)
     ext o
     cases o <;> simp [Outcome.bind]
 
-private theorem close_transition {σ : Type v} (g : Endpoint S R A)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+private def headTransition {σ : Type v} (head : Packet R → Head S R) (output : Packet R → Tag → Value Unit)
+    (prim : Syntax.StatePrimitives Φ σ) (x : Packet R × σ) :
+    (Packet R × σ) ⊕ Outcome 2 Unit σ :=
+  match (head x.1).execute prim x.2 with
+  | .exit i _ t => .inr (.ret i (output x.1 i) t)
+  | .repeat next t => .inl (next, t)
+  | .fault t => .inr (.fault t)
+  | .diverge => .inr .diverge
+
+private theorem close_head_transition {σ : Type v} (head : Packet R → Head S R) (output : Packet R → Tag → Value Unit)
+    (prim : Syntax.StatePrimitives Φ σ) (f : Feedback.Run R (Exits A) Unit σ)
+    (localRow : ∀ p s, f (blockPoint p s) =
+      match (head p).execute prim s with
+      | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (output p i) t)}
+      | .repeat q t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) q.1) q.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge})
     (p : Packet R) (s : σ) :
-    Feedback.close (g.feedback caller prim) (blockPoint p s) =
-      (Feedback.Graph.transitions (g.transition caller prim) Outcome.diverge).close (p, s) := by
+    Feedback.close f (blockPoint p s) =
+      (Feedback.Graph.transitions (headTransition head output prim) Outcome.diverge).close (p, s) := by
   let invoke (x : Packet R × σ) : Fin R.length × Value Unit × σ := (x.1.1, x.1.2.val, x.2)
   have rows (x : Packet R × σ) :
-      g.feedback caller prim (.block (invoke x).1 (invoke x).2.1 (invoke x).2.2) =
-        match g.transition caller prim x with
+      f (.block (invoke x).1 (invoke x).2.1 (invoke x).2.2) =
+        match headTransition head output prim x with
         | .inl y => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) (invoke y).1) (invoke y).2.1 (invoke y).2.2}
         | .inr o => WithTop.some {Feedback.external R (Exits A) o} := by
-    change g.feedback caller prim (blockPoint x.1 x.2) = _
-    rw [raw_step]
-    unfold Endpoint.transition
-    cases (g.control.head caller x.1).execute prim x.2 <;> rfl
-  have same := (Feedback.Graph.transitions_run (g.transition caller prim) Outcome.diverge invoke id
-    (g.feedback caller prim) rfl (fun x => by
-      cases h : g.transition caller prim x <;> simpa only [h] using! rows x)).close_eq (p, s)
-  change Feedback.close (g.feedback caller prim) (blockPoint p s) = _ at same
+    change f (blockPoint x.1 x.2) = _
+    rw [localRow]
+    unfold headTransition
+    cases (head x.1).execute prim x.2 <;> rfl
+  have same := (Feedback.Graph.transitions_run (headTransition head output prim) Outcome.diverge invoke id
+    f rfl (fun x => by
+      cases h : headTransition head output prim x <;> simpa only [h] using! rows x)).close_eq (p, s)
+  change Feedback.close (f) (blockPoint p s) = _ at same
   simpa [Set.image_id] using same
 
 open Classical in
@@ -176,7 +191,7 @@ private theorem decorate_set {σ : Type v} (selected : Tag → Bool) (xs : Set (
       | ret i a s => exact Or.inr ⟨i, a, s, mem, by simp [no i a s mem]⟩
       | fault | diverge => exact Or.inl mem
 
-private theorem decorate_mapState {σ τ : Type v} (e : σ → τ) (selected : Tag → Bool)
+private theorem decorate_mapState {σ : Type v} {τ : Type w} (e : σ → τ) (selected : Tag → Bool)
     (b : Behaviour 2 Unit σ) :
     Behaviour.bind (b.mapState e) (fun (i : Tag) a s => if selected i then ⊤ else (WithTop.some {Outcome.ret i a s} : Behaviour 2 Unit _)) =
       Behaviour.mapState e (Behaviour.bind b (fun (i : Tag) a s => if selected i then ⊤ else (WithTop.some {Outcome.ret i a s} : Behaviour 2 Unit _))) := by
@@ -198,43 +213,73 @@ private theorem decorate_mapState {σ τ : Type v} (e : σ → τ) (selected : T
     simp only [same]
     split <;> rfl
 
-theorem observeAt_mapState {σ τ : Type v} (g : Endpoint S R A) (e : σ ↪ τ)
-    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
-    (other : Syntax.StatePrimitives Φ τ)
-    (agree : ∀ f a s, other f a (e s) = (prim f a s).mapState e) (p : Packet R) (s : σ) :
-    g.observeAt caller other p (e s) = Behaviour.mapState e (g.observeAt caller prim p s) := by
+theorem head_feedback_mapState {σ : Type v} {τ : Type w} (head : Packet R → Head S R) (output : Packet R → Tag → Value Unit)
+    (e : σ ↪ τ) (prim : Syntax.StatePrimitives Φ σ) (other : Syntax.StatePrimitives Φ τ)
+    (agree : ∀ f a s, other f a (e s) = (prim f a s).mapState e)
+    (f : Feedback.Run R (Exits A) Unit σ) (h : Feedback.Run R (Exits A) Unit τ)
+    (source : ∀ p s, f (blockPoint p s) =
+      match (head p).execute prim s with
+      | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (output p i) t)}
+      | .repeat q t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) q.1) q.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge})
+    (target : ∀ p s, h (blockPoint p s) =
+      match (head p).execute other s with
+      | .exit i _ t => WithTop.some {Feedback.external R (Exits A) (.ret i (output p i) t)}
+      | .repeat q t => WithTop.some {Outcome.ret (Feedback.internal R (Exits A) q.1) q.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge})
+    (selected : Tag → Bool) (p : Packet R) (s : σ) :
+    (Feedback.close h (blockPoint p (e s))).bind
+        (fun i a t => if selected i then ⊤ else WithTop.some {Outcome.ret i a t}) =
+      Behaviour.mapState e ((Feedback.close f (blockPoint p s)).bind
+        (fun i a t => if selected i then ⊤ else WithTop.some {Outcome.ret i a t})) := by
   let point (x : Packet R × σ) := (x.1, e x.2)
   have next (x : Packet R × σ) :
-      g.transition caller other (point x) =
-        (g.transition caller prim x).map point (Outcome.mapState e) := by
+      headTransition head output other (point x) =
+        (headTransition head output prim x).map point (Outcome.mapState e) := by
     obtain ⟨p, s⟩ := x
-    unfold Endpoint.transition
+    unfold headTransition
     dsimp [point]
-    cases g.control.head caller p with
+    cases head p with
     | exit | diverge => rfl
     | request f arg route =>
       simp only [Head.execute, agree]
       cases prim f arg s <;> rfl
   have rel : Feedback.Graph.Transport
-      (Feedback.Graph.transitions (g.transition caller prim) Outcome.diverge)
-      (Feedback.Graph.transitions (g.transition caller other) Outcome.diverge) point (Outcome.mapState e) := by
+      (Feedback.Graph.transitions (headTransition head output prim) Outcome.diverge)
+      (Feedback.Graph.transitions (headTransition head output other) Outcome.diverge) point (Outcome.mapState e) := by
     constructor
     · intro x y
-      change g.transition caller other (point x) = .inl y ↔ _
+      change headTransition head output other (point x) = .inl y ↔ _
       rw [next]
-      cases h : g.transition caller prim x <;> simp [Feedback.Graph.transitions, h]
+      cases h : headTransition head output prim x <;> simp [Feedback.Graph.transitions, h]
     · intro x
       rfl
     · intro x o
-      change g.transition caller other (point x) = .inr o ↔ _
+      change headTransition head output other (point x) = .inr o ↔ _
       rw [next]
-      cases h : g.transition caller prim x <;> simp [Feedback.Graph.transitions, h]
+      cases h : headTransition head output prim x <;> simp [Feedback.Graph.transitions, h]
     · rfl
-  simp only [Endpoint.observeAt, denote_exitContinuation, close_transition]
-  rw [show (Feedback.Graph.transitions (g.transition caller other) Outcome.diverge).close (p, e s) =
-    ((Feedback.Graph.transitions (g.transition caller prim) Outcome.diverge).close (p, s)).map
+  rw [close_head_transition head output prim f source, close_head_transition head output other h target]
+  rw [show (Feedback.Graph.transitions (headTransition head output other) Outcome.diverge).close (p, e s) =
+    ((Feedback.Graph.transitions (headTransition head output prim) Outcome.diverge).close (p, s)).map
       (Set.image (Outcome.mapState e)) from rel.close_eq (p, s)]
   exact decorate_mapState e _ _
+
+theorem observeAt_mapState {σ τ : Type v} (g : Endpoint S R A) (e : σ ↪ τ)
+    (caller : Payload (R.get g.control.entry)) (prim : Syntax.StatePrimitives Φ σ)
+    (other : Syntax.StatePrimitives Φ τ)
+    (agree : ∀ f a s, other f a (e s) = (prim f a s).mapState e) (p : Packet R) (s : σ) :
+    g.observeAt caller other p (e s) = Behaviour.mapState e (g.observeAt caller prim p s) := by
+  simp only [Endpoint.observeAt, denote_exitContinuation]
+  apply head_feedback_mapState (g.control.head caller) (fun p i => (g.returnPacket caller p i).2.val) e prim other agree
+  · intro p s
+    rw [raw_step]
+    cases (g.control.head caller p).execute prim s <;> rfl
+  · intro p s
+    rw [raw_step]
+    cases (g.control.head caller p).execute other s <;> rfl
 
 theorem unit_blocks (g : Table S R) : (Endpoint.unit g).blocks = g.blocks := by
   funext i
