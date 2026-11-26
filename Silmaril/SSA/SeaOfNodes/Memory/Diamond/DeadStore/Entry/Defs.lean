@@ -1,8 +1,9 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
+public import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Defs
 
-/-! Delete one checked overwritten Store in a native diamond entry table. -/
+/-! Checked Store deletion in a native diamond entry table. -/
 
 @[expose] public section
 
@@ -42,5 +43,17 @@ def rewriteSelected (entry : Memory.Graph args) (removeVersion : Nat) (input : T
 def lowerSelected (graph : Graph args) (entry : Memory.Graph args) (removeVersion : Nat)
     (input : Tuple (Val cells) args) : Option (Discovery.MemRef.CF.Programs cells args) :=
   (rewriteSelected entry removeVersion input).map fun result => lowerPair graph entry result.graph input
+
+structure Repeated (cells : Nat) (args : List ValueSort) where
+  entry : Memory.Graph args
+  deleted : Nat
+  programs : Discovery.MemRef.CF.Programs cells args
+
+/-- Run the native repeat pass on the entry and lower its final table.
+When the selector makes no further deletion, keep the current entry. -/
+def lowerRepeated (graph : Graph args) (entry : Memory.Graph args) (input : Tuple (Val cells) args) :
+    Repeated cells args :=
+  let result := Memory.DeadStore.Search.Selection.Readers.Repeat.rewrite entry input
+  ⟨result.graph, result.deleted, lowerPair graph entry result.graph input⟩
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry

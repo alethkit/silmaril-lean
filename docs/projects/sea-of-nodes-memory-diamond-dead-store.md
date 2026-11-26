@@ -204,3 +204,35 @@ the intervening reader aliases, the original emitted artifact returns
 make check CHECK_TARGETS='+Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.MLIR.MemRef.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Regression'
 lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
 ```
+
+## Repeat checked deletions within the entry
+
+`Entry.lowerRepeated graph entry input` returns the final native entry,
+the exact deletion count, and both emitted MemRef CFGs. It uses the same
+checked scalar input throughout. After each deletion the native pass
+renumbers memory edges and rediscovers reader obligations. It scans the
+current one-based Store versions oldest first and checks the first later
+same-wire overwrite for each candidate. Refused candidates leave later
+candidates available. When no candidate passes, the pass keeps the
+current table and all earlier deletions. An initial refusal of every
+candidate yields an emitted pair with zero deletions.
+[Native repeat pass](sea-of-nodes-memory-dead-store.md#repeat-checked-deletion) ·
+[Entry definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Defs.lean)
+
+The pass exhausts the checked selector and preserves the order and typed
+operands of every retained operation. By the entry-buffer law, both
+artifacts produce the same successor frame and the same full buffer for
+either predicate and every initial buffer. They return the same word and
+whole final buffer at every sufficient CF budget. Both need three block
+steps, since all deletions occur inside the entry block. Shorter budgets
+produce no return observation. The scope is overwrites within the ordered
+entry table of the initialized diamond.
+[Entry-buffer law](#reuse-the-emitted-entry-buffer) ·
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Thms.lean)
+
+The runnable fixture deletes Store 1 using Store 2, then deletes the
+renumbered Store 2 using Store 3. The false arm leaves the surviving side
+Store's value `11` in the final buffer. With a concrete reader alias the
+first deletion is retained and the later one is refused. Both emitted
+CFGs still return `99` and agree on every final cell.
+[Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)

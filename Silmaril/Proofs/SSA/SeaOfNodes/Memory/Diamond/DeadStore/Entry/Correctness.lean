@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Search.Selection.Readers.Repeat.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 
 public section
@@ -13,6 +14,7 @@ open RVSDG (Tuple)
 open Silmaril.MLIR.MemRef (Buffer)
 open Memory.DeadStore.Search.Selection (Result storeVersions)
 open Memory.DeadStore.Search.Selection.Readers renaming discover → discoverReaders
+open Memory.DeadStore.Search.Selection.Readers.Repeat renaming rewrite_denote → repeatDenote
 open Discovery.MemRef.CF (Programs entryTransition lowerDiamond lowerDiamond_entryTransition lowerDiamond_run run)
 
 variable {args : List ValueSort} {cells : Nat}
@@ -118,5 +120,21 @@ theorem lowerSelected_runs {graph : Graph args} {programs : Programs cells args}
       run programs.optimized programs.input guard fuel initial = expected := by
   obtain ⟨result, accepted, rfl⟩ := Option.map_eq_some_iff.mp emitted
   exact lowerPair_runs graph input guard fuel initial (rewriteSelected_denote input accepted initial.cell)
+
+theorem lowerRepeated_entryTransition_eq (graph : Graph args) (entry : Memory.Graph args)
+    (input : Tuple (Val cells) args) (guard : Bool) (initial : Buffer cells) :
+    let programs := (lowerRepeated graph entry input).programs
+    entryTransition programs.optimized programs.input guard initial =
+      entryTransition programs.original programs.input guard initial :=
+  lowerPair_entryTransition_eq graph input guard initial (repeatDenote entry input initial.cell)
+
+theorem lowerRepeated_runs (graph : Graph args) (entry : Memory.Graph args)
+    (input : Tuple (Val cells) args) (guard : Bool) (fuel : Nat) (initial : Buffer cells) :
+    let programs := (lowerRepeated graph entry input).programs
+    let result := graph.denote guard input (entry.denote input initial.cell).2
+    let expected := if fuel < 3 then none else some (result.1, Buffer.mk result.2)
+    run programs.original programs.input guard fuel initial = expected ∧
+      run programs.optimized programs.input guard fuel initial = expected :=
+  lowerPair_runs graph input guard fuel initial (repeatDenote entry input initial.cell)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Proofs
