@@ -41,7 +41,7 @@ structure PathNode where
   block : PathBlock
   choice : Option PathChoice := none
 
-/-- A static transfer to an explicit enclosing scalar or void label. -/
+/-- A static transfer to an enclosing scalar or void label, including the function label. -/
 structure ForwardBranch where
   depth : LabelIdx
   results : List NumType
@@ -212,17 +212,15 @@ def checkTail (fn : Function) (stack fallthrough : List NumType) (targets : List
   if resume then code.isEmpty && decide (stack = fallthrough.reverse)
   else ({ fn with code := code }).checkRegion stack fallthrough code targets
 
-/-- Restrict transfers to explicit labels; the function entry still supplies
-its own result and branch context to the host-free graph checker. -/
-def checkForward (fn : Function) (stack : List NumType) (targets : List (List NumType))
-    (branch : ForwardBranch) : Bool :=
-  Graph.checkBranch (targets.take (targets.length - fn.entryLabels.length)) stack branch.depth branch.results
+/-- The target list includes the function's result signature below all
+explicit labels. -/
+def checkForward (stack : List NumType) (targets : List (List NumType)) (branch : ForwardBranch) : Bool :=
+  Graph.checkBranch targets stack branch.depth branch.results
 
-def checkTable (fn : Function) (stack : List NumType) (targets : List (List NumType))
-    (table : ForwardTable) : Bool :=
+def checkTable (stack : List NumType) (targets : List (List NumType)) (table : ForwardTable) : Bool :=
   Graph.checkCondition stack (fun saved =>
-    checkForward fn saved targets ⟨table.fallback, table.results⟩ &&
-      table.depths.all (fun depth => checkForward fn saved targets ⟨depth, table.results⟩))
+    checkForward saved targets ⟨table.fallback, table.results⟩ &&
+      table.depths.all (fun depth => checkForward saved targets ⟨depth, table.results⟩))
 
 /-- Check each host on its ordered argument suffix and continue on the
 declared results above the preserved operands. -/
@@ -250,11 +248,11 @@ def checkSourceAt (seq : Sequence H) (stack fallthrough : List NumType) (targets
       stack (first :: later)
   | .hostsThen first later tail =>
     checkSegments seq.root.function (fun next => seq.checkSourceAt next fallthrough targets resume tail) stack (first :: later)
-  | .br branch => checkForward seq.root.function stack targets branch
+  | .br branch => checkForward stack targets branch
   | .brIf branch tail =>
     Graph.checkCondition stack (fun saved =>
-      checkForward seq.root.function saved targets branch && seq.checkSourceAt saved fallthrough targets resume tail)
-  | .brTable table => checkTable seq.root.function stack targets table
+      checkForward saved targets branch && seq.checkSourceAt saved fallthrough targets resume tail)
+  | .brTable table => checkTable stack targets table
   | .plain code => checkTail seq.root.function stack fallthrough targets resume code
   | .blockThen result body tail =>
     let types := result.toList
@@ -481,7 +479,7 @@ def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : M
   | .tableSelect bytes stack table labels =>
     extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.brTable table) body
   | .branching bytes stack branch _ labels =>
-    extent bytes ∧ Graph.checkBranch (OpenLabel.signatures labels) (Prefix.stackTypes stack)
+    extent bytes ∧ Graph.checkBranch (OpenLabel.targets fn labels) (Prefix.stackTypes stack)
       branch.depth branch.results = true ∧ scopes labels
   | .completed bytes stack label rest =>
     extent bytes ∧ stack.map Value.type = label.result.toList ∧ scopes (label :: rest)
@@ -529,6 +527,11 @@ inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
       Edge seq host mode program memory base initial start outer args
         (.branching bytes (extra ++ payload) ⟨⟨0⟩, results⟩ skipped (label :: rest))
         (seq.beginBody outer args bytes (label.saved ++ payload) rest label.tail)
+  | branchFunction {bytes extra payload results skipped}
+      (typed : payload.map Value.type = seq.root.function.declaration.results) :
+      Edge seq host mode program memory base initial start outer args
+        (.branching bytes (extra ++ payload) ⟨⟨0⟩, results⟩ skipped [])
+        (.graph ⟨bytes, outer, seq.afterLabel args [] (values payload)⟩)
   | numeric {bytes stack next op rest site later labels tail}
       (move : Prefix.Reduce (seq.root.function.declaration.frame args).locals stack op (.values next)) :
       Edge seq host mode program memory base initial start outer args (.computing bytes stack (op :: rest) site later labels tail)

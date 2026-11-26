@@ -53,6 +53,17 @@ theorem Edge.ready (graphChecked : program.checkV1 memory mode calls = true)
     seq.Ready mode program memory calls initial dst source :=
   Proofs.preserves graphChecked checked layout extent contract edge ready
 
+/-- At depth zero in the implicit label, the native branch erases the
+scratch operands and skipped suffix. The typed payload is still inside the
+frame, which the native frame-completion step later removes. -/
+theorem v1_function_branch_step_iff {bytes : ByteArray} {stack : List Value}
+    {results : List NumType} {skipped : List Admin} {dst : Config H}
+    (ready : seq.Ready mode program memory calls initial (.branching bytes stack ⟨⟨0⟩, results⟩ skipped []) source) :
+    Step host (seq.render base memory initial start outer args (.branching bytes stack ⟨⟨0⟩, results⟩ skipped [])) dst ↔
+      ∃ extra payload, stack = extra ++ payload ∧ payload.map Value.type = seq.root.function.declaration.results ∧
+        dst = ⟨storeWithBytes base memory initial bytes, outer, seq.afterLabel args [] (values payload)⟩ :=
+  Proofs.function_branch_typed ready
+
 /-- Exact successors preserve native resolution, delivery and cleanup steps
 for every reached site. -/
 theorem v1_step_iff (graphChecked : program.checkV1 memory mode calls = true)
