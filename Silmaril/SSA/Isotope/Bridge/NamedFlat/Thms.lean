@@ -15,6 +15,13 @@ open LambdaSSA.Semantics (Env extend)
 universe u v
 variable {V K : Type u} {F : Type v} {n : Nat} [DecidableEq V] [DecidableEq K]
 
+/-- The body checker certifies exact typing in the supplied positional context. -/
+theorem checkBody_sound {Base : Type u} [DecidableEq Base] [HasTy F (Ty Base)]
+    {labels : Nat} (types : Fin labels → Ty Base) (ctx : BoundCtx (Ty Base) n)
+    (code : LambdaSSA.Flat F labels n) (accepted : checkBody types ctx code = true) :
+    LambdaSSA.Flat.HasType types ctx code :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.checkBody_sound types ctx code accepted
+
 /-- The boolean checker certifies exact Isotope typing. -/
 theorem check_sound {Base : Type u} [DecidableEq Base] [HasTy F (Ty Base)]
     {blocks exits : Nat} (graph : LambdaSSA.FiniteCFG F blocks exits n)

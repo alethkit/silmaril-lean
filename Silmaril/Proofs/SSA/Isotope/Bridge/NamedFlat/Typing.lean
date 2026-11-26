@@ -31,7 +31,7 @@ private theorem infer_sound {n : Nat} (ctx : BoundCtx (Ty Base) n) (expr : Tm Em
     · simp [infer, typed] at inferred
   | let₁ | let₂ | inl | inr | case | abort => cases inferred
 
-private theorem checkBody_sound {labels n : Nat} (types : Fin labels → Ty Base)
+theorem checkBody_sound {labels n : Nat} (types : Fin labels → Ty Base)
     (ctx : BoundCtx (Ty Base) n) (body : LambdaSSA.Flat F labels n)
     (accepted : checkBody types ctx body = true) :
     LambdaSSA.Flat.HasType types ctx body := by
