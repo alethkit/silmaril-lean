@@ -98,7 +98,7 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
     some (.wasm callee.fn.declaration.type callee.fn.declaration.module callee.code)
 
 def MemoryTarget.supportedOp (growthEnabled : Bool) : Graph.Memory32.Op → Bool
-  | .ranked (.numeric (.get _)) | .load _ | .store _ | .size => true
+  | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
   | .grow => growthEnabled
   | _ => false
 
@@ -142,6 +142,24 @@ structure IndirectSite.Linked {H : Type} (site : IndirectSite) (base : Store H)
             ∃ checked, site.memoryLookup address = some checked ∧
               (⟨address, checked⟩ : MemoryTarget).Allocated base)
 
+/-- A direct edge resolves in the caller's module, matches the full
+declaration of an allocated registered function, and descends in rank. -/
+structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : IndirectSite)
+    (parent : MemoryTarget) (target : CallTarget) (child : MemoryTarget) : Prop where
+  resolves : parent.fn.declaration.module.funcs[target.index.toNat]? = some target.address
+  address : child.address = target.address
+  declaration : child.fn.declaration = target.declaration
+  registered : site.memoryLookup child.address = some child.fn
+  allocated : child.Allocated base
+  smaller : child.fn.rank < parent.fn.rank
+
+/-- Static checks of the address-indexed graph used by the memory callee. -/
+structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : IndirectSite)
+    (memory : Memory32 base) : Prop where
+  checked : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn → callee.Checked memory
+  direct : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
+    ∀ target ∈ parent.fn.targets, ∃ child, site.MemoryDirect (base := base) parent target child
+
 /-- Matching hosts supply the embedding contract. Registered memory targets
 check their code and the designated memory of the actual allocated module. -/
 structure IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite) (memory : Memory32 base)
@@ -149,8 +167,7 @@ structure IndirectSite.Contract {H : Type} {base : Store H} (site : IndirectSite
   hosts : ∀ address code, some address ∈ site.table.refs →
     (⟨address, site.signature, code⟩ : Site H).Allocated base →
     (⟨address, site.signature, code⟩ : Site H).Contract memory host
-  memory : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn →
-    callee.Checked memory
+  memory : site.MemoryLinked memory
 
 /-- A single native lookup supplies an allocated target or one of the three
 trap witnesses. The selector is the unsigned i32 table index. -/

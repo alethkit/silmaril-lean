@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Callee.Defs
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryGrow.Thms
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Memory.Thms
@@ -12,7 +13,7 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee.Proo
 
 open Execution.Runtime (Value)
 open Wasm.Lime1.Execution
-open CallContinuation.OuterCall (Declaration)
+open CallContinuation.OuterCall (CallTarget Declaration)
 open CallContinuation.OuterCall.Computed
 open CallContinuation.OuterCall.Ranked
 
@@ -40,17 +41,51 @@ theorem typed_nil {callee : MemoryTarget} {stack : List Value} (typed : callee.f
   simpa [Graph.Memory32.Function.WellTyped, Graph.Memory32.Function.checkCode,
     Graph.Memory32.Function.checkRegion, Prefix.stackTypes, resultTyped] using typed
 
+theorem call_typed {callee : MemoryTarget} {stack : List Value} {target : CallTarget}
+    {ops : List Graph.Memory32.Op} (typed : callee.fn.WellTyped stack (.ranked (.call target) :: ops)) :
+    ∃ saved operands, stack = saved ++ operands ∧ operands.map Value.type = target.declaration.params ∧
+      target ∈ callee.fn.targets ∧
+      ∀ vs : List Value, vs.map Value.type = target.declaration.results → callee.fn.WellTyped (saved ++ vs) ops := by
+  change (decide (target ∈ callee.fn.targets ∧
+    (Prefix.stackTypes stack).take target.declaration.params.length = target.declaration.params.reverse) &&
+    callee.fn.checkCode (target.declaration.results.reverse ++
+      (Prefix.stackTypes stack).drop target.declaration.params.length) ops) = true at typed
+  obtain ⟨guard, resume⟩ := Bool.and_eq_true_iff.mp typed
+  obtain ⟨used, suffix⟩ := of_decide_eq_true guard
+  obtain ⟨saved, operands, rfl, arguments⟩ := Graph.SuffixTyped.split suffix
+  refine ⟨saved, operands, rfl, arguments, used, fun vs results => ?_⟩
+  have count : (target.declaration.params.reverse).length = target.declaration.params.length := List.length_reverse
+  have kept : (target.declaration.params.reverse ++ Prefix.stackTypes saved).drop
+      target.declaration.params.length = Prefix.stackTypes saved := by
+    rw [← count, List.drop_left]
+  simp only [Prefix.stackTypes] at kept
+  simpa only [Graph.Memory32.Function.WellTyped, Prefix.stackTypes, List.map_append,
+    List.reverse_append, arguments, results, kept] using resume
+
+theorem after_child_render (parent child : MemoryTarget) (args saved : List Value)
+    (rest : List Graph.Memory32.Op) (phase : Phase) :
+    render parent (afterChild args saved child rest phase) =
+      [.frame parent.fn.declaration.results.length (parent.fn.declaration.frame args)
+        [.label parent.fn.declaration.results.length [] (values saved ++ render child phase ++ code rest)]] := by
+  cases phase <;> try rfl
+  case done out =>
+    cases out <;>
+      simp [afterChild, render, result, values_append, List.append_assoc]
+
 private theorem tail_supported {enabled : Bool} {op : Graph.Memory32.Op} {ops : List Graph.Memory32.Op}
     (checked : (op :: ops).all (MemoryTarget.supportedOp enabled) = true) :
     ops.all (MemoryTarget.supportedOp enabled) = true := by
   exact List.all_eq_true.mpr (fun a member => List.all_eq_true.mp checked a (List.mem_cons_of_mem _ member))
 
 theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget}
-    {bytes written : ByteArray} {phase next : Phase}
-    (checked : callee.Checked mem) (move : Edge mem callee bytes phase written next)
-    (ready : Ready callee mem.extent.growthEnabled phase) : Ready callee mem.extent.growthEnabled next := by
-  cases move with
-  | enter => exact ⟨ready, checked.supported, checked.body⟩
+    {site : IndirectSite} {bytes written : ByteArray} {phase next : Phase}
+    (linked : site.MemoryLinked mem) (registered : site.memoryLookup callee.address = some callee.fn)
+    (move : Edge mem site callee bytes phase written next)
+    (ready : Ready mem site callee phase) : Ready mem site callee next := by
+  induction move with
+  | enter =>
+    have checked := linked.checked _ registered
+    exact ⟨ready, checked.supported, checked.body⟩
   | get found =>
     obtain ⟨v, lookup, typed⟩ := get_typed ready.1 ready.2.2
     rw [found] at lookup
@@ -70,6 +105,23 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
     obtain ⟨kept, delta, split, typed⟩ := Graph.Memory32.Function.grow_typed ready.2.2
     obtain ⟨rfl, _⟩ := List.append_inj' split rfl
     exact ⟨ready.1, tail_supported ready.2.1, typed _⟩
+  | @call callee child bytes args saved operands target rest link typed =>
+    obtain ⟨kept, used, split, usedTyped, _, resume⟩ := call_typed ready.2.2
+    have count : used.length = operands.length := by
+      simpa using congrArg List.length (usedTyped.trans typed.symm)
+    obtain ⟨rfl, _⟩ := List.append_inj' split count.symm
+    refine ⟨ready.1, link.registered, link.allocated, link.smaller, by simp, ?_,
+      tail_supported ready.2.1, ?_⟩
+    · simpa only [Ready, link.declaration] using typed
+    · simpa only [link.declaration] using resume
+  | @child callee child bytes written args saved phase next rest move ih =>
+    obtain ⟨argsTyped, found, allocated, smaller, _, childReady, supported, resume⟩ := ready
+    have after := ih found childReady
+    cases next <;> try exact ⟨argsTyped, found, allocated, smaller, by simp, after, supported, resume⟩
+    case done out =>
+      cases out with
+      | trap => exact argsTyped
+      | values vs => exact ⟨argsTyped, supported, resume vs after⟩
   | loadTrap | storeTrap => exact ready.1
   | erase => exact ready
   | labelDone => exact ⟨ready.1, typed_nil ready.2.2⟩
@@ -77,19 +129,19 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
   | frameDone => exact ready.2
 
 theorem live_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget}
-    {bytes written : ByteArray} {phase next : Phase}
-    (move : Edge mem callee bytes phase written next) (live : mem.Live bytes) : mem.Live written := by
-  cases move with
-  | store write =>
-    have same : _ = bytes.size := MemoryWrite.closed_at write
-    exact mem.live_same_size live same
+    {site : IndirectSite} {bytes written : ByteArray} {phase next : Phase}
+    (move : Edge mem site callee bytes phase written next) (live : mem.Live bytes) : mem.Live written := by
+  induction move with
+  | child _ ih => exact ih live
+  | store write => exact mem.live_same_size live (MemoryWrite.closed_at write)
   | grow enabled edge => exact mem.live_grow enabled live edge
   | _ => exact live
 
 theorem extent_mono {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget}
-    {bytes written : ByteArray} {phase next : Phase}
-    (move : Edge mem callee bytes phase written next) : bytes.size ≤ written.size := by
-  cases move with
+    {site : IndirectSite} {bytes written : ByteArray} {phase next : Phase}
+    (move : Edge mem site callee bytes phase written next) : bytes.size ≤ written.size := by
+  induction move with
+  | child _ ih => exact ih
   | store write => exact Nat.le_of_eq (MemoryWrite.closed_at write).symm
   | grow _ edge =>
     rw [MemoryGrow.grown_bytes edge]

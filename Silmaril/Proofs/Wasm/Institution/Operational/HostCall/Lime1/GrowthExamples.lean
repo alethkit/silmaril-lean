@@ -186,14 +186,21 @@ private theorem contract : program.Contract mem host := by
       subst address
       cases (show some (.wasm signature calleeModule target.code : FuncInst Wasm.Lime1.Func Nat)
         = some (.host signature code) from allocated)
-    · intro callee found
-      rcases callee with ⟨⟨address⟩, registered⟩
-      cases address with
-      | zero =>
-        change some fn = some registered at found
-        cases found
+    · have catalog : ∀ (callee : MemoryTarget), indirect.memoryLookup callee.address = some callee.fn →
+          callee = target := by
+        intro callee found
+        rcases callee with ⟨⟨address⟩, registered⟩
+        cases address with
+        | zero =>
+          change some fn = some registered at found
+          cases found
+          rfl
+        | succ => simp [IndirectSite.memoryLookup, indirect] at found
+      refine ⟨fun callee found => ?_, fun parent found call used => ?_⟩
+      · rw [catalog callee found]
         exact ⟨rfl, rfl, rfl, rfl⟩
-      | succ => simp [IndirectSite.memoryLookup, indirect] at found
+      · rw [catalog parent found] at used
+        simp [target, fn, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets, Graph.Op.targets] at used
   constructor
   · intro _ _ _ _ _ _ answer
     cases answer.2.2
@@ -209,13 +216,13 @@ private theorem BodyPath.step {a b : Continuation.State Nat} (path : BodyPath a)
   path.tail (.continuation move)
 
 private theorem BodyPath.calleeStep {bytes next : ByteArray} {a b : MemoryCallee.Phase}
-    (path : BodyPath ⟨bytes, .memory saved target a afterLookup, []⟩)
-    (move : MemoryCallee.Edge mem target bytes a next b) :
-    BodyPath ⟨next, .afterMemory saved target afterLookup b, []⟩ :=
+    (path : BodyPath ⟨bytes, .memory saved indirect target a afterLookup, []⟩)
+    (move : MemoryCallee.Edge mem indirect target bytes a next b) :
+    BodyPath ⟨next, .afterMemory saved indirect target afterLookup b, []⟩ :=
   path.step (.memory move)
 
 private theorem atGrow :
-    BodyPath ⟨written, .memory saved target (.body [i32 1] [i64 6, i32 1] [.grow, .size]) afterLookup, []⟩ := by
+    BodyPath ⟨written, .memory saved indirect target (.body [i32 1] [i64 6, i32 1] [.grow, .size]) afterLookup, []⟩ := by
   have producer : Path ⟨firstPage, .producerInvoke 7⟩ :=
     ((((Relation.ReflTransGen.single (.control .resolve)).tail (.control .enter)).tail
       (.control .readLocal)).tail (.control (.openLoop 7))).tail (.control (.resolveProducer 7))
@@ -228,45 +235,45 @@ private theorem atGrow :
     exit.step (.resolve (saved := []) (args := [i64 99, i32 1]) rfl)
   have lookup : BodyPath ⟨firstPage, .source lookupArgs lookupOps, []⟩ :=
     preparing.step (.returned (vs := lookupArgs) mem.initial_live rfl ⟨rfl, rfl, rfl⟩)
-  have invoke : BodyPath ⟨firstPage, .memory saved target (.invoke [i32 1]) afterLookup, []⟩ :=
+  have invoke : BodyPath ⟨firstPage, .memory saved indirect target (.invoke [i32 1]) afterLookup, []⟩ :=
     lookup.step (.callIndirect (saved := saved) (args := [i32 1]) rfl
       (.memory (callee := target) rfl rfl (show target.Allocated base from rfl) rfl))
-  have entered : BodyPath ⟨firstPage, .memory saved target (.body [i32 1] fn.initial fn.code) afterLookup, []⟩ :=
+  have entered : BodyPath ⟨firstPage, .memory saved indirect target (.body [i32 1] fn.initial fn.code) afterLookup, []⟩ :=
     invoke.calleeStep .enter
-  have stored : BodyPath ⟨written, .memory saved target
+  have stored : BodyPath ⟨written, .memory saved indirect target
       (.body [i32 1] [i64 6] [.ranked (.numeric (.get ⟨0⟩)), .grow, .size]) afterLookup, []⟩ :=
     entered.calleeStep (.store (args := [i32 1]) (saved := [i64 6]) writeEdge)
   exact stored.calleeStep (.get (v := i32 1) rfl)
 
-private theorem atSizeSuccess : BodyPath ⟨grown, .memory saved target
+private theorem atSizeSuccess : BodyPath ⟨grown, .memory saved indirect target
     (.body [i32 1] [i64 6, i32 1] [.size]) afterLookup, []⟩ := by
   have old : MemoryCallee.pages written = i32 1 := by simp [MemoryCallee.pages, writtenPages]
   simpa only [Continuation.Phase.afterMemory, List.singleton_append, old] using
     atGrow.calleeStep (.grow (args := [i32 1]) (saved := [i64 6]) rfl growEdge)
 
-private theorem atSizeFailure : BodyPath ⟨written, .memory saved target
+private theorem atSizeFailure : BodyPath ⟨written, .memory saved indirect target
     (.body [i32 1] [i64 6, i32 (-1)] [.size]) afterLookup, []⟩ :=
   atGrow.calleeStep (.growFail (args := [i32 1]) (saved := [i64 6]))
 
 -- Both outcomes reach the next native source instruction from ordinary entry.
 example : Steps host launch (program.render mem caller ⟨0⟩ 7 ⟨grown, .continuation
-    (.memory saved target (.body [i32 1] [i64 6, i32 1] [.size]) afterLookup) []⟩) :=
+    (.memory saved indirect target (.body [i32 1] [i64 6, i32 1] [.size]) afterLookup) []⟩) :=
   (call_run_iff (arg := 7) checked contract).mpr ⟨_, atSizeSuccess, grownLive, rfl⟩
 
 example : Steps host launch (program.render mem caller ⟨0⟩ 7 ⟨written, .continuation
-    (.memory saved target (.body [i32 1] [i64 6, i32 (-1)] [.size]) afterLookup) []⟩) :=
+    (.memory saved indirect target (.body [i32 1] [i64 6, i32 (-1)] [.size]) afterLookup) []⟩) :=
   (call_run_iff (arg := 7) checked contract).mpr ⟨_, atSizeFailure, writtenLive, rfl⟩
 
 private theorem finish {bytes : ByteArray} {old result : BitVec 32}
-    (path : BodyPath ⟨bytes, .memory saved target (.body [i32 1] [i64 6, i32 old] [.size]) afterLookup, []⟩)
+    (path : BodyPath ⟨bytes, .memory saved indirect target (.body [i32 1] [i64 6, i32 old] [.size]) afterLookup, []⟩)
     (live : mem.Live bytes)
     (answer : host 7 (mem.store bytes) (saved ++ [i64 6, i32 old, MemoryCallee.pages bytes])
       (.returned (mem.store bytes) (.values [i32 result]))) :
     Steps host launch ⟨mem.store bytes, caller, values [i32 result]⟩ := by
   let out := [i64 6, i32 old, MemoryCallee.pages bytes]
-  have sized : BodyPath ⟨bytes, .memory saved target (.body [i32 1] out []) afterLookup, []⟩ :=
+  have sized : BodyPath ⟨bytes, .memory saved indirect target (.body [i32 1] out []) afterLookup, []⟩ :=
     path.calleeStep .size
-  have exit : BodyPath ⟨bytes, .memory saved target (.exit [i32 1] (.values out)) afterLookup, []⟩ :=
+  have exit : BodyPath ⟨bytes, .memory saved indirect target (.exit [i32 1] (.values out)) afterLookup, []⟩ :=
     sized.calleeStep .labelDone
   have returned : BodyPath ⟨bytes, .source (saved ++ out) afterLookup, []⟩ :=
     exit.calleeStep .frameDone
