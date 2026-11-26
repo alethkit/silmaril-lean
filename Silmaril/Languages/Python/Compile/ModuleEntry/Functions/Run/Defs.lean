@@ -25,6 +25,7 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindText (name : String) (value : Core.Text)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -87,6 +88,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
+  | .bindText name _ value :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.bindText name value :: instructions, blocks)
   | .bindTuple name _ items :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindTuple name items :: instructions, blocks)
@@ -358,6 +362,7 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .scalar (.assign name _ operand) => ([], match evaluate session operand with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session error)
+    | .bindText name value => ([], .ready (session.bindGlobal name (.text value)) rest)
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)

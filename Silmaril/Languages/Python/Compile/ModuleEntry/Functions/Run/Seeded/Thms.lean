@@ -524,6 +524,22 @@ theorem invokeFlatCall_tuple_reference (space : Namespace) (context : CallContex
   cases destination <;> simp [invokeFlatCall, invokeCall, invokeDescriptor, Core.Module.SeededCall.Request.decode,
     Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.invoke_tuple_reference]
 
+theorem run_bindText {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : Source.Name) (value : Core.Text) (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.bindText name value :: rest) lists =
+      runInstructionsIn (space.bindGlobal name (.text value)) context rest lists := rfl
+
+theorem run_readAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    {name source : Source.Name} (target : GlobalReference scope name) (reference : GlobalReference scope source)
+    (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.scalar (.assign name target (.read source reference)) :: rest) lists =
+      match space.lookupGlobal source with
+      | some value => runInstructionsIn (space.bindGlobal name value) context rest lists
+      | none => ⟨space, .error (.raised (.runtime (.nameError source))), [], context.heap, lists⟩ := by
+  cases found : space.lookupGlobal source <;>
+    simp [runInstructionsIn, effectWithLists, effect, evaluateScalar, lowerScalarOperand,
+      Core.Module.SeededCall.Operand.eval, found, Except.map, Except.mapError, ModuleFailure.ofCall]
+
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.TupleDispatch.Element}
     {rest : List (Instruction scope)} {lists : ListHeap}

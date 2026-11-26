@@ -584,6 +584,7 @@ def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -613,6 +614,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | bindText {index statement rest name points reference value tail}
+      (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindText name reference value :: tail)
   | bindTuple {index statement rest name elements reference items tail}
       (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
       (remaining : Translation tree index rest tail) :
@@ -754,6 +759,13 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some test := tupleChainTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some ⟨(name, .text points), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      match checked : Core.Text.ofPoints? points with
+      | some value =>
+        let tail ← lowerPlan tree index rest
+        return ⟨.bindText name reference value :: tail.val, .bindText binding checked tail.property⟩
+      | none => throw (.scalar .expressionProfile)
     else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       let items ← lowerFlatTupleItems tree.scope elements

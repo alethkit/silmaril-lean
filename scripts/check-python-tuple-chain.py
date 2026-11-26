@@ -76,6 +76,21 @@ private def ordinaryTuple (source : Source.Module) : Option (String × String ×
     some (status, binding "keep", binding "tail")
   | _ => none
 
+private def ordinaryBindings (source : Source.Module)
+    (completion : Compile.ModuleEntry.Functions.Run.Completion)
+    (bindings : List (String × Option Value)) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let heap : Core.Closure.Heap := ⟨1, fun address => if address == 0 then some (.int 23) else none⟩
+  let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
+  let session := { Compile.ModuleEntry.Functions.Run.seed .empty heap with lists := lists }
+  let .finished residual observed := (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000
+    (.ready session compiled.instructions)).2 | return false
+  return observed == completion &&
+    bindings.all (fun (name, value) =>
+      (residual.globals name).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == value) &&
+    residual.lists == lists && residual.heap.next == 1 &&
+    (residual.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == some (.int 23)
+
 private def ordinaryTupleLists (source : Source.Module) :
     Option (Compile.ModuleEntry.Functions.Run.Completion × Array (List Core.Module.Value) × Option Value) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
@@ -490,34 +505,100 @@ private def textTuplePrefix : Source.Module := ⟨pythonSource.body.take 7⟩
 def replay_immutable_alias(checkout, source_path, lean_path):
     source = SUITE["pinned_source"](checkout, IMMUTABLE_ALIAS_PIN, IMMUTABLE_ALIAS_SHA)
     statements = ast.parse(source).body
-    assert statements[15].lineno == 21
-    prefix = ast.Module(body=statements[:15], type_ignores=[])
+    assert len(statements) == 22 and statements[15].lineno == 21
+    lines = source.splitlines(keepends=True)
     expected = {"x": 2, "y": 3, "t": (1, 2, 3), "t1": (1, 2, 3, 4)}
-    helper = {"___assertEqual": assert_equal}
-    assert execute(prefix, {}, expected={"x": 2, "y": 1}) == "NameError:___assertEqual"
-    assert execute(prefix, helper, expected=expected) == "normal"
-    assert execute(prefix, {}, helper, expected | helper) == "normal"
+    stopped = {"x": 2, "y": 1}
+    assert execute(source, {}, expected=stopped) == "NameError:___assertEqual"
 
-    prefix_term = "beforeTextBinding"
     guards = ["""
 private def beforeTextBinding : Source.Module := ⟨pythonSource.body.take 15⟩
-#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
-  | .error (.source (.scalar .expressionProfile)) => true
-  | _ => false)
-#guard ordinaryTuple beforeTextBinding == some ("NameError:___assertEqual", "absent", "absent")
+private def savedTextAlias : Source.Module := ⟨pythonSource.body.take 18⟩
+#guard (Compile.ModuleEntry.Functions.Run.compile pythonSource).isOk
+
+#guard ordinaryBindings pythonSource (.raised (.nameError "___assertEqual"))
+  [("x", some (.int 2)), ("y", some (.int 1)), ("t", none), ("t1", none), ("s", none), ("s1", none)]
 """]
     guards.append(outcome("Namespace.empty", "NameError:___assertEqual", '[("x", .int 2), ("y", .int 1)]',
-                          '[("___assertEqual", .error (.raised (.runtime (.nameError "___assertEqual"))))]',
-                          prefix_term))
+                          '[("___assertEqual", .error (.raised (.runtime (.nameError "___assertEqual"))))]'))
     bindings = ('[("t1", .returnedTuple [.int 1, .int 2, .int 3, .int 4]), '
                 '("t", .returnedTuple [.int 1, .int 2, .int 3]), ("y", .int 3), ("x", .int 2)]')
+    saved = '[("s", .text ⟨[50], by decide⟩), ("s1", .text ⟨[49], by decide⟩)]'
+    finished = '[("s1", .text ⟨[51], by decide⟩), ("s", .text ⟨[50], by decide⟩)]'
     for placement in ("builtin", "preamble"):
+        calls = []
+
+        def observe(left, right):
+            assert_equal(left, right)
+            calls.append((left, right))
+
+        helper = {"___assertEqual": observe}
+        builtins, initial = (helper, {}) if placement == "builtin" else ({}, helper)
         space = f'(initial "legacy_{placement}")'
-        guards.append(outcome(space, "normal", f"({bindings} ++ {space}.moduleGlobals)",
-                              '(List.replicate 7 ("___assertEqual", .ok .none))', prefix_term))
+        for name, limit, namespace, extra, count in (
+            ("beforeTextBinding", 15, expected, "[]", 7),
+            ("savedTextAlias", 18, expected | {"s": "2", "s1": "1"}, saved, 7),
+            ("pythonSource", 22, expected | {"s": "2", "s1": "3"}, finished, 10),
+        ):
+            calls.clear()
+            prefix = "".join(lines[:statements[limit - 1].end_lineno])
+            assert execute(prefix, builtins, initial, namespace | initial) == "normal"
+            assert len(calls) == count
+            if limit == 22:
+                assert prefix == source
+                assert calls[-3:] == [("1", "1"), ("3", "3"), ("2", "2")]
+            guards.append(outcome(space, "normal", f"({extra} ++ {bindings} ++ {space}.moduleGlobals)",
+                                  f'(List.replicate {count} ("___assertEqual", .ok .none))', name))
     check(source, source_path, lean_path, *guards)
-    return {"sha256": IMMUTABLE_ALIAS_SHA, "prefix_statements": len(prefix.body),
-            "seeded_prefix": "normal", "whole_source": "rejected at text binding"}
+    return {"sha256": IMMUTABLE_ALIAS_SHA, "ordinary_and_empty": "NameError:___assertEqual",
+            "whole_source": "normal in both legacy helper placements", "receipts": 10}
+
+
+def module_text_binding_controls(source_path, lean_path):
+    seed = "(legacyTupleIdentitySeed .builtin)"
+    value = "é😀\u0301\ud800"
+    lexical_text = f".text ⟨{list(map(ord, value))}, by decide⟩"
+    replacement = ".text ⟨[122], by decide⟩"
+    source = f"original = {ascii(value)}\nsaved = original\noriginal = 'z'\n"
+    prefix = source + f"___assertEqual(saved, {ascii(value)})\n"
+    python_seed = {"___assertEqual": assert_equal, "___assertTrue": assert_true}
+    expected = {"original": "z", "saved": value}
+    residual = f'[("original", {replacement}), ("saved", {lexical_text})]'
+    equal = '[("___assertEqual", .ok .none)]'
+    failure = prefix + "saved = missing\nunreached = 'tail'\n"
+    assert execute(failure, python_seed, expected=expected) == "NameError:missing"
+    check(failure, source_path, lean_path, outcome(seed, "NameError:missing", residual, equal))
+
+    read_failure = source + "saved = missing\nunreached = 'tail'\n"
+    assert execute(read_failure, {}, expected=expected) == "NameError:missing"
+    check(read_failure, source_path, lean_path,
+          f'#guard ordinaryBindings pythonSource (.raised (.nameError "missing")) '
+          f'[("original", some ({replacement})), ("saved", some ({lexical_text})), '
+          '("missing", none), ("unreached", none)]',
+          outcome("Namespace.empty", "NameError:missing", residual))
+
+    mismatch = source + "___assertEqual(saved, original)\n"
+    assert execute(mismatch, python_seed, expected=expected).startswith("AssertionError:")
+    raised_text = (f".assertionError (.textPair ⟨{list(map(ord, value))}, by decide⟩ "
+                   "⟨[122], by decide⟩)")
+    check(mismatch, source_path, lean_path,
+          f'#guard tupleOutcome pythonSource {seed} (raised ({raised_text})) {residual} '
+          f'[("___assertEqual", .error (.raised ({raised_text})))]')
+
+    same_alias = prefix + "alias = saved\n___assertTrue(alias is saved)\n"
+    assert execute(same_alias, python_seed, expected=expected | {"alias": value}) == "normal"
+    check(same_alias, source_path, lean_path,
+          outcome(seed, "unsupported", f'(("alias", {lexical_text}) :: {residual})', equal))
+
+    same_contents = prefix + f'other = {ascii(value)}\n___assertTrue(other is saved)\n'
+    seen = []
+    python_observer = python_seed | {"___assertTrue": seen.append}
+    assert execute(same_contents, python_observer, expected=expected | {"other": value}) == "normal"
+    assert len(seen) == 1 and type(seen[0]) is bool
+    check(same_contents, source_path, lean_path,
+          outcome(seed, "unsupported", f'(("other", {lexical_text}) :: {residual})', equal))
+    return {"exact_code_points": list(map(ord, value)), "rebind_preserves_alias_contents": True,
+            "failed_read_preserves_binding": True, "text_identity_outside_profile": True}
 
 
 def tuple_helper_controls(source_path, lean_path):
@@ -897,6 +978,7 @@ if __name__ == "__main__":
                     "constructors": constructor_controls(source, lean),
                     "linked_constructors": replay_constructors(args.upstream, source, lean),
                     "immutable_alias": replay_immutable_alias(args.upstream, source, lean),
+                    "module_text_binding": module_text_binding_controls(source, lean),
                     "tuple_helper": tuple_helper_controls(source, lean),
                     "live_comparison_pin": replay_live_tuple_comparison(args.upstream, source, lean),
                     "live_comparisons": live_comparison_controls(source, lean),

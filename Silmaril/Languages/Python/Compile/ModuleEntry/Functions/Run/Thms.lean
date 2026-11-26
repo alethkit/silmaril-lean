@@ -51,6 +51,22 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
 
+theorem advance_bindText {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : Source.Name)
+    (value : Core.Text) (rest : List (Instruction scope)) :
+    advance table (.ready session (.bindText name value :: rest)) =
+      ([], .ready (session.bindGlobal name (.text value)) rest) := rfl
+
+theorem advance_readAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) {name source : Source.Name}
+    (target : GlobalReference scope name) (reference : GlobalReference scope source)
+    (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (.assign name target (.read source reference)) :: rest)) =
+      ([], match session.globals source with
+        | some value => .ready (session.bindGlobal name value) rest
+        | none => .finished session (.raised (.nameError source))) := by
+  cases found : session.globals source <;> simp [advance, evaluate, found]
+
 theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool}
     {values : List Core.Module.TupleDispatch.Element} {rest : List (Instruction scope)}

@@ -191,8 +191,21 @@ Stock conversion covers zero arguments or one scalar or text argument.
 Text and Boolean results retain their exact tags. An integer rendered by
 `str` must fit within 640 decimal digits, the minimum enabled CPython
 3.13.5 digit limit. Text helper equality compares code points and a failure
-carries both exact text operands. The text value represents contents.
-Identity tests on text require a separate object model.
+carries both exact text operands.
+
+A module assignment can bind a checked text literal. A name assignment
+reads the live binding and keeps its exact text value across subsequent
+rebinding of the source name. An unsuccessful alias read keeps the
+destination's prior binding. These assignments leave the closure and
+list heaps intact and produce zero receipts. The text carrier represents
+contents. Identity on text aliases and on separately evaluated literals
+requires provenance outside this profile.
+
+The complete unchanged `immutable-alias.py` finishes with the legacy
+equality helper in either stock placement. Each run keeps all six user
+bindings and ten successful helper receipts. The ordinary and empty seeded
+profiles reach the first missing equality helper with `x = 2` and
+`y = 1` still bound.
 
 Run the unchanged conversion pins and CPython 3.13.5 lookup and diagnostic
 controls with
