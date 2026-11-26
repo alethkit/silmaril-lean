@@ -43,16 +43,9 @@ carried-slot eval roots of one parentless primitive loop.
 ## Regression
 
 The fixture starts with 17 rows and visits `.zeroSample 13` and
-`.evalScale 14`. At the fixed 20-row endpoint, both supplied
-candidates redirect auxiliary eval indices through the two generated
-RHSs. The auxiliary eval-scale uses subtraction with a defined left
-factor of one. The same selected wiring fails admission with singleton classes.
-The live loop update can share one constant binding or duplicate it.
-The selector picks the shared candidate at cost 6 over the first
-admitted candidate at cost 7. The update schedules have two and three
-bindings, respectively. The emitted result is `[2, 17, 2]` from
-`[8, 17]). A one-step receipt passes as exhausted and is rejected if
-labelled fixed.
+`.evalScale 14`. At the fixed 20-row endpoint, [candidate generation](peggy-generated-candidate-pool.md)
+binds the auxiliary eval indices through the two generated RHSs.
+A one-step receipt passes as exhausted and is rejected if labelled fixed.
 
 The minimum is confined to the supplied admitted pool. The adapter
 covers these two matchers and the existing emitter fragment.

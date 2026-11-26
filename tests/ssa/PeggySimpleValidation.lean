@@ -8,7 +8,7 @@ import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.PEG.Thms
-import Silmaril.SSA.PEG.Reindex.Automatic.Defs
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
@@ -16,7 +16,7 @@ meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.Defs
 meta import Silmaril.SSA.PEG.Defs
-meta import Silmaril.SSA.PEG.Reindex.Automatic.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
 
@@ -619,71 +619,52 @@ open EPEG.Saturation.Extension in
 private def taggedDriver := Worklist.Combined.driver (params := bundleParams)
   (results := bundleResults) (l := 1) taggedOps
 
-private theorem cachedNode {n : Nat} (g : Graph Op bundleParams bundleResults n 1) (i : Fin n) :
-    (PEG.Reindex.Automatic.cacheRows g).node i = g.node i := by
-  let rows := Vector.ofFn fun (j : Fin n) =>
-    (⟨j, g.node j⟩ : Σ k, Node Op bundleParams (Fin 1) g.sort (g.sort k))
-  have found : rows.get i = ⟨i, g.node i⟩ := by simp [rows, Vector.get, Fin.cast]
-  have second {a b : Σ k, Node Op bundleParams (Fin 1) g.sort (g.sort k)}
-      (eq : a = b) : HEq a.2 b.2 := by
-    cases eq
-    rfl
-  have address : (rows.get i).1 = i := congrArg Sigma.fst found
-  change (address ▸ (rows.get i).2) = g.node i
-  exact eq_of_heq ((eqRec_heq (φ := fun k => Node Op bundleParams (Fin 1) g.sort (g.sort k))
-    address (rows.get i).2).trans (second found))
-
--- Omit the old scaling node at 14. Both supplied candidates use the two
--- appended RHSs as indices of the auxiliary evals.
-private def taggedCandidate {n : Nat} (g : Graph Op bundleParams bundleResults n 1) (duplicate : Bool) :
-    Option (Cost.Candidate g) := do
+-- Remove the old zero sample and the old scaling row from the layout.
+-- The duplicate layout adds a second representative for the constant
+-- and lets the generator vary the live update's last operand.
+private def taggedLayout {n : Nat} (g : Graph Op bundleParams bundleResults n 1) (duplicate : Bool) :
+    Option (Cost.Bundle.Worklist.Generate.Skeleton g) := do
+  let neutral ← Ref.check g.sort .count 0
   let replacement ← Ref.check g.sort .count (if duplicate then 4 else 0)
-  let rep (i : Fin n) := if i.val = 14 then replacement.id else i
-  let args (i : Fin n) : Option (Tuple (Ref (g.sort ∘ rep)) (g.node (rep i)).inputs) :=
-    let row := g.node (rep i)
-    let addresses := match i.val with
-      | 5 => if duplicate then [2, 4, 14] else [2, 4, 4]
-      | 15 => [3, 17]
-      | 16 => [3, 19]
-      | _ => refNumbers row.args
-    checkRefs (g.sort ∘ rep) row.inputs addresses
-  let roots ← checkRefs (g.sort ∘ rep) bundleResults (refNumbers g.roots)
-  if wired : (List.finRange n).all (fun i => (args i).isSome) = true then
-    let operands i := (args i).get (List.all_eq_true.mp wired i (List.mem_finRange i))
-    let graph : Graph Op bundleParams bundleResults n 1 :=
-      ⟨g.forest, g.sort ∘ rep, fun i => Node.ofLabel (g.node (rep i)).label (operands i), roots⟩
-    let cached := PEG.Reindex.Automatic.cacheRows graph
-    let sel : EPEG.Selection g cached :=
-      ⟨fun i => Ref.ofId g.sort (rep i), PEG.Simple.Revert.While.Region.Automatic.inferDemandRank cached⟩
-    some ⟨n, cached, sel, fun i =>
-      let row := g.node (rep i)
-      ⟨row.inputs, row.label, row.args, operands i, HEq.rfl, cachedNode graph i⟩⟩
-  else none
+  let rep (i : Fin n) := if i.val = 13 then neutral.id else if i.val = 14 then replacement.id else i
+  if duplicate then
+    let step ← Ref.check g.sort .count 5
+    if slot : 2 < (g.node (rep step.id)).inputs.length then
+      some ⟨n, rep, some ⟨step.id, ⟨2, slot⟩⟩⟩
+    else none
+  else some ⟨n, rep, none⟩
 
 private def taggedInput : Tuple model.Value bundleParams := .cons ⟨8⟩ (.cons ⟨17⟩ .nil)
 
-open EPEG.Saturation.Extension in
-private def runTaggedSelection :
-    Option (List Worklist.Combined.Action × Worklist.Stop × Nat × (Nat × Nat) × (Nat × Nat) × Bool × List Nat) := do
+open EPEG.Saturation.Extension Cost.Bundle.Worklist in
+private def runGeneratedSelection :
+    Option (List Worklist.Combined.Action × Worklist.Stop × List Nat × Nat × (Nat × Nat) × Bool × List Nat) := do
   let report := (taggedDriver.run 2 taggedSource).report
   let receipt ← Cost.Bundle.Worklist.Combined.check taggedOps 2 taggedSource report
   let graph := receipt.endpoint.2.graph
-  let duplicate ← taggedCandidate graph true
-  let shared ← taggedCandidate graph false
-  let slower ← receipt.select Cost.Candidate.primitiveRows [duplicate]
-  let chosen ← receipt.select Cost.Candidate.primitiveRows [duplicate, shared]
+  let duplicate ← taggedLayout graph true
+  let shared ← taggedLayout graph false
+  let layouts := [duplicate, shared]
+  let pool := Generate.pool receipt.endpoint.2.classes layouts
+  let liveDuplicate ← pool[1]?
+  let slower ← receipt.select Cost.Candidate.primitiveRows [liveDuplicate]
+  let chosen ← Generate.select receipt Cost.Candidate.primitiveRows layouts
   let slowOrder ← PEG.Simple.Revert.While.Region.sliceOrder
-    (PEG.Simple.Revert.While.Region.Bundle.scalarView slower.candidate.graph) slower.reversion.scalar.descriptor slower.reversion.scalar.descriptor.next
+    (PEG.Simple.Revert.While.Region.Bundle.scalarView slower.candidate.graph)
+    slower.reversion.scalar.descriptor slower.reversion.scalar.descriptor.next
   let order ← PEG.Simple.Revert.While.Region.sliceOrder
-    (PEG.Simple.Revert.While.Region.Bundle.scalarView chosen.candidate.graph) chosen.reversion.scalar.descriptor chosen.reversion.scalar.descriptor.next
+    (PEG.Simple.Revert.While.Region.Bundle.scalarView chosen.candidate.graph)
+    chosen.reversion.scalar.descriptor chosen.reversion.scalar.descriptor.next
   let out ← chosen.reversion.runFuel model 3 taggedInput
-  let staleRejected := (Cost.Bundle.check EPEG.Classes.discrete shared).isNone
-  return (receipt.report.sites, receipt.report.stop, receipt.endpoint.1,
-    (slower.candidate.primitiveRows, chosen.candidate.primitiveRows),
-    (slowOrder.length, order.length), staleRejected, returnedCounts out)
+  let zeroSite ← Ref.check graph.sort .count 13
+  let zeroRhs ← Ref.check graph.sort .count 17
+  let onlyZero := EPEG.Classes.discrete.merge zeroSite.id zeroRhs.id
+  let missingScale := (Generate.pool onlyZero layouts).isEmpty
+  return (receipt.report.sites, receipt.report.stop, pool.map Cost.Candidate.primitiveRows,
+    chosen.candidate.primitiveRows, (slowOrder.length, order.length), missingScale, returnedCounts out)
 
 #guard (taggedDriver.run 2 taggedSource).state.1 == 20
-#guard runTaggedSelection == some ([.zeroSample 13, .evalScale 14], .fixed, 20, (7, 6), (3, 2), true, [2, 17, 2])
+#guard runGeneratedSelection == some ([.zeroSample 13, .evalScale 14], .fixed, [7, 7, 6], 6, (3, 2), true, [2, 17, 2])
 #guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .exhausted⟩).isSome
 #guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .fixed⟩).isNone
 
