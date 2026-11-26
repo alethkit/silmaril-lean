@@ -75,8 +75,8 @@ dead, and that its unused child operand is retained at the parent.
 requested result positions and every returned state port. At a γ binding, the
 sweep passes the demand on the binding's outputs to every arm, maps the live
 child inputs through the typed capture wires, and joins their origins with the
-selector. The analysis keeps every primitive and θ operand. It uses the same
-backwards transfer as `Graph.liveness`. [API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Thms.lean)
+selector. Primitive transfers keep every operand. The demand analysis uses the
+same backwards transfer as `Graph.liveness`. [API](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Thms.lean)
 
 In the total-primitive model, agreement on the resulting entry origins
 preserves demanded results and exact returned state. At each fuel bound both
@@ -85,9 +85,28 @@ preserved even at empty data demand. The checked fixture passes captures into
 a γ arm containing an effectful θ. It drops an unused capture and a capture
 used only by an undemanded result. The selector, initial token, and loop flag
 stay live, including when the selected loop has no finite return.
-Propagating demand through θ feedback, linked calls, and dead-binding
-elimination remain open.
 [Regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/Regression.lean)
+
+### Demand around θ feedback
+
+`Term.feedbackLive` computes a finite carried-position mask. Each step asks
+the body for the continue/exit decision, the demanded exit results, the returned
+state, and the results used at the next restart. It resolves those requests
+through the body's actual result wires and collects the live input origins.
+The Kleene chain starts empty and stabilizes in at most the number of carried
+ports. `Term.feedbackLive_isLeast` identifies the resulting least fixed point.
+The θ binding maps those positions back through its own typed input wires.
+[Theorems](../../Silmaril/SSA/RVSDG/NestedTheta/Liveness/Demand/Thms.lean)
+
+The total-primitive proof establishes the same live agreement after every
+restart. It preserves the demanded payload, exact returned state and presence
+or absence of finite return, including at empty data demand. The nested
+effectful regression checks a carried value that remains dead and a separate
+input that becomes live only after feedback. It checks payload `12` and token
+`5` on the returning path and an infinite sequence of completed body
+activations on the non-returning path. Dead-binding elimination and partial
+blocking outcomes are outside this contract.
+[Feedback regression](../../Silmaril/Proofs/SSA/RVSDG/NestedTheta/Liveness/Demand/FeedbackRegression.lean)
 
 ## Reproduce the checks
 
@@ -102,6 +121,7 @@ lake build --wfail +Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGIsomorphism.lean
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Regression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Regression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.FeedbackRegression
 make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms
 ```
 

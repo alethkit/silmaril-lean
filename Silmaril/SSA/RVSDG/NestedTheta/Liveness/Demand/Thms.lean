@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.NestedTheta.Liveness.Demand.Defs
 import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Correct
+import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Feedback
 
 public section
 
@@ -13,6 +14,14 @@ open Liveness
 universe u v w
 variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {sigs : List (Ports (PortType V S))}
+
+/-- The bounded feedback iteration computes the least fixed point of the
+body's demand transfer on the finite set of carried input positions. -/
+theorem Term.feedbackLive_isLeast {carried : Ports (PortType V S)}
+    (body : Term Op carried [] sigs (Theta.BodyResults carried)) (exit : Demand) :
+    IsLeast {live | Feedback.step exit (fun demand => (body.demandPlan demand).live) live = live}
+      (body.feedbackLive exit) :=
+  Feedback.Proofs.feedback_isLeast body exit
 
 /-- The executable analysis computes the shared least may solution at entry. -/
 theorem Graph.mem_demandLiveIn_iff (g : Graph Op args [] sigs outs) (demand : Demand) (a : Address) :

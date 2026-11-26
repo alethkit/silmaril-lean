@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.RVSDG.NestedTheta.Liveness.Demand.Defs
 public import Silmaril.SSA.RVSDG.NestedTheta.Liveness.Thms
 public import Silmaril.SSA.RVSDG.NestedTheta.Thms
+import Silmaril.Proofs.SSA.RVSDG.NestedTheta.Liveness.Demand.Feedback
 
 public section
 
@@ -111,6 +112,46 @@ private theorem result_refl (demand : Demand) {F : PortType V S → Type w}
   | none => exact .none
   | some => exact .some (fun _ _ => rfl)
 
+/-- Each successful body step agrees on the continue flag. A restart uses
+the same live-input relation on the new carried tuples. -/
+private theorem iterate_agrees {F : PortType V S → Type w} {carried : Ports (PortType V S)}
+    (exit : Demand) (live : Feedback.Mask carried.length)
+    (body : Tuple F carried → Option (Tuple F (Theta.BodyResults carried)))
+    (branch : F (.control 2) → Bool)
+    (step_agrees : ∀ left right, Feedback.Agrees live left right →
+      (Feedback.bodyDemand exit live).ResultAgrees (body left) (body right))
+    (fuel : Nat) (left right : Tuple F carried) (agree : Feedback.Agrees live left right) :
+    exit.ResultAgrees (iterate body branch fuel left) (iterate body branch fuel right) := by
+  induction fuel generalizing left right with
+  | zero => exact .none
+  | succ fuel ih =>
+    have related := step_agrees left right agree
+    simp only [iterate]
+    generalize body left = stepL at related ⊢
+    generalize body right = stepR at related ⊢
+    cases related with
+    | none => exact .none
+    | @some packetL packetR related =>
+      cases packetL with | cons flagL nextL =>
+        cases packetR with | cons flagR nextR =>
+          have decision : flagL = flagR := related .head rfl
+          rw [decision]
+          by_cases again : branch flagR = true
+          · simp only [ite_eq_left again]
+            apply ih
+            intro ty p needed
+            apply related (.tail p)
+            cases ty with
+            | state => rfl
+            | value | control => exact Bool.or_eq_true_iff.2 (Or.inr needed)
+          · simp only [ite_eq_right again]
+            apply Demand.ResultAgrees.some
+            intro ty p needed
+            apply related (.tail p)
+            cases ty with
+            | state => rfl
+            | value | control => exact Bool.or_eq_true_iff.2 (Or.inl needed)
+
 private theorem kind_agrees (m : Model.{u, v, w} Op) (fuel : Nat)
     {ins out : Ports (PortType V S)} (kind : Kind Op ins out) (wires : Wires args past ins)
     {childSigs : Fin kind.arity → List (Ports (PortType V S))}
@@ -128,8 +169,21 @@ private theorem kind_agrees (m : Model.{u, v, w} Op) (fuel : Nat)
       (kind.eval m fuel (fun i entry => (children i).run m fuel entry) (wires.read right localsR)) := by
   cases kind with
   | theta =>
-    rw [read_all wires agree]
-    exact result_refl _ _
+    let exit : Demand := fun p => next.contains (.output past.length p)
+    let body := children (0 : Fin 1)
+    let live := body.feedbackLive exit
+    have inputs : Feedback.Agrees live (wires.read left localsL) (wires.read right localsR) := by
+      intro ty p needed
+      have edge := get_selected (fun _ i => Feedback.includes live i) wires p needed
+      exact (get_read (F := m.Val) wires left localsL p).trans
+        ((agree (wires.get p) edge).trans (get_read (F := m.Val) wires right localsR p).symm)
+    apply iterate_agrees exit live (body.run m fuel) _ _ fuel _ _ inputs
+    intro inputL inputR related
+    apply child_agrees (0 : Fin 1)
+    intro ty source needed
+    cases source with
+    | output i _ => exact i.elim0
+    | arg p => exact related p ((Feedback.Proofs.includes_live_iff body exit p).2 needed)
   | base shape =>
     cases shape with
     | simple =>

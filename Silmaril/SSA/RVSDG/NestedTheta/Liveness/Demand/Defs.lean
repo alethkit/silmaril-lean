@@ -1,8 +1,10 @@
 module
 
 public import Silmaril.SSA.RVSDG.NestedTheta.Liveness.Defs
+public import Mathlib.Data.Fintype.Fin
+public import Mathlib.Logic.Function.Iterate
 
-/-! # Backwards liveness with demanded γ results -/
+/-! # Backwards liveness with demanded γ and θ results -/
 
 @[expose] public section
 
@@ -51,23 +53,61 @@ inductive Demand.ResultAgrees {F : PortType V S → Type w} (demand : Demand) :
   | none : ResultAgrees demand none none
   | some {left right} : demand.Agrees left right → ResultAgrees demand (some left) (some right)
 
+namespace Feedback
+
+abbrev Mask (arity : Nat) := Finset (Fin arity)
+
+def includes {arity : Nat} (live : Mask arity) (port : Nat) : Bool :=
+  if valid : port < arity then decide (⟨port, valid⟩ ∈ live) else false
+
+/-- Body result zero is the continuation predicate. At later ports demand
+either the exit result or the corresponding input of the next activation.
+The body analysis also demands every returned state port. -/
+def bodyDemand {arity : Nat} (exit : Demand) (live : Mask arity) : Demand
+  | 0 => true
+  | i + 1 => exit i || includes live i
+
+/-- Follow demanded body result wires backwards and extract the resulting
+live argument origins in the typed carried signature. -/
+def step {arity : Nat} (exit : Demand) (analyzeBody : Demand → List Address)
+    (live : Mask arity) : Mask arity :=
+  let needed := analyzeBody (bodyDemand exit live)
+  Finset.univ.filter fun p => Address.arg p.val ∈ needed
+
+/-- The Kleene iteration starts at the empty carried mask. A strict increase
+adds a port, so the number of carried ports bounds the number of rounds. -/
+def close {arity : Nat} (exit : Demand) (analyzeBody : Demand → List Address) : Mask arity :=
+  (step exit analyzeBody)^[arity] ∅
+
+/-- Agreement at the live carried input positions of one θ activation. -/
+def Agrees {F : PortType V S → Type w} {carried : Ports (PortType V S)}
+    (live : Mask carried.length) (left right : Tuple F carried) : Prop :=
+  ∀ {ty} (port : Port carried ty), includes live port.index = true → left.get port = right.get port
+
+end Feedback
+
 end Liveness
 
 open Liveness
 
 /-- A γ reads its selector and the captures required by any arm at the current
-output demand. Primitive and θ inputs are kept in full. -/
+output demand. A θ reads the carried inputs in its feedback fixed point.
+Primitive bindings read all their input wires. -/
 def Kind.demandReads (pc : Nat) (next : List Address) :
     {ins out : Ports (PortType V S)} → (kind : Kind Op ins out) →
     Wires args past ins → (Fin kind.arity → Demand → List Address) → List Address
   | _, _, .base (.simple _), wires, _ => wires.addresses
-  | _, _, .theta _, wires, _ => wires.addresses
+  | _, _, .theta carried, wires, body =>
+    let live : Feedback.Mask carried.length :=
+      Feedback.close (fun p => next.contains (.output pc p)) (body (0 : Fin 1))
+    selectWires (fun _ p => Feedback.includes live p) wires
   | _, _, .base (.gamma _), .cons selector captures, arm =>
     let needed := (List.ofFn fun i => arm i (fun p => next.contains (.output pc p))).flatten
     selector.address :: selectWires (fun _ p => needed.contains (.arg p)) captures
 
 /-- Propagate demand backwards through the existing numbered origins. Each γ
-arm gets a fresh local analysis at the demand on the binding's output ports. -/
+arm is analyzed at the binding's output demand, and θ closes demand over its
+body's typed result and feedback wires. -/
 def Term.demandPlan (demand : Demand) {args outs : Ports (PortType V S)}
     {past sigs : List (Ports (PortType V S))} (term : Term Op args past sigs outs) : DemandPlan :=
   match term with
@@ -79,7 +119,13 @@ def Term.demandPlan (demand : Demand) {args outs : Ports (PortType V S)}
     next.prepend past.length reads
 termination_by structural term
 
-/-- Shared gen/kill equations after specializing the γ reads to this demand. -/
+/-- The live carried inputs for a θ body and a requested exit demand. -/
+def Term.feedbackLive {carried : Ports (PortType V S)}
+    (body : Term Op carried [] sigs (Theta.BodyResults carried)) (exit : Demand) :
+    Feedback.Mask carried.length :=
+  Feedback.close exit (fun demand => (body.demandPlan demand).live)
+
+/-- Shared gen/kill equations after specializing the structured reads to this demand. -/
 def Graph.demandLiveness (g : Graph Op args [] sigs outs) (demand : Demand) : GenKill Nat Address :=
   problem (g.toTerm.demandPlan demand).reads
 
