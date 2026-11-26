@@ -15,7 +15,7 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Interaction.Typed
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics (InstructionModel)
 open Paper.WithProjectionReturnsAndUnitEta (denoteITree denoteITree_tree denoteITree_canonicalIterate)
 open Paper.WithProjectionReturnsAndUnitEta.Reification (canonicalIterate)
-open Paper.Extension.Singleton (ofType ofRegion sumIso)
+open Paper.Extension.Singleton (ofType ofRegion sumIso projectStep projectStep_comp_sumIso_inv)
 
 private abbrev Atom := PEmpty.{2}
 
@@ -191,13 +191,16 @@ private theorem phaseStep_image (s : PhaseValue) :
     ((congrArg (fun t : TM (Transfer RawValue) => t >>= decode) encoded).trans (cancel (phaseStep s)))
 
 private noncomputable def phaseChosen : Obj Phase ⟶ Obj Phase ⨿ Obj Phase :=
-  chosen (ofRegion JoinedSeed phaseBody_typed)
+  projectStep JoinedSeed (Paper.TypeCategory.ofRegion phaseBody_typed ≫
+    (Paper.TypeCategory.sumIso Phase Phase).hom)
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem phaseSelected_image (s : PhaseValue) :
     denoteITree raw compatible (canonicalIterate phaseChosen) s = Silmaril.Elgot.iter phaseStep s := by
   have agree := denoteITree_canonicalIterate raw compatible phaseChosen s
-  rw [phaseChosen, chosen_normalize, funext phaseStep_image] at agree
+  rw [phaseChosen, projectStep_comp_sumIso_inv, Category.assoc, Iso.hom_inv_id, Category.comp_id] at agree
+  change _ = Silmaril.Elgot.iter (denoteITree raw compatible (ofRegion JoinedSeed phaseBody_typed)) s at agree
+  rw [funext phaseStep_image] at agree
   exact agree
 
 example :

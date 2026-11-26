@@ -15,10 +15,10 @@ open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical (RegionTypingCoherent)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
-open Paper.Extension.Singleton (ofType ofRegion sumIso)
-open Paper.WithProjectionReturnsAndUnitEta (Step projection denoteArrow denoteArrow_projection)
+open Paper.Extension.Singleton (ofType sumIso projectStep_comp_sumIso_inv exists_projectStep)
+open Paper.WithProjectionReturnsAndUnitEta (Step projection denoteArrow)
 open Paper.WithProjectionReturnsAndUnitEta.Reification
-  (canonicalIterate canonicalIterate_projection_exact exists_canonicalIterate_body)
+  (canonicalIterate canonicalIterate_projectStep)
 
 universe u v u₁ u₂ v₁ v₂
 
@@ -39,11 +39,17 @@ theorem preserve {A B : τ} (f : Obj A ⟶ Obj B ⨿ Obj A) :
     denoteArrow J M shared (canonicalIterate f) =
       CategoryTheory.iterate (denoteArrow J M shared (f ≫ (sumIso (Seed) B A).inv) ≫
         (Paper.TypeCategory.denoteExactSumIso J M B A).hom) := by
-  obtain ⟨_, hr, h, _⟩ := exists_canonicalIterate_body f
-  let g := Paper.TypeCategory.ofRegion hr
-  change f = (projection (τ := τ) (Φ := Φ)).map g ≫ (sumIso (Seed) B A).hom at h
-  rw [h, canonicalIterate_projection_exact g, Category.assoc, Iso.hom_inv_id,
-    Category.comp_id, denoteArrow_projection, denoteArrow_projection]
-  exact Paper.TypeCategory.denoteFunctor_map_iterateSum J M shared g
+  obtain ⟨g, rfl⟩ := exists_projectStep (Seed) f
+  let comparison := (Paper.TypeCategory.denoteExactSumIso J M B A).hom
+  let norm := g ≫ (Paper.TypeCategory.sumIso B A).inv
+  calc
+    _ = denoteArrow J M shared ((projection (τ := τ) (Φ := Φ)).map (Paper.TypeCategory.iterate g)) :=
+      congrArg (denoteArrow J M shared) (canonicalIterate_projectStep g)
+    _ = CategoryTheory.iterate
+        (denoteArrow J M shared ((projection (τ := τ) (Φ := Φ)).map norm) ≫ comparison) :=
+      Paper.TypeCategory.denoteFunctor_map_iterateSum J M shared norm
+    _ = _ := congrArg (fun a : Obj A ⟶ Obj (Silmaril.coprod B A) =>
+      CategoryTheory.iterate (denoteArrow J M shared a ≫ comparison))
+      (projectStep_comp_sumIso_inv (Seed) (A := A) (B := B) g).symm
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedIterationDenotation
