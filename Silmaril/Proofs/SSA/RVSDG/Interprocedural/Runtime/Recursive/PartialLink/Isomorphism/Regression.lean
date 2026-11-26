@@ -2,7 +2,8 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Check.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
@@ -52,7 +53,7 @@ private def positions : Fin 3 ≃ Fin 3 :=
 private def ids : GlobalRel := fun left right =>
   left.1 = right.1 ∧ renameVertex positions left.2 = right.2
 
-private theorem respects : ActionsRespect primitives ids := by
+private theorem respectsGlobals (ids : GlobalRel) : ActionsRespect primitives ids := by
   intro ins outs opcode left right paired store
   cases opcode with
   | seed =>
@@ -81,6 +82,8 @@ private theorem respects : ActionsRespect primitives ids := by
               split
               · exact .undefined
               · exact .returned (.cons (.data _) .nil) (store + 5)
+
+private theorem respects : ActionsRespect primitives ids := respectsGlobals ids
 
 private def seedTerm : Term Op [num] [] [[num]] [num] :=
   .bind ⟨[num], .simple .seed, .cons (.arg .head) .nil, fun i => i.elim0⟩
@@ -651,11 +654,6 @@ private def branchBody {sigs : List (Ports T)} (base : RecursiveCall.Code Op cap
   .bind (RecursiveCall.gammaNode (extra := 0) (entry := captured) (outs := [num])
     branchWires (branchSigs sigs)) (branchChildren base) addAfter
 
-private def baseNumbering : Local.Renaming := .region memberVertices (fun _ _ => .identity)
-
-private def branchNumbering : Local.Renaming :=
-  .region (Equiv.refl Nat) (fun _ arm => if arm = 0 then baseNumbering else .identity)
-
 local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
 
 private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
@@ -705,32 +703,63 @@ private def branchRefL : machine.Val branchFn.port :=
 private def branchRefR : machine.Val branchFn.port :=
   .member (.cons (globalValue 1 8) .nil) branchGroupR.toGraph.definitions 0
 
-private theorem branchRefs : ValueRelated machine ids branchRefL branchRefR := by
-  have capture : ValueRelated machine ids (globalValue 0 8) (globalValue 1 8) :=
-    .global ⟨rfl, rfl⟩ (ValueRelated.data (m := machine) (ids := ids) (t := ()) (8 : Nat))
-  refine .member (members := [branchFn]) (tableL := branchGroupL.toGraph.definitions)
-    (tableR := branchGroupR.toGraph.definitions) (.cons capture .nil) ?_ 0
-  exact Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)
+private theorem branchGroupsIso : branchGroupL.Renumbered (renameVertex positions) branchGroupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)⟩
 
-private theorem checkedBranchFamily :
-    RecursiveCall.Numbered.CheckedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
-  closedL := primitivesClosed branchRefL (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 0 8, .self, trivial⟩)
-  closedR := primitivesClosed branchRefR (by
-    intro _ _ _ member
-    cases member
-    exact ⟨.capture 73 1 8, .self, trivial⟩)
-  graphs := by
-    intro _ _ _ _ left right _
-    cases left
-    cases right
-    exact RecursiveCall.Numbered.checkResolved_sound (keys := instructionKeys)
-      (mapping := branchNumbering) (by cbv)
+private theorem branchModulesIso : branchModuleL.toGraph.RenumberedBy branchModuleR.toGraph positions :=
+  (branchModuleL.renumberedBy_toGraph_iff branchModuleR positions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi branchGroupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩) (fun i => i.elim0))), rfl⟩
 
-private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
-  checkedBranchFamily.toClosed
+private theorem branchOrder : Ordered Op (renameVertex positions) args [branchFn.port]
+    branchModuleL.toGraph.toTerm.region branchModuleR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi branchGroupsIso) (.emptyLeft (.ret _ _))))
+
+private theorem branchOutcomes : OutcomesRelated machine ids Nat (renameVertex positions) [branchFn.port]
+    (.linked (.cons branchRefL .nil) 23) (.linked (.cons branchRefR .nil) 23) := by
+  have imports : TupleRelated machine ids (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) (1 : Nat)) .nil
+  have linked := link_related (unitL := 73) (unitR := 73) respects branchModulesIso branchOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  have left : link primitives 73 branchModuleL.toGraph (number 1) 20 = .linked (.cons branchRefL .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleL.toGraph (number 1) 20).symm.trans (by cbv)
+  have right : link primitives 73 branchModuleR.toGraph (number 1) 20 = .linked (.cons branchRefR .nil) 23 :=
+    (Executable.link_eq actions 73 branchModuleR.toGraph (number 1) 20).symm.trans (by cbv)
+  rwa [left, right] at linked
+
+private theorem ordinaryOutputs : RecursiveCall.Numbered.OrdinaryOutputs Op := by
+  intro _ _ opcode
+  cases opcode <;> rfl
+
+set_option maxHeartbeats 800000 in
+private theorem branchAccepted :
+    RecursiveCall.Numbered.checkExport instructionKeys branchRefL branchRefR = true := by
+  simp only [RecursiveCall.Numbered.checkExport, branchRefL, branchRefR,
+    RecursiveCall.Numbered.exportGroup, RecursiveCall.Numbered.checkGroupPair,
+    RecursiveCall.Numbered.isStandaloneLambda]
+  cbv
+
+private theorem branchAdmission :
+    RecursiveCall.Numbered.ExportAdmission primitives ids branchRefL branchRefR :=
+  RecursiveCall.Numbered.checkExport_sound ordinaryOutputs branchAccepted
+
+-- The linked member captures an imported function from outside its own
+-- group. This origin is unsupported even though the body ignores it.
+private abbrev unitFn : Function Unit Unit := ⟨[], []⟩
+
+private def externalCaptureGroup : PhiTerm Op [branchFn.port] [] [unitFn] :=
+  ⟨[branchFn.port], .cons (.arg .head) .nil, .cons ⟨[], .nil, [], .ret .nil⟩ .nil⟩
+
+private def externalCaptureModule : OmegaTerm Op [branchFn.port] [unitFn.port] [[unitFn.port]] :=
+  ⟨.bind (.phi externalCaptureGroup) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+example : match Executable.link actions 74 externalCaptureModule.toGraph (.cons branchRefL .nil) 23 with
+    | .linked exports _ =>
+      (RecursiveCall.Numbered.admitExport instructionKeys primitives ids ordinaryOutputs
+        (exports.get .head) (exports.get .head)).isSome = false
+    | .undefined _ => False := by cbv
 
 private def branchArgs (flag : Nat) : Tuple machine.Val branchFn.args :=
   .cons (.data flag) (.cons (.control 1) (.cons (.control 0) .nil))
@@ -739,14 +768,12 @@ private def branchStart (ref : machine.Val branchFn.port) (flag : Nat) : Config 
   ⟨Continuation.start (.call ref (branchArgs flag)), 23⟩
 
 private theorem branchAdmitted (flag : Nat) :
-    Admitted machine ids (Supported branchRefL) (Supported branchRefR)
-      (branchStart branchRefL flag) (branchStart branchRefR flag) := by
+    ∃ familyL familyR, ClosedFamily primitives ids familyL familyR ∧
+      Admitted machine ids familyL familyR (branchStart branchRefL flag) (branchStart branchRefR flag) := by
   have inputs : TupleRelated machine ids (branchArgs flag) (branchArgs flag) :=
     .cons (ValueRelated.data (m := machine) (ids := ids) (t := ()) flag)
       (.cons (.control 1) (.cons (.control 0) .nil))
-  exact Admitted.call (familyL := Supported branchRefL) (familyR := Supported branchRefR)
-    branchRefs inputs .self .self ⟨.number flag, .control 1, .control 0, trivial⟩
-    ⟨.number flag, .control 1, .control 0, trivial⟩ 23
+  exact branchAdmission.atExport .head branchOutcomes inputs rfl
 
 private theorem branchLinkedL (flag : Nat) :
     Executable.start actions 73 branchModuleL.toGraph (number 1) .head (branchArgs flag) 20 =
@@ -767,8 +794,9 @@ example : ∃ sourceL sourceR endR,
     ReflTransGen (Step primitives) sourceR endR ∧ endR.result = some (number 30, 37) := by
   have reached := Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 1)
   have result : (runFor actions 40 (branchStart branchRefL 1)).result = some (number 30, 37) := by cbv
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 1
   obtain ⟨endR, valueR, path, got, values⟩ :=
-    (ClosedFamily.returns respects branchFamily (branchAdmitted 1)).1 _ _ _ reached result
+    (ClosedFamily.returns respects closed admitted).1 _ _ _ reached result
   cases values with
   | cons paired tail =>
     cases paired
@@ -800,10 +828,159 @@ example : ∃ sourceL sourceR endR,
     Executable.start actions 73 branchModuleR.toGraph (number 1) .head (branchArgs 0) 20 = .ok sourceR ∧
     RecursiveCall.ReachedTerminal primitives ids sourceL sourceR (runFor actions 40 sourceL) endR ∧
     endR.Blocked primitives := by
-  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects branchFamily (branchAdmitted 0)).1 _
+  obtain ⟨_, _, closed, admitted⟩ := branchAdmitted 0
+  obtain ⟨endR, pair, blocked⟩ := (ClosedFamily.blocks respects closed admitted).1 _
     (Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 0))
     ⟨_, by cbv, by cbv⟩
   exact ⟨_, _, endR, branchLinkedL 0, branchLinkedR 0, pair, blocked⟩
+
+-- The exported λ reads an earlier φ binding. The call's returned value is
+-- consumed by the λ's own state-changing suffix.
+private abbrev wrappedInput : Ports T := branchFn.port :: branchFn.args
+
+private def wrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+  .bind (RecursiveCall.simple (.apply branchFn)
+    (.cons (.arg .head) (.cons (.arg (.tail .head))
+      (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))))
+    (fun i => i.elim0)) (fun i => i.elim0) addAfter
+
+private def wrapper {past : List (Ports T)} (capture : Origin args past branchFn.port) :
+    LambdaTerm Op args past branchFn :=
+  ⟨[branchFn.port], .cons capture .nil, _, wrapperCode⟩
+
+private def wrapperL := wrapper (.output (1 : Fin 3) .head :
+  Origin args [[global], [branchFn.port], []] branchFn.port)
+
+private def wrapperR := wrapper (.output (2 : Fin 3) .head :
+  Origin args [[], [global], [branchFn.port]] branchFn.port)
+
+private def wrappedL : OmegaTerm Op args [branchFn.port] [[global], [branchFn.port], [], [branchFn.port]] :=
+  ⟨.bind (.delta (seedDelta [])) <| .bind (.phi branchGroupL) <| .bind (.phi (emptyPhi Op args _)) <|
+    .bind (.lambda wrapperL) <| .ret (.cons (.output (3 : Fin 4) .head) .nil)⟩
+
+private def wrappedRWith (group : PhiTerm Op args [[], [global]] [branchFn]) :
+    OmegaTerm Op args [branchFn.port] [[], [global], [branchFn.port], [branchFn.port]] :=
+  ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi group) <|
+    .bind (.lambda wrapperR) <| .ret (.cons (.output (3 : Fin 4) .head) .nil)⟩
+
+private abbrev wrappedR := wrappedRWith branchGroupR
+
+private def wrapperRef (ref : machine.Val branchFn.port) : machine.Val branchFn.port :=
+  .closure (.cons ref .nil) wrapperCode.toGraph
+
+private def wrappedPositions : Fin 4 ≃ Fin 4 := (Equiv.swap 0 1).trans (Equiv.swap 0 2)
+
+private def wrappedIds : GlobalRel := fun left right =>
+  left.1 = right.1 ∧ renameVertex wrappedPositions left.2 = right.2
+
+private theorem wrappedGroupsIso : branchGroupL.Renumbered (renameVertex wrappedPositions) branchGroupR :=
+  ⟨⟨rfl, rfl⟩, Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)⟩
+
+private theorem wrapperIso : wrapperL.Renumbered (renameVertex wrappedPositions) wrapperR :=
+  ⟨⟨rfl, rfl⟩, NestedTheta.Graph.Isomorphic.refl _⟩
+
+private theorem wrappedIso : wrappedL.toGraph.RenumberedBy wrappedR.toGraph wrappedPositions :=
+  (wrappedL.renumberedBy_toGraph_iff wrappedR wrappedPositions).2
+    ⟨Fin.cases (.delta ⟨⟨rfl, rfl⟩, noChildren_refl _ (fun i => Fin.cases rfl (fun j => j.elim0) i)⟩)
+      (Fin.cases (.phi wrappedGroupsIso) (Fin.cases (.phi ⟨⟨rfl, rfl⟩, fun i => i.elim0⟩)
+        (Fin.cases (.lambda wrapperIso) (fun i => i.elim0)))), rfl⟩
+
+private theorem wrappedOrder : Ordered Op (renameVertex wrappedPositions) args [branchFn.port]
+    wrappedL.toGraph.toTerm.region wrappedR.toGraph.toTerm.region := by
+  rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+  exact .emptyRight (.bind rfl (.delta ⟨rfl, rfl⟩ seedTerm)
+    (.bind rfl (.phi wrappedGroupsIso) (.emptyLeft (.bind rfl (.lambda wrapperIso) (.ret _ _)))))
+
+private theorem wrappedLinkL : Executable.link actions 73 wrappedL.toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef branchRefL) .nil) 23 := by cbv
+
+private theorem wrappedLinkR : Executable.link actions 73 wrappedR.toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef branchRefR) .nil) 23 := by cbv
+
+private theorem wrappedOutcomes : OutcomesRelated machine wrappedIds Nat (renameVertex wrappedPositions) [branchFn.port]
+    (.linked (.cons (wrapperRef branchRefL) .nil) 23) (.linked (.cons (wrapperRef branchRefR) .nil) 23) := by
+  have imports : TupleRelated machine wrappedIds (number 1) (number 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat)) .nil
+  have linked := link_related (unitL := 73) (unitR := 73) (respectsGlobals wrappedIds) wrappedIso wrappedOrder
+    (fun _ => ⟨rfl, rfl⟩) imports 20
+  have left : link primitives 73 wrappedL.toGraph (number 1) 20 = _ :=
+    (Executable.link_eq actions 73 wrappedL.toGraph (number 1) 20).symm.trans wrappedLinkL
+  have right : link primitives 73 wrappedR.toGraph (number 1) 20 = _ :=
+    (Executable.link_eq actions 73 wrappedR.toGraph (number 1) 20).symm.trans wrappedLinkR
+  rwa [left, right] at linked
+
+private theorem wrappersCheckMember (left right : RecursiveCall.Numbered.Group machine [branchFn]) :
+    RecursiveCall.Numbered.checkExport instructionKeys (wrapperRef (left.ref 0)) (wrapperRef (right.ref 0)) =
+      RecursiveCall.Numbered.checkExport instructionKeys (left.ref 0) (right.ref 0) := by
+  have bodies : (RecursiveCall.Numbered.inferResolved instructionKeys
+      (resolve machine (wrapperRef (left.ref 0))) (resolve machine (wrapperRef (right.ref 0)))).isSome = true := by cbv
+  change (RecursiveCall.Numbered.checkGroupPair instructionKeys left right && _) =
+    RecursiveCall.Numbered.checkGroupPair instructionKeys left right
+  rw [bodies, Bool.and_true]
+
+private theorem wrappedAccepts : RecursiveCall.Numbered.checkExport instructionKeys
+    (wrapperRef branchRefL) (wrapperRef branchRefR) = true :=
+  (wrappersCheckMember ⟨_, _, _⟩ ⟨_, _, _⟩).trans branchAccepted
+
+private theorem wrappedAdmission :
+    RecursiveCall.Numbered.ExportAdmission primitives wrappedIds (wrapperRef branchRefL) (wrapperRef branchRefR) :=
+  RecursiveCall.Numbered.checkExport_sound ordinaryOutputs wrappedAccepts
+
+-- A φ member alone returns 30 at store 37. The actual λ export resumes
+-- its saved suffix after that call and returns 37 at store 40.
+example : Executable.run actions 60 73 wrappedL.toGraph (number 1) .head (branchArgs 1) 20 =
+    .ok (.returned (number 37) 40) := by cbv
+
+example :
+    ∃ target, ReflTransGen (Step primitives) (branchStart (wrapperRef branchRefR) 1) target ∧
+      target.result = some (number 37, 40) := by
+  have inputs : TupleRelated machine wrappedIds (branchArgs 1) (branchArgs 1) :=
+    .cons (ValueRelated.data (m := machine) (ids := wrappedIds) (t := ()) (1 : Nat))
+      (.cons (.control 1) (.cons (.control 0) .nil))
+  obtain ⟨_, _, closed, admitted⟩ := wrappedAdmission.atExport .head wrappedOutcomes inputs rfl
+  have reached := Continuation.Partial.Executable.runFor_reachable actions 60 (branchStart (wrapperRef branchRefL) 1)
+  have result : (runFor actions 60 (branchStart (wrapperRef branchRefL) 1)).result = some (number 37, 40) := by cbv
+  obtain ⟨target, valueR, path, got, values⟩ :=
+    (ClosedFamily.returns (respectsGlobals wrappedIds) closed admitted).1 _ _ _ reached result
+  cases values with
+  | cons paired tail =>
+    cases paired
+    cases tail
+    exact ⟨target, path, got⟩
+
+private def foreignGroup :=
+  selfGroup branchFn (.output (1 : Fin 2) .head : Origin args [[], [global]] global)
+    (.ret (.cons (.arg (.tail (.tail .head))) .nil) : RecursiveCall.Code Op branchEntry [] [] [num])
+
+private def foreignRef : machine.Val branchFn.port :=
+  .member (.cons (globalValue 1 8) .nil) foreignGroup.toGraph.definitions 0
+
+private theorem foreignLinks : Executable.link actions 73 (wrappedRWith foreignGroup).toGraph (number 1) 20 =
+    .linked (.cons (wrapperRef foreignRef) .nil) 23 := by cbv
+
+set_option maxHeartbeats 800000 in
+private theorem foreignMemberRejected :
+    RecursiveCall.Numbered.checkExport instructionKeys branchRefL foreignRef = false := by
+  simp only [RecursiveCall.Numbered.checkExport, RecursiveCall.Numbered.isStandaloneLambda,
+    RecursiveCall.Numbered.exportGroup, branchRefL, foreignRef, RecursiveCall.Numbered.checkGroupPair]
+  cbv
+
+private theorem foreignRejected : RecursiveCall.Numbered.checkExport instructionKeys
+    (wrapperRef branchRefL) (wrapperRef foreignRef) = false :=
+  (wrappersCheckMember ⟨_, _, _⟩ ⟨_, _, _⟩).trans foreignMemberRejected
+
+-- Both links succeed. The right λ captured a different, same-signature
+-- φ implementation, so checking the λ bodies alone cannot admit this pair.
+example : match Executable.link actions 73 wrappedL.toGraph (number 1) 20,
+    Executable.link actions 73 (wrappedRWith foreignGroup).toGraph (number 1) 20 with
+  | .linked exportsL _, .linked exportsR _ =>
+    (RecursiveCall.Numbered.admitExport instructionKeys primitives wrappedIds ordinaryOutputs
+      (exportsL.get .head) (exportsR.get .head)).isSome = false
+  | _, _ => False := by
+  rw [wrappedLinkL, foreignLinks]
+  change (RecursiveCall.Numbered.admitExport instructionKeys primitives wrappedIds ordinaryOutputs
+    (wrapperRef branchRefL) (wrapperRef foreignRef)).isSome = false
+  simp [RecursiveCall.Numbered.admitExport, foreignRejected]
 
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
@@ -826,7 +1003,7 @@ example : NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph f
   · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
   · exact Fin.cases (fun i => i.elim0) (Fin.cases (fun i => i.elim0) (fun i => i.elim0))
 
-example : (RecursiveCall.Numbered.check instructionKeys baseNumbering
+example : (RecursiveCall.Numbered.infer instructionKeys
     seedThenFinish.toGraph finishThenSeed.toGraph).isSome = false := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests
