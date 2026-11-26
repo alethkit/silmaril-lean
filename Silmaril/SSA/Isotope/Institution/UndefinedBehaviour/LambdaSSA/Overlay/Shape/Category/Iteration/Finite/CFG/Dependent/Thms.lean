@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Defs
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Comparison
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Routing
 
 /-! # Complete shaped observations of heterogeneous positional CFGs -/
 
@@ -15,6 +16,22 @@ universe u
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {X : Syntax.Ty}
 variable {R L : List Syntax.Ty} {states captures seeds results : Nat}
+
+/-- Dispatch an exact primitive reply and run only its selected continuation
+at the reply state. The empty packet type has no successful reply. -/
+theorem observe_packedRequest_bind {Γ : List Syntax.Ty} (prim : Primitives Φ states)
+    (env : Syntax.Bindings Γ) (f : Φ) (arg : Expr Γ (instrSrc f))
+    (typed : instrTrg f = LambdaSSA.Region.packedExitType R)
+    (k : (i : Fin R.length) → Region Φ (R.get i :: Γ) L) (s : Fin states) :
+    Shape.denote (.lsubst (packedRequest f arg typed) k) (model prim env) s =
+      match prim f (arg.eval env) s with
+      | .ret a t =>
+        let p := unpack (cast (congrArg Syntax.Payload typed) a)
+        Shape.denote (k p.1) (model prim (env.push p.2)) t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.observe_packedRequest_bind
+    prim env f arg typed k s
 
 /-- Every generated row equals the full observation of the original typed
 routed block at that packet and machine state. -/

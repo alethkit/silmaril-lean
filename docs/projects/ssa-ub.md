@@ -863,6 +863,35 @@ and the soundness theorem also accepts arbitrary ambient contexts and
 value and state universes.
 [Request-tree theorems][ssa-ub-request-tree]
 
+### Finite request trees with key-indexed replies
+
+The dependent request tree accepts any decidable native key type. For each
+key, the signature supplies an exact constructor argument and an equality
+from the declared reply type to the packed sum of a finite list of payload
+types. The adapter issues the existing native request, decodes it with the
+installed typed packet router, and passes the selected payload and final
+machine state to the continuation. The final interface has two ordered unit
+exits or literal UB.
+
+Two request nodes compare by equality of keys and a recursive comparison
+at each tag whose payload type is inhabited. An impossible tag contributes
+no comparison obligation. For a zero-reply key the condition on branches is
+vacuous, but the request can still fault or diverge. Two distinct zero-reply
+keys remain distinguishable by a fault on one key and divergence on the
+other. In either direction, a pending request and an ordinary return fail
+the comparison. Immediate UB on the right is greatest. Immediate UB on
+the left fails against a pending request, including a zero-reply one.
+
+The soundness induction uses actual reachable typed outputs, including
+nondeterministic replies. A failed comparison selects an inhabited payload
+at each step on the common prefix. A deterministic interpreter advances
+through one state per selected reply, then uses a final state to distinguish
+the mismatch. It uses at most one plus the smaller tree depth machine
+states. The all-model equivalence is for closed trees in the shaped models
+at the witness universes. Soundness allows arbitrary shaped environments
+and value and state universes over the same free types.
+[Dependent request-tree theorems][ssa-ub-dependent-request-tree]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -911,6 +940,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.SingleRequest.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.RequestTree.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -1014,3 +1044,4 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-common-request]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Repair/Reply/Payload/Finite/CommonRequest/Thms.lean
 [ssa-ub-two-request]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/TwoRequest/Thms.lean
 [ssa-ub-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/RequestTree/Thms.lean
+[ssa-ub-dependent-request-tree]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Thms.lean
