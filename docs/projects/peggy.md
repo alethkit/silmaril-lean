@@ -164,6 +164,14 @@ bottom unselected arm and a dominating shared value, and exercises rejected
 speculation, scope, duplicate-binding and rank certificates. It also checks
 automatic admission and runs the synthesized syntax.
 
+## Checked SIMPLE optimization
+
+The executable SIMPLE pipeline combines frontend lowering, contextual
+discovery and replay, and automatic reversion. It preserves successful
+SIMPLE returns under rule laws over partial values. The worked example
+optimizes a shared computation inside a φ arm and executes the emitted
+SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
+
 ## Follow-up roadmap
 
 1. **PEG invariants and rule schemas**. Extend the
