@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.MLIR.Shape.Thms
+public import Silmaril.SSA.MLIR.Shape.Variadic.Thms
 
 public section
 
@@ -101,5 +102,59 @@ theorem broadcast_partial_outside_profile :
 
 theorem isBroadcastable_invalid_outside_profile :
     isBroadcastable? .invalid (.ofStatic [1]) = none := rfl
+
+theorem broadcastMany_no_operands :
+    broadcastMany? [] = none ∧ broadcastManyExtentTensor? [] = none := ⟨rfl, rfl⟩
+
+theorem broadcastMany_rank_zero_operand :
+    broadcastMany? [.ofStatic []] = some (.ofStatic []) := rfl
+
+theorem broadcastMany_singleton_extent_tensor :
+    broadcastManyExtentTensor? [extentTensor [7, 0]] = some (.defined (extentTensor [7, 0])) := rfl
+
+theorem isBroadcastableMany_fewer_than_two :
+    isBroadcastableMany? [] = some true ∧
+      isBroadcastableMany? [.ofStatic [7, 0]] = some true := ⟨rfl, rfl⟩
+
+theorem broadcastMany_late_conflict :
+    broadcastMany? ([[3, 1], [0]].map ShapeValue.ofStatic) = some (.ofStatic [3, 0]) ∧
+      broadcastMany? ([[3, 1], [0], [1, 2]].map ShapeValue.ofStatic) = some .invalid ∧
+      isBroadcastableMany? ([[3, 1], [0], [1, 2]].map ShapeValue.ofStatic) = some false :=
+  ⟨rfl, rfl, rfl⟩
+
+theorem broadcastMany_aligns_mixed_ranks :
+    broadcastManyExtentTensor? ([[], [4], [0, 1], [5, 1, 4]].map extentTensor) =
+      some (.defined (extentTensor [5, 0, 4])) := rfl
+
+theorem broadcastManyExtentTensor_late_conflict :
+    broadcastManyExtentTensor? ([[3, 1], [0], [1, 2]].map extentTensor) = some .undefined := rfl
+
+theorem broadcastMany_projects_to_binary :
+    broadcastMany? [.ofStatic [3, 1], .ofStatic [0]] = broadcast? (.ofStatic [3, 1]) (.ofStatic [0]) ∧
+      broadcastManyExtentTensor? [extentTensor [0], extentTensor [2]] =
+        some (broadcastExtentTensor (extentTensor [0]) (extentTensor [2])) ∧
+      isBroadcastableMany? [.ofStatic [0], .ofStatic [2]] =
+        isBroadcastable? (.ofStatic [0]) (.ofStatic [2]) :=
+  ⟨broadcastMany?_pair _ _, broadcastManyExtentTensor?_pair _ _, isBroadcastableMany?_pair _ _⟩
+
+theorem broadcastMany_invalid_dominates_unknown :
+    broadcastMany? [.ofStatic [0], .unranked, .invalid] = some .invalid := rfl
+
+theorem broadcastMany_unknown_outside_profile :
+    broadcastMany? [.ofStatic [0], .ranked [none], .ofStatic [2]] = none := rfl
+
+theorem isBroadcastableMany_invalid_outside_profile :
+    isBroadcastableMany? [.ofStatic [0], .invalid, .ofStatic [2]] = none := rfl
+
+theorem cstrBroadcastableMany_witnesses :
+    cstrBroadcastableMany? ([[2, 2], [3, 1, 2], []].map ShapeValue.ofStatic) = some .passing ∧
+      cstrBroadcastableMany? ([[3, 1], [0], [1, 2]].map ShapeValue.ofStatic) = some .unsatisfied :=
+  ⟨rfl, rfl⟩
+
+theorem cstrBroadcastableMany_requires_two_operands :
+    cstrBroadcastableMany? [] = none ∧ cstrBroadcastableMany? [.ofStatic []] = none := ⟨rfl, rfl⟩
+
+theorem cstrBroadcastableMany_unknown_outside_profile :
+    cstrBroadcastableMany? [.ofStatic [0], .ranked [none]] = none := rfl
 
 end Silmaril.MLIR.Shape.Examples

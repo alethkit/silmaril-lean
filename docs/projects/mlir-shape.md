@@ -1,11 +1,13 @@
 # MLIR Shape and static tensors
 
-`Silmaril.MLIR.Shape` models constants, constructors, queries, casts, and binary
-broadcasting for a small fragment of the MLIR Shape dialect. It reuses
-`Tensor.Shape` for concrete extents and `Tensor.Tensor` for the elements of a
-rank-one extent tensor.
+`Silmaril.MLIR.Shape` models constants, constructors, queries, casts, concrete
+broadcasting, and a broadcast constraint for a small fragment of the MLIR Shape
+dialect. It reuses `Tensor.Shape` for concrete extents and `Tensor.Tensor` for
+the elements of a rank-one extent tensor.
 [Definitions](../../Silmaril/SSA/MLIR/Shape/Defs.lean) ·
 [Theorems](../../Silmaril/SSA/MLIR/Shape/Thms.lean) ·
+[Variadic definitions](../../Silmaril/SSA/MLIR/Shape/Variadic/Defs.lean) ·
+[Variadic theorems](../../Silmaril/SSA/MLIR/Shape/Variadic/Thms.lean) ·
 [Static tensor definitions](../../Silmaril/SSA/MLIR/Tensor/Defs.lean)
 
 ## Values and admission
@@ -86,10 +88,51 @@ shape-valued broadcast or the predicate. An invalid input propagates in the
 shape-valued broadcast, as specified by TableGen. Other non-concrete inputs
 to `broadcast?`, and any non-concrete inputs to `isBroadcastable?`, are outside
 the modeled domain. This slice covers two operands and the values they denote.
-General variadic arities, result type inference, declared extent-tensor lengths,
-error strings, and native implementation correspondence are outside its scope.
+Result type inference, declared extent-tensor lengths, error strings, and native
+implementation correspondence are outside its scope.
 [Pinned broadcast contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L57-L103) ·
 [Pinned predicate contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L238-L269)
+
+## Checked variadic broadcasting
+
+| Operation | Modeled operand count | Pinned arity evidence |
+| --- | --- | --- |
+| `shape.broadcast` | One or more | TableGen describes two or more inputs. The verifier checks error-capable input and result types and imposes no count check. The folder forwards one operand, then assumes its operand list is nonempty on the other path. A canonicalization pattern can produce an empty shape constant when no operands remain. The zero-operand operation is outside the model. |
+| `shape.is_broadcastable` | Zero or more concrete shape views | TableGen declares variadic operands with no custom verifier. The folder returns true for fewer than two operands. |
+| `shape.cstr_broadcastable` | Two or more concrete shape views | The custom verifier rejects fewer than two operands. |
+
+[Pinned broadcast folder and verifier](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L642-L708) ·
+[Pinned predicate folder](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L1398-L1410) ·
+[Pinned constraint folder and verifier](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Dialect/Shape/IR/Shape.cpp#L995-L1035)
+
+`broadcastManyConcrete?` starts with the first operand and applies the checked
+binary operation to the remaining operands. `BroadcastManyCompatible` says
+that any two non-unit input extents at the same trailing axis agree. In
+`BroadcastsManyTo`, the result rank is the greatest operand rank. Each result
+axis has the unique non-unit input extent if present and one otherwise.
+`broadcastManyConcrete?_eq_some_iff` and `broadcastManyConcrete?_axis_iff` give
+this exact result for nonempty inputs. `compatible_iff_exists_broadcastsManyTo`
+characterizes common compatibility, and `not_broadcastManyCompatible_iff`
+identifies a conflicting pair of input extents. `broadcastManyConcrete?_perm`
+proves that permuting operands preserves the exact result or failure. The four
+`_pair` theorems recover the binary APIs.
+
+`broadcastMany?` and `broadcastManyExtentTensor?` distinguish absence of
+operands from an operand of rank zero. A single concrete operand is forwarded.
+Incompatibility of concrete inputs gives an invalid shape or an undefined
+extent-tensor result, according to the result form. A shape-valued broadcast
+also propagates an invalid operand. Unknown operands without an invalid operand
+are outside the modeled broadcast fragment. The predicate and constraint are
+restricted to concrete inputs, including values obtained using `fromExtentTensor`.
+`isBroadcastableMany?_ofStatic_eq_true_iff` and its false counterpart cover
+common compatibility, including the vacuous predicate on zero operands.
+
+`cstrBroadcastableMany?_passing_iff` and `cstrBroadcastableMany?_unsatisfied_iff`
+identify when the concrete constraint provides a passing witness and when its
+constraint is unsatisfied. The latter is an observation of the constraint,
+with assertion lowering, runtime effects and general witness consumers outside
+this slice. [Pinned constraint contract](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeOps.td#L874-L903) ·
+[Pinned witness type](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/include/mlir/Dialect/Shape/IR/ShapeBase.td#L118-L133)
 
 ## Upstream operation coverage
 
@@ -106,8 +149,9 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.const_size` | Known nonnegative constants via `Size.known`. |
 | `shape.from_extents` | Variadic nonnegative `index` operands via `fromExtents?`, including zero operands for rank zero. |
 | `shape.from_extent_tensor` | Rank-one tensor of known nonnegative indices via `fromExtentTensor`. The number of entries is the result rank and their order is preserved. |
-| `shape.broadcast` | Two concrete operands with right-aligned extents. The shape result can carry invalidity, including propagated operand errors. The two-extent-tensor form has no defined extent-tensor result on incompatible extents. |
-| `shape.is_broadcastable` | Boolean predicate on two concrete shape views with exact correspondence to binary broadcast on that domain. |
+| `shape.broadcast` | One or more concrete operands with right-aligned extents and order-independent results. The shape result propagates operand errors. The extent-tensor form has no defined result on incompatible extents. |
+| `shape.is_broadcastable` | Boolean predicate for common compatibility of a list of concrete shape views, including zero or one operand. |
+| `shape.cstr_broadcastable` | Passing witness or unsatisfied constraint on two or more concrete shape views. |
 | `shape.shape_of` | Shape result for a static `Tensor.Tensor` via `shapeOf`. |
 | `shape.rank` | Shape input and size output, including unknown rank and invalid shape. |
 | `shape.get_extent` | Shape plus nonnegative index to size. Ranked inputs require an in-bounds index and can yield an unknown extent. An invalid shape yields an invalid size. |
@@ -116,18 +160,18 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.index_to_size` | Index to size, with undefined behavior on negative input. |
 | `shape.size_to_index` | Size to index, with undefined behavior on unknown or invalid input. |
 
-Cases outside the listed fragments of these thirteen operations are planned
+Cases outside the listed fragments of these fourteen operations are planned
 only. In particular, `shape.from_extents` with `!shape.size` operands and the
 behavior of either constructor on negative extents remain outside the model.
-The other 27 pinned operations are all planned only, along with
-`!shape.value_shape` and `!shape.witness`.
+The other 26 pinned operations are all planned only, along with
+`!shape.value_shape` and witness behavior beyond the stated constraint fragment.
 
 | Area | Planned operations |
 | --- | --- |
 | Size arithmetic | `shape.add`, `shape.div`, `shape.max`, `shape.min`, `shape.mul` |
 | Extent construction and queries | `shape.concat`, `shape.dim`, `shape.split_at` |
 | Shape relations and combination | `shape.any`, `shape.meet`, `shape.shape_eq` |
-| Constraints and witnesses | `shape.assuming`, `shape.assuming_all`, `shape.assuming_yield`, `shape.const_witness`, `shape.cstr_broadcastable`, `shape.cstr_eq`, `shape.cstr_require` |
+| Constraints and witnesses | `shape.assuming`, `shape.assuming_all`, `shape.assuming_yield`, `shape.const_witness`, `shape.cstr_eq`, `shape.cstr_require` |
 | Functions and regions | `shape.func`, `shape.function_library`, `shape.reduce`, `shape.return`, `shape.yield` |
 | Value-shape pairs and debugging | `shape.debug_print`, `shape.value_as_shape`, `shape.value_of`, `shape.with_shape` |
 
