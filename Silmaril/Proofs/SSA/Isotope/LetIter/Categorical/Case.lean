@@ -49,7 +49,7 @@ local notation "bindContext" => Silmaril.Isotope.LetIter.ProofRelevant.Semantics
 section
 variable [DistributiveFreydCategory J]
 
-private theorem case_inl_context {R A B D : V} (e : J.obj R ⟶ J.obj A)
+theorem case_inl_context_proof {R A B D : V} (e : J.obj R ⟶ J.obj A)
     (l : J.obj (R ⊗ A) ⟶ J.obj D) (r : J.obj (R ⊗ B) ⟶ J.obj D) :
     caseWithContext J (e ≫ J.map (coprod.inl : A ⟶ A ⨿ B)) l r = bindContext J e l := by
   simp only [caseWithContext, ProofRelevant.Semantics.Categorical.bind, extend_postmap J, Category.assoc,
@@ -120,7 +120,7 @@ theorem denote_case_beta_left_proof {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ
     (hr : Derivation Φ Γ (.snoc β B) r D) :
     denote J M (.case (.inl he) hl hr) = denote J M (.let₁ he hl) := by
   simp only [denote, Category.assoc, ← J.map_comp, Iso.inv_hom_id, Category.comp_id]
-  exact case_inl_context J _ _ _
+  exact case_inl_context_proof J _ _ _
 
 theorem denote_case_beta_right_proof {Γ : Ctx ν τ} {n : Nat} {β : BoundCtx τ n}
     {e : Tm ν Φ n} {l r : Tm ν Φ (n + 1)} {A B D : τ}

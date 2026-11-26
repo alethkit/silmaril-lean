@@ -467,4 +467,75 @@ theorem denote_let_beta_proof {n : Nat} {β : BoundCtx τ n}
 
 end
 
+section RenameEnvironment
+
+variable {τ : Type u} [TypeFormers τ] {ν : Type w} {V : Type u₁} [Category.{v₁} V]
+  [CartesianMonoidalCategory V] [HasFiniteCoproducts V] (M : TypeModel τ V)
+  {Γ : Ctx ν τ} {n m : Nat} {β : BoundCtx τ n} {δ : BoundCtx τ m}
+
+local notation "Env" => envObj M Γ
+local notation "freePart" => CartesianMonoidalCategory.fst (ctxObj M Γ)
+
+private theorem boundLookup_hom_ext {R : V} {k : Nat} {γ : BoundCtx τ k}
+    {f g : R ⟶ boundObj M γ}
+    (agree : ∀ i, f ≫ boundLookup M i = g ≫ boundLookup M i) : f = g := by
+  induction γ with
+  | nil => exact isTerminalTensorUnit.hom_ext _ _
+  | snoc γ A ih =>
+      apply CartesianMonoidalCategory.hom_ext
+      · apply ih
+        intro i
+        have hi := agree i.succ
+        change f ≫ fst _ _ ≫ boundLookup M i = g ≫ fst _ _ ≫ boundLookup M i at hi
+        simpa only [Category.assoc] using hi
+      · exact agree 0
+
+private theorem envRenameMap_unique (ρ : TypedRenaming β δ) (p : Env δ ⟶ Env β)
+    (hf : p ≫ freePart _ = freePart _)
+    (hb : ∀ i, p ≫ boundVar M (Γ := Γ) i =
+      boundVar M (Γ := Γ) (ρ.toFun i) ≫ eqToHom (congrArg M.obj (ρ.typed i))) :
+    envRenameMap M Γ ρ = p := by
+  apply CartesianMonoidalCategory.hom_ext
+  · exact (lift_fst _ _).trans hf.symm
+  · apply boundLookup_hom_ext M
+    intro i
+    rw [Category.assoc, Category.assoc]
+    change envRenameMap M Γ ρ ≫ boundVar M i = p ≫ boundVar M i
+    exact (envSubstMap_bound M β δ _ i).trans (hb i).symm
+
+theorem envRenameMap_free_proof (ρ : TypedRenaming β δ) :
+    envRenameMap M Γ ρ ≫ freePart _ = freePart _ := lift_fst _ _
+
+theorem envRenameMap_bound_proof (ρ : TypedRenaming β δ) (i : Fin n) :
+    envRenameMap M Γ ρ ≫ boundVar M i =
+      boundVar M (Γ := Γ) (ρ.toFun i) ≫ eqToHom (congrArg M.obj (ρ.typed i)) :=
+  envSubstMap_bound M β δ _ i
+
+private theorem envRenameMap_up_eq (ρ : TypedRenaming β δ) (A : τ) :
+    envRenameMap M Γ (TypedRenaming.up ρ A) = liftEnvMap M (envRenameMap M Γ ρ) A := by
+  apply envRenameMap_unique
+  · exact liftEnvMap_free M (envRenameMap_free_proof M ρ) A
+  · exact renaming_vars_up M ρ _ (envRenameMap_bound_proof M ρ) A
+
+theorem envRenameMap_snoc_proof (ρ : TypedRenaming β δ) (A : τ) :
+    (envSnocIso M Γ δ A).hom ≫ envRenameMap M Γ (TypedRenaming.up ρ A) =
+      (envRenameMap M Γ ρ ▷ M.obj A) ≫ (envSnocIso M Γ β A).hom := by
+  rw [envRenameMap_up_eq, snoc_liftEnvMap]
+
+theorem envRenameMap_pair_proof (ρ : TypedRenaming β δ) (A B : τ) :
+    envPairHom M Γ δ A B ≫ envRenameMap M Γ (TypedRenaming.up (TypedRenaming.up ρ A) B) =
+      (envRenameMap M Γ ρ ▷ (M.obj A ⊗ M.obj B)) ≫ envPairHom M Γ β A B := by
+  rw [envRenameMap_up_eq, envRenameMap_up_eq, envPair_liftEnvMap]
+
+theorem envRenameMap_underBinder_proof (X Y : τ) :
+    (envSnocIso M Γ (β.snoc X) Y).hom ≫
+        envRenameMap M Γ (TypedRenaming.underBinder β X Y) =
+      (dropSlot M β X ▷ M.obj Y) ≫ (envSnocIso M Γ β Y).hom := by
+  have wk : envRenameMap M Γ (TypedRenaming.succ β X) = dropSlot M β X :=
+    envRenameMap_unique M _ _ (dropSlot_free M β X)
+      (fun i => (dropSlot_bound M β X i).trans (Category.comp_id _).symm)
+  rw [BoundCtx.Renaming.underBinder, envRenameMap_snoc_proof, wk]
+
+end RenameEnvironment
+
 end Silmaril.Isotope.LetIter.Semantics.Categorical

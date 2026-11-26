@@ -18,9 +18,10 @@ variable {primitives : Primitives m σ} {unitL unitR : Nat} {args outs : Ports (
 variable {sigsL sigsR : List (Ports (Ty V S))}
 
 /-- A typed ω renumbering with aligned initializer order preserves the
-actual link observation. Success relates ordered exports and global
-identities. Failure matches the first undefined δ, the selected typed
-primitive and operands, and the exact attempt store. -/
+actual link observation. Success relates ordered exports, including global
+identities and callable references at corresponding fixed φ member slots.
+Failure matches the first undefined δ, the selected typed primitive and
+operands, and the exact attempt store. -/
 theorem link_related (respects : ActionsRespect primitives ids)
     {left : Omega Op args outs sigsL} {right : Omega Op args outs sigsR}
     {positions : Fin sigsL.length ≃ Fin sigsR.length} (iso : left.RenumberedBy right positions)

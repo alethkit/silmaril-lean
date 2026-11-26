@@ -11,7 +11,8 @@ namespace Silmaril.Proofs.Machine.SqliteVfs.ReadSplit.RangeLocal
 open Silmaril.Machine.SqliteVfs
 open Silmaril.Machine.SqliteVfs.ReadSplit (combine read_result_combine)
 
-private theorem read_result_transport {before after : Bytes} {offset count : Nat}
+/-- Agreement on a nonempty read interval preserves the contracted reply. -/
+theorem read_result_transport {before after : Bytes} {offset count : Nat}
     {reply : ReadReply} (positive : 0 < count)
     (agree : ∀ i, i < count → before[offset + i]? = after[offset + i]?)
     (result : ReadResult after offset count reply) :

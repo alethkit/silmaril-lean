@@ -22,7 +22,11 @@ allocation premises.
 | [Indirect-call contextual readback](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Context/Thms.lean) | A successfully resolved Table32 site enters a checked, allocated Core or Lime1 graph callee. Exact native prefixes include four Core steps or two Lime1 steps through frame entry, arbitrary finite prefixes of cyclic direct calls, ordered return above the saved caller operands, and trap discard up to the bare caller trap. | Execution of the resumed caller instructions, indirect calls in graph bodies, mutable tables or stores, host calls, and V1. |
 | [Checked resumption after an indirect call](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Context/Resume/Thms.lean) | One designated Table32 site under an entered function label in Core or Lime1. Exact lookup through the first native trap or pending invocation. For a successful lookup, every finite native run reads back through callee execution, the typed caller tail, and the caller function exit, including callee traps and arbitrary finite recursion inside either checked direct-call fragment. | Source `call_indirect` inside graph bodies, exact failed-lookup cleanup beyond the first trap, arbitrary enclosing label positions, mutable tables or stores, host calls, and V1. |
 | [Checked indirect source regions](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Source/Thms.lean) | A single typed indirect operator after a numeric prefix, optionally inside parameterless scalar blocks with checked graph tails. Preparation resolves the current activation's module type index and Table32 address. Exact Core and Lime1 lookup and successful callee entry preserve already-entered block contexts. The source guard supplies the checked resumption theorem at a function label. | Installing the operator in cyclic graph function bodies, native evaluation from the start of the source region, and nested post-entry return and trap readback. Mutable tables and stores, host calls, whole-module execution, and V1 remain separate. |
-| [Indirect graph source entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean) | One designated allocated graph address computes the ordered arguments and i32 selector with a checked local-read and integer-op prefix before a typed Table32 site. The site can be in the function label or under a finite spine of parameterless scalar blocks with a checked result and enclosing continuation at each level. Exact Core and Lime1 finite readback starts at an ordinary direct `call` and reaches caller exit or ordered trap cleanup. | Paths to the site through conditionals, loops or branches, re-entry to the indirect body from graph dispatch, mutable tables or stores, host calls, whole-module execution, and V1. |
+| [Indirect graph source entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean) | One designated allocated graph address computes the ordered arguments and i32 selector with a checked local-read and integer-op prefix before a typed Table32 site. The site can be in the function label or under a finite spine of parameterless scalar blocks with a checked result and enclosing continuation at each level. Exact Core and Lime1 finite readback starts at an ordinary direct `call` and reaches caller exit or ordered trap cleanup. | Conditional entry uses the separate profile below. Paths through loops or branches, re-entry to the indirect body from graph dispatch, mutable tables or stores, host calls, whole-module execution, and V1. |
+| [Conditional indirect graph entry](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Conditional/Thms.lean) | An i32 local selects a scalar if arm at the function label. Either arm may hold the designated site under the checked block spine. Both arms and the shared continuation are typed. Exact Core and Lime1 finite readback follows the chosen arm from ordinary invocation through return or trap. The alternate arm uses the direct graph relation and needs no native table allocation. | Conditional paths below entered blocks use the recursive profile below. Loops or branches on the path to the site, recursive dispatch back to the indirect body, mutable tables or stores, host calls, and V1. |
+| [Recursive control path to an indirect site](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Control/Thms.lean) | One designated site under a finite composition of immediately nested parameterless scalar blocks and i32-local conditionals. Every conditional checks its alternate arm against the same block result and the enclosing continuation. Each selected arm lowers to one block, preserving active locals, saved operands and entered labels. Core and Lime1 read back from typed entry through either the site or the first selected alternate and its enclosing continuations. | Loop entry and restart on the source path, branch dispatch to the site, redispatch into an indirect body, mutable tables or stores, host calls, and V1. |
+| [Recurrent loop entry to an indirect site](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Loop/Thms.lean) | A parameterless void loop writes an i32 local, tests its old value with `br_if 0`, and either reinstalls the source loop or chooses the site or empty arm. Core and Lime1 exact finite readback distinguishes branch, reinstatement and re-entry, including arbitrarily many restarts. The empty arm restores the saved operands and runs the checked function tail without a native table. The site arm has exact numeric-prefix and first-lookup readback under the active loop, through a pending invocation or the first lookup trap. | Callee return and trap cleanup use the resumption profile below. Repeated lookup, general loop bodies and branches around the designated site, recursive dispatch into the indirect body, mutable tables or stores, host calls, and V1. |
+| [Indirect-call resumption under the live loop](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Loop/Resume/Thms.lean) | A selected computed Table32 site enters its checked direct graph callee in Core and Lime1. Exact finite readback continues through ordered return, typed writes to the active frame’s locals, the arm and loop exits, and the enclosing checked function tail. Lookup and callee traps discard operands and pending code at their active labels before leaving the caller frame. | The selected arm admits a checked list of local writes after return. Repeated lookup, broader arm code and loop bodies, recursive indirect redispatch, mutable tables, host calls, and V1 remain separate. |
 | [Saved caller continuation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Native/Thms.lean) | One pending `nop` stays in the caller during a resolved invocation. Return reinstates the caller's value prefix and scalar result before `nop` executes. Trap steps discard the continuation and may discard saved values in several steps. | General instruction suffixes and caller-side state changes. |
 | [One nested non-host call](../../Silmaril/Wasm/Institution/Operational/CallContinuation/Nested/Native/Thms.lean) | Start with an already-entered outer frame and label around one allocated, resolved inner call. The inner return runs the outer `nop`, exits the label, and returns across the outer frame when the stack has its declared arity. An inner trap discards the pending instruction and propagates through both outer boundaries. | General instruction suffixes or effects, outer source typing, and arbitrary depths or recursion. |
 | [Typed outer invocation](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Native/Thms.lean) | Starts at an ordinary direct `call`. The outer function receives its numeric arguments and default locals, supplies literal arguments to one distinct allocated non-host inner callee, and resumes at one `nop`. Exact successors and finite endpoints include both returned values and a propagated trap. | General continuations, general argument expressions, host calls, indirect calls, recursion, extra top-level stack operands, and whole-module validation. |
@@ -346,9 +350,51 @@ fixture performs arithmetic and writes locals across the label exits before
 the function tail reads them. Its trap cases distinguish a prefix failure
 before lookup from a null lookup and check an intermediate unwind state.
 
-Paths to the site through conditionals, loops, or branches require
-additional source phases. Dispatch back to a function allocated with an
-indirect site is still separate.
+The conditional entry profile reads an i32 local above the function's saved
+operands and lowers the selected arm to one scalar block. Either arm may
+contain the site under its checked block spine. The alternate arm is checked
+as ordinary graph code against the same scalar result and shared tail. Its
+native readback uses the function allocation and direct links, including in
+a store without the statically described table. A selected-site path uses the
+same numeric, lookup, callee and discard relations as block-only entry. The
+fixtures exercise both selections, division by zero in the selected site,
+null lookup, and rejection of an ill-typed arm even when skipped.
+
+The recursive control path records the entered block context alongside the
+remaining source nodes. Each conditional checks both arms, and its selected
+arm lowers to a block in the same activation. An alternate arm transfers to
+the direct graph relation under the labels already entered. The two-if
+fixture interleaves a block, selects the inner alternate without a native
+table, and observes its result through the outer tails. The selected-site
+fixture observes a mixed-width return and an intermediate unwind where the
+outer label still holds its saved operand. The table allocation premise is
+needed only for lookup, including when the lookup itself traps.
+
+The recurrent loop profile checks a parameterless void loop with an i32
+local write followed by a depth-zero conditional branch. A nonzero old value
+reinstalls the original loop in its own native step, preserving the updated
+locals and saved operands. A zero test chooses either a checked numeric
+prefix and indirect lookup or an empty arm that exits into the checked
+function tail. Finite runs use the recurrent relation, which permits any
+number of restarts. Native table allocation enters only in the lookup
+theorems. The fixture reads the updated local as the first selector after
+a restart, distinguishing the null slot from the original out-of-bounds
+index. Another path returns the saved i64 and updated i32 without a table.
+
+The loop resumption profile composes the first selected lookup with the
+resolved target's checked direct graph, including finite recursive callee
+prefixes. A checked list of local writes consumes the ordered return values
+and saved site operands. The arm and live loop exit in separate steps,
+restoring the loop’s saved operand prefix and preserving the enclosing frame and
+resuming the ordinary checked function tail. Lookup traps start cleanup in
+the arm. Callee traps first leave the callee label and frame, then run the
+same arm, loop, and caller discard rules. The fixtures reach all three
+outcomes after a restart and observe the mixed-width returned values and
+saved operands in the restored caller.
+
+Further lookup on subsequent trips, general arm and loop bodies, arbitrary
+branch dispatch to the site, and recursive entry into an indirect body remain
+separate. The checked direct continuations retain their existing graph coverage.
 [Source-region theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/Source/Thms.lean)
 and [graph-entry theorems](../../Silmaril/Wasm/Institution/Operational/CallResolution/Indirect/GraphEntry/Thms.lean)
 

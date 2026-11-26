@@ -76,9 +76,10 @@ private theorem inr_copies (A B : τ) : CentralCopies (sumCofan (Φ := Φ) A B).
   exact ⟨whiskerCentral_ofRegion_branchValue (.inr (.var rfl)), pairArrows_copy_branchValue (.inr (.var rfl))⟩
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem copair_copies {A B D : τ} {f : ofType (Φ := Φ) A ⟶ ofType D}
+theorem copair_copies {A B D : τ} {f : ofType (Φ := Φ) A ⟶ ofType D}
     {g : ofType (Φ := Φ) B ⟶ ofType D} (hf : CentralCopies f) (hg : CentralCopies g) :
-    CentralCopies (copair f g) := by
+    CentralCopies ((sumIso A B).hom ≫ coprod.desc f g) := by
+  change CentralCopies (copair f g)
   refine ⟨Paper.TypeCategory.whiskerCentral_sumCofan_desc f g hf.1 hg.1, ?_⟩
   change pairArrows (copair f g) (copair f g) = copair f g ≫ diagonalArrow D
   apply BinaryCofan.IsColimit.hom_ext (sumCofanIsColimit A B)
@@ -112,6 +113,10 @@ local notation "cf" => Paper.Extension.Singleton.sumCofan Seed
 set_option hygiene false in
 local notation "cfLim" => Paper.Extension.Singleton.sumCofanIsColimit Seed
 
+theorem empty_centralCopies {Y : Q} (f : Obj U ⟶ Y) : Paper.Extension.Singleton.CentralCopies Seed f := by
+  obtain ⟨g, rfl⟩ := (F).map_surjective (Y := Y.as) f
+  exact Paper.Extension.Singleton.map_centralCopies Seed (empty_copies g)
+
 set_option backward.isDefEq.respectTransparency false in
 theorem empty_mem {Y : Q} (f : Obj U ⟶ Y) : DiscardPreservingReturn Seed pe f := by
   obtain ⟨g, rfl⟩ := (F).map_surjective (Y := Y.as) f
@@ -127,7 +132,7 @@ noncomputable def valueEmptyIsInitial : IsInitial (⟨Obj U⟩ : V) :=
     (fun _ _ => (J).map_injective ((Paper.Extension.Singleton.emptyIsInitial Seed).hom_ext _ _))
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem inl_mem (A B : τ) : DiscardPreservingReturn Seed pe (cf A B).inl := by
+theorem inl_mem (A B : τ) : DiscardPreservingReturn Seed pe (cf A B).inl := by
   change DiscardPreservingReturn Seed pe ((F).map (sumCofan A B).inl)
   rw [sumCofan_inl]
   have ha : Tm.BranchValue [A] (.inl (.var 0) : Tm Φ) (Silmaril.coprod A B) := .inl (.var rfl)
@@ -135,7 +140,7 @@ private theorem inl_mem (A B : τ) : DiscardPreservingReturn Seed pe (cf A B).in
     (Functor.map_comp (F) _ _).symm.trans (congrArg (F).map (Paper.TypeCategory.discard_comp_branchValue ha))⟩
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem inr_mem (A B : τ) : DiscardPreservingReturn Seed pe (cf A B).inr := by
+theorem inr_mem (A B : τ) : DiscardPreservingReturn Seed pe (cf A B).inr := by
   change DiscardPreservingReturn Seed pe ((F).map (sumCofan A B).inr)
   rw [sumCofan_inr]
   have ha : Tm.BranchValue [B] (.inr (.var 0) : Tm Φ) (Silmaril.coprod A B) := .inr (.var rfl)
@@ -174,7 +179,7 @@ theorem exactCopair_mem_iff {A B : τ} {D : Q} {f : Obj A ⟶ D} {g : Obj B ⟶ 
     · rw [← Category.assoc, exactCopair_inr, hg.2]
       exact (inr_mem Seed pe A B).2.symm
 
-def valueSumCofan (A B : τ) :
+@[expose] def valueSumCofan (A B : τ) :
     BinaryCofan (⟨Obj A⟩ : V) (⟨Obj B⟩ : V) :=
   BinaryCofan.mk (P := (⟨Obj (Silmaril.coprod A B)⟩ : V))
     ⟨(cf A B).inl, inl_mem Seed pe A B⟩ ⟨(cf A B).inr, inr_mem Seed pe A B⟩

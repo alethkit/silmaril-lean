@@ -18,6 +18,18 @@ universe u
 variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {A B K M C J E D : τ}
 
+open OrderedRuntime.Structured (Data Threaded runtime)
+open NestedTheta.ExplicitRuntime (Checked)
+open TwoBlock.TwoExit (Pure)
+
+/-- Embedding a local region into the link dialect preserves its label tree. -/
+theorem readBody_lift {args outs : Ports (OrderedRuntime.Structured.Ty τ)} {past sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
+    {a : Data args} {b : Data outs} {live : Origin (Threaded args) past runtime}
+    {t : NestedTheta.Term (ExplicitRuntime.Op Φ) (Threaded args) past sigs (Threaded outs)}
+    (checked : Checked (Pure τ) (ExplicitRuntime.Effect Φ) a b live t) :
+    readBody (liftChecked checked).1 = some (ExplicitRuntime.Reverse.read t) :=
+  Proofs.read_lift checked
+
 /-- Every forward-generated graph supplies the reverse decomposition. -/
 noncomputable def canonical (s : Loops Φ A B K M C J E D) : Decomposition (graph s) B K C J :=
   Proofs.canonical s

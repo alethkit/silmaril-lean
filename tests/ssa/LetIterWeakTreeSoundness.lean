@@ -10,6 +10,12 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Compile.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Cyclic.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Structured.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Written.Context.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.Reply.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1569,3 +1575,641 @@ example : ∃ d : Derivation (Empty ⊕ Unit) free Γ.toBoundCtx cycle A,
   Mixed.repeatOnRight_hasVisiblePrefixes sig sumSig rfl modelSlots (fun i => i.elim0) (.var 0)
 
 end LetIterCyclicFixture
+
+namespace LetIterWrittenMixedFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+
+abbrev Fx := Bool × Bool
+abbrev strict : Fx := (true, false)
+abbrev sig : Signature Unit Bool := ⟨fun _ => 1, fun _ _ => (), fun _ => ()⟩
+abbrev sumSig : SumCall.SumSignature Unit Unit :=
+  ⟨fun _ => 0, fun _ i => i.elim0, fun _ => (), fun _ => ()⟩
+abbrev A : Ty Unit := .base ()
+abbrev Γ : EffectCtx (Ty Unit) Fx := []
+abbrev free := (Ctx.nil : Ctx Empty (Ty Unit))
+abbrev slots : Fin Γ.length → Unit := Fin.elim0
+abbrev Ops := Bool ⊕ Unit
+
+local instance : HasEff Bool Fx := ⟨fun _ => strict⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff Ops Fx := SumCall.effects
+local instance : HasTy Ops (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+private theorem visibleAtom (f : Bool) : ¬ IsPure (⊥ : Fx) f := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+private theorem visibleSum (g : Unit) : ¬ IsPure (⊥ : Fx) g := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+abbrev usePayload (tag : Bool) : Expr Ops := .op (.inl tag) (.pair (.var 0) .unit)
+
+/-- The sum request's response survives both an ordinary let and a product
+binder before the case selects which visible atomic request receives it. -/
+abbrev expression : Expr Ops :=
+  .let₁ (.pair (.op (.inr ()) .unit) .unit)
+    (.let₂ (.var 0) (.case (.var 1) (usePayload false) (usePayload true)))
+
+private theorem expressionTyped : Wf Γ expression A strict :=
+  .let₁ (.pair (.op (f := Sum.inr ()) le_rfl (.unit _ _)) (.unit _ _))
+    (.let₂ (.var 0 bot_le)
+      (.case (.var 1 bot_le)
+        (.op (f := Sum.inl false) le_rfl (.pair (.var 0 bot_le) (.unit _ _)))
+        (.op (f := Sum.inl true) le_rfl (.pair (.var 0 bot_le) (.unit _ _)))))
+
+abbrev native : Tm Empty Ops Γ.length :=
+  .let₁ (.pair (.op (.inr ()) .unit) .unit)
+    (.let₂ (.bv 0) (.case (.bv 1)
+      (.op (.inl false) (.pair (.bv 0) .unit))
+      (.op (.inl true) (.pair (.bv 0) .unit))))
+
+private theorem lowers : expression.toLetIter Γ.length = some native := rfl
+
+def derivation : Derivation Ops free Γ.toBoundCtx native A :=
+  .let₁ (.pair (.op (f := Sum.inr ()) .unit) .unit)
+    (.let₂ .bv (.case .bv
+      (.op (f := Sum.inl false) (.pair .bv .unit))
+      (.op (f := Sum.inl true) (.pair .bv .unit))))
+
+abbrev expected : Mixed.Program sig sumSig () slots :=
+  .sum () (fun i => i.elim0)
+    (.atom false (fun _ => .var 0) (.ret (.var 0)))
+    (.atom true (fun _ => .var 0) (.ret (.var 0)))
+
+private theorem expectedTyped : expected.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl,
+    ⟨fun _ => trivial, visibleAtom false, le_rfl, trivial⟩,
+    ⟨fun _ => trivial, visibleAtom true, le_rfl, trivial⟩⟩
+
+private theorem ctxPure : Γ.Pure := fun i => i.elim0
+private theorem slotsTyped : ∀ i, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+
+variable {m : Nat} (ms : Fin m → Unit)
+
+local notation "D" => Ty.denote (Atom sig ms)
+local notation "M" => SumCall.instructions (ε := Fx) sig sumSig ms
+local notation "emptyEnv" => (fun x : Empty => x.elim)
+
+private theorem evalAtom (f : Bool) (r : Atom sig ms ()) :
+    (M).eval (.inl f) (r, PUnit.unit) =
+      ITree.vis (.atom f (fun _ => r.down)) (fun reply => ITree.ret ⟨reply⟩) := by
+  change (M).eval (.inl f) (packArgs sig ms 1 (sig.arg f) (fun _ => r.down)) = _
+  simp only [SumCall.instructions, ite_eq_right (visibleAtom f), readArgs, unpackArgs_packArgs]
+
+private theorem evalSum :
+    (M).eval (.inr ()) PUnit.unit =
+      ITree.vis (.sum () (fun j => j.elim0))
+        (fun r => ITree.ret (SumCall.responseValue sig sumSig ms r)) := by
+  change (M).eval (.inr ()) (packArgs sig ms 0 (sumSig.arg ()) (fun j => j.elim0)) = _
+  simp only [SumCall.instructions, unpackArgs_packArgs]
+  rfl
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+private theorem expressionDenote (vars : (i : Fin Γ.length) → Tree sig ms (slots i)) :
+    derivation.denote D M emptyEnv (variableEnv sig ms slotsTyped vars) =
+      expected.denote sig sumSig ms vars := by
+  simp only [derivation, Derivation.denote, pure_bind]
+  erw [evalSum ms, ITree.vis_bind, ITree.vis_bind]
+  simp only [Mixed.Program.denote]
+  congr 1
+  · congr 1
+    funext i
+    exact i.elim0
+  funext reply
+  erw [pure_bind]
+  cases reply with
+  | inl r =>
+    erw [pure_bind]
+    exact evalAtom ms false ⟨r⟩
+  | inr r =>
+    erw [pure_bind]
+    exact evalAtom ms true ⟨r⟩
+
+private theorem agreesWithExpected : Eqv Γ A strict expression expected.source := by
+  obtain ⟨p, hp, he⟩ := Mixed.Written.normalize_atomic sig sumSig ctxPure slotsTyped strict expressionTyped
+  have eq : p = expected := by
+    apply Mixed.eq_of_denote_eq sig sumSig
+    intro m ms vars
+    obtain ⟨dp, hdp⟩ := Mixed.eval_exists sig sumSig ms slotsTyped strict p hp
+    have hn := he.toLetIter lowers (Mixed.lowers sig sumSig p)
+    have agree := denote_eq_of_abortEquiv_nil.{0, 2, 0, 0} (Atom sig ms)
+      (SumCall.instructions (ε := Fx) sig sumSig ms)
+      (Mixed.instructions_respectsPure sig sumSig ms visibleSum) hn derivation dp
+      (variableEnv sig ms slotsTyped vars)
+    exact (hdp vars).symm.trans (agree.symm.trans (expressionDenote ms vars))
+  exact eq ▸ he
+
+example : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx native expected.native A ∧
+    Eqv Γ A strict expression expected.source := by
+  have hreflect := Mixed.Written.endpoint_reflection sig sumSig visibleSum ctxPure slotsTyped strict expressionTyped
+    (Mixed.source_wf sig sumSig ctxPure slotsTyped strict expected expectedTyped)
+    lowers (Mixed.lowers sig sumSig expected)
+  exact ⟨hreflect.mpr agreesWithExpected, hreflect.mp (hreflect.mpr agreesWithExpected)⟩
+
+end LetIterWrittenMixedFixture
+
+namespace LetIterStructuredResultFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+open LetIterWrittenMixedFixture
+
+local instance : HasEff Bool Fx := ⟨fun _ => strict⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff Ops Fx := SumCall.effects
+local instance : HasTy Ops (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev Choice : Ty Unit := .coprod A A
+abbrev Result : Ty Unit := .product Choice .unit
+abbrev req : Expr Ops := .op (.inr ()) .unit
+abbrev body : Expr Ops := .pair (.var 0) .unit
+abbrev expression : Expr Ops := .let₁ req body
+
+private theorem reqTyped : Wf Γ req Choice strict :=
+  .op (f := Sum.inr ()) le_rfl (.unit _ _)
+
+private theorem expressionTyped : Wf Γ expression Result strict :=
+  .let₁ reqTyped (.pair (.var 0 bot_le) (.unit _ _))
+
+abbrev native : Tm Empty Ops Γ.length :=
+  .let₁ (.op (.inr ()) .unit) (.pair (.bv 0) .unit)
+
+private theorem lowers : expression.toLetIter Γ.length = some native := rfl
+
+/-- Both branches return a product with the response sum still tagged. -/
+abbrev expected : Mixed.Written.Code sig sumSig Result slots :=
+  .sum () (fun i => i.elim0)
+    (.ret (.pair (.inl (.tree (.var 0))) .unit))
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+
+abbrev swappedLeft : Mixed.Written.Code sig sumSig Result slots :=
+  .sum () (fun i => i.elim0)
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+    (.ret (.pair (.inr (.tree (.var 0))) .unit))
+
+private theorem expectedTyped : expected.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl, ⟨trivial, trivial⟩, ⟨trivial, trivial⟩⟩
+
+private theorem swappedTyped : swappedLeft.WellTyped sig sumSig strict :=
+  ⟨fun i => i.elim0, le_rfl, ⟨trivial, trivial⟩, ⟨trivial, trivial⟩⟩
+
+private theorem agrees : Eqv Γ Result strict expression expected.source := by
+  have hL : Wf [(A, ⊥)] (.inl (.var 0) : Expr Ops) Choice (⊥ : Fx) := .inl (.var 0 le_rfl)
+  have hR : Wf [(A, ⊥)] (.inr (.var 0) : Expr Ops) Choice (⊥ : Fx) := .inr (.var 0 le_rfl)
+  have hl := hL.weakenEffect (bot_le : (⊥ : Fx) ≤ strict)
+  have hr := hR.weakenEffect (bot_le : (⊥ : Fx) ≤ strict)
+  have hc := Wf.case reqTyped hl hr
+  have hb : Wf [(Choice, ⊥)] body Result strict := .pair (.var 0 bot_le) (.unit _ _)
+  have hw : Wf [(Choice, ⊥), (A, ⊥)] body.wk1 Result strict := .pair (.var 0 bot_le) (.unit _ _)
+  have eta := (Eqv.step (Step.rewrite hc reqTyped (.case_eta _))).symm
+  have push := Eqv.step (Step.rewrite (.let₁ hc hb)
+    (.case reqTyped (.let₁ hl hw) (.let₁ hr hw)) (.let1_case _ _ _ _))
+  exact (Eqv.let1 eta (.refl hb)).trans
+    (push.trans (.case (.refl reqTyped) (.step (.let1_beta hL hw)) (.step (.let1_beta hR hw))))
+
+/-- Run the public reflection theorem at the original strict bound instead
+of identifying the compound result with an atomic code. -/
+example : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx native expected.native Result ∧
+    Eqv Γ Result strict expression expected.source := by
+  have h := Mixed.Written.endpoint_reflection_structured sig sumSig visibleSum ctxPure slotsTyped strict
+    expressionTyped agrees.endpoints_wf.2 lowers (Mixed.Written.Code.lowers sig sumSig expected)
+  exact ⟨h.mpr agrees, h.mp (h.mpr agrees)⟩
+
+/-- The very same requests with a changed injection inside the returned
+product are distinguishable at their original bound. -/
+example : ¬ Eqv Γ Result strict expected.source swappedLeft.source := by
+  intro h
+  have hn := h.toLetIter (Mixed.Written.Code.lowers sig sumSig expected)
+    (Mixed.Written.Code.lowers sig sumSig swappedLeft)
+  have hcode := Mixed.Written.Code.native_eq_implies_eq sig sumSig visibleSum slotsTyped strict
+    expected swappedLeft expectedTyped swappedTyped hn
+  simp [expected, swappedLeft] at hcode
+
+abbrev requestThenUnit : Mixed.Written.Code sig sumSig .unit slots :=
+  .sum () (fun i => i.elim0) (.ret .unit) (.ret .unit)
+
+abbrev returnUnit : Mixed.Written.Code sig sumSig .unit slots := .ret .unit
+
+/-- Unit compares equal at a pure return. It does not erase the preceding request. -/
+example : ¬ AbortEquiv (⊥ : Fx) free Γ.toBoundCtx requestThenUnit.native returnUnit.native .unit := by
+  intro h
+  have hcode := Mixed.Written.Code.native_eq_implies_eq sig sumSig visibleSum slotsTyped strict
+    requestThenUnit returnUnit ⟨fun i => i.elim0, le_rfl, trivial, trivial⟩ trivial h
+  cases hcode
+
+end LetIterStructuredResultFixture
+
+namespace LetIterStructuredInputFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+open LetIterWrittenMixedFixture (Fx strict sig sumSig A Ops free visibleSum)
+
+local instance : HasEff Bool Fx := ⟨fun _ => strict⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff Ops Fx := SumCall.effects
+local instance : HasTy Ops (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev Choice : Ty Unit := .coprod A A
+abbrev Held : Ty Unit := .product Choice .unit
+abbrev Γ : EffectCtx (Ty Unit) Fx := [(A, ⊥), (Held, ⊥)]
+
+private theorem ctxPure : Γ.Pure := by
+  intro i
+  exact Fin.cases rfl (fun j => Fin.cases rfl (fun k => k.elim0) j) i
+
+abbrev direct : Expr Ops := .case (.op (.inr ()) .unit) (.var 2) (.var 2)
+abbrev rebuiltArm : Expr Ops := .let₂ (.var 2) (.pair (.var 1) (.var 0))
+abbrev rebuilt : Expr Ops := .case (.op (.inr ()) .unit) rebuiltArm rebuiltArm
+
+private theorem requestTyped : Wf Γ (.op (Sum.inr ()) .unit : Expr Ops) Choice strict :=
+  .op (f := Sum.inr ()) le_rfl (.unit _ _)
+
+private theorem directTyped : Wf Γ direct Held strict :=
+  .case (A := A) (B := A) requestTyped (.var 2 bot_le) (.var 2 bot_le)
+
+private theorem rebuiltTyped : Wf Γ rebuilt Held strict := by
+  have arm : Wf ((A, ⊥) :: Γ) rebuiltArm Held strict :=
+    .let₂ (.var 2 bot_le) (.pair (.var 1 bot_le) (.var 0 bot_le))
+  exact .case (A := A) (B := A) requestTyped arm arm
+
+abbrev directNative : Tm Empty Ops Γ.length :=
+  .case (.op (.inr ()) .unit) (.bv 2) (.bv 2)
+abbrev rebuiltNativeArm : Tm Empty Ops (Γ.length + 1) :=
+  .let₂ (.bv 2) (.pair (.bv 1) (.bv 0))
+abbrev rebuiltNative : Tm Empty Ops Γ.length :=
+  .case (.op (.inr ()) .unit) rebuiltNativeArm rebuiltNativeArm
+
+/-- The case performs a visible request and preserves a non-head input
+product containing a sum. Native pair eta rebuilds the product in both arms. -/
+example : Eqv Γ Held strict direct rebuilt := by
+  have request : HasType Ops free Γ.toBoundCtx (.op (Sum.inr ()) .unit) Choice :=
+    .op (f := Sum.inr ()) .unit
+  have retained : HasType Ops free (.snoc Γ.toBoundCtx A) (.bv 2) Held := .bv
+  have eta := Silmaril.Isotope.LetIter.LocallyNameless.Equiv.pairEta (pureEff := (⊥ : Fx)) retained
+  have hn : AbortEquiv (⊥ : Fx) free Γ.toBoundCtx directNative rebuiltNative Held :=
+    .equiv (.case (.refl request) eta.symm eta.symm)
+  exact (Mixed.Written.endpoint_reflection_all_contexts sig sumSig visibleSum ctxPure strict
+    directTyped rebuiltTyped rfl rfl).mp hn
+
+end LetIterStructuredInputFixture
+
+namespace LetIterStructuredReplyFixture
+
+open Silmaril.Isotope.Semantics Silmaril.Elgot
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Instr
+  | stop | split | sendL | sendR | pureBit
+  deriving DecidableEq
+
+private def atom : Ty Unit := .base ()
+private def payload : Ty Unit := .product (.coprod atom atom) .unit
+
+private instance : HasTy Instr (Ty Unit) where
+  src
+    | .stop | .split | .pureBit => .unit
+    | .sendL | .sendR => atom
+  trg
+    | .stop => .empty
+    | .split => payload
+    | .pureBit => atom
+    | .sendL | .sendR => .unit
+
+private instance : HasEff Instr Bool where
+  eff f := f != .pureBit
+
+private def V : Unit → Type := fun _ => Bool
+
+private def P : PureMaps (Φ := Instr) (ε := Bool) V :=
+  fun f hf => by
+    cases f
+    case pureBit => exact fun _ => true
+    all_goals cases hf
+
+private theorem stop_visible : ¬ IsPure (⊥ : Bool) Instr.stop := by
+  change true ≠ false
+  decide
+private theorem split_visible : ¬ IsPure (⊥ : Bool) Instr.split := by
+  change true ≠ false
+  decide
+private theorem left_visible : ¬ IsPure (⊥ : Bool) Instr.sendL := by
+  change true ≠ false
+  decide
+
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev β₀ := (BoundCtx.nil : BoundCtx (Ty Unit) 0)
+private abbrev D := Ty.denote (Lifted V)
+private abbrev noVars : BoundEnv D β₀ := fun i => i.elim0
+private noncomputable abbrev M := instructions V P
+
+private def halt : Tm Empty Instr 0 :=
+  .let₁ (.op .stop .unit) (.abort (.bv 0))
+
+private def haltTyping : Derivation Instr Γ₀ β₀ halt (.unit : Ty Unit) :=
+  .let₁ (.op .unit) (.abort (.bv (ι := 0)))
+
+-- Empty response means the continuation has no possible entry. The request
+-- from the actual native program remains observable.
+example : headRequest V (haltTyping.denote D M (fun x => x.elim) noVars) =
+    Part.some (some ⟨Instr.stop, PUnit.unit⟩) := by
+  unfold haltTyping
+  rw [denote_letOp_of_not_pure V P stop_visible]
+  simp only [Derivation.denote, pure_bind]
+  exact head_of_vis V _ _ _
+
+private def continuation : Tm Empty Instr 1 :=
+  .let₂ (.bv 0)
+    (.case (.bv 1) (.op .sendL (.bv 0)) (.op .sendR (.bv 0)))
+
+private def continuationTyping :
+    Derivation Instr Γ₀ (β₀.snoc payload) continuation (.unit : Ty Unit) :=
+  .let₂ (.bv (ι := 0)) (.case (.bv (ι := 1))
+    (.op (.bv (ι := 0))) (.op (.bv (ι := 0))))
+
+private def call : Tm Empty Instr 0 := .let₁ (.op .split .unit) continuation
+
+private def callTyping : Derivation Instr Γ₀ β₀ call (.unit : Ty Unit) :=
+  .let₁ (.op .unit) continuationTyping
+
+private def leftSlots : Fin (1 + 0) → Unit := Fin.addCases (fun _ => ()) Fin.elim0
+private def leftShape : ReplyShape leftSlots payload :=
+  .pair (.inl (.atom ())) .unit
+private def leftValues (_ : Fin (1 + 0)) : Bool := true
+
+-- The test reply really is source syntax at bottom, with one fresh atomic slot.
+example : Wf ([(atom, false)] : EffectCtx (Ty Unit) Bool)
+    (leftShape.source (Φ := Instr) id) payload (⊥ : Bool) :=
+  ReplyShape.wf leftShape (Γ := [(atom, false)]) id (by
+    intro i
+    exact Fin.cases (motive := fun j => ([(atom, false)] : EffectCtx (Ty Unit) Bool).get j =
+      (.base (leftSlots j), (⊥ : Bool))) rfl (fun j => j.elim0) i)
+
+private noncomputable def next
+    (reply : Ty.denote V payload) : ITree.Tree (Event (Φ := Instr) V) (D (.unit : Ty Unit)) :=
+  continuationTyping.denote D M (fun x => x.elim)
+    (noVars.snoc ((toSmall V payload).symm reply))
+
+-- The actual native call emits only the outer request before any reply.
+example : callTyping.denote D M (fun x => x.elim) noVars =
+    ITree.vis (.call Instr.split PUnit.unit) next := by
+  unfold callTyping
+  rw [denote_letOp_of_not_pure V P split_visible]
+  simp only [Derivation.denote, pure_bind]
+  rfl
+
+-- Testing the left constructor under true reaches the distinct left
+-- request and passes the very payload field selected by that shape.
+example : headRequest V (next (leftShape.denote V leftValues)) =
+    Part.some (some ⟨Instr.sendL, true⟩) := by
+  unfold next continuationTyping
+  simp only [Derivation.denote, pure_bind, BoundEnv.snoc_zero]
+  change headRequest V ((M.eval Instr.sendL ⟨true⟩)) = _
+  rw [show M.eval Instr.sendL ⟨true⟩ = ITree.vis (.call Instr.sendL true) (fun _ => ITree.ret PUnit.unit) by
+    classical
+    simp only [M, instructions, left_visible, dite_false]
+    rfl]
+  exact head_of_vis V _ _ _
+
+end LetIterStructuredReplyFixture
+
+namespace LetIterStructuredPureValuesFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Inst where
+  | collect | seal | halt | note
+
+private abbrev Eff := Bool × Bool
+private abbrev bound : Eff := (true, false)
+private abbrev argument : Ty Unit := .coprod (.base ()) .unit
+private abbrev collectInput : Ty Unit := .product (Ty.coprod .unit .unit) .unit
+
+private instance : HasTy Inst (Ty Unit) where
+  src
+    | .collect => collectInput
+    | .halt => argument
+    | _ => .unit
+  trg
+    | .collect => .base ()
+    | .halt => .empty
+    | _ => .unit
+
+private instance : HasEff Inst Eff where
+  eff
+    | .collect | .seal => ⊥
+    | _ => bound
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private def profile : Profile (α := Unit) Inst Eff :=
+  fun f hf => by
+    cases f
+    · exact .atom () rfl
+    · exact .unit rfl
+    all_goals cases hf
+
+private abbrev Γ := ([] : EffectCtx (Ty Unit) Eff)
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev β := EffectCtx.toBoundCtx Γ
+private abbrev sorts : Fin Γ.length → Unit := fun _ => ()
+private theorem pureCtx : EffectCtx.Pure Γ := fun i => i.elim0
+private theorem ctxSorts : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (sorts i) := fun i => i.elim0
+private theorem halt_nonpure : ¬ IsPure (⊥ : Eff) Inst.halt := fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private abbrev a : Expr Inst :=
+  .inl (.op .collect (.pair (.inl .unit) (.op .seal .unit)))
+private abbrev b : Expr Inst :=
+  .inl (.op .collect (.pair (.inl .unit) .unit))
+private abbrev k : Expr Inst := .op .note .unit
+private abbrev l : Expr Inst := .unit
+private abbrev u : Tm Empty Inst 0 :=
+  .inl (.op .collect (.pair (.inl .unit) (.op .seal .unit)))
+private abbrev v : Tm Empty Inst 0 := .inl (.op .collect (.pair (.inl .unit) .unit))
+private abbrev t : Tm Empty Inst 1 := .op .note .unit
+private abbrev s : Tm Empty Inst 1 := .unit
+
+private theorem a_typed : Wf Γ a (instrSrc Inst.halt) (⊥ : Eff) :=
+  .inl (.op le_rfl (.pair (.inl (.unit _ _)) (.op le_rfl (.unit _ _))))
+private theorem b_typed : Wf Γ b (instrSrc Inst.halt) (⊥ : Eff) :=
+  .inl (.op le_rfl (.pair (.inl (.unit _ _)) (.unit _ _)))
+
+private theorem k_typed : Wf ((Ty.empty, (⊥ : Eff)) :: Γ) k (.unit : Ty Unit) bound :=
+  .op (f := Inst.note) le_rfl (.unit _ _)
+
+private theorem l_typed : Wf ((Ty.empty, (⊥ : Eff)) :: Γ) l (.unit : Ty Unit) bound :=
+  .unit _ _
+
+example : bound < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- The unit-returning primitive in the raw argument and the arbitrary
+-- effectful continuation are handled at the supplied strict bound.
+example :
+    AbortEquiv (⊥ : Eff) Γ₀ β (.let₁ (.op Inst.halt u) t) (.let₁ (.op Inst.halt v) s) (.unit : Ty Unit) ↔
+      Eqv Γ (.unit : Ty Unit) bound (.let₁ (.op Inst.halt a) k) (.let₁ (.op Inst.halt b) l) :=
+  empty_reply_constructor_reflection (slots := sorts) profile pureCtx ctxSorts halt_nonpure halt_nonpure
+    rfl le_rfl le_rfl a_typed b_typed (.inl (.op (.pair (.inl .unit) (.op .unit))))
+    (.inl (.op (.pair (.inl .unit) .unit))) k_typed l_typed rfl rfl rfl rfl
+
+private abbrev leftValue : Value (Φ := Inst) (ε := Eff) sorts argument :=
+  .inl (Value.op Inst.collect (show IsPure (⊥ : Eff) Inst.collect from rfl) (a := ()) rfl
+    (.pair (.inl .unit) .unit))
+
+private abbrev rightValue : Value (Φ := Inst) (ε := Eff) sorts argument :=
+  .inl (Value.op Inst.collect (show IsPure (⊥ : Eff) Inst.collect from rfl) (a := ()) rfl
+    (.pair (.inr .unit) .unit))
+
+-- Changing just the tag inside the argument of a pure generator changes
+-- the outer visible request, even though neither call can reply.
+example :
+    ¬ AbortEquiv (⊥ : Eff) Γ₀ β
+      (.let₁ (.op Inst.halt leftValue.native) .unit)
+      (.let₁ (.op Inst.halt rightValue.native) .unit) (.unit : Ty Unit) := by
+  intro h
+  have req := request_eq_of_abortEquiv profile (fun i => i.elim0)
+    halt_nonpure halt_nonpure .unit .unit h
+  have args : leftValue = rightValue := eq_of_heq (Sigma.mk.inj req).2
+  have differ := congrArg Value.source args
+  cases differ
+
+end LetIterStructuredPureValuesFixture
+
+namespace LetIterStructuredAtomicRepliesFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured (headRequest head_of_vis)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
+  (Atom Value Profile ConstructorLeaf)
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence
+
+set_option backward.isDefEq.respectTransparency false
+
+private inductive Instruction
+  | ask | send | stamp | unitOp
+
+private abbrev Eff := Bool × Bool
+private abbrev bound : Eff := (true, false)
+private abbrev A : Ty Unit := .base ()
+
+private instance : HasTy Instruction (Ty Unit) where
+  src
+    | .send => .product A .unit
+    | .stamp => A
+    | _ => .unit
+  trg
+    | .unitOp => .unit
+    | _ => A
+
+private instance : HasEff Instruction Eff where
+  eff
+    | .stamp | .unitOp => ⊥
+    | _ => bound
+
+local instance : EffectIteration Eff := EffectIteration.complete Eff
+
+private def profile : Profile (α := Unit) Instruction Eff :=
+  fun f hf => by
+    cases f
+    case stamp => exact .atom () rfl
+    case unitOp => exact .unit rfl
+    all_goals cases hf
+
+private theorem askVisible : ¬ IsPure (⊥ : Eff) Instruction.ask :=
+  fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private theorem sendVisible : ¬ IsPure (⊥ : Eff) Instruction.send :=
+  fun h => Bool.noConfusion (congrArg Prod.fst h)
+
+private abbrev Γ := ([] : EffectCtx (Ty Unit) Eff)
+private abbrev Γ' := (A, (⊥ : Eff)) :: Γ
+private abbrev β := EffectCtx.toBoundCtx Γ
+private abbrev Γ₀ := (Ctx.nil : Ctx Empty (Ty Unit))
+private abbrev sorts : Fin 0 → Unit := Fin.elim0
+private abbrev freshSorts : Fin 1 → Unit := Fin.cases () sorts
+
+private theorem pureCtx : EffectCtx.Pure Γ := fun i => i.elim0
+private theorem sourceSlots : ∀ i : Fin Γ.length, (Γ.get i).1 = Ty.base (sorts i) := fun i => i.elim0
+private theorem nativeSlots : ∀ i : Fin 0, β.get i = Ty.base (sorts i) := fun i => i.elim0
+private theorem nextSlots : ∀ i : Fin 1, (β.snoc A).get i = Ty.base (freshSorts i) :=
+  replySlots nativeSlots rfl
+
+private abbrev rawTail : Expr Instruction :=
+  .let₁ (.op .send (.pair (.var 0) .unit)) (.var 0)
+
+private abbrev raw : Expr Instruction :=
+  .let₁ (.op .ask (.op .unitOp .unit)) rawTail
+
+private abbrev clean : Expr Instruction :=
+  .let₁ (.op .ask .unit) rawTail
+
+private theorem tailWritten : Written A bound Γ' rawTail :=
+  .call (f := Instruction.send) sendVisible rfl
+    (.pair (.var 0 bot_le) (.unit _ _)) (.pair (.var 0) .unit) le_rfl
+    (.ret (.var 0 bot_le) (.var 0))
+
+private theorem rawWritten : Written A bound Γ raw :=
+  .call (f := Instruction.ask) askVisible rfl (.op (f := Instruction.unitOp) le_rfl (.unit _ _))
+    (.op .unit) le_rfl tailWritten
+
+private theorem cleanWritten : Written A bound Γ clean :=
+  .call (f := Instruction.ask) askVisible rfl (.unit _ _) .unit le_rfl tailWritten
+
+private abbrev loweredTail : Tm Empty Instruction 1 :=
+  .let₁ (.op .send (.pair (.bv 0) .unit)) (.bv 0)
+
+example : bound < (⊤ : Eff) :=
+  lt_of_le_of_ne le_top (fun h => Bool.noConfusion (congrArg Prod.snd h))
+
+-- Written reflection normalizes the pure unit-result operation at the
+-- supplied bound. The second request passes the first reply as a field.
+example :
+    AbortEquiv (⊥ : Eff) Γ₀ β
+      (.let₁ (.op .ask (.op .unitOp .unit)) loweredTail)
+      (.let₁ (.op .ask .unit) loweredTail) A ↔
+    Eqv Γ A bound raw clean :=
+  written_reflection profile pureCtx sourceSlots rawWritten cleanWritten rfl rfl
+
+private abbrev forwardReply : Program (Φ := Instruction) (ε := Eff) A freshSorts :=
+  .call Instruction.send sendVisible rfl (.pair (.var 0) .unit) (.ret (.var 0))
+
+private abbrev stampReply : Program (Φ := Instruction) (ε := Eff) A freshSorts :=
+  .call Instruction.send sendVisible rfl
+    (.pair (.op Instruction.stamp (show IsPure (⊥ : Eff) Instruction.stamp from rfl) rfl (.var 0)) .unit)
+    (.ret (.var 0))
+
+private abbrev forward : Program (Φ := Instruction) (ε := Eff) A sorts :=
+  .call Instruction.ask askVisible rfl .unit forwardReply
+
+private abbrev stamped : Program (Φ := Instruction) (ε := Eff) A sorts :=
+  .call Instruction.ask askVisible rfl .unit stampReply
+
+-- At the canonical valuation in the scope extended by the atomic reply,
+-- the generic atom itself occurs in the second visible request.
+example :
+    headRequest (Atom (Φ := Instruction) (ε := Eff) freshSorts)
+      (forwardReply.denote profile freshSorts nextSlots Value.var) =
+      Part.some (some ⟨Instruction.send, (Value.var 0, PUnit.unit)⟩) := by
+  rw [denote_call]
+  exact head_of_vis _ _ _ _
+
+-- Both programs make the same first request and both use its reply in the
+-- next request. Passing the fresh atom and applying a pure generator to it
+-- lead to distinguishable visible inputs.
+example : ¬ AbortEquiv (⊥ : Eff) Γ₀ β forward.native stamped.native A := by
+  intro h
+  have eq := eq_of_abortEquiv profile nativeSlots h
+  have src := congrArg Program.source eq
+  cases src
+
+end LetIterStructuredAtomicRepliesFixture

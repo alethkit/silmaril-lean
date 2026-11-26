@@ -80,6 +80,21 @@ theorem exitSum_ofRegion (S D : τ) :
   rw [sumCofan_inl, sumCofan_inr, coprod_desc_ofRegion, coprod_desc_ofRegion]
 
 set_option backward.isDefEq.respectTransparency false in
+theorem exitDecoder_inl (S D : τ) :
+    (sumCofan (Φ := Φ) S (coprod D Silmaril.empty)).inl ≫ ofRegion (τ := τ) (exitDecoder_typed S D) =
+      (sumCofan D S).inr := by
+  rw [← exitSum_ofRegion]
+  exact exact_inl _ _
+
+set_option backward.isDefEq.respectTransparency false in
+theorem exitDecoder_inr_inl (S D : τ) :
+    (sumCofan (Φ := Φ) D Silmaril.empty).inl ≫ (sumCofan S (coprod D Silmaril.empty)).inr ≫
+      ofRegion (τ := τ) (exitDecoder_typed S D) = (sumCofan D S).inl := by
+  rw [← exitSum_ofRegion]
+  unfold exitSumArrow
+  rw [exact_inr, exact_inl]
+
+set_option backward.isDefEq.respectTransparency false in
 private theorem dispatch_ofRegion {X A B D : τ} {e g h : Region Φ}
     (he : ValueBranches [X] e [Silmaril.coprod A B])
     (hg : ValueBranches [Silmaril.product X A] g [D])
@@ -337,25 +352,6 @@ theorem assemble_dispatch {X S D : τ}
     rfl
 
 set_option backward.isDefEq.respectTransparency false in
-omit [SymmetricCategory V] [DistributiveTensor V] in
-@[reassoc] private theorem exitSum_inl (S D : τ) :
-    inlMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D = inrMap M D S := by
-  simp only [exitSum, packedExitType, inlMap, inrMap, unpackLabel, Category.assoc,
-    Iso.inv_hom_id_assoc, coprod.inl_desc_assoc, labelAppendSplit_zero_assoc,
-    coprod.inr_map_assoc]
-  rw [reassoc_of% (labelInject_payload M S)]
-
-set_option backward.isDefEq.respectTransparency false in
-omit [SymmetricCategory V] [DistributiveTensor V] in
-@[reassoc] private theorem exitSum_inr_inl (S D : τ) :
-    inlMap M D Silmaril.empty ≫ inrMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D =
-      inlMap M D S := by
-  simp only [exitSum, packedExitType, inlMap, inrMap, unpackLabel, Category.assoc,
-    Iso.inv_hom_id_assoc, coprod.inr_desc_assoc, coprod.inl_desc_assoc, labelInject_labelMap_assoc,
-    labelAppendSplit_succ_assoc, coprod.inl_map_assoc]
-  rw [reassoc_of% (labelInject_payload M D)]
-
-set_option backward.isDefEq.respectTransparency false in
 theorem exitSum_compare (cmp : ModelComparisons J M objIso pe) (S D : τ) :
     reindexHom J M objIso (J.map (exitSum M S D)) = exitSumArrow (Φ := Φ) S D := by
   have transport {A B C : τ} (f : M.obj A ⟶ M.obj B) (g : M.obj B ⟶ M.obj C) :
@@ -366,14 +362,14 @@ theorem exitSum_compare (cmp : ModelComparisons J M objIso pe) (S D : τ) :
   let z := ofRegion (τ := τ) (Φ := Φ) (emptyExit_typed (Silmaril.coprod D S))
   let tail := (sumIso D (Silmaril.empty : τ)).hom ≫ coprod.desc h z
   apply BinaryCofan.IsColimit.hom_ext (sumCofanIsColimit S (Silmaril.coprod D Silmaril.empty))
-  · have e := congrArg (fun f => reindexHom J M objIso (J.map f)) (exitSum_inl M S D)
+  · have e := congrArg (fun f => reindexHom J M objIso (J.map f)) (Model.exitSum_inl M S D)
     rw [← transport, cmp.inl, cmp.inr] at e
     exact e.trans (exact_inl g tail).symm
   · suffices (sumCofan S (Silmaril.coprod D Silmaril.empty)).inr ≫
         reindexHom J M objIso (J.map (exitSum M S D)) = tail from
       this.trans (exact_inr g tail).symm
     apply BinaryCofan.IsColimit.hom_ext (sumCofanIsColimit D (Silmaril.empty : τ))
-    · have e := congrArg (fun f => reindexHom J M objIso (J.map f)) (exitSum_inr_inl M S D)
+    · have e := congrArg (fun f => reindexHom J M objIso (J.map f)) (Model.exitSum_inr_inl M S D)
       rw [← transport, ← transport, cmp.inl, cmp.inr, cmp.inl] at e
       exact e.trans (exact_inl h z).symm
     · exact emptyHom_ext _ _

@@ -7,6 +7,17 @@ import Silmaril.Proofs.Machine.SqliteVfs.ReadSplit.RangeLocal.Agreement
 
 namespace Silmaril.Machine.SqliteVfs.ReadSplit.RangeLocal
 
+open Silmaril.Machine.SqliteVfs
+
+/-- Optional-byte agreement on a nonempty interval preserves the exact
+status and padded buffer of the read result. -/
+theorem read_result_transport {before after : Bytes} {offset count : Nat}
+    {reply : ReadReply} (positive : 0 < count)
+    (agree : ∀ i, i < count → before[offset + i]? = after[offset + i]?)
+    (result : ReadResult after offset count reply) :
+    ReadResult before offset count reply :=
+  Silmaril.Proofs.Machine.SqliteVfs.ReadSplit.RangeLocal.read_result_transport positive agree result
+
 /-- Per-call byte contracts and stability of the second range's optional
 bytes suffice to compare replies. Each schedule retains its actual endpoint. -/
 theorem reads_split_of_suffix_agreement {State : Type} (step : Handler State)

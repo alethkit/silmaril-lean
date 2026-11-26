@@ -31,6 +31,7 @@ def valueSlots? {layout : Layout} : Body.Expr layout → Option (List (Fin layou
 A closure contributes its destination; its body has a separate code entry. -/
 def emittedSlots? {layout : Layout} : Link.Code layout → Option (List (Fin layout.locals))
   | .ret value => valueSlots? value
+  | .returnClosure .. => none
   | .assert (.eqInt receiver _) next
   | .assertCodeNames receiver _ next
   | .discardCall receiver next => do

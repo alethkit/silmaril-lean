@@ -38,7 +38,7 @@ private def atCurrent (value : Value) : GlobalLookup
   | "current" => some value
   | _ => none
 
-private def saved : Call.Saved Continuation := ⟨callerLayout, frame, ⟨.discard, next⟩⟩
+private def saved : Call.Saved Continuation := ⟨callerLayout, frame, some (.discard, next)⟩
 private def readCurrent : State := .running heap frame (.assertCodeNames currentTest next) [saved]
 
 -- A prior write updates the alias's captured cell. The metadata check reads
