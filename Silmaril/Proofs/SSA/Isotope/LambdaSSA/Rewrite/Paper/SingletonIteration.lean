@@ -113,15 +113,9 @@ theorem iterate_fixpoint {X Y : TypeCategory (τ := τ) Φ} (f : X ⟶ Y ⨿ X) 
   rw [CfgEta.TypeCategory.returnOrRepeat_lift]
   exact Paper.fixpoint hp
 
-private noncomputable def dispatch (A B : TypeCategory (τ := τ) Φ) :
-    (toInterface Φ).obj (B ⨿ A) ⟶
-      Paper.fromNative.obj ((single (show τ from A)).append (single (show τ from B))) :=
-  (sumIso (Φ := Φ) (show τ from B) (show τ from A)).inv.hom ≫
-    Paper.fromNative.map (SyntacticCategory.iterationDispatchHom (show τ from A) (show τ from B))
-
 @[reassoc]
-private theorem inl_dispatch (A B : TypeCategory (τ := τ) Φ) :
-    (toInterface Φ).map (coprod.inl : B ⟶ B ⨿ A) ≫ dispatch A B =
+theorem inl_iterationDispatchArrow (A B : TypeCategory (τ := τ) Φ) :
+    (toInterface Φ).map (coprod.inl : B ⟶ B ⨿ A) ≫ iterationDispatchArrow A B =
       Paper.fromNative.map ((single (show τ from A)).appendInr (single (show τ from B))) := by
   let a : τ := A
   let b : τ := B
@@ -137,8 +131,8 @@ private theorem inl_dispatch (A B : TypeCategory (τ := τ) Φ) :
   exact e
 
 @[reassoc]
-private theorem inr_dispatch (A B : TypeCategory (τ := τ) Φ) :
-    (toInterface Φ).map (coprod.inr : A ⟶ B ⨿ A) ≫ dispatch A B =
+theorem inr_iterationDispatchArrow (A B : TypeCategory (τ := τ) Φ) :
+    (toInterface Φ).map (coprod.inr : A ⟶ B ⨿ A) ≫ iterationDispatchArrow A B =
       Paper.fromNative.map ((single (show τ from A)).appendInl (single (show τ from B))) := by
   let a : τ := A
   let b : τ := B
@@ -153,17 +147,17 @@ private theorem inr_dispatch (A B : TypeCategory (τ := τ) Φ) :
   rw [h]
   exact e
 
-private theorem map_iterate {A B : TypeCategory (τ := τ) Φ} (f : A ⟶ B ⨿ A) :
+theorem toInterface_map_iterate {A B : TypeCategory (τ := τ) Φ} (f : A ⟶ B ⨿ A) :
     (toInterface Φ).map (Paper.TypeCategory.iterate f) =
       feedback (X := single (show τ from A)) (Y := single (show τ from B))
-        ((toInterface Φ).map f ≫ dispatch A B) := by
-  unfold Paper.TypeCategory.iterate iterateSum dispatch
+        ((toInterface Φ).map f ≫ iterationDispatchArrow A B) := by
+  unfold Paper.TypeCategory.iterate iterateSum iterationDispatchArrow
   change feedback (X := single (show τ from A)) (Y := single (show τ from B))
     ((f.hom ≫ (sumIso (show τ from B) (show τ from A)).inv.hom) ≫ _) = _
   rw [Category.assoc]
   rfl
 
-private theorem chosen_hom_ext {A B : TypeCategory (τ := τ) Φ} {Z : Interface Φ ([] : VCtx τ)}
+theorem chosen_sum_hom_ext {A B : TypeCategory (τ := τ) Φ} {Z : Interface Φ ([] : VCtx τ)}
     {p q : (toInterface Φ).obj (B ⨿ A) ⟶ Z}
     (hl : (toInterface Φ).map (coprod.inl : B ⟶ B ⨿ A) ≫ p = (toInterface Φ).map coprod.inl ≫ q)
     (hr : (toInterface Φ).map (coprod.inr : A ⟶ B ⨿ A) ≫ p = (toInterface Φ).map coprod.inr ≫ q) :
@@ -184,59 +178,59 @@ private theorem chosen_hom_ext {A B : TypeCategory (τ := τ) Φ} {Z : Interface
 theorem iterate_naturality {A B C : TypeCategory (τ := τ) Φ} (f : A ⟶ B ⨿ A) (g : B ⟶ C) :
     Paper.TypeCategory.iterate f ≫ g = Paper.TypeCategory.iterate (f ≫ coprod.map g (𝟙 A)) := by
   let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
-  have h : F.map (coprod.map g (𝟙 A)) ≫ dispatch A C =
-      dispatch A B ≫ prepend (single (show τ from A)) (F.map g) := by
-    apply chosen_hom_ext
+  have h : F.map (coprod.map g (𝟙 A)) ≫ iterationDispatchArrow A C =
+      iterationDispatchArrow A B ≫ prepend (single (show τ from A)) (F.map g) := by
+    apply chosen_sum_hom_ext
     · change F.map (coprod.inl : B ⟶ B ⨿ A) ≫ _ = _
       rw [← F.map_comp_assoc, coprod.inl_map, F.map_comp, Category.assoc,
-        inl_dispatch, inl_dispatch_assoc, appendInr_prepend]
+        inl_iterationDispatchArrow, inl_iterationDispatchArrow_assoc, appendInr_prepend]
       rfl
     · change F.map (coprod.inr : A ⟶ B ⨿ A) ≫ _ = _
       rw [← F.map_comp_assoc, coprod.inr_map, Category.id_comp,
-        inr_dispatch, inr_dispatch_assoc, appendInl_prepend]
+        inr_iterationDispatchArrow, inr_iterationDispatchArrow_assoc, appendInl_prepend]
       rfl
   apply F.map_injective
-  rw [F.map_comp, map_iterate, feedback_postcompose, map_iterate, F.map_comp]
+  rw [F.map_comp, toInterface_map_iterate, feedback_postcompose, toInterface_map_iterate, F.map_comp]
   simp only [Category.assoc, h]
   rfl
 
 -- Test the two outer injections to identify duplicate-label collapse.
 private theorem nested_dispatch (A B : TypeCategory (τ := τ) Φ) :
-    dispatch A (B ⨿ A) ≫
-        prepend (single (show τ from A)) (dispatch A B) ≫ collapseLabels (show τ from A) (single (show τ from B)) =
-      (toInterface Φ).map (coprod.desc (𝟙 (B ⨿ A)) coprod.inr) ≫ dispatch A B := by
+    iterationDispatchArrow A (B ⨿ A) ≫
+        prepend (single (show τ from A)) (iterationDispatchArrow A B) ≫ collapseLabels (show τ from A) (single (show τ from B)) =
+      (toInterface Φ).map (coprod.desc (𝟙 (B ⨿ A)) coprod.inr) ≫ iterationDispatchArrow A B := by
   let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
-  apply chosen_hom_ext
+  apply chosen_sum_hom_ext
   · change F.map (coprod.inl : (B ⨿ A) ⟶ (B ⨿ A) ⨿ A) ≫ _ = _
-    rw [inl_dispatch_assoc, appendInr_prepend_assoc, collapseLabels_right, Category.comp_id,
+    rw [inl_iterationDispatchArrow_assoc, appendInr_prepend_assoc, collapseLabels_right, Category.comp_id,
       ← F.map_comp_assoc, coprod.inl_desc, F.map_id, Category.id_comp]
   · change F.map (coprod.inr : A ⟶ (B ⨿ A) ⨿ A) ≫ _ = _
-    rw [inr_dispatch_assoc, appendInl_prepend_assoc, collapseLabels_left,
-      ← F.map_comp_assoc, coprod.inr_desc, inr_dispatch]
+    rw [inr_iterationDispatchArrow_assoc, appendInl_prepend_assoc, collapseLabels_left,
+      ← F.map_comp_assoc, coprod.inr_desc, inr_iterationDispatchArrow]
 
 theorem iterate_codiagonal {A B : TypeCategory (τ := τ) Φ} (f : A ⟶ (B ⨿ A) ⨿ A) :
     Paper.TypeCategory.iterate (Paper.TypeCategory.iterate f) =
       Paper.TypeCategory.iterate (f ≫ coprod.desc (𝟙 (B ⨿ A)) coprod.inr) := by
   let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
   apply F.map_injective
-  rw [map_iterate, map_iterate, feedback_postcompose, feedback_codiagonal, map_iterate, F.map_comp]
+  rw [toInterface_map_iterate, toInterface_map_iterate, feedback_postcompose, feedback_codiagonal, toInterface_map_iterate, F.map_comp]
   simp only [Category.assoc, nested_dispatch]
   rfl
 
 private theorem simulation_dispatch {A D B : τ} {a : Tm Φ} (ha : Tm.BranchValue [A] a D) :
     let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
     let h := ofRegion (r := .br 0 a) (.br (ℓ := 0) rfl ha)
-    F.map (coprod.map (𝟙 (ofType B)) h) ≫ dispatch (ofType D) (ofType B) =
-      dispatch (ofType A) (ofType B) ≫ localStateChange (single B) ha := by
+    F.map (coprod.map (𝟙 (ofType B)) h) ≫ iterationDispatchArrow (ofType D) (ofType B) =
+      iterationDispatchArrow (ofType A) (ofType B) ≫ localStateChange (single B) ha := by
   dsimp only
   let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
-  apply chosen_hom_ext
+  apply chosen_sum_hom_ext
   · change F.map (coprod.inl : ofType B ⟶ ofType B ⨿ ofType A) ≫ _ = _
-    rw [← F.map_comp_assoc, coprod.inl_map, Category.id_comp, inl_dispatch, inl_dispatch_assoc,
+    rw [← F.map_comp_assoc, coprod.inl_map, Category.id_comp, inl_iterationDispatchArrow, inl_iterationDispatchArrow_assoc,
       localStateChange_right]
   · change F.map (coprod.inr : ofType A ⟶ ofType B ⨿ ofType A) ≫ _ = _
     rw [← F.map_comp_assoc, coprod.inr_map, F.map_comp, Category.assoc,
-      inr_dispatch, inr_dispatch_assoc, localStateChange_left]
+      inr_iterationDispatchArrow, inr_iterationDispatchArrow_assoc, localStateChange_left]
     rfl
 
 theorem iterate_uniformity_ofBranchValue {A D B : τ} {a : Tm Φ} (ha : Tm.BranchValue [A] a D)
@@ -248,15 +242,15 @@ theorem iterate_uniformity_ofBranchValue {A D B : τ} {a : Tm Φ} (ha : Tm.Branc
       ofRegion (r := .br 0 a) (.br (ℓ := 0) rfl ha) ≫ Paper.TypeCategory.iterate g := by
   let F : TypeCategory (τ := τ) Φ ⥤ Interface Φ ([] : VCtx τ) := toInterface Φ
   let h := ofRegion (r := .br 0 a) (.br (ℓ := 0) rfl ha)
-  have square : (F.map f ≫ dispatch (ofType A) (ofType B)) ≫ localStateChange (single B) ha =
-      stateChange ha ≫ (F.map g ≫ dispatch (ofType D) (ofType B)) := by
-    change (F.map f ≫ dispatch (ofType A) (ofType B)) ≫ _ =
-      F.map h ≫ (F.map g ≫ dispatch (ofType D) (ofType B))
+  have square : (F.map f ≫ iterationDispatchArrow (ofType A) (ofType B)) ≫ localStateChange (single B) ha =
+      stateChange ha ≫ (F.map g ≫ iterationDispatchArrow (ofType D) (ofType B)) := by
+    change (F.map f ≫ iterationDispatchArrow (ofType A) (ofType B)) ≫ _ =
+      F.map h ≫ (F.map g ≫ iterationDispatchArrow (ofType D) (ofType B))
     rw [Category.assoc, ← simulation_dispatch (B := B) ha, ← F.map_comp_assoc, comm, F.map_comp,
       Category.assoc]
   apply F.map_injective
   change F.map (Paper.TypeCategory.iterate f) = F.map (h ≫ Paper.TypeCategory.iterate g)
-  rw [F.map_comp, map_iterate, map_iterate]
+  rw [F.map_comp, toInterface_map_iterate, toInterface_map_iterate]
   exact feedback_uniformity (single B) ha _ _ square
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonIteration

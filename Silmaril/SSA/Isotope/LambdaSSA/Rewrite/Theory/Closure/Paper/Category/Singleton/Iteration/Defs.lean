@@ -22,6 +22,13 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {A B : τ}
   InducedCategory.homMk (feedback (X := single A) (Y := single B)
     (f.hom ≫ fromNative.map (SyntacticCategory.iterationDispatchHom A B)))
 
+/-- Convert the chosen sum and send each summand to its guarded CFG label. -/
+@[expose] noncomputable def iterationDispatchArrow (A B : TypeCategory (τ := τ) Φ) :
+    (toInterface Φ).obj (B ⨿ A) ⟶
+      Paper.fromNative.obj ((single (show τ from A)).append (single (show τ from B))) :=
+  (sumIso (Φ := Φ) (show τ from B) (show τ from A)).inv.hom ≫
+    Paper.fromNative.map (SyntacticCategory.iterationDispatchHom (show τ from A) (show τ from B))
+
 /-- Feed the state summand of a step back to its input. -/
 @[expose] noncomputable def iterate {X Y : TypeCategory (τ := τ) Φ} (f : X ⟶ Y ⨿ X) : X ⟶ Y :=
   iterateSum (A := (show τ from X)) (B := (show τ from Y))
