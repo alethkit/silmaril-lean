@@ -11,6 +11,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retain
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Inference.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
@@ -22,6 +23,7 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.R
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Reindex.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Inference.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
@@ -820,5 +822,65 @@ example : Static.Sequence.Search.lower overwriteDiamond blockedResidual [address
     .error .invalidContracts := rfl
 #guard runDiscovered blockedResidual [addressFacts] overwriteInput false ==
   some ([], some (99, 99, [99, 99, 99, 3, 55], [99, 99, 99, 3, 55]))
+
+open Entry.Composition.Retained.Load.Static.Sequence.Search.Inference (inferContracts)
+
+private def unknownPrefix (tail : Memory.Graph args) : Memory.Graph args :=
+  sideStore.prepend (lastSideStore.prepend ((⟨leftPort, entryWord⟩ : PrefixStore args).prepend tail))
+
+private def observedHead : Memory.Graph args :=
+  .load (.latest 0) (.arg headPort)
+    (.store (.latest 0) (.arg headPort) loaded (.ret (.latest 1) loaded))
+
+private def headWrite : Memory.Graph args := (⟨headPort, rightWord⟩ : PrefixStore args).prepend observedHead
+
+private def inferredEntry : Memory.Graph args :=
+  unknownPrefix ((⟨headPort, leftWord⟩ : PrefixStore args).prepend (middleStore.prepend headWrite))
+
+private def inferredFinal : Memory.Graph args := unknownPrefix headWrite
+
+private def inferredPlan : Static.Sequence.Plan args :=
+  [⟨4, ⟨⟨headPort, []⟩, []⟩⟩, ⟨4, ⟨⟨headPort, []⟩, []⟩⟩]
+
+example : inferContracts inferredEntry =
+    [⟨⟨leftPort, []⟩, []⟩, ⟨⟨rightPort, []⟩, []⟩, ⟨⟨headPort, []⟩, []⟩] := rfl
+example : Static.Sequence.Search.discover inferredEntry (inferContracts inferredEntry) =
+    ⟨inferredPlan, inferredFinal⟩ := rfl
+
+-- The next head-cell Load observes version four. The first left-cell
+-- candidate needs disjointness from rightPort, which inference cannot supply.
+example : Static.cut ⟨⟨headPort, []⟩, []⟩ 4 inferredFinal = none := rfl
+example : Static.cut ⟨⟨leftPort, []⟩, []⟩ 1 inferredFinal = none := rfl
+example : (Static.cut ⟨⟨leftPort, [rightPort]⟩, []⟩ 1 inferredFinal).isSome = true := rfl
+example : Static.Sequence.Search.find inferredFinal (inferContracts inferredEntry) = none := rfl
+
+private def runInferred (graph : Graph args) (entry : Memory.Graph args)
+    (valuation : Tuple (Val 4) args) (guard : Bool) (fuel : Nat) :
+    Option (List Nat × Option (Word × Word × List Word × List Word)) :=
+  match Static.Sequence.Search.Inference.lower graph entry valuation with
+  | .error .invalidContracts => none
+  | .ok emission => some (emission.plan.map (·.version), runEntryPrograms emission.programs guard fuel)
+
+/-- info: some ([4, 4], some (33#64, 33#64, [33#64, 33#64, 99#64, 33#64, 55#64], [33#64, 33#64, 99#64, 33#64, 55#64])) -/
+#guard_msgs in
+#eval runInferred overwriteDiamond inferredEntry input false 3
+
+#guard runInferred overwriteDiamond inferredEntry input true 3 ==
+  some ([4, 4], some (33, 33, [99, 11, 11, 33, 55], [99, 11, 11, 33, 55]))
+#guard runInferred overwriteDiamond inferredEntry input true 2 == some ([4, 4], none)
+#guard runInferred overwriteDiamond inferredEntry (input leftCell) false 3 ==
+  some ([4, 4], some (33, 33, [33, 33, 99, 3, 55], [33, 33, 99, 3, 55]))
+
+-- Routing both Store origins to the same typed argument exposes a cut.
+-- Distinct original ports remain unknown even when an invocation aliases them.
+private def originalRoutes : Memory.Graph args := middleStore.prepend lastSideStore.table
+private def sharedRoute : Memory.Graph args := mapBody identifyAliases originalRoutes
+private def routedDiamond : Graph args := mapGraph (⟨identifyAliases⟩ : entrySignature ⟶ entrySignature) overwriteDiamond
+
+example : inferContracts sharedRoute = [⟨⟨headPort, []⟩, []⟩] := rfl
+#guard runInferred overwriteDiamond originalRoutes overwriteInput false 3 ==
+  some ([], some (33, 33, [33, 33, 2, 3, 55], [33, 33, 2, 3, 55]))
+#guard runInferred routedDiamond sharedRoute input false 3 ==
+  some ([1], some (33, 33, [33, 33, 2, 3, 55], [33, 33, 2, 3, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
