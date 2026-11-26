@@ -47,22 +47,45 @@ For an immutable-only capture, `findCaptured?_immutable` identifies every
 operand's definition at entry cut 0 and proves that its typed value agrees
 with the original input under any saved prefix. `Step.emit_immutable` proves
 legality at the actual append cut and equality with the binding's value on
-the current header for every latch argument. The input definitions satisfy
-Click's early constraint at the supported append cut. Current ordinary and
-Φ reads supply the late-use checks for that position. A latch argument or
-another unhoisted header result is a local origin and fails operand capture.
+the current header for every latch argument. A latch argument or another
+unhoisted header result is a local origin and fails operand capture.
 The new scanner returns the same
 candidate and use sites for earlier saved-dependent successes, and
 `prepareOn?_of_saved_capture` and `emit_of_saved_capture` retain their exact
 handoff and emission. [Capture theorems][captures] · [Checked step][step]
 
+## Operand availability within the saved prefix
+
+Click's Schedule Early (§2.2) finds the earliest block dominated by all
+inputs. Within the fixed preheader, `Candidate.earliestCut` refines that input
+constraint to local binding order. It takes the maximum defining cut of the
+captured typed references, with cut zero for immutable inputs. A read of
+saved slot `i` (newest first) requires at least cut `prefixLength - i`, even
+if every other operand is immutable. `findCaptured?_sites` ties the recorded
+definitions to the typed capture. Given a successful split of the current
+entry at the saved prefix, `findCaptured?_operandCut_iff` proves that the
+closed interval from `earliestCut` through the prefix end contains exactly
+the valid prefix cuts where all operands are available.
+
+`checkPrefixCut` also checks the ordinary uses and the actual incoming Φ
+occurrences (§2.3). The second and later discovery phases use it at the
+prefix end on each current CFG. `findCaptured?_checkConsumer_eq` proves the
+added interval check yields the same append decision for every typed capture.
+Schedule Late's block selection and loop-depth ranking (§§2.3–2.4) are outside
+this local interval. Even when an earlier cut passes both checks, replay
+still appends. Earlier insertion needs a typed mapping between the reordered
+preheader definitions and their saved packet slots on entry and feedback.
+[Capture theorems][captures] · [PLDI ’95 proceedings][paper]
+
 The runnable chain discovers origin/cut pairs `(1, 0)`, `(2, 1)`, and
 `(5, 2)`. The third binding needs both earlier results. Two variants keep
 the same plan with an immutable-only binding at cut 1 or cut 2. A variant
 with a latch-dependent operand stops after `(1, 0)`, and a loop whose
-candidates all depend on the latch stops before the first move. The
-regressions check the cut-zero operand sites and the current checker's
-refusal of the varying consumer.
+candidates all depend on the latch stops before the first move. On the actual
+one-save CFG the immutable consumer has interval `[0, 1]`. On the actual
+two-save CFG a consumer of the older save has interval `[1, 2]`, passes the
+use check at both cuts, and still replays at cut 2. Latch and header-local
+reads both fail capture.
 [Example][example] · [Regression][regression]
 
 ```sh
@@ -76,8 +99,12 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Example
 #eval observe immutableLater
 #eval observe varying
 #eval observe unsaved
+#eval immutableInterval
+#eval savedInterval
+#eval rejectedIntervals
 LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-hoist-discovery-example.lean
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Discovery.Thms
 ```

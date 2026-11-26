@@ -1,10 +1,12 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Defs
+public import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Defs
 import Mathlib.Data.List.InsertIdx
 import Silmaril.SSA.SeaOfNodes.GCM.Dominance.Placement.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Thms
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Saved.Prefix.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence.Thms
 import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Priority.Thms
@@ -24,11 +26,32 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Earlier (operations)
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Header.Sequence (State)
 open Loop.MLIR.CF (Program TargetOp evalOp lower)
+open Dominance.Placement (checkCut)
 
 variable {Input Γ Δ extra : List Width} {saved carried result : Width}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 variable {g : Program Input carried result entrySigs headerSigs}
 variable {first : AfterReorder.Plan} {consumerOrigin : Nat} {prepared : Prepared Input carried result}
+variable {candidate : Candidate Input saved carried result extra}
+variable {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+
+local instance : DecidableEq (Target (Label saved carried result extra)) := targetDecEqWith
+
+theorem earliestCut_le_iff {cut : Nat} :
+    candidate.earliestCut ≤ cut ↔ ∀ operand ∈ candidate.operands, operand.cut ≤ cut := by
+  unfold Candidate.earliestCut
+  generalize listEq : candidate.operands.map Point.cut = cuts
+  have same : (∀ c ∈ cuts, c ≤ cut) ↔ ∀ operand ∈ candidate.operands, operand.cut ≤ cut := by
+    rw [← listEq]
+    simp
+  rw [← same]
+  cases maximum : cuts.max? with
+  | none => simp [List.max?_eq_none_iff.mp maximum]
+  | some max => exact List.max?_le_iff maximum
+
+theorem checkPrefixCut_legal {cut : Nat} (accepted : checkPrefixCut cfg candidate cut = true) :
+    Legal cfg candidate.operands candidate.uses ⟨none, cut⟩ :=
+  (Dominance.Placement.checkCut_iff.mp (Bool.and_eq_true_iff.mp accepted).2).2
 
 private theorem savedOrigins_agree (value : BitVec saved.val) (old : BitVec carried.val)
     (input : Env Input) : CapturesAgree savedOrigins (.cons value (.cons old input)) (.cons value input) :=
@@ -59,7 +82,7 @@ theorem findCaptured?_value {index cut : Nat}
       | here => cases fromOrigin
       | there ref => exact agree ref captured fromOrigin
 
-private theorem findCaptured?_sites {index cut : Nat}
+theorem findCaptured?_sites {index cut : Nat}
     {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
     {code : Block TargetOp (Label saved carried result extra) Γ [result]}
     {candidate : Candidate Input saved carried result extra}
@@ -77,6 +100,79 @@ private theorem findCaptured?_sites {index cut : Nat}
         cases found
         rfl
     | succ index => exact ih found
+
+private theorem prefixSites_bounds {args : List Width} (inputs : Operands ((extra ++ [saved]) ++ Input) args)
+    (operand : Point (Label saved carried result extra)) (member : operand ∈ prefixSites inputs) :
+    operand.block = none ∧ operand.cut ≤ (extra ++ [saved]).length := by
+  induction inputs with
+  | nil => simp [prefixSites] at member
+  | cons ref tail ih =>
+    simp only [prefixSites, List.mem_cons] at member
+    rcases member with rfl | member
+    · exact ⟨rfl, Nat.sub_le _ _⟩
+    · exact ih member
+
+theorem findCaptured?_operandCut_end {index cursor : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    (found : findCaptured? index cursor origins code = some candidate) :
+    candidate.operandCut? (extra ++ [saved]).length = true := by
+  apply decide_eq_true
+  refine ⟨earliestCut_le_iff.mpr (fun operand member => ?_), Nat.le_refl _⟩
+  rw [findCaptured?_sites found] at member
+  exact (prefixSites_bounds _ operand member).2
+
+theorem findCaptured?_checkConsumer_eq {index cursor : Nat}
+    {origins : Origins ((extra ++ [saved]) ++ Input) Γ}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]}
+    (found : findCaptured? index cursor origins code = some candidate) :
+    checkConsumer cfg candidate =
+      checkCut cfg intermediateBlocks candidate.operands candidate.uses ⟨none, (extra ++ [saved]).length⟩ := by
+  simp only [checkConsumer, checkPrefixCut, findCaptured?_operandCut_end found, Bool.true_and]
+
+private theorem prefix_wrap_bindings {Δ : List Width} (leading : Saved.Prefix Input Δ)
+    (tail : Block TargetOp (Label saved carried result extra) Δ [result]) :
+    (shape.ofBlock (leading.wrap tail)).bindings + Input.length =
+      (shape.ofBlock tail).bindings + Δ.length := by
+  induction leading with
+  | nil => rfl
+  | snoc prior op operands ih =>
+    rw [Saved.Prefix.wrap, ih]
+    simp only [shape.ofBlock, List.length_cons]
+    omega
+
+theorem findCaptured?_operandCut_iff {index cut : Nat}
+    {leading : Saved.Prefix Input ((extra ++ [saved]) ++ Input)}
+    {tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]}
+    (split : Saved.splitPrefix? cfg.entry (extra ++ [saved]) = some (leading, tail))
+    (found : findCaptured? index 0 (Saved.origins (extra ++ [saved])) (cfg.block .header) = some candidate) :
+    candidate.operandCut? cut = true ↔ cut ≤ (extra ++ [saved]).length ∧
+      (Point.mk none cut).Valid cfg ∧
+      ∀ operand ∈ candidate.operands, operand.Valid cfg ∧ operand.AvailableAt cfg ⟨none, cut⟩ := by
+  have fits : (extra ++ [saved]).length ≤ (shape cfg none).bindings := by
+    have lengths := prefix_wrap_bindings leading tail
+    rw [Saved.splitPrefix?_wrap split, List.length_append] at lengths
+    change (extra ++ [saved]).length ≤ (shape.ofBlock cfg.entry).bindings
+    omega
+  have entryReachable : Reachable cfg none := ⟨_, .entry⟩
+  have entryDominates : Dominates cfg none none := by
+    intro past path
+    cases path
+    simp
+  have bounds : ∀ operand ∈ candidate.operands, operand.block = none ∧ operand.cut ≤ (extra ++ [saved]).length := by
+    rw [findCaptured?_sites found]
+    exact prefixSites_bounds _
+  rw [Candidate.operandCut?, decide_eq_true_eq, earliestCut_le_iff]
+  constructor
+  · rintro ⟨ordered, within⟩
+    refine ⟨within, ⟨entryReachable, within.trans fits⟩, fun operand member => ?_⟩
+    obtain ⟨block, bound⟩ := bounds operand member
+    cases operand with
+    | mk blockId defCut =>
+      cases block
+      exact ⟨⟨entryReachable, bound.trans fits⟩, ⟨entryDominates, fun _ => ordered _ member⟩⟩
+  · rintro ⟨within, _, available⟩
+    exact ⟨fun operand member => (available operand member).2.local_order (bounds operand member).1, within⟩
 
 private theorem immutable_sites {args : List Width} (operands : Operands ((extra ++ [saved]) ++ Input) args)
     {captured : Operands Input args}
@@ -205,9 +301,8 @@ theorem prepare?_placement (accepted : prepare? g first consumerOrigin = some pr
   have aligned : prepared.origins.map (fun origin => (operations ((lower g).block .header))[origin]?) =
       (operations (prepared.intermediate.2.block .header)).map some := by
     rw [erased, ← List.eraseIdx_map, tracked.2.1, List.eraseIdx_map, sameOrder]
-  let _ : DecidableEq (Target (Label prepared.intermediate.1 carried result)) := targetDecEq
   exact ⟨state, firstIndex, ran, Header.Priority.resolve?_sound resolved, erased, secondAt,
-    aligned, foundConsumer, (Dominance.Placement.checkCut_iff.mp checked).2⟩
+    aligned, foundConsumer, checkPrefixCut_legal checked⟩
 
 theorem prepare?_available (accepted : prepare? g first consumerOrigin = some prepared) :
     ∃ (args : List Width) (producer : TargetOp args prepared.intermediate.1) (operands : Operands Input args)

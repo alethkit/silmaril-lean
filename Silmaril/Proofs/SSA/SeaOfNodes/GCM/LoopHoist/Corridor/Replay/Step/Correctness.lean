@@ -60,11 +60,9 @@ theorem emit_spec (accepted : Step.emit state request = .ok moved) :
 
 theorem emit_legal (accepted : Step.emit state request = .ok moved) :
     Legal state.cfg moved.candidate.operands moved.candidate.uses ⟨none, request.cut⟩ := by
-  let _ := AfterReorder.Second.targetDecEqWith (saved := saved) (carried := carried) (result := result)
-    (extra := extra)
   obtain ⟨cut, _, _, checked, _⟩ := emit_spec accepted
   rw [cut]
-  exact (Dominance.Placement.checkCut_iff.mp checked).2
+  exact AfterReorder.Second.checkPrefixCut_legal checked
 
 theorem emit_header_value (accepted : Step.emit state request = .ok moved)
     (input : Env Input) (values : Env (extra ++ [saved])) (latch : BitVec carried.val) :

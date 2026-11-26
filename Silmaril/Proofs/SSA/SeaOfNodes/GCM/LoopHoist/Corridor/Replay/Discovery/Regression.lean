@@ -20,6 +20,12 @@ open Silmaril.SSA.SeaOfNodes.GCM (Point)
   [none, none, some 3])
 #guard (observe varying).toOption == some ([(1, 0)], [3, 0, 2, 4], none, [none, some 13, some 13])
 #guard (observe unsaved).toOption == some ([], [0, 1, 2, 3], none, [none, none, some 23])
+#guard immutableInterval == some (0, [0, 1], [0, 1])
+#guard savedInterval == some (1, [1, 2], [1, 2])
+#guard rejectedIntervals
+-- Cut 1 is legal for the dependent binding, but discovery still replays at cut 2.
+#guard ((discover Step.Example.loopWithOlderSave first.header).toOption.map (·.requests)) ==
+  some [⟨1, 0⟩, ⟨2, 1⟩, ⟨5, 2⟩]
 #guard (match discover (AfterReorder.Second.Example.loop false) first.header with
   | .ok ⟨requests, .initial (.two _ _ _)⟩ => requests == [⟨1, 0⟩, ⟨2, 1⟩]
   | _ => false)
