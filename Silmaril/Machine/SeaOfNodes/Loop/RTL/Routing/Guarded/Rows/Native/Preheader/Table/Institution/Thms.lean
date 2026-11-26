@@ -3,16 +3,23 @@ module
 public import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Defs
 public import Silmaril.Logic.Institution.Observational.Sentence
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Satisfaction
+import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Room
 
-/-! Satisfaction for finite return observations in the concrete word model. -/
+/-! Satisfaction for return observations and for the full λSSA room in the word model. -/
 
 public section
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution
 
-open Silmaril.Machine.Lir (Memory)
-open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open CategoryTheory (Discrete)
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model word)
 open Silmaril.SSA.SeaOfNodes
+open Diamond.LambdaSSA (Atom)
+open Diamond.LambdaSSA.Institution.Fiber (fiberRoom inputModel)
+open Loop.LambdaSSA
+open Silmaril.Isotope (Value)
+open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
 open Silmaril.Logic.Institution.Observational (Sentence)
 
 variable {arity : Nat} {entrySigs sigs rightEntry rightSigs : List (List PortTy)}
@@ -63,5 +70,57 @@ theorem terminates_holds_iff (accepted : lowerChecked left = some leftTargets) (
     ((∀ input : WordTuple arity, (Rows.rtlObservation leftTargets.1 input initial).Nonempty) ↔ native) ∧
       ((∀ input : WordTuple arity, (lambdaReturns input initial (scope accepted)).Nonempty) ↔ native) :=
   Proofs.terminates_holds_iff accepted initial
+
+/-- Every room return exits at zero, packs a native word, and preserves all memory. -/
+theorem room_ret_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial final : Memory) (label : Nat) (payload : Value (Atom model)) :
+    Observation.ret initial (label, payload) final ∈
+      ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) ↔
+    ∃ value : Word, value ∈ left.denote model input ∧ label = 0 ∧
+      payload = Generic.packResult model (out := word) value ∧ final = initial :=
+  Proofs.room_ret_iff accepted input initial final label payload
+
+/-- Internal header labels cannot escape as observable exits. -/
+theorem room_other_exit_absent (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial final : Memory) (label : Nat) (payload : Value (Atom model))
+    (unexpected : label ≠ 0) :
+    Observation.ret initial (label, payload) final ∉
+      ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) :=
+  fun member => unexpected ((room_ret_iff accepted input initial final label payload).mp member).choose_spec.2.1
+
+/-- The concrete word model has no primitive fault, hence no region fault. -/
+theorem room_fault_absent (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial final : Memory) :
+    Observation.fault initial final ∉
+      ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) :=
+  Proofs.room_fault_absent accepted input initial final
+
+/-- With no finite native return, the actual header keeps taking backedges.
+A finite return excludes divergence by determinism. -/
+theorem room_diverges_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial : Memory) :
+    Observation.diverge initial ∈
+      ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) ↔
+    left.denote model input = Part.none :=
+  Proofs.room_diverges_iff accepted input initial
+
+/-- The actual room compares returns, faults and divergence over all memories
+at the given typed input. One initial memory suffices to reflect equality. -/
+theorem room_equation_at_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (input : WordTuple arity) (initial : Memory) :
+    (fiberRoom Rows.wordSignature (wordSorts arity).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory input))
+      (Sentence.eq (scope leftChecked) (scope rightChecked)) ↔ left.denote model input = right.denote model input :=
+  Proofs.room_equation_at_iff leftChecked rightChecked input initial
+
+/-- Native equation satisfaction agrees with full λSSA room satisfaction
+in the family of concrete models induced by all typed inputs. -/
+theorem room_equation_holds_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (initial : Memory) :
+    (∀ input : WordTuple arity, (fiberRoom Rows.wordSignature (wordSorts arity).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory input))
+      (Sentence.eq (scope leftChecked) (scope rightChecked))) ↔
+    (Loop.Institution.Sentence.equation (equation left right)).Holds model :=
+  forall_congr' fun input => room_equation_at_iff leftChecked rightChecked input initial
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution

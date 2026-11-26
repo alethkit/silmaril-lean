@@ -4,6 +4,9 @@ import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheade
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
+open CategoryTheory (Discrete)
+open Silmaril.Isotope.Institution.Observational (Observation ssaBeh)
+open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA.Institution.Fiber (fiberRoom inputModel)
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
@@ -161,5 +164,29 @@ example :
     ¬ (∀ args : WordTuple 3, (Institution.lambdaReturns args mem (Institution.scope accepted)).Nonempty) := by
   have agrees := Institution.terminates_holds_iff accepted mem
   exact ⟨terminationFails ∘ agrees.1.mp, terminationFails ∘ agrees.2.mp⟩
+
+example :
+    let room := ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (Institution.scope accepted)
+    let packet := Generic.packResult model (out := word) (7 : Word)
+    Observation.ret mem (0, packet) mem ∈ room ∧ Observation.diverge mem ∉ room ∧
+      Observation.ret mem (1, packet) mem ∉ room ∧ (∀ final, Observation.fault mem final ∉ room) := by
+  have present := (source.returns_iff_mem_denote model input (7 : Word)).mp ⟨1, counted⟩
+  exact ⟨(Institution.room_ret_iff accepted input mem mem 0 _).mpr ⟨7, present, rfl, rfl, rfl⟩,
+    fun diverged => (Part.eq_none_iff'.mp ((Institution.room_diverges_iff accepted input mem).mp diverged))
+      (Part.dom_iff_mem.mpr ⟨(7 : Word), present⟩),
+    Institution.room_other_exit_absent accepted input mem mem 1 _ (by decide),
+    Institution.room_fault_absent accepted input mem⟩
+
+example :
+    let room := ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory spin) (Institution.scope accepted)
+    Observation.diverge mem ∈ room ∧ (∀ final, Observation.fault mem final ∉ room) :=
+  ⟨(Institution.room_diverges_iff accepted spin mem).mpr spinAbsent,
+    Institution.room_fault_absent accepted spin mem⟩
+
+example :
+    ¬ (fiberRoom Rows.wordSignature (wordSorts 3).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory spin))
+      (Sentence.eq (Institution.scope exitAccepted) (Institution.scope accepted)) :=
+  differs ∘ (Institution.room_equation_at_iff exitAccepted accepted spin mem).mp
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
