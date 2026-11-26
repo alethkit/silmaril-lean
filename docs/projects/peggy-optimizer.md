@@ -6,6 +6,8 @@ explanations, and chooses a candidate. It uses a single result, a fixed
 typed parameter list, and a ranked zero-loop graph with parameters,
 strict partial primitives and lazy φ. This is a bounded root search
 drawing on the saturation and selection stages of §4 and §8. The
+[contextual optimizer](peggy-contextual-optimizer.md) extends discovery
+and replay to shared internal nodes and ordered outputs. The
 [PEG project notes](peggy.md) identify the paper and its artifact hash.
 
 ## Matching and generation
@@ -68,7 +70,7 @@ partial primitives and φ as in the existing bridge.
 The budget bounds the depth of each path. A step checks a product of
 vertex choices across rule variables, and unfolding can duplicate
 shared subgraphs. Search size can grow exponentially in the depth.
-Unbounded termination, internal-node rewrites, RHS trees and variable
+Unbounded termination, RHS trees and variable
 roots, class-based matching, proof search for nonreflexive guards,
 dead-row elimination, CFG reversion and optimality for execution cost
 remain separate obligations.
