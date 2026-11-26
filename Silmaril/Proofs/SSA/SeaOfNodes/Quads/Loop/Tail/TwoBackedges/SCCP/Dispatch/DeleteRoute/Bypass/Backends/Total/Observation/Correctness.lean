@@ -17,13 +17,14 @@ namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.Del
 open SeaOfNodes.Diamond (ValueSort dataPorts)
 open SeaOfNodes.Diamond.SCCP (Fact TupleCovers)
 open SeaOfNodes.Loop.SCCP (BankDecidableEq)
-open SeaOfNodes.Loop.MLIR.CF (Op model evalOp)
+open SeaOfNodes.Loop.MLIR.CF (Op TargetOp model evalOp)
 open SeaOfNodes.MLIR (Word)
 open SeaOfNodes.MLIR.Lowering (encodeValues)
 open Silmaril.MLIR.Arith (Width Env)
 open Silmaril.MLIR.CF (Cfg)
 open RVSDG (Tuple)
-open RVSDG.NestedTheta (MonadicModel)
+open RVSDG.NestedTheta (Graph MonadicModel)
+open Tail.Diamond.MLIR.CF (Widths)
 open Blocks (Bank)
 
 variable {regs : List (ValueSort Width)} {result : Width} {p : Program Op regs (.data result)}
@@ -150,9 +151,11 @@ theorem mem_sourcePart_iff :
       Tail.Source.runFrom_mono model (Nat.le_max_right ..) chosen
     exact ⟨dom, Option.some.inj (selected.symm.trans seen)⟩
 
-private theorem cf_part_mem :
-    value ∈ execution.cfPart input ↔ ∃ budget, execution.runCF input budget = some value := by
-  rw [Execution.cfPart, Part.mem_bind_iff, cf_return]
+theorem mem_observeCF_iff {Label : List Width → Type}
+    (target : Cfg TargetOp Label (Widths regs) [result]) :
+    value ∈ observeCF target input ↔
+      ∃ fuel, target.run evalOp fuel (encodeValues input) = some (.cons value .nil) := by
+  rw [observeCF, Part.mem_bind_iff]
   constructor
   · rintro ⟨observed, finite, readback⟩
     cases observed with
@@ -171,12 +174,13 @@ private theorem cf_part_mem :
     apply (Silmaril.MLIR.CF.SwitchAssert.Cfg.mem_denotePart_iff _ evalOp (encodeValues input) _).mpr
     exact ⟨fuel, by rw [Silmaril.MLIR.CF.SwitchAssert.Cfg.embed_run, run]; rfl⟩
 
-private theorem numbered_part_mem :
-    value ∈ execution.numberedPart input ↔ ∃ budget, execution.runNumbered input budget = some value := by
-  rw [numbered_return]
+theorem mem_observeNumbered_iff {sigs}
+    (target : Graph (Join.Opcode Op) (dataPorts regs) [] sigs [.value (.data result)]) :
+    value ∈ observeNumbered target input ↔
+      target.Returns (Join.model model) input (.cons value .nil) := by
   let raw : Part (Tuple (Join.model model).Val [.value (.data result)]) :=
     RVSDG.NestedTheta.Partial.observe (MonadicModel.ofRuntime (Join.model model))
-      execution.numberedTarget.2 input
+      target input
   let readback (values : Tuple (Join.model model).Val [.value (.data result)]) :
       Word result := values.get .head
   change value ∈ raw.map readback ↔ _
@@ -198,8 +202,10 @@ theorem part_eq (correct : execution.Correct p input) :
     execution.cfPart input = sourcePart p input ∧ execution.numberedPart input = sourcePart p input := by
   refine ⟨Part.ext ?_, Part.ext ?_⟩
   · intro value
-    exact cf_part_mem.trans ((correct.returns_iff value).1.trans mem_sourcePart_iff.symm)
+    exact (mem_observeCF_iff execution.cfTarget.2).trans
+      (cf_return.symm.trans ((correct.returns_iff value).1.trans mem_sourcePart_iff.symm))
   · intro value
-    exact numbered_part_mem.trans ((correct.returns_iff value).2.trans mem_sourcePart_iff.symm)
+    exact (mem_observeNumbered_iff execution.numberedTarget.2).trans
+      (numbered_return.symm.trans ((correct.returns_iff value).2.trans mem_sourcePart_iff.symm))
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Dispatch.DeleteRoute.Bypass.Backends.Total.Observation.Proofs
