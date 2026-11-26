@@ -202,7 +202,7 @@ private theorem kept_write (state : State) (target : Binding) (value : Value) (a
     (state.write target value).heap[key]? = state.heap[key]? :=
   RootCall.write_other_cell _ _ _ _ (by simp [owned, Ne.symm different])
 
-private theorem installs_in_same_slots {active final : State} {free : List FreeName}
+theorem installs_in_same_slots {active final : State} {free : List FreeName}
     {captures : List Silmaril.Languages.Starlark.Lists.Capture} (slots : final.slots = active.slots)
     (installed : Installs active free captures) : Installs final free captures := by
   induction installed with
@@ -279,12 +279,12 @@ private theorem updates_other (updates : List (String × Int)) (state : State) (
       (RootCall.write_other_cell _ _ _ _ other)
 
 theorem wrapper_activation (frame : Forwarding.Frame) (globals : List String)
-    (caller : State) (assigned : List (Binding × Value)) :
-    Defaults.Body.Frame ⟨frame.owned, [], globals⟩ [] caller.heap.size (activate caller frame.declaration [] assigned) := by
+    (caller : State) (captures : List Silmaril.Languages.Starlark.Lists.Capture) (assigned : List (Binding × Value)) :
+    Defaults.Body.Frame ⟨frame.owned, [], globals⟩ [] caller.heap.size (activate caller frame.declaration captures assigned) := by
   refine ⟨?_, by simp⟩
   intro name declared
-  obtain ⟨address, value, frozen, owned, stored⟩ := Entry.activated_cell caller frame [] assigned name declared
-  exact ⟨address, value, frozen, Wrapper.activation_fresh caller frame.declaration [] assigned _ _ owned, owned, stored⟩
+  obtain ⟨address, value, frozen, owned, stored⟩ := Entry.activated_cell caller frame captures assigned name declared
+  exact ⟨address, value, frozen, Wrapper.activation_fresh caller frame.declaration captures assigned _ _ owned, owned, stored⟩
 
 /-- Execute the wrapper with its reached positional binding and installed
 capture vector. The trailing body initializes or rebinds its owned locals
@@ -437,7 +437,7 @@ theorem returns_total (program : Program) (available : List DeclarationId) (wrap
     (Wrapper.activation_preserves caller frame.declaration [] assigned _ (Array.getElem?_eq_some_iff.mp found).choose).trans found
   obtain ⟨out, bodyOut, source, ran, restored, result⟩ := returns_from_total program available wrapper
     admitted.wrapperNames childId (wrapper.child.emitted wrapper.codes) found rfl [] [] (by simp) [] (by simp)
-    [] caller active (wrapper_activation frame [] caller assigned)
+    [] caller active (wrapper_activation frame [] caller [] assigned)
     (RootCall.activation_distinct caller frame.declaration [] assigned) earlier [] .nil (by simp [Defaults.Body.CaptureCells])
   refine ⟨out, bodyOut, ?_, ran, restored, ?_⟩
   · cases source with

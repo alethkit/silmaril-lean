@@ -91,6 +91,23 @@ theorem updates_elaborate (wrapper : Spec) (updates : List (String × Int)) (blo
 theorem code_length (wrapper : Spec) : wrapper.codes.length = wrapper.child.parameters.optional.length := by
   simp [Spec.codes, Spec.child]
 
+private theorem captureNames_append_owned (owned : List String) (earlier later : List Binding)
+    (localReads : ∀ binding ∈ later, ∃ name ∈ owned, binding = fileSlot name) :
+    captureNames owned (earlier ++ later) = captureNames owned earlier := by
+  let exported := fun (binding : Binding) => binding.scope == .global || !owned.contains binding.name
+  have noNew : ((later.filter fun binding => !earlier.contains binding).eraseDups.filter exported) = [] := by
+    apply List.filter_eq_nil_iff.mpr
+    intro binding present
+    obtain ⟨name, member, rfl⟩ := localReads binding (List.mem_filter.mp (List.mem_eraseDups.mp present)).1
+    change ¬(false || !owned.contains name) = true
+    rw [List.contains_iff_mem.mpr member]
+    decide
+  unfold captureNames
+  rw [List.eraseDups_append, List.filter_append]
+  change ((earlier.eraseDups.filter exported) ++
+    (later.filter fun binding => !earlier.contains binding).eraseDups.filter exported).map _ = _
+  rw [noNew, List.append_nil]
+
 /-- Collect the whole wrapper before resolving either side of the
 definition, then compile the assignments around the same child declaration. -/
 theorem wrap_emission (wrapper : Spec) (admitted : WrapperNames wrapper) (globals additional : List String)
@@ -101,7 +118,11 @@ theorem wrap_emission (wrapper : Spec) (admitted : WrapperNames wrapper) (global
     (leadingRelated : Defaults.Body.ElaboratesPrefix
       ⟨(wrapper.parameter :: additional) ++ wrapper.locals updates additional (leading.map Prod.fst), [], globals⟩
       leading leadingCode leadingReads)
-    (owned : ∀ binding ∈ leadingReads ++ reads,
+    (leadingFree : List FreeName)
+    (selected : Selects
+      ⟨(wrapper.parameter :: additional) ++ wrapper.locals updates additional (leading.map Prod.fst), [], globals⟩
+      leadingReads leadingFree)
+    (owned : ∀ binding ∈ reads,
       ∃ name ∈ (wrapper.parameter :: additional) ++ wrapper.locals updates additional (leading.map Prod.fst),
         binding = fileSlot name)
     (childStep : ∀ program, compileBody
@@ -112,7 +133,7 @@ theorem wrap_emission (wrapper : Spec) (admitted : WrapperNames wrapper) (global
     let frame := wrapper.frame program.size additional updates (leading.map Prod.fst)
     elaborateCommand ⟨⟨[], globals⟩, .global⟩ (wrapper.commandWith childBody additional updates leading) program =
       .ok (.exec (.define wrapper.name (program.size + 1)),
-        (program.push child).push ({ frame with code := Defaults.Body.prependCode leadingCode frame.code } :
+        (program.push child).push ({ frame with free := leadingFree, code := Defaults.Body.prependCode leadingCode frame.code } :
           Forwarding.Frame).declaration) := by
   let parameters := wrapper.parameter :: additional
   let locals := wrapper.locals updates additional (leading.map Prod.fst)
@@ -158,25 +179,14 @@ theorem wrap_emission (wrapper : Spec) (admitted : WrapperNames wrapper) (global
   have prefixed := Defaults.Body.compile_prefix related bodyInContext
   rw [ctx] at prefixed
   have captures : captureNames (wrapper.parameter :: (additional ++ locals))
-      (leadingReads ++ (reads ++ [fileSlot wrapper.childName])) = [] := by
-    unfold captureNames
-    suffices removed : ((leadingReads ++ (reads ++ [fileSlot wrapper.childName])).eraseDups.filter
-        fun binding => binding.scope == .global || !(parameters ++ locals).contains binding.name) = [] by
-      rw [show wrapper.parameter :: (additional ++ locals) = parameters ++ locals by rfl, removed]
-      rfl
-    apply List.filter_eq_nil_iff.mpr
-    intro binding mem
-    have present : binding ∈ (leadingReads ++ reads) ++ [fileSlot wrapper.childName] := by
-      rw [List.append_assoc]
-      exact List.mem_eraseDups.mp mem
-    have bound : ∃ name ∈ parameters ++ locals, binding = fileSlot name := by
-      rcases List.mem_append.mp present with earlier | returned
+      (leadingReads ++ (reads ++ [fileSlot wrapper.childName])) = leadingFree := by
+    change captureNames (parameters ++ locals) _ = _
+    rw [captureNames_append_owned]
+    · exact Capture.captureNames_eq selected
+    · intro binding member
+      rcases List.mem_append.mp member with earlier | returned
       · exact owned binding earlier
       · exact ⟨wrapper.childName, List.mem_append_right _ childLocal, by simpa using returned⟩
-    obtain ⟨name, localName, rfl⟩ := bound
-    change ¬(false || !(parameters ++ locals).contains name) = true
-    rw [List.contains_iff_mem.mpr localName]
-    decide
   have compiled := compileBody_requiredDefinition outer wrapper.name parameters source program grown
       parentLayout _ parentCollected prefixed
   have root := elaborateCommand_requiredDefinition outer .global wrapper.name parameters source program _ _ _ compiled
@@ -222,7 +232,7 @@ theorem emission (wrapper : Spec) (admitted : Admitted wrapper) (globals : List 
       List.zip_map', PlainPositionalDefault.resolved]
   let child := wrapper.child.emitted wrapper.codes
   exact wrap_emission wrapper admitted.wrapperNames globals [] (by simp) [] (by simp) [] [] [] wrapper.childBody child
-    (defaults.flatMap PlainPositionalDefault.reads) .nil (fun _ member => by
+    (defaults.flatMap PlainPositionalDefault.reads) .nil [] .nil (fun _ member => by
       obtain ⟨name, owned, same⟩ := default_bindings wrapper [wrapper.parameter] (by simp) admitted.defaultReads member
       exact ⟨name, List.mem_append_left _ owned, same⟩) (fun seed => by
       have compiled := compileBody_plainReturn inner (.scalar (.read wrapper.returned)) _ _ seed childRead
