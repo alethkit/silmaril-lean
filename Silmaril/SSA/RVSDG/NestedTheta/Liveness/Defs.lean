@@ -31,9 +31,13 @@ def problem (reads : List (List Address)) : GenKill Nat Address where
   kill pc := {address | definedAt pc address}
 
 /-- Evaluate the same gen/kill transfer backwards over the finite suffix. -/
+def transfer (pc : Nat) (reads live : List Address) : List Address :=
+  reads ++ live.filter (fun a => !definedAt pc a)
+
+/-- Evaluate each point's transfer in reverse binding order. -/
 def sweep : List (List Address) → Nat → List Address
   | [], _ => []
-  | reads :: rest, pc => reads ++ (sweep rest (pc + 1)).filter (fun a => !definedAt pc a)
+  | reads :: rest, pc => transfer pc reads (sweep rest (pc + 1))
 
 end Liveness
 

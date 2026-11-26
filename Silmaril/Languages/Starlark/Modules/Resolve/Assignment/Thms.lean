@@ -24,6 +24,12 @@ theorem parseAssignmentPattern_sound (scope : Scope) (target : SourceOperand)
     TargetShape scope target result :=
   Proofs.Languages.Starlark.Modules.Resolve.Assignment.shape_sound scope target result ran
 
+/-- The executable target classifier accepts every declared target shape. -/
+theorem parseAssignmentPattern_complete (scope : Scope) (target : SourceOperand)
+    (result : AssignmentPattern SourceOperand × List String) (related : TargetShape scope target result) :
+    parseAssignmentPattern (fun name => ⟨scope, name⟩) target = .ok result :=
+  Proofs.Languages.Starlark.Modules.Resolve.Assignment.shape_complete scope target result related
+
 /-- Successful bounded operand resolution gives exactly the ordered binding reads. -/
 theorem resolveOperand_sound (block : LexicalBlock) {source : SourceOperand}
     (profile : OperandInProfile source) {value : ResolvedOperand} {reads : List Binding}

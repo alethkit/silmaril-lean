@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms
+meta import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Diamond.MLIR
 
@@ -38,6 +39,19 @@ private def diamond (first : Projection) (onFalse : ResultWire) :
 private def entry (b : Bool) : Tuple (Val arithmetic.value) (dataPorts inputs) :=
   .cons ⟨b⟩ (.cons (4 : Nat) .nil)
 
+/-- info: [5, 10, 5, 10] -/
+#guard_msgs in
+#eval ([denote arithmetic (diamond .onTrue doubled) (entry true),
+  denote arithmetic (diamond .onTrue doubled) (entry false),
+  denote arithmetic (diamond .onFalse doubled) (entry true),
+  denote arithmetic (diamond .onFalse doubled) (entry false)] : List Nat)
+
+example : (source Arithmetic).op = (Opcode Arithmetic : RVSDG.Dialect (ValueSort Unit) PEmpty) :=
+  rfl
+
+example (port : Diamond.Ty Unit) : (model arithmetic).carrier port = Val arithmetic.value port :=
+  rfl
+
 -- The two Phi operands are observably different for both predecessor orders.
 example : denote arithmetic (diamond .onTrue doubled) (entry true) = (5 : Nat) := rfl
 example : denote arithmetic (diamond .onTrue doubled) (entry false) = (10 : Nat) := rfl
@@ -50,5 +64,21 @@ example : denote arithmetic (diamond .onFalse shared) (entry false) = (5 : Nat) 
 
 example : (diamond .onFalse doubled).Returns arithmetic (entry false) (10 : Nat) :=
   (returns_iff_denote arithmetic (diamond .onFalse doubled) (entry false) (10 : Nat)).mpr rfl
+
+example : (lowerEquation (diamond .onTrue doubled) (diamond .onFalse doubled)).Holds
+    (model arithmetic) := by
+  apply (satisfaction arithmetic _ _).mpr
+  intro input
+  cases input with
+  | cons pred rest =>
+    cases pred with
+    | up b => cases b <;> rfl
+
+example : ¬ (lowerEquation (diamond .onTrue doubled) (diamond .onFalse shared)).Holds
+    (model arithmetic) := by
+  intro holds
+  have agreed := (satisfaction arithmetic _ _).mp holds (entry false)
+  change (10 : Nat) = 5 at agreed
+  cases agreed
 
 end Silmaril.SSA.SeaOfNodes.Diamond.MLIR

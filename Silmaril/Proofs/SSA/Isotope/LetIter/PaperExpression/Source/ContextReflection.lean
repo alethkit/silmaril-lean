@@ -28,7 +28,7 @@ def nodes : Ty α → Nat
   | .unit | .empty => 1
   | .base _ => 0
 
-def contextNodes (Γ : EffectCtx (Ty α) ε) : Nat :=
+public def contextNodes (Γ : EffectCtx (Ty α) ε) : Nat :=
   (Γ.map fun slot => nodes slot.1).sum
 
 variable [Bot ε] {Γ : EffectCtx (Ty α) ε} {A B : Ty α}
@@ -45,20 +45,20 @@ theorem contextNodes_set (i : Fin Γ.length) (X : Ty α) :
       simp [contextNodes] at h ⊢
       omega
 
-theorem product_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .product A B) :
+public theorem product_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .product A B) :
     contextNodes (ProductSplit.splitCtx Γ i A B) < contextNodes Γ := by
   have hw := contextNodes_set i A
   rw [hty, nodes] at hw
   change nodes B + contextNodes (SumSplit.branchCtx Γ i A) < contextNodes Γ
   omega
 
-theorem sum_left_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .coprod A B) :
+public theorem sum_left_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .coprod A B) :
     contextNodes (SumSplit.branchCtx Γ i A) < contextNodes Γ := by
   have hw := contextNodes_set i A
   rw [hty, nodes] at hw
   omega
 
-theorem sum_right_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .coprod A B) :
+public theorem sum_right_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .coprod A B) :
     contextNodes (SumSplit.branchCtx Γ i B) < contextNodes Γ := by
   have hw := contextNodes_set i B
   rw [hty, nodes] at hw
@@ -77,7 +77,7 @@ theorem contextNodes_erase (i : Fin Γ.length) :
       omega
 
 omit [Bot ε] in
-theorem unit_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .unit) :
+public theorem unit_decreases (i : Fin Γ.length) (hty : (Γ.get i).1 = .unit) :
     contextNodes (UnitSlot.eraseCtx Γ i) < contextNodes Γ := by
   have hw := contextNodes_erase i
   rw [hty, nodes] at hw
