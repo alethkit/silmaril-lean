@@ -34,6 +34,10 @@ theorem suffix_bank (incoming : Bank (regs := regs) m) :
     p.suffixBank m incoming = p.suffix.quads.eval m incoming :=
   compiled_bank m _ incoming
 
+theorem outer_suffix_bank (incoming : Bank (regs := regs) m) :
+    p.outerSuffixBank m incoming = p.outerSuffix.quads.eval m incoming :=
+  compiled_bank m _ incoming
+
 private theorem predecessor_mem {target site : Fin size}
     (segment : Chain.Segment src target site) (caller : Fin size) :
     (segment.blocks = [] ∧ segment.predecessor caller = caller) ∨
@@ -66,6 +70,25 @@ theorem inner_edges_distinct : p.innerEdgeOccurrence true ≠ p.innerEdgeOccurre
   · rcases predecessor_mem p.innerFalse p.inner with ⟨_, no⟩ | no
     · exact innerFirst.1 (List.mem_append_left _ ((samePred.trans no) ▸ yes))
     · exact separate _ yes _ (List.mem_append_left _ no) samePred
+
+theorem outer_edges_distinct : p.outerEdgeOccurrence true ≠ p.outerEdgeOccurrence false := by
+  have ordered := p.distinct
+  simp only [List.append_assoc, List.cons_append, List.nil_append] at ordered
+  have fromHeader := (List.nodup_cons.mp ordered).2
+  have headerAbsent := (List.nodup_cons.mp fromHeader).1
+  have arms := (List.nodup_cons.mp (List.nodup_cons.mp fromHeader).2).2
+  have afterTrue := (List.nodup_append.mp arms).2.1
+  have suffixAndLater := (List.nodup_append.mp afterTrue).2.1
+  have separate := (List.nodup_append.mp suffixAndLater).2.2
+  intro equal
+  have samePred := congrArg Prod.fst equal
+  change p.suffix.predecessor p.inner = p.outerFalse.predecessor p.header at samePred
+  rcases predecessor_mem p.suffix p.inner with ⟨empty, _⟩ | yes
+  · exact p.nonempty empty
+  rcases predecessor_mem p.outerFalse p.header with ⟨_, direct⟩ | no
+  · have headerIn : p.header ∈ p.suffix.blocks := (samePred.trans direct) ▸ yes
+    exact headerAbsent (by simp [headerIn])
+  · exact separate _ yes _ (List.mem_append_left _ no) samePred
 
 private theorem run_branch {site yes no : Fin size} {test}
     (edge : (src site).terminator = .branch test (.jump yes) (.jump no))
@@ -117,29 +140,43 @@ theorem run_prefix (old : Bank (regs := regs) m) (fuel : Nat) :
 
 theorem run_suffix (incoming : Bank (regs := regs) m) (fuel : Nat) :
     src.runFrom m (fuel + p.suffix.blocks.length) p.meet incoming =
-      src.runFrom m fuel p.join (p.suffixBank m incoming) := by
+      src.runFrom m fuel p.outerMeet (p.suffixBank m incoming) := by
   rw [p.suffix.run_segment m, suffix_bank]
+
+theorem run_to_outer (old : Bank (regs := regs) m) (fuel : Nat) :
+    let occurrence := p.toControl.selected m old
+    src.runFrom m (fuel + p.outerVisits occurrence) p.header old =
+      src.runFrom m fuel p.outerMeet (p.outerBank m old occurrence) := by
+  dsimp only
+  cases chosen : p.toControl.selected m old with
+  | innerTrue =>
+    rw [Program.outerVisits, Program.outerBank, ← Nat.add_assoc,
+      Nat.add_right_comm fuel (p.prefixVisits .innerTrue)]
+    have arrived := run_prefix p m old (fuel + p.suffix.blocks.length)
+    rw [chosen] at arrived
+    exact arrived.trans (run_suffix p m (p.prefixBank m old .innerTrue) fuel)
+  | innerFalse =>
+    rw [Program.outerVisits, Program.outerBank, ← Nat.add_assoc,
+      Nat.add_right_comm fuel (p.prefixVisits .innerFalse)]
+    have arrived := run_prefix p m old (fuel + p.suffix.blocks.length)
+    rw [chosen] at arrived
+    exact arrived.trans (run_suffix p m (p.prefixBank m old .innerFalse) fuel)
+  | outerFalse =>
+    simpa only [chosen, Program.outerVisits, Nat.add_zero, Program.outerBank, Program.prefixTarget] using
+      run_prefix p m old fuel
+
+theorem run_outer_suffix (incoming : Bank (regs := regs) m) (fuel : Nat) :
+    src.runFrom m (fuel + p.outerSuffix.blocks.length) p.outerMeet incoming =
+      src.runFrom m fuel p.join (p.outerSuffixBank m incoming) := by
+  rw [p.outerSuffix.run_segment m, outer_suffix_bank]
 
 theorem run_to_merge (old : Bank (regs := regs) m) (fuel : Nat) :
     let occurrence := p.toControl.selected m old
     src.runFrom m (fuel + p.mergeVisits occurrence) p.header old =
       src.runFrom m fuel p.join (p.mergeBank m old occurrence) := by
   dsimp only
-  cases chosen : p.toControl.selected m old with
-  | innerTrue =>
-    rw [Program.mergeVisits, Program.mergeBank, ← Nat.add_assoc,
-      Nat.add_right_comm fuel (p.prefixVisits .innerTrue)]
-    have arrived := run_prefix p m old (fuel + p.suffix.blocks.length)
-    rw [chosen] at arrived
-    exact arrived.trans (run_suffix p m (p.prefixBank m old .innerTrue) fuel)
-  | innerFalse =>
-    rw [Program.mergeVisits, Program.mergeBank, ← Nat.add_assoc,
-      Nat.add_right_comm fuel (p.prefixVisits .innerFalse)]
-    have arrived := run_prefix p m old (fuel + p.suffix.blocks.length)
-    rw [chosen] at arrived
-    exact arrived.trans (run_suffix p m (p.prefixBank m old .innerFalse) fuel)
-  | outerFalse =>
-    simpa only [chosen, Program.mergeVisits, Nat.add_zero, Program.mergeBank, Program.prefixTarget] using
-      run_prefix p m old fuel
+  rw [Program.mergeVisits, ← Nat.add_assoc, Nat.add_right_comm fuel (p.outerVisits (p.toControl.selected m old)),
+    run_to_outer p m old (fuel + p.outerSuffix.blocks.length), run_outer_suffix]
+  rfl
 
 end Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Proofs

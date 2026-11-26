@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Defs
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Numbered.Defs
 
-/-! # Numbered γ/θ with a shared continuation inside the outer true arm -/
+/-! # Numbered γ/θ with shared continuations at the inner and outer merges -/
 
 @[expose] public section
 
@@ -54,11 +54,26 @@ def afterOuter {args results : List (Ty Data)} {past suffix : List (List (Ty Dat
     Term (Opcode Op) args past (splitSigs regs ++ suffix) results :=
   linkGamma (outerChoice p) (outerSigs p) (outerArm p) current finish
 
-/-- Expose the emitted region through the original common merge boundary. -/
-def mergeRegion : Term (Opcode Op) (dataPorts regs) []
+/-- Compile the one outer suffix using the result wires of the outer γ. -/
+def afterOuterSuffix {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend (extend past (splitSigs regs)) p.outerSuffix.quads.producers) (dataPorts regs) →
+      Term (Opcode Op) args (extend (extend past (splitSigs regs)) p.outerSuffix.quads.producers) suffix results) :
+    Term (Opcode Op) args past (splitSigs regs ++ (p.outerSuffix.quads.producers ++ suffix)) results :=
+  afterOuter p current fun merged =>
+    thenBase (p.outerSuffix.quads.lowerFrom merged .jump) finish
+
+/-- Observe the emitted outer γ before its shared suffix. -/
+def outerRegion : Term (Opcode Op) (dataPorts regs) []
     ((src p.header).body.producers ++ splitSigs regs) (dataPorts regs) :=
   thenBase ((src p.header).body.lowerFrom (initial regs) .jump) fun current =>
     afterOuter p current .ret
+
+/-- Observe the actual wiring through the original final merge boundary. -/
+def mergeRegion : Term (Opcode Op) (dataPorts regs) []
+    ((src p.header).body.producers ++ (splitSigs regs ++ (p.outerSuffix.quads.producers ++ []))) (dataPorts regs) :=
+  thenBase ((src p.header).body.lowerFrom (initial regs) .jump) fun current =>
+    afterOuterSuffix p current .ret
 
 def tail : Block Op regs := (src p.join).body ++ (src p.latch).body
 
@@ -79,11 +94,11 @@ def sourceVisits (m : Model.{u, v, w} Op) (fuel : Nat) (input : Bank (regs := re
   visitsFrom p m fuel ((src entry).body.eval m input) + 1
 
 abbrev bodySigs :=
-  (src p.header).body.producers ++ (splitSigs regs ++ ((tail p).producers ++ [bodyPorts regs]))
+  (src p.header).body.producers ++ (splitSigs regs ++ (p.outerSuffix.quads.producers ++ ((tail p).producers ++ [bodyPorts regs])))
 
 def thetaBody : Term (Opcode Op) (dataPorts regs) [] (bodySigs p) (bodyPorts regs) :=
   thenBase ((src p.header).body.lowerFrom (initial regs) .jump) fun current =>
-    afterOuter p current fun merged =>
+    afterOuterSuffix p current fun merged =>
       thenBase ((tail p).lowerFrom merged .jump) (routeLatchWith p.again)
 
 def lowerTerm :

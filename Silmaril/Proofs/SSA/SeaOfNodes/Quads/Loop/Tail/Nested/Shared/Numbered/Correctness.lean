@@ -64,7 +64,7 @@ private theorem outer_arm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
 
 private theorem branchBank_agrees (old : Bank (regs := regs) m) :
     branchBank p m ((src p.header).body.eval m old) =
-      p.mergeBank m old (p.toControl.selected m old) := by
+      p.outerBank m old (p.toControl.selected m old) := by
   let outer := (src p.header).body.eval m old
   let inner := (src p.inner).body.eval m outer
   have selection : p.toControl.selected m old =
@@ -78,21 +78,21 @@ private theorem branchBank_agrees (old : Bank (regs := regs) m) :
   · rw [ite_eq_left yes, ite_eq_left yes]
     by_cases innerYes : (inner.get p.innerTest).down = true
     · rw [ite_eq_left innerYes]
-      dsimp only [Program.mergeBank]
+      dsimp only [Program.outerBank]
       rw [p.prefix_bank]
       simp only [innerPlan, Plan.eval, List.foldl_cons, List.foldl_nil, Stage.eval, Stage.table,
         Join.Choice.eval, ite_eq_left innerYes]
       simp only [Program.prefixQuads, Block.eval, List.foldl_append, outer, inner]
       rfl
     · rw [ite_eq_right innerYes]
-      dsimp only [Program.mergeBank]
+      dsimp only [Program.outerBank]
       rw [p.prefix_bank]
       simp only [innerPlan, Plan.eval, List.foldl_cons, List.foldl_nil, Stage.eval, Stage.table,
         Join.Choice.eval, ite_eq_right innerYes]
       simp only [Program.prefixQuads, Block.eval, List.foldl_append, outer, inner]
       rfl
   · rw [ite_eq_right yes, ite_eq_right yes]
-    dsimp only [Program.mergeBank]
+    dsimp only [Program.outerBank]
     rw [p.prefix_bank]
     simp only [Program.prefixQuads, Block.eval, List.foldl_append, outer]
 
@@ -109,15 +109,42 @@ private theorem afterOuter_eval {args results : List (Ty Data)} {past suffix : L
   linkGamma_eval m (outerChoice p) (outerSigs p) (outerArm p) current finish fuel input locals
     (branchBank p m) (outer_arm_run p m fuel) observe agrees
 
+private theorem afterOuterSuffix_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend (extend past (splitSigs regs)) p.outerSuffix.quads.producers) (dataPorts regs) →
+      Term (Opcode Op) args (extend (extend past (splitSigs regs)) p.outerSuffix.quads.producers) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (observe : Bank (regs := regs) m → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (afterOuterSuffix p current finish).eval (model m) fuel input locals =
+      observe (p.outerSuffixBank m (branchBank p m (current.read input locals))) := by
+  unfold afterOuterSuffix
+  apply afterOuter_eval p m current _ fuel input locals (fun merged => observe (p.outerSuffixBank m merged))
+  intro merged locals'
+  erw [thenBase_eval (observe := observe) (agrees := agrees), Block.lowerFrom_eval, p.outer_suffix_bank]
+  rfl
+
+theorem outer_run (fuel : Nat) (old : Bank (regs := regs) m) :
+    (outerRegion p).toGraph.run (model m) fuel old =
+      some (p.outerBank m old (p.toControl.selected m old)) := by
+  rw [← RVSDG.NestedTheta.Graph.run_toTerm, Term.toTerm_toGraph]
+  unfold outerRegion Term.run
+  erw [thenBase_eval (observe := fun bank => some (branchBank p m bank))]
+  · erw [Block.lowerFrom_eval, read_initial, branchBank_agrees]
+  · intro wires locals
+    exact afterOuter_eval p m wires .ret fuel old locals some (fun _ _ => rfl)
+
 theorem merge_run (fuel : Nat) (old : Bank (regs := regs) m) :
     (mergeRegion p).toGraph.run (model m) fuel old =
       some (p.mergeBank m old (p.toControl.selected m old)) := by
   rw [← RVSDG.NestedTheta.Graph.run_toTerm, Term.toTerm_toGraph]
   unfold mergeRegion Term.run
-  erw [thenBase_eval (observe := fun bank => some (branchBank p m bank))]
+  erw [thenBase_eval (observe := fun bank => some (p.outerSuffixBank m (branchBank p m bank)))]
   · erw [Block.lowerFrom_eval, read_initial, branchBank_agrees]
+    rfl
   · intro wires locals
-    exact afterOuter_eval p m wires .ret fuel old locals some (fun _ _ => rfl)
+    exact afterOuterSuffix_eval p m wires .ret fuel old locals some (fun _ _ => rfl)
 
 theorem activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
     (thetaBody p).run (model m) fuel old =
@@ -126,11 +153,11 @@ theorem activation_run (fuel : Nat) (old : Bank (regs := regs) m) :
   let packet (bank : Bank (regs := regs) m) :=
     some (RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank)
   unfold thetaBody Term.run
-  erw [thenBase_eval (observe := fun bank => packet ((tail p).eval m (branchBank p m bank)))]
+  erw [thenBase_eval (observe := fun bank => packet ((tail p).eval m (p.outerSuffixBank m (branchBank p m bank))))]
   · erw [Block.lowerFrom_eval, read_initial, branchBank_agrees]
     rfl
   · intro current locals
-    apply afterOuter_eval p m current _ fuel old locals (fun bank => packet ((tail p).eval m bank))
+    apply afterOuterSuffix_eval p m current _ fuel old locals (fun bank => packet ((tail p).eval m bank))
     intro merged locals'
     erw [thenBase_eval (observe := packet), Block.lowerFrom_eval]
     · rfl
