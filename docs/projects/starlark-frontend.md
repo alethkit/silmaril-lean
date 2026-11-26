@@ -161,11 +161,11 @@ source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/La
 
 ### Postfix applications
 
-A postfix chain can appear directly or under `and` and `or` in a name
-assignment, return, expression statement, or call operand in the module
-profile. The head can be
-a bare name or a parenthesized scalar expression, such as `(f if flag else g)`. The parser consumes each parenthesized argument
-group before advancing to the next suffix. Each suffix uses the expression
+A postfix chain can appear directly or within logical and conditional
+expressions in a name assignment, return, expression statement, or call
+operand in the module profile. The head can be a bare name or a
+parenthesized scalar expression, such as `(f if flag else g)`. The parser
+consumes each parenthesized argument group before advancing to the next suffix. Each suffix uses the expression
 parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
 The parser's budget depends on token count, with no fixed application cap.
 
@@ -203,8 +203,8 @@ three left-associated normalized applications and their original UTF-8
 spans, then checks the following assignment was parsed separately.
 
 The head's parenthesized expression uses the existing call-free scalar
-profile. Attribute lookup, subscripts, and calls within conditional branches
-or displays remain outside this grammar. The normalized checker and evaluator
+profile. Attribute lookup, subscripts, and calls within collection displays
+remain outside this grammar. The normalized checker and evaluator
 handle callable values, binding, runtime errors, and the existing restriction
 on recursive closure invocation.
 [Computed call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ComputedCallChecks.lean)
@@ -296,14 +296,38 @@ mutation traces confirm order and that later operands are skipped.
 Lexical resolution still visits the skipped operand.
 [Logical call checks](../../Silmaril/Languages/Starlark/Frontend/Module/LogicalCallChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
-The checked module operator profile admits `and`, `or`, and call-free
-conditional expressions. Calls in conditional expressions and computed
-callees formed from call-containing groups remain outside this slice, as do
-calls in branch tests, parameter defaults, and display elements. Unary
-`not`, `+`, `-`, and `~`, binary arithmetic `+`, `-`, `*`, `/`,
-`//`, and `%`, equality, ordering, membership, shifts, and bitwise
-operators remain outside the checked module operator profile. The standalone
-scalar parser retains its existing call-free operators.
+### Calls in conditional expressions
+
+In the module expression grammar, `yes if test else no` accepts postfix
+applications in all three operands. The same precedence loop runs for
+module assignments, function assignments and returns, expression
+statements, and call operands. Conditional expressions bind more weakly
+than `and` and `or`, and an unparenthesized conditional in the `else` arm
+nests to the right.
+
+The kernel checks that
+`f() or g()(2) if p() and q() else h(3) if r() else k(4)` lowers as
+`(f() or g()(2)) if (p() and q()) else (h(3) if r() else k(4))`,
+with the original UTF-8 spans. `lowerOperand_conditional` preserves the
+normalized conditional and records application spans in source order,
+visiting the consequent, condition, and alternative. The checked evaluator
+runs the condition first. `denoteConditional_order` gives its exact state
+handoff to the selected arm and preserves a condition or truth-test error.
+
+The shared UTF-8 fixtures check module and function forms, condition failure,
+and errors in either selected arm. Lean checks that the condition's
+allocation precedes the chosen arm's allocation, and that a reached error
+retains its prefix while skipping the other arm and later writes. Go-only
+mutation controls observe the same ordering and suppression.
+[Conditional call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ConditionalCallChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+The checked module operator profile admits `and`, `or`, and conditional
+expressions. Computed callees formed from call-containing groups and calls
+in statement branch tests, parameter defaults, and display elements remain
+outside this slice. Unary `not`, `+`, `-`, and `~`, binary arithmetic
+`+`, `-`, `*`, `/`, `//`, and `%`, equality, ordering, membership, shifts,
+and bitwise operators remain outside the checked module operator profile.
+The standalone scalar parser retains its existing call-free operators.
 
 ### Leading loads and UTF-8 graphs
 
@@ -431,7 +455,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 

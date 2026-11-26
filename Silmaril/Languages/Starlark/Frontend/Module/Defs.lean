@@ -125,6 +125,12 @@ def lowerOperand : CallOperand → Except Diagnostic LoweredOperand
     let right ← lowerOperand right
     return ⟨.logical op left.expression right.expression, left.applications ++ right.applications⟩
   | .group _ body => lowerOperand body
+  | .conditional _ test yes no => do
+    let yes ← lowerOperand yes
+    let test ← lowerOperand test
+    let no ← lowerOperand no
+    return ⟨.conditional test.expression yes.expression no.expression,
+      yes.applications ++ test.applications ++ no.applications⟩
 termination_by operand => sizeOf operand
 decreasing_by all_goals (simp_all <;> omega)
 
@@ -161,6 +167,16 @@ theorem lowerOperand_logical (span : Span) (op : LogicalOp) (left right : CallOp
       let rhs ← lowerOperand right
       return ⟨.logical op lhs.expression rhs.expression, lhs.applications ++ rhs.applications⟩) :=
   lowerOperand.eq_4 span op left right
+
+/-- Retain the normalized conditional and order its application spans by source position. -/
+theorem lowerOperand_conditional (span : Span) (test yes no : CallOperand) :
+    lowerOperand (.conditional span test yes no) = (do
+      let consequent ← lowerOperand yes
+      let condition ← lowerOperand test
+      let alternative ← lowerOperand no
+      return ⟨.conditional condition.expression consequent.expression alternative.expression,
+        consequent.applications ++ condition.applications ++ alternative.applications⟩) :=
+  lowerOperand.eq_6 span test yes no
 
 private structure LoweredBody where
   statement : Modules.Resolve.Statement

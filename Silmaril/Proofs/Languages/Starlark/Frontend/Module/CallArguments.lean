@@ -178,4 +178,23 @@ theorem denoteLogical_order (program : Functions.Program) (available : List Func
     | error _ _ => rfl
     | ok flag _ => cases op <;> cases flag <;> rfl
 
+theorem denoteConditional_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (test yes no : Expr) (state : Lists.State) :
+    denoteExprWith program available bodyMeaning (.branch test yes no) state =
+      match denoteExprWith program available bodyMeaning test state with
+      | .ok value next =>
+        match Lists.Iteration.truth value next with
+        | .ok flag after => denoteExprWith program available bodyMeaning (if flag then yes else no) after
+        | .error error after => .error error after
+      | .error error next => .error error next := by
+  rw [denoteExprWith.eq_8]
+  simp only [bind, EStateM.bind]
+  cases denoteExprWith program available bodyMeaning test state with
+  | error _ _ => rfl
+  | ok value next =>
+    dsimp only
+    cases Lists.Iteration.truth value next with
+    | error _ _ => rfl
+    | ok flag _ => cases flag <;> rfl
+
 end Silmaril.Proofs.Languages.Starlark.Frontend.Module
