@@ -5,6 +5,7 @@ import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Thms
 import Silmaril.SSA.LambdaRTL.Thms
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.UniformReadback.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Split.ReverseAcceptance.Thms
 
 /-! # A checked φ split with two distinct declared exits -/
 
@@ -22,7 +23,8 @@ open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open Silmaril.Isotope.Semantics (encodeValue)
 open NamedFlat.Entry.Record (Input field)
 open NamedFlat.Entry.Reverse.Straight (admitWithCaptures keepsEntryCapture keepsEntryCaptures checks encode_captures)
-open NamedFlat.Entry.Reverse (Lowered withLiveOut)
+open NamedFlat.Entry.Reverse (Lowered Registers lower withLiveOut lower_attached_count
+  lowerChecked_eq_of_readback elaborateAt_packetClosed)
 open NamedFlat.Entry (store store_at inputEnv)
 
 private abbrev SortName := ULift.{1} Unit
@@ -319,8 +321,73 @@ private def splitRegisters : NamedFlat.Entry.Reverse.Registers Reg where
   parameter := registers.parameter
   localAt depth := if depth < 4 then ⟨100 + depth⟩ else registers.localAt (depth - 4)
 
-private def splitRTL : NamedFlat.Entry.Reverse.Lowered ports fields splitAdmitted.code :=
-  (splitAdmitted.reverseChecked splitRegisters (fun i => some ⟨i.val⟩)).get (by decide)
+private abbrev RTL := CFG Reg (Option Key) signature.Instr
+
+private def splitLabels (i : Fin 3) : Option Key := some ⟨i.val⟩
+
+private def emitSplit (allocation : Registers Reg) : Option RTL :=
+  lower allocation ports.names splitLabels (fun i => ports.exits[i]) splitAdmitted.code
+
+private def splitSource : RTL := (emitSplit splitRegisters).get (by decide)
+
+private theorem splitEmitted : emitSplit splitRegisters = some splitSource :=
+  (Option.some_get _).symm
+
+private theorem splitReadback :
+    NamedFlat.elaborateAt (withLiveOut fields splitSource) ports.exits ports.names _
+      (lower_attached_count (I := ports) fields splitEmitted) = some splitAdmitted.code := by rfl
+
+private def splitRTL : Lowered ports fields splitAdmitted.code :=
+  .ofReadback splitSource (lower_attached_count (I := ports) fields splitEmitted) splitReadback
+
+example : splitAdmitted.reverseChecked splitRegisters splitLabels = some splitRTL :=
+  lowerChecked_eq_of_readback splitEmitted splitReadback
+
+-- The original reverse allocation was accepted before the split. The
+-- generated packet puts the live-out binders at different local depths.
+example : (splitAdmitted.reverseChecked registers splitLabels).isNone := by decide
+
+-- Swapping the two numeric left-exit registers in the relocated allocation
+-- leaves a scoped, well-typed table but changes exactly that live-out readback.
+private def swappedRegisters : Registers Reg :=
+  { splitRegisters with localAt := fun i =>
+      let name := splitRegisters.localAt i
+      if name = ⟨14⟩ then ⟨16⟩ else if name = ⟨16⟩ then ⟨14⟩ else name }
+
+private def swappedSource : RTL := (emitSplit swappedRegisters).get (by decide)
+private theorem swappedEmitted : emitSplit swappedRegisters = some swappedSource := (Option.some_get _).symm
+private def swappedAttached : RTL := withLiveOut (P := signature) fields swappedSource
+private theorem swappedCount : swappedAttached.blocks.length = 3 :=
+  lower_attached_count (I := ports) fields swappedEmitted
+
+private def swappedRead := NamedFlat.elaborateAt swappedAttached ports.exits ports.names 3 swappedCount
+private def swappedCode := swappedRead.get (by decide)
+
+private theorem swappedScoped : swappedRead = some swappedCode := (Option.some_get _).symm
+
+example : CFG.Cyclic.RoundTrip.PacketClosed swappedAttached :=
+  elaborateAt_packetClosed _ _ _ swappedCount swappedScoped
+
+example : swappedCode.HasType ports.context splitAdmitted.internal
+    (NamedFlat.Entry.LiveOut.exitInterface ports fields).external :=
+  NamedFlat.check_sound swappedCode ports.context splitAdmitted.internal _ (by decide)
+
+private theorem swappedLastBlock : swappedCode.block 2 ≠ splitAdmitted.code.block (2 : Fin 3) := by
+  let left : LambdaSSA.Flat signature.Instr 5 6 := swappedCode.block 2
+  let right : LambdaSSA.Flat signature.Instr 5 6 := splitAdmitted.code.block (2 : Fin 3)
+  let equality := NamedFlat.Entry.Reverse.instDecidableEqFlat left right
+  exact @of_decide_eq_true (left ≠ right) (@instDecidableNot _ equality) rfl
+
+example : swappedCode.entry = splitAdmitted.code.entry ∧
+    swappedCode.block 0 = splitAdmitted.code.block (0 : Fin 3) ∧
+    swappedCode.block 1 = splitAdmitted.code.block (1 : Fin 3) := ⟨rfl, rfl, rfl⟩
+
+example : (splitAdmitted.reverseChecked swappedRegisters splitLabels).isSome = false := by
+  apply Bool.eq_false_iff.mpr
+  intro accepted
+  have exactTable := (generated.reverseChecked_iff_readback swappedRegisters splitLabels swappedEmitted).mp accepted
+  exact swappedLastBlock (congrArg (fun code => code.block (2 : Fin 3))
+    (Option.some.inj (swappedScoped.symm.trans exactTable)))
 
 private def splitSlots : List (Fin ports.slots) := [1, 2, 4, 3, 0]
 
@@ -333,7 +400,6 @@ private theorem splitChecked : checks splitRTL splitAdmitted.internal = true := 
 private def splitRecompiled : NamedFlat.Entry.LiveOut.Admission signature ports fields splitRTL.source :=
   admitWithCaptures splitRTL splitAdmitted.internal splitSlots splitLayout splitKept splitChecked
 
-private abbrev RTL := CFG Reg (Option Key) signature.Instr
 private abbrev Jump := CFG.Cyclic.Transfer Reg (Option Key) (Value Runtime)
 
 private def entryStore (input : Input context) : Reg → Value Runtime :=

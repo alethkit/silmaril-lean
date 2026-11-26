@@ -14,7 +14,17 @@ open Silmaril.SSA.LambdaRTL
 open LambdaSSA (FiniteCFG)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
-universe u v
+universe u v w
+
+/-- Successful scoped readback already certifies packet closure, since
+each block is elaborated with only its packet parameter in scope. -/
+theorem elaborateAt_packetClosed {V K : Type w} {F : Type v}
+    [DecidableEq V] [DecidableEq K] {n blocks : Nat} (graph : CFG V K F) (exits : List K)
+    (names : Fin n → V) (count : graph.blocks.length = blocks)
+    {code : FiniteCFG F blocks exits.length n}
+    (readback : elaborateAt graph exits names blocks count = some code) :
+    CFG.Cyclic.RoundTrip.PacketClosed graph :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.elaborateAt_packetClosed graph exits names count readback
 
 /-- The numbered inputs lie below the packet register. All local depths
 give distinct registers strictly above the packet register. -/
