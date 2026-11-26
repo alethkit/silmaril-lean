@@ -921,6 +921,15 @@ unitors, triangle, and pentagon give the ordered premonoidal instance.
 The designated tensor on a pair of arrows is left sequential.
 [Ordered native premonoidal structure](../../Silmaril/SSA/Isotope/LetCase/HandledTrace/Category/Tensor/Premonoidal/Thms.lean)
 
+Both fixed tensor functors preserve finite coproducts. The written
+split and merge maps are central inverse isomorphisms in both
+positions. The whiskered injections identify the hom out of a
+whiskered sum with the product of its two arm homs in order. Tensor
+with empty is initial on either side. The chosen cocones give the
+canonical comparisons for the distributive premonoidal interface.
+Whiskering a native case or splitting first gives the same weak tree.
+[Distributive native premonoidal structure](../../Silmaril/SSA/Isotope/LetCase/HandledTrace/Category/Distributivity/Thms.lean)
+
 The repeated-capture fixture admits two distinct slots at different sum
 types and initializes both from the same value. The first compatible
 capture assignment gives equal weak trees. The later compatible assignment
