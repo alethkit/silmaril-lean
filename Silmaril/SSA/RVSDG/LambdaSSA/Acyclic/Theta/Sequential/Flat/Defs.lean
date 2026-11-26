@@ -17,13 +17,16 @@ variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {A M E D X P Q : τ} {L R : List τ}
 
 /-- A local block reads its own payload. Case arms receive only the selected
-payload as their current value. Every leaf branches to a typed label. -/
+payload as their current value. A classifier can also route a separately bound
+value while reading the original input. -/
 inductive Block (Φ : Type u) [HasTy Φ τ] (L : List τ) : τ → Type u where
   | jump {A : τ} : Site L A → Block Φ L A
   | call {A B : τ} : TwoBlock.Instruction Φ A B → Site L B → Block Φ L A
   | split {A B : τ} : Block Φ L A → Block Φ L B → Block Φ L (Silmaril.coprod A B)
   | choose {A B C : τ} : TwoBlock.Instruction Φ A (Silmaril.coprod B C) →
       Block Φ L B → Block Φ L C → Block Φ L A
+  | bindChoose {A V B C : τ} : TwoBlock.Instruction Φ A V →
+      TwoBlock.Instruction Φ A (Silmaril.coprod B C) → Site L V → Site L V → Block Φ L A
 
 def Block.ofAcyclic : Acyclic.Block Φ L A → Block Φ L A
   | .jump op site => .call op site
@@ -34,12 +37,16 @@ def Block.rename (f : ∀ {X}, Site L X → Site R X) : {A : τ} → Block Φ L 
   | _, .call op site => .call op (f site)
   | _, .split left right => .split (left.rename f) (right.rename f)
   | _, .choose op left right => .choose op (left.rename f) (right.rename f)
+  | _, .bindChoose value test l r => .bindChoose value test (f l) (f r)
 
 def Block.region : {A : τ} → Block Φ L A → Region Φ
   | _, .jump site => .br site.index (.var 0)
   | _, .call op site => .br site.index (.op op.op (.var 0))
   | _, .split left right => .case (.var 0) left.region right.region
   | _, .choose op left right => .case (.op op.op (.var 0)) left.region right.region
+  | _, .bindChoose value test l r =>
+    .let₁ (.op value.op (.var 0))
+      (.case (.op test.op (.var 1)) (.br l.index (.var 1)) (.br r.index (.var 1)))
 
 theorem Block.typing : {A : τ} → (block : Block Φ L A) → (Γ : List τ) →
     Region.HasType (A :: Γ) block.region L
@@ -47,6 +54,9 @@ theorem Block.typing : {A : τ} → (block : Block Φ L A) → (Γ : List τ) �
   | _, .call op site, Γ => .br site.typing (op.typing Γ)
   | _, .split left right, Γ => .case (.var rfl) (left.typing (_ :: Γ)) (right.typing (_ :: Γ))
   | _, .choose op left right, Γ => .case (op.typing Γ) (left.typing (_ :: Γ)) (right.typing (_ :: Γ))
+  | _, .bindChoose value test l r, Γ =>
+    .let₁ (value.typing Γ)
+      (.case (test.typingAt rfl) (.br l.typing (.var rfl)) (.br r.typing (.var rfl)))
 
 /-- The block table may contain cycles. Each block is typed independently of
 the entry environment. Locals and external labels occupy disjoint ranges. -/
@@ -66,6 +76,15 @@ def Fragment.region (p : Fragment Φ A E D) : Region Φ :=
 theorem Fragment.typing (p : Fragment Φ A E D) :
     Region.HasType [A] p.region [E,D] :=
   .cfg p.localTypes (p.entry.typing []) (fun i => (p.blocks i).typing [A])
+
+/-- A single-header loop with an independently bound payload. The classifier's
+left arm returns the binding and its right arm feeds it back. -/
+def Fragment.bindChooseLoop {B C : τ} (value : TwoBlock.Instruction Φ A A)
+    (test : TwoBlock.Instruction Φ A (Silmaril.coprod B C)) : Fragment Φ A A D where
+  extra := 0
+  localTypes := fun _ => A
+  entry := .jump (localSite _ _ 0)
+  blocks _ := .bindChoose value test (externalSite _ _ 0) (localSite _ _ 0)
 
 def Fragment.loop {B K : τ} (s : Loop Φ A B K E D) : Fragment Φ A E D where
   extra := bodyCount s + 1

@@ -46,8 +46,7 @@ def Segment.region (s : Segment Φ ε A P B C) : Region Φ :=
 
 theorem typingAt (p : TwoBlock.Instruction Φ A C) {Γ : List τ} {i : Nat} (hi : Γ[i]? = some A) :
     Tm.HasType Γ (.op p.op (.var i)) C :=
-  Eq.ndrec (motive := fun t => Tm.HasType Γ (.op p.op (.var i)) t)
-    (.op (.var (hi.trans (congrArg some p.input.symm)))) p.output
+  p.typingAt hi
 
 theorem Segment.typing (s : Segment Φ ε A P B C) :
     Region.HasType [A] s.region [Silmaril.product P C] :=
