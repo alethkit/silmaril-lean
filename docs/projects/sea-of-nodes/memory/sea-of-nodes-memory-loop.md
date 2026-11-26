@@ -897,6 +897,47 @@ emitted MemRef CFG needs one backedge and returns word 0 with heap
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Regression
 ```
 
+##### Typed bindings and nested heap embeddings
+
+`reduct_embed` commutes typed capture pullback with cell embedding.
+It applies to the port maps built by `bindAddress`, including binding
+both address lanes. Cell counts belong to the model and heap. The
+signature map reindexes the typed capture ports.
+[Reduct and observer laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Composition/Thms.lean)
+
+`CellEmbedding.extend_trans` combines independent inner and outer
+frames. `sameFrame_trans` splits preservation into the cells outside
+the outer image and the cells inside it but outside the inner image.
+After typed re-emission, `observe_map_embed_trans` and
+`petriObserve_map_embed_trans` identify the exact composite observation
+with mapping the source partial result twice. The emitted MemRef CFG
+law `returns_map_embed_trans_iff` preserves the word, the twice-restricted
+heap, and both parts of the frame.
+[Heap composition laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/CellEmbedding/Thms.lean)
+
+The numbered, coloured and MemRef `holds_map_embed` laws compare
+equations and universal finite termination over all initial heaps at
+the embedded target valuation and its source reduct. With a port map
+that identifies captures, source truth is restricted to valuations
+supplied by that reduct. The observers retain independent finite
+witnesses.
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Composition.Thms
+```
+
+The regression reverses both address bindings and embeds 4 cells into
+5 and then 6. The emitted MemRef CFG takes two backedges, returns word
+0, and leaves `[73, 0, 0, 0, 42, 91]`. Both embedding paths produce
+this result. The coloured observer agrees with the twice-extended
+source completion, including both new frame values and the source
+sentinel 42.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/CellEmbedding/Composition/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.CellEmbedding.Composition.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
