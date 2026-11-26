@@ -43,12 +43,47 @@ private def lowerStmt (span : Span) : SourceStmt → Except Diagnostic Modules.R
   | .branch test yes no =>
     return .branch (← lowerExpr span test) (← lowerStmt span yes) (← lowerStmt span no)
 
-private def lowerFunction (fn : ParsedFunction) : Except Diagnostic Modules.Resolve.Command := do
+private def lowerParameter (parameter : LocatedParameter) :
+    Except Diagnostic Modules.Resolve.SourceParameter := do
+  let defaultExpr ← parameter.defaultValue.mapM fun value =>
+    Modules.Resolve.CompExpr.plain <$> lowerExpr value.span value.expr
+  return ⟨parameter.name, defaultExpr⟩
+
+private def lowerFunction (fn : LocatedFunction) : Except Diagnostic Modules.Resolve.Command := do
+  let positional ← fn.parameters.mapM lowerParameter
   let body ← fn.body.mapM fun stmt => lowerStmt stmt.span stmt.stmt
   let body := match body.reverse with
     | [] => .pass
     | last :: preceding => preceding.foldl (fun rest first => .seq first rest) last
-  return .define fn.name (.required fn.parameters) body
+  return .define fn.name { positional } body
+
+private def lowerArgument (argument : LocatedArgument) :
+    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := lowerExpr argument.span argument.expr
+
+/-- Lower a named group in order and retain every explicit name for validation. -/
+def lowerNamedArguments (arguments : List LocatedNamedArgument) :
+    Except Diagnostic (List (String × Functions.Lowering.Resolve.SourceExpr)) :=
+  arguments.mapM fun argument => do
+    return (argument.name, ← lowerArgument argument.value)
+
+private def lowerStar (spread : LocatedPositionalSpread) :
+    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
+  let elements ← spread.elements.mapM lowerArgument
+  return if spread.isTuple then .tuple elements else .list elements
+
+private def lowerStarStar (spread : LocatedMappingSpread) :
+    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
+  let entries ← spread.entries.mapM fun entry => do
+    return (Functions.Lowering.Resolve.SourceExpr.string entry.name, ← lowerArgument entry.value)
+  return .dict entries
+
+private def lowerCall (callee : String) (arguments : LocatedCallArguments) :
+    Except Diagnostic Functions.Lowering.Resolve.SourceExpr := do
+  let positional ← arguments.positional.mapM lowerArgument
+  let named ← lowerNamedArguments arguments.named
+  let star ← arguments.star.mapM lowerStar
+  let starStar ← arguments.starStar.mapM lowerStarStar
+  return .call (.scalar (.read callee)) positional named star starStar
 
 private def lowerCommand (source : LocatedFileCommand) :
     Except Diagnostic (Option LocatedCommand) := do
@@ -59,9 +94,7 @@ private def lowerCommand (source : LocatedFileCommand) :
     | .simple (.eval value) => pure (some (.eval (← lowerExpr source.span value)))
     | .simple _ => .error ⟨.unsupported .compoundStatement, source.span⟩
     | .define fn => pure (some (← lowerFunction fn))
-    | .assignCall target callee positional => do
-      let arguments ← positional.mapM fun item => lowerExpr item.span item.expr
-      pure (some (.assign target (.call (.scalar (.read callee)) arguments [] none none)))
+    | .assignCall target callee arguments => pure (some (.assign target (← lowerCall callee arguments)))
   return command.map (⟨source.span, ·⟩)
 
 private def lowerCommands (source : List LocatedFileCommand) : Except Diagnostic ParsedModule := do

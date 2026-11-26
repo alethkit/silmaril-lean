@@ -54,8 +54,8 @@ retain their existing types. Parser soundness and completeness remain open.
 `Frontend.Module.parseUtf8` and `Frontend.Module.parse` lower complete files
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
-with required positional names, and call assignments of the form
-`name = function(arg, ...)`. The call is the entire right-hand side, and both
+with positional parameters and optional scalar defaults, and call assignments
+of the form `name = function(arg, ...)`. The call is the entire right-hand side, and both
 names are bare identifiers. The adapter reuses the logical-line, parameter,
 and suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
@@ -79,19 +79,53 @@ their native payloads because the normalized evaluator has no token-level
 provenance. [Module checks](../../Silmaril/Languages/Starlark/Frontend/Module/Checks.lean)
 
 The module body uses the same admitted scalar statement forms as the standalone
-function parser. Its expressions are limited to integer literals, names,
-`and`, `or`, and conditional expressions, matching the normalized scalar
-lowerer. Unary and binary operators produce an unsupported diagnostic spanning
-the containing statement or positional argument. Calls in function bodies or
-other expression positions, keyword and spread arguments, and loads are
-outside this entry point.
+function parser. Its expressions, defaults, and call operands use integer
+literals, names, `and`, `or`, and conditional expressions. Unary and binary
+operators produce an unsupported diagnostic spanning the containing statement,
+default, or argument. Calls in function bodies and other expression positions,
+keyword-only and variadic parameters, and loads remain outside this entry
+point.
+
+### Defaults and call operands
+
+```starlark
+# 雪
+seed = 7
+def pick(seed=seed):
+  return seed
+out = pick()
+override = pick(seed=9)
+```
+
+The default reads the defining module's `seed` when `pick` is installed. The
+module publishes `out = 7` and `override = 9`. A separate control puts the
+assignment to `seed` after `def` and supplies an explicit named override. It
+still fails on the uninitialized default read at definition time.
+
+Call arguments use the order positional, named, optional `*`, then optional
+`**`. A call can contain at most one of each spread. `*` accepts a list or
+tuple display of scalar operands. `**` accepts a dictionary display with
+simple unescaped single- or double-quoted string keys and scalar values.
+Collection displays in other positions and general spread expressions remain
+outside the profile. The parser retains parameter, operand, and name/key
+spans. It reports a spanned diagnostic for order errors because a grouped
+normalized call cannot represent a misplaced operand.
+
+The frontend preserves repeated explicit names so normalized validation can
+reject them. It also passes required-after-default signatures to normalized
+validation. Duplicate keys within a dictionary fail during display evaluation,
+while a collision between an explicit named argument and a `**` key reaches
+the binder and fails there. The Go controls exercise all three stages and
+check the corresponding error messages.
+[Module checks](../../Silmaril/Languages/Starlark/Frontend/Module/Checks.lean)
 
 `Frontend.Module.initializes_iff_run` applies the existing module agreement
-theorem to the normalized commands. It covers the existing operational and
-denotational outcomes at that boundary. Lean checks this export, the
-missing-argument runtime failure, and the undefined-name validation failure
-from source bytes with kernel-checked proofs. A general parser or
-source-to-normalized adequacy theorem remains open. [Theorem](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+theorem to the normalized commands. `lowerNamedArguments_names` proves that
+successful named-operand lowering preserves explicit names in order, including
+repetitions. The kernel checks individual UTF-8 modules through publication
+and reached errors, including omission of a definition-time default and a
+positional/named binding collision. A general parser or source-to-normalized
+adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ## Logical lines and layout
 
@@ -134,8 +168,9 @@ module publication remain outside the standalone function entry point. The
 existing [Lean quotation](starlark-functions.md#quoting-an-expression-in-lean)
 targets the normalized function language and uses Lean syntax.
 
-The lexer identifies the closing delimiters of quoted literals and defers
-validation of their contents and escapes. Non-ASCII characters outside
+The lexer retains the contents of simple unescaped quoted strings for mapping
+spread keys. It identifies the closing delimiter and defers content and escape
+validation for other quoted literals. Non-ASCII characters outside
 comments and quoted literals are possible name characters pending Unicode
 category checks. `exhausted` is an internal recursion guard bounded from input
 length and token count.
@@ -155,10 +190,10 @@ explicit joining with LF, CRLF, and CR, ignored blank and comment lines,
 multiple EOF outdents, and mismatched dedents. Both parsers accept inline tabs
 and reject form feed and a backslash followed by a space. The module controls
 also compile the same Go syntax trees and run successful programs with an
-empty host. They compare the integer `out`, an undefined-name validation
-error, and a missing-argument runtime error with `out` still unbound. They
-compare selected observations and error phases, with no comparison of Go's
-partial globals against the Lean residual heap.
+empty host. They compare integer `out` exports, default evaluation,
+validation errors, and runtime errors with `out` still unbound. The
+observations cover selected bindings and error phases. The Lean residual heap
+and Go partial globals remain outside the comparison.
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
 or a space plus a tab aligned with eight spaces, and two tabs aligned with
@@ -173,8 +208,9 @@ reports those errors at its source boundary.
 ## Next parser boundary
 
 - Add inline suites and use the layout tokens for `for` and nested definitions.
-  Extend the normalized module adapter with more parameter forms, loads, and
-  additional call positions.
+  Extend the normalized module adapter with keyword-only and variadic
+  parameters and additional call positions. Connect load syntax when the
+  loader has a stable source adapter.
 - Extend expressions with tuple and collection displays, calls, attributes,
   indexing and slices. Add membership, the remaining operator levels,
   comprehensions, and lambdas as their target AST forms become available.

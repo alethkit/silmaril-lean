@@ -14,6 +14,11 @@ private def moduleObservation (expected : Observation) : Json :=
     | .exportedInt value => ("publication", toString value)
     | .undefinedName name => ("validation", s!"undefined: {name}")
     | .missingArgument name => ("runtime", s!"missing 1 argument ({name})")
+    | .multipleValues name => ("runtime", s!"multiple values for parameter {reprStr name}")
+    | .duplicateKey name => ("runtime", s!"duplicate key: {reprStr name}")
+    | .duplicateExplicitKeyword name => ("validation", s!"keyword argument {reprStr name} is repeated")
+    | .requiredAfterDefault _ => ("validation", "required parameter may not follow optional")
+    | .uninitializedGlobal name => ("runtime", s!"global variable {name} referenced before assignment")
   Json.mkObj [("phase", toJson phase), ("want", toJson want)]
 
 public def main (args : List String) : IO Unit := do
