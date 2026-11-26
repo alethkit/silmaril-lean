@@ -80,6 +80,13 @@ def routePacket : {P Γ : List Syntax.Ty} → (target : Fin P.length → Fin L.l
     CFG.select (CFG.jump (target 0) (typed 0) (.var 0))
       (routePacket (fun j => target j.succ) (fun j => typed j.succ))
 
+/-- Run one native request and route its exact packed reply to positional
+labels. Faults and divergence never enter the packet router. -/
+def packedRequest (f : Φ) (arg : Expr Γ (instrSrc f)) (typed : instrTrg f = packedExitType R) :
+    Region Φ Γ R :=
+  CFG.bindOne (.native (Program.requestRegion f arg))
+    (CFG.castHead typed (routePacket id (fun _ => rfl)))
+
 def route (R L : List Syntax.Ty) {Γ : List Syntax.Ty} :
     Region Φ (.coprod (packedExitType L) (packedExitType R) :: Γ) (R ++ L) :=
   CFG.select (routePacket (exitLabel R L) external_type)

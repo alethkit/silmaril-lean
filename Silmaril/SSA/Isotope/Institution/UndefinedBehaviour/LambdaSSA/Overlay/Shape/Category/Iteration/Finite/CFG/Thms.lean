@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Defs
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Comparison
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Router
 
 /-! # Complete observations and refinement of typed positional overlay CFGs -/
 
@@ -15,6 +16,13 @@ universe u
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {X A B : Syntax.Ty}
 variable {n states captures seeds results : Nat}
+
+/-- A typed constructor jump has one ordinary return at the same state. -/
+theorem observe_jump {Γ L : List Syntax.Ty} (prim : Primitives Φ states) (env : Bindings Γ)
+    (i : Fin L.length) (typed : L.get i = A) (a : Expr Γ A) (s : Fin states) :
+    Shape.denote (jump (Φ := Φ) i typed a) (model prim env) s =
+      WithTop.some {Outcome.ret i (a.eval env).val s} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.observe_jump prim env i typed a s
 
 /-- The actual positional overlay CFG has the observation computed by the
 bounded traversal of its syntax-generated rows. -/

@@ -3,6 +3,8 @@ module
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Defs
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Router
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Adequacy
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Native
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Behaviour
 
 public section
 
@@ -13,10 +15,13 @@ open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category (splitPayload noEmptyP
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax
 open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent
+open Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG (bindOne castHead)
 open Silmaril.Isotope.LambdaSSA.Region (packedExitType)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG
   (observe_jump observe_select observe_bindOne)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax (denote_push)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax (denote_push fault_bind diverge_bind)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category (return_bind)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax (observe_request)
 
 universe u
 
@@ -42,6 +47,51 @@ private theorem observe_routePacket (prim : Primitives Φ states) (env : Binding
       have decoded : unpack p = ⟨(unpack a).1.succ, (unpack a).2⟩ := by rw [unpack, h]
       rw [decoded]
       exact ih (env.push p) (fun j => target j.succ) (fun j => typed j.succ) a
+
+private theorem cast_packet {A B : Syntax.Ty} (typed : A = B) (prim : Primitives Φ states)
+    (env : Bindings Γ) (a : Payload A) (r : Region Φ (B :: Γ) L) (s : Fin states) :
+    denote (castHead typed r) (model prim (env.push a)).raw s =
+      denote r (model prim (env.push (cast (congrArg Syntax.Payload typed) a))).raw s := by
+  cases typed
+  rfl
+
+private theorem observe_packedRequest (prim : Primitives Φ states) (env : Bindings Γ)
+    (f : Φ) (arg : Expr Γ (instrSrc f)) (typed : instrTrg f = packedExitType R) (s : Fin states) :
+    denote (packedRequest f arg typed) (model prim env).raw s =
+      match prim f (arg.eval env) s with
+      | .ret a t =>
+        let p := unpack (cast (congrArg Syntax.Payload typed) a)
+        WithTop.some {Outcome.ret p.1 p.2.val t}
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} := by
+  rw [packedRequest, bindOne, denote]
+  erw [observe_request prim env f arg s]
+  cases prim f (arg.eval env) s with
+  | ret a t =>
+    refine (return_bind (0 : Fin 1) a.val t _).trans ?_
+    rw [denote_push, cast_packet]
+    exact observe_routePacket prim env id (fun _ => rfl) (cast (congrArg Syntax.Payload typed) a) t
+  | fault t => exact fault_bind t _
+  | diverge => exact diverge_bind _
+
+theorem observe_packedRequest_bind (prim : Primitives Φ states)
+    (env : Bindings Γ) (f : Φ) (arg : Expr Γ (instrSrc f)) (typed : instrTrg f = packedExitType R)
+    (k : (i : Fin R.length) → Region Φ (R.get i :: Γ) L) (s : Fin states) :
+    Shape.denote (.lsubst (packedRequest f arg typed) k) (model prim env) s =
+      match prim f (arg.eval env) s with
+      | .ret a t =>
+        let p := unpack (cast (congrArg Syntax.Payload typed) a)
+        Shape.denote (k p.1) (model prim (env.push p.2)) t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge} := by
+  change (denote (packedRequest f arg typed) (model prim env).raw s).bind _ = _
+  rw [observe_packedRequest]
+  cases prim f (arg.eval env) s with
+  | ret a t =>
+    let p := unpack (cast (congrArg Syntax.Payload typed) a)
+    exact (return_bind p.1 p.2.val t _).trans (denote_push prim env p.2 (k p.1) t)
+  | fault t => exact fault_bind t _
+  | diverge => exact diverge_bind _
 
 @[expose] def routedAnswer (answer : Answer (.coprod (packedExitType L) (packedExitType R)) states) :
     Behaviour (R ++ L).length Unit (Fin states) :=
