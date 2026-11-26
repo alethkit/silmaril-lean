@@ -1,7 +1,7 @@
 # Sea of Nodes source-to-Lean coverage
 
 This ledger records the C1 source inventory, C4 bridges and supporting
-Sea of Nodes results on Silmaril `main` at `a1ae0afc709748d90b0add96500fa9e6adfbfe69`.
+Sea of Nodes results on Silmaril `main` at `08337a41d017aeec6653dcaeb39b5a24ae0f62b5`.
 Each source row keeps its full obligation. The coverage column names the
 proved portion and records the remaining scope. The [proof sequence](#proof-sequence)
 continues to track the broader work. The initial Lean comparison used
@@ -44,12 +44,14 @@ import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms
   each finite return in the generated RVSDG γ graph. `Graph.lower_denote`
   gives the corresponding categorical equality in types.
   [Definitions][son-diamond-defs] · [Theorems][son-diamond-thms] · [#3135][pr-diamond]
-- `Diamond.LambdaSSA.lower` emits a typed λSSA CFG in the producer table’s
-  dependency order. `edge_transfer_iff` checks the selected Phi occurrence.
-  `lower_eval_iff` characterizes every finite target evaluation by external
-  exit zero, the encoded source value and unchanged ambient state.
-  `returns_iff` relates that evaluation to the native return relation.
-  [Definitions][son-diamond-ssa-defs] · [Theorems][son-diamond-ssa-thms] · [Worked example][son-diamond-ssa] · [#3211][pr-diamond-ssa]
+- `Diamond.LambdaSSA.lower` emits a CFG for this one scheduled diamond.
+  `lower_hasType` checks its original input context and single typed
+  external exit. `edge_transfer_iff` relates the selected Phi occurrence
+  to the transfer into the sole join. `lower_eval_iff` characterizes every
+  finite target evaluation by external exit zero, the encoded source value
+  and unchanged ambient state. `returns_iff` relates that evaluation to the
+  native return relation. General typed CFG correspondence remains open.
+  [Definitions][son-diamond-ssa-defs] · [Theorems][son-diamond-ssa-thms] · [Source note and example][son-diamond-ssa] · [#3211][pr-diamond-ssa]
 - `Diamond.Institution.inst` gives native diamond equations over a fixed
   data-sort alphabet and the Boolean predicate sort. Its signature maps
   preserve each opcode’s ordered input sorts and single result sort.
@@ -74,11 +76,12 @@ import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
 ```
 
 - `Loop.Graph` has an acyclic total preheader and header, one entry
-  occurrence and one backedge, a header test that permits zero iterations,
-  and one returned value. `Graph.latch_get` reads each selected Phi operand
-  from the same predecessor snapshot. `Graph.evalBackedges_eq_some_iff`
-  measures completed backedges. `Graph.returns_iff_mem_denote` identifies
-  finite returns with membership in the partial denotation.
+  occurrence and one backedge, and one returned value. The first header
+  evaluation can return with zero completed backedges. `Graph.latch_get`
+  reads each selected Phi operand from the same predecessor snapshot.
+  `Graph.evalBackedges_eq_some_iff` bounds completed backedges.
+  `Graph.returns_iff_mem_denote` identifies finite returns with membership
+  in the partial denotation.
   `Graph.not_returns_of_backedge_invariant` rules out a finite return when
   an invariant at initialization forces another backedge at every step.
   [Definitions][son-loop-defs] · [Theorems][son-loop-thms] · [#3192][pr-loop]
@@ -87,7 +90,8 @@ import Silmaril.SSA.SeaOfNodes.Loop.Theta.Thms
   `Graph.lowerTheta_finishes_iff` give iff statements for a finite numbered
   return, the partial observation and the existence of a finite completed
   Petri firing sequence in the generated model. Universal termination of
-  firing sequences and a source-loop adapter to scoped MLIR remain open.
+  firing sequences and source-loop correspondences to λSSA and scoped MLIR
+  remain open.
   [Definitions][son-theta-defs] · [Theorems][son-theta-thms] · [Regression][son-theta-regression] · [#3210][pr-theta]
 
 ### Related public interfaces
@@ -288,7 +292,7 @@ concrete entry points for differential fixtures. [Java snapshot][simple] ·
 | --- | --- | --- |
 | [1][s01]–[4][s04] | Start and Return, integer input and arithmetic, local binding updates, comparisons and folding. Use constants, an expression with sharing and a nonconstant argument as first fixtures. Specify the chapter’s arithmetic conventions before admitting division or any other non-total operation. | Partial. [`Pure.Program`][son-pure-defs] and [scalar `lower`][son-scalar-defs] cover shared typed producers and one return, with a modular constant/add/multiply instantiation. [`Quads.Code.lower`][son-quads-defs] covers typed assignment updates. Construction from Simple syntax, comparisons and folding stay open. |
 | [5][s05]–[6][s06] | Lower branch projections and current bindings to Region/Phi joins. Check dead input pruning changes the Region and every attached Phi in step. A diamond with different results on the two paths distinguishes the indices. | Partial. [`Diamond.Merge`, `Phi` and `Graph.lower`][son-diamond-defs] cover the two-path join and one Phi. Current-binding construction and dead-input pruning stay open. |
-| [7][s07]–[8][s08] | Specify eager loop Phis, lazy creation, and the edge contributions of break and continue. Prove that graph evaluation uses the previous iteration’s values for a simultaneous Phi update. Include zero iterations, feedback, and a reachable loop with no finite return. | Partial. [`Loop.Graph.latch` and `evalBackedges`][son-loop-defs] cover one entry/backedge pair, zero iterations and old-value feedback. [`Graph.not_returns_of_backedge_invariant`][son-loop-thms] covers the stated no-return case. Phi construction, break and continue stay open. |
+| [7][s07]–[8][s08] | Specify eager loop Phis, lazy creation, and the edge contributions of break and continue. Prove that graph evaluation uses the previous iteration’s values for a simultaneous Phi update. Include zero iterations, feedback, and a reachable loop with no finite return. | Partial. [`Loop.Graph.latch` and `evalBackedges`][son-loop-defs] cover one entry/backedge pair, a return after the first header evaluation with zero completed backedges, and old-value feedback. [`Graph.not_returns_of_backedge_invariant`][son-loop-thms] covers the stated no-return case. Phi construction, break and continue stay open. |
 | [9][s09] | Prove equality for graph-aware node keys and local rules. For iterative peepholes prove that invalidation covers all necessary users, including registered distant dependencies. State convergence for the supported rules and worklist policy. | Partial. [`GVN.Producer.key`][son-gvn-defs] and [`GVN.checkRepresentative_sound`][son-gvn-thms] cover exact typed keys for ranked pure producers. Local algebraic rules, distant-dependency invalidation and iteration stay open. |
 | [10][s10]–[12][s12] | Begin with a whole-memory state and struct allocation, field initialization, loads, stores and null refinement. Add alias classes and lazy split/merge using `MemMerge`, `MemPhi` and `BulkMemPhi`. Prove projection and reassembly against whole memory, including joins and loop feedback. Extend the shape invariant for references and forward/recursive struct declarations. | Partial. [`Memory.Graph`][son-memory-defs] models total loads and stores on initialized fixed cells with final-heap observation. Allocation, initialization, null refinement, aliases and memory split/merge stay open. |
 | [13][s13] | Instantiate the pure scheduling proof, then prove the memory-aware extension. The `Never` edge makes an exitless loop visible to a backward scheduler walk. Prove that the edge cannot take a return and that alias-filtered anti-dependences preserve load observations across and within blocks. Test an overwrite of the same field and a store to an independent field. | Partial. [`GCM.checkPlacement`][son-gcm-defs] covers one certified pure placement at a supplied cut. The scheduler, synthetic `Never` edge and memory anti-dependences stay open. |
