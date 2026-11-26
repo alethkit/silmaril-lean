@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Admission.Prefix.Graph.Defs
 
-/-! A structural plan for position-wise aligned δ and φ bindings. -/
+/-! A structural plan for position-wise aligned δ, φ, and λ bindings. -/
 
 @[expose] public section
 
@@ -22,6 +22,7 @@ def Plan.infer [DecidableEq (Ty V S)] :
     Option (Plan Op importsL importsR exports seeded left right)
   | true, _, _, _, _, .ret _, .ret _ => some .done
   | seeded, _, _, _, _, .bind (head := headL) nodeL restL, .bind (head := headR) nodeR restR =>
+    letI : DecidableEq (Function V S) := decideFunction
     match (generalizing := true) headL, nodeL with
     | _, .delta _ =>
       match (generalizing := true) headR, nodeR with
@@ -30,7 +31,6 @@ def Plan.infer [DecidableEq (Ty V S)] :
     | _, .phi (members := membersL) _ =>
       match (generalizing := true) headR, nodeR with
       | _, .phi (members := membersR) _ =>
-        letI : DecidableEq (Function V S) := decideFunction
         if membersL.isEmpty then none
         else if same : membersL = membersR then
           (Plan.infer true restL restR).map fun rest => by
@@ -40,18 +40,31 @@ def Plan.infer [DecidableEq (Ty V S)] :
             | true => exact .phi rest
         else none
       | _, .delta _ | _, .lambda _ => none
-    | _, .lambda _ => none
+    | _, .lambda (fn := fnL) _ =>
+      match (generalizing := true) headR, nodeR with
+      | _, .lambda (fn := fnR) _ =>
+        match seeded with
+        | false => none
+        | true =>
+          if same : fnL = fnR then
+            (Plan.infer true restL restR).map fun rest => by
+              subst fnR
+              exact .lambda rest
+          else none
+      | _, .delta _ | _, .phi _ => none
   | _, _, _, _, _, _, _ => none
 termination_by structural _ _ _ _ _ left _ => left
 
-/-- Align numbered δ and nonempty φ bindings at the same positions. A
-pair of δ rows runs through the ordinary linker, the first φ pair seeds
-admission, and subsequent φ pairs use fresh-group admission. Each φ pair
-must have the same ordered member signatures.
+/-- Align numbered δ, nonempty φ, and post-seed λ bindings at the same
+positions. Paired δ rows use the ordinary linker. The first φ pair seeds
+admission and later φ pairs use fresh-group admission. A φ pair must have
+the same ordered member signatures. A λ pair must have the same function
+signature and uses fresh λ admission.
 
-The resulting `GraphPlan` selects only bindings. The admission checker
-still checks the actual captures, bodies and dispatch separation. A
-missing seed, λ or empty φ row, or unmatched pair rejects this policy. -/
+The resulting `GraphPlan` selects bindings. The admission checker validates
+actual captures, bodies and dispatch separation. Use an explicit plan for
+aliases or layouts outside this policy, such as λ rows before the φ seed,
+empty φ rows, or unmatched pairs. -/
 def inferGraphPlan [DecidableEq (Ty V S)] (left : Omega Op importsL exports sigsL)
     (right : Omega Op importsR exports sigsR) : Option (GraphPlan left right) :=
   Plan.infer false left.toTerm.region right.toTerm.region

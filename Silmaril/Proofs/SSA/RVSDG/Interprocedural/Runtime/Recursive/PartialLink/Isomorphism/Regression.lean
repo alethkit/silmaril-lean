@@ -1486,6 +1486,14 @@ private def mixedAdmission (flag : Nat) (checkAlias : Bool := true) :=
 #guard (mixedAdmission 1 false).isNone
 #guard (mixedAdmission 0).isNone
 
+-- The paired layout admits a fresh plan. The duplicate row instead
+-- needs the existing explicit alias case exercised by mixedAdmission.
+#guard (inferGraphPlan mixedModule.toGraph mixedModule.toGraph).isSome
+#guard ((inferGraphPlan mixedModule.toGraph mixedModule.toGraph).bind fun plan =>
+  admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 (number 1) (number 1)
+    mixedModule.toGraph mixedModule.toGraph plan (fn := branchFn) mixedPort 20 20
+    (exactValue := exactLambdas)).isNone
+
 private def mixedLambdaRef : machine.Val branchFn.port :=
   .closure (.cons (globalValue 1 9) .nil) sameBody.toGraph
 
@@ -1539,9 +1547,13 @@ private def profileGraph (right gain : Bool) :
       (.cons (.output (4 : Fin 5) .head) .nil))
   }
 
+private theorem profilePlanFound (gain : Bool) :
+    (inferGraphPlan (profileGraph false gain) (profileGraph true gain)).isSome = true := by
+  cases gain <;> decide +kernel
+
 private def profilePlan (gain : Bool) :
     GraphPlan (profileGraph false gain) (profileGraph true gain) :=
-  .skipL (.skipR (.skipL (.skipR (.seed (.phi (.lambda .done))))))
+  (inferGraphPlan (profileGraph false gain) (profileGraph true gain)).get (profilePlanFound gain)
 
 private abbrev profilePort : Port captureExports branchFn.port := .tail (.tail .head)
 
@@ -1822,6 +1834,66 @@ example : ∃ endR,
   obtain ⟨_, _, closed, admitted⟩ := starts crossAccepted
   exact (ClosedFamily.blocks (respectsGlobals Eq) closed admitted).1 _
     (Continuation.Partial.Executable.runFor_reachable actions 80 (crossSource false)) ⟨_, by cbv, by cbv⟩
+
+private abbrev loopCarrier : Ports T := [control, control, num]
+
+private def lambdaLoopBody :
+    RecursiveCall.Code Op loopCarrier [] [[num]] (Theta.BodyResults loopCarrier) :=
+  .bind (RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail (.tail .head))) .nil)
+      (fun i => i.elim0)) (fun i => i.elim0) <|
+    .ret (.cons (.arg .head) (.cons (.arg (.tail .head)) (.cons (.arg (.tail .head))
+      (.cons (.output (0 : Fin 1) .head) .nil))))
+
+-- Use the call result as the initial carrier. The first control can
+-- restart the loop, which then takes its exit selector from the second.
+private def lambdaLoopCode : RecursiveCall.Code Op wrappedInput [] [[num], loopCarrier] [num] :=
+  let loop : NestedTheta.Node (Instruction Op) wrappedInput [[num]] loopCarrier :=
+    ⟨loopCarrier, .theta loopCarrier,
+      .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head))))
+        (.cons (.output (0 : Fin 1) .head) .nil)), fun _ => [[num]]⟩
+  wrapWith (.bind loop (fun _ => lambdaLoopBody)
+    (.ret (.cons (.output (1 : Fin 2) (.tail (.tail .head))) .nil)))
+
+private def lambdaLoop {past : List (Ports T)} (capture : Origin crossImports past branchFn.port) :
+    LambdaTerm Op crossImports past branchFn :=
+  ⟨[branchFn.port], .cons capture .nil, _, lambdaLoopCode⟩
+
+private def lambdaLoopModule (right stale : Bool) :
+    OmegaTerm Op crossImports crossExports crossSigs :=
+  ⟨.bind (.delta crossDelta) <| .bind (.phi (crossEarlier right)) <|
+    .bind (.lambda (lambdaLoop (if stale then .arg (.tail .head) else .output (1 : Fin 2) .head))) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private def lambdaLoopPlan (stale : Bool) :=
+  inferGraphPlan (lambdaLoopModule false false).toGraph (lambdaLoopModule true stale).toGraph
+
+private def lambdaLoopAdmission (stale : Bool) :=
+  (lambdaLoopPlan stale).bind fun plan =>
+    admitGraph instructionKeys actions Eq ordinaryOutputs 73 73 crossInputs crossInputs
+      (lambdaLoopModule false false).toGraph (lambdaLoopModule true stale).toGraph
+      plan (fn := branchFn) crossPort 20 20
+
+#guard (lambdaLoopAdmission false).isSome
+#guard (lambdaLoopPlan true).isSome
+#guard (lambdaLoopAdmission true).isNone
+
+-- The stale wire has the same callable type and actually resolves at
+-- link time. Only the earlier member has an admitted prefix origin.
+example : Executable.link actions 73 (lambdaLoopModule true true).toGraph crossInputs 20 =
+    .linked (.cons (.closure (.cons crossForeign .nil) lambdaLoopCode.toGraph) .nil) 23 := by cbv
+
+-- The exported λ calls the linked member. Its θ suffix performs one
+-- effect before feedback and another before exiting with the result.
+example (right : Bool) :
+    Executable.run actions 100 73 (lambdaLoopModule right false).toGraph crossInputs
+      crossPort (branchArgs 1) 20 = .ok (.returned (number 44) 43) := by
+  cases right <;> cbv
+
+private def lambdaBeforeSeed : OmegaTerm Op crossImports crossExports [[branchFn.port]] :=
+  ⟨.bind (.lambda (lambdaLoop (.arg (.tail .head)))) <|
+    .ret (.cons (.output (0 : Fin 1) .head) .nil)⟩
+
+#guard (inferGraphPlan lambdaBeforeSeed.toGraph lambdaBeforeSeed.toGraph).isNone
 
 open RecursiveCall.Numbered (GroupProfile LabelCode memberProfile memberProfile_eq)
 
