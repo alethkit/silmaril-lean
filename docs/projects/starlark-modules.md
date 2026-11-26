@@ -652,39 +652,48 @@ in first-binder order. Repeated assignments share one slot.
 prefix and the independently selected capture list to the emitted
 declarations.
 
-The prefix uses the straight-line body rules for local reads, integers,
-indexing and singleton list displays. The prefix judgment composes with
-any reached continuation. It preserves owned slot addresses and existing
-caller cells. A prefix error restores the caller immediately with the
-reached heap, before any default or child installation. A successful
-prefix supplies its actual heap to the definition. Default operands
-are evaluated once in order against that reached frame.
+The prefix uses the straight-line body rules for local and module reads,
+integers, indexing and singleton list displays. An owned name shadows a
+module name throughout the wrapper block. Independent capture selection
+admits the remaining module references in first-read order. Module entry
+supplies the selected addresses from the reached module frame, and
+wrapper definition stores them with the module capture flag. The trace
+preserves those addresses through aliases and module assignments.
+`prefix_module_read` proves that activation reads the current module
+cell, including its uninitialized state, through the same address.
+
+The prefix judgment composes with any reached continuation. It preserves
+owned slot addresses and existing caller cells. A prefix error restores
+the caller immediately with the reached heap, before any default or
+child installation. A successful prefix supplies its actual heap to the
+definition, where defaults evaluate once in order.
 
 `returned_frame` identifies the successful prefix state and the exact
-default values evaluated there. It relates the installed capture vector
+default values evaluated there. It relates the child's capture vector
 to the same reached frame, and the escaped closure supplies those live
 addresses to later calls. `capture_order` gives one entry per selected
-binding in declaration order. Post-definition writes update the captured
-cells and preserve the saved defaults. The checked module theorem
-carries the closure through aliases and repeated calls and gives exact
+child binding in declaration order. The suffix updates captured cells
+and preserves the saved defaults. The checked module theorem carries
+the closure through aliases and repeated calls and gives exact
 operational and denotational agreement on publication and reachable
 freezing or on the first error, retained heap and restored caller.
 
-The three controls run the same wrapper shape. The prefix initializes a
-local from a nested list, the child saves that list as a default, and
-the escaped child reads the rebinding of that local as an index. The
-failure controls stop at a bad prefix index or a default read of a
-suffix-only local. The former retains the prefix allocation and skips
-every default. The latter retains the completed prefix and the first
-default allocation, leaves the later local unbound, and stops before
-child installation. Both skip publication. The pinned Go controls check
-returned values, visible failure state and freezing. Lean also checks
-capture addresses and the private residual heap.
+The fixture defines the wrapper before its module input is initialized.
+A checked list mutation between two wrapper calls changes what the
+second prefix reads. The original escaped child keeps its saved value. A local of the same name as another module binding
+supplies the index. The failure controls distinguish an uninitialized
+module read, a later bad index, and an uninitialized default read of a
+suffix-only local. Lean checks the capture kinds, private residual heap,
+and caller restoration. The pinned Go control compares visible results,
+failure state and freezing with its default file options. The activation
+theorem uses the current binding cell on each call. The checked module
+profile rejects repeated module name bindings through the existing
+collision check.
 
-Wider wrapper bodies and operands, global reads from the wrapper
-prefix, capture of the child-name or module slots in this profile,
-deeper nesting, arbitrary callable provenance, keywords and spreads,
-loads, and text parsing remain outside this integration.
+Wider wrapper bodies and operands, direct module reads in this wrapper's
+defaults, capture of module or child-name slots by the child, deeper
+nesting, arbitrary callable provenance, keywords and spreads, loads,
+and text parsing remain outside this integration.
 [Source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Defs.lean) · [Capture and frame theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/nested-default-body/check.go)
 
 ## Finite-manifest loader

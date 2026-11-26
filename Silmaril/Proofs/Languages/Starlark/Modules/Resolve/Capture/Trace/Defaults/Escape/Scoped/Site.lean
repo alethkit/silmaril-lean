@@ -38,19 +38,17 @@ theorem emission (spec : Spec) (globals : List String) (names : Names spec)
   have codes : defaults.map PlainPositionalDefault.value = wrapper.codes := by
     simp [defaults, Defaults.Escape.planned, Defaults.Escape.Spec.codes, List.map_map, Function.comp_def]
   have reads (binding : Silmaril.Languages.Starlark.Binding)
-      (member : binding ∈ plan.leadingReads ++ (defaults.flatMap PlainPositionalDefault.reads ++ plan.body.free.map FreeName.source)) :
+      (member : binding ∈ defaults.flatMap PlainPositionalDefault.reads ++ plan.body.free.map FreeName.source) :
       ∃ name ∈ spec.enclosing, binding = fileSlot name := by
-    rcases List.mem_append.mp member with fromPrefix | fromDefinition
-    · exact plan.leadingOwned binding fromPrefix
-    · rcases List.mem_append.mp fromDefinition with fromDefault | fromBody
-      · exact Defaults.Escape.default_bindings wrapper spec.enclosing
-          (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.defaultReads fromDefault
-      · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp fromBody
-        obtain ⟨name, eligible, _, rfl⟩ := plan.captured entry present
-        exact ⟨name, eligible, rfl⟩
+    rcases List.mem_append.mp member with fromDefault | fromBody
+    · exact Defaults.Escape.default_bindings wrapper spec.enclosing
+        (by simp [Spec.enclosing, Spec.parameters, wrapper]) names.defaultReads fromDefault
+    · obtain ⟨entry, present, rfl⟩ := List.mem_map.mp fromBody
+      obtain ⟨name, eligible, _, rfl⟩ := plan.captured entry present
+      exact ⟨name, eligible, rfl⟩
   apply Defaults.Escape.wrap_emission wrapper names.wrapper globals spec.additional names.childFresh spec.updates
     (fun name member => (names.localUpdates name member).1) spec.leading plan.leadingCode plan.leadingReads
-    spec.child.body.source _ _ plan.leading reads
+    spec.child.body.source _ _ plan.leading plan.moduleFree plan.leadingSelects reads
   intro seed
   have step := Defaults.Body.compile_nested plan.body defaults paired translated seed
   rw [codes] at step

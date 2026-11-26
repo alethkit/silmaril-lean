@@ -28,13 +28,16 @@ theorem define_scoped {before after : List Command} {spec : Spec} {globals : Lis
   obtain ⟨plan⟩ := admitted.plan
   obtain ⟨childId, site, childCode, parentCode⟩ := Defaults.Escape.Scoped.checked_site
     admitted.names plan declared checked suffix
-  let cell : Cell := ⟨.function ⟨childId + 1, [], []⟩, false⟩
+  obtain ⟨captures, installed⟩ := Defaults.Body.instantiate_selected plan.leadingSelects state layout
+  have cells := Defaults.Body.selected_cells plan.leadingSelects state layout captures installed
+  let cell : Cell := ⟨.function ⟨childId + 1, captures, []⟩, false⟩
   let grown : State := { state with heap := state.heap.push cell }
   let keep := Bindings.Preserves.push state cell
-  have live := commit_cell known.1 (keep.layout layout) state.heap.size (childId + 1) [] []
+  have live := commit_cell known.1 (keep.layout layout) state.heap.size (childId + 1) captures []
     (show grown.heap[state.heap.size]? = some cell from Array.getElem?_push_size)
-  exact ⟨_, .ordinary (.define site parentCode .nil), .commit grown _ keep,
-    ⟨known.1, ⟨⟨childId, state.heap.size, admitted.names, plan, childCode, parentCode, live⟩⟩⟩⟩
+  obtain ⟨retained, liveCells⟩ := commit_captures keep spec.wrapper.name (.function state.heap.size) installed cells
+  exact ⟨_, .ordinary (.define site parentCode installed), .commit grown _ keep,
+    ⟨known.1, ⟨⟨childId, state.heap.size, admitted.names, plan, childCode, parentCode, captures, retained, liveCells, live⟩⟩⟩⟩
 
 theorem alias_scoped {before rest : List Command} {globals : List String} {source destination : String}
     {linked : Program} {resolved : ResolvedModule}
@@ -51,8 +54,10 @@ theorem alias_scoped {before rest : List Command} {globals : List String} {sourc
   have evaluated : RootCall.Evaluates state (.scalar (.read source)) (.ok (.function root.address) state) := by
     simpa [State.read, root.live.binding] using RootCall.Evaluates.name (state := state) source
   have live := commit_cell destinationKnown.1 layout _ _ _ _ root.live.cell
+  obtain ⟨installed, cells⟩ := commit_captures (Bindings.Preserves.refl state) destination
+    (.function root.address) root.installed root.cells
   exact ⟨_, .ordinary (.setup site (.atom related evaluated)), .commit state _ (.refl _),
-    ⟨destinationKnown.1, ⟨{ root with live }⟩⟩⟩
+    ⟨destinationKnown.1, ⟨{ root with installed, cells, live }⟩⟩⟩
 
 theorem call_scoped {before rest : List Command} {globals : List String} {callee destination : String}
     {arguments : List Lowering.Resolve.SourceExpr} {linked : Program} {resolved : ResolvedModule}
@@ -79,7 +84,7 @@ theorem call_scoped {before rest : List Command} {globals : List String} {callee
       let codes := spec.wrapper.codes
       obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.Scoped.returns_total root.names root.plan
         resolved.program (withoutDeclaration (List.range resolved.program.size) (root.childId + 1))
-        root.childId root.childCode state assigned
+        root.childId root.childCode state root.captures root.installed root.cells assigned
       refine ⟨_, .scopedCall root site calleeCode related ran (.entered bound returned), ?_⟩
       intro next success
       cases out with

@@ -133,7 +133,10 @@ structure ScopedRoot (globals : List String) (program : Program) (state : State)
   plan : Defaults.Escape.Scoped.Plan globals spec
   childCode : program[childId]? = some (plan.body.declaration spec.wrapper.codes)
   parentCode : program[childId + 1]? = some (plan.frame childId).declaration
-  live : RootCall.Live state name address (childId + 1) [] false
+  captures : List Lists.Capture
+  installed : Installs state plan.moduleFree captures
+  cells : Defaults.Body.CaptureCells state captures
+  live : RootCall.Live state name address (childId + 1) captures false
 
 @[expose] def LiveBinding (globals : List String) (program : Program) (state : State)
     (name : String) : Callable → Prop
@@ -198,15 +201,15 @@ inductive CallsBody {globals : List String} {program : Program} {state : State} 
       CallsBody saved values (Leaf.returnTo state out)
 
 inductive CallsScoped {globals : List String} {spec : Defaults.Escape.Scoped.Spec} (state : State)
-    (plan : Defaults.Escape.Scoped.Plan globals spec) (childId : Nat)
+    (plan : Defaults.Escape.Scoped.Plan globals spec) (childId : Nat) (captures : List Lists.Capture)
     (values : List Value) : Outcome Value → Prop where
   | rejected {error : Lists.Error} :
       Entry.Binds spec.parameters values (.error error) →
-      CallsScoped state plan childId values (.error error state)
+      CallsScoped state plan childId captures values (.error error state)
   | entered {assigned : List (Binding × Value)} {out : Outcome Value} :
       Entry.Binds spec.parameters values (.ok assigned) →
-      Defaults.Escape.Scoped.Returns plan childId state assigned out →
-      CallsScoped state plan childId values out
+      Defaults.Escape.Scoped.Returns plan childId state captures assigned out →
+      CallsScoped state plan childId captures values out
 
 inductive Step (resolved : ResolvedModule) (globals : List String) :
     Nat → State → Command → Modules.Result Unit → Prop where
@@ -259,7 +262,7 @@ inductive Step (resolved : ResolvedModule) (globals : List String) :
       RootCall.Operand globals (.scalar (.read callee)) (Leaf.readOperand (globalSlot callee)) →
       Assignment.InOrder (RootCall.Operand globals) arguments actuals →
       RootCall.EvaluatesOperands state arguments (.ok values state) →
-      CallsScoped state root.plan root.childId values out →
+      CallsScoped state root.plan root.childId root.captures values out →
       Step resolved globals index state (invocation callee destination arguments) (Leaf.assignResult destination out)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.WithDefaults

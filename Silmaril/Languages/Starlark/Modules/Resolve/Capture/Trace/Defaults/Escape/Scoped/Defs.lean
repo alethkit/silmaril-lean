@@ -53,26 +53,28 @@ structure Plan (globals : List String) (spec : Spec) where
   leadingCode : List (String × Lowering.Expr)
   leadingReads : List Binding
   leading : Defaults.Body.ElaboratesPrefix (spec.block globals) spec.leading leadingCode leadingReads
-  leadingOwned : ∀ binding ∈ leadingReads, ∃ name ∈ spec.enclosing, binding = fileSlot name
+  moduleFree : List FreeName
+  leadingSelects : Selects (spec.block globals) leadingReads moduleFree
 
 @[expose] def Plan.frame {globals : List String} {spec : Spec} (plan : Plan globals spec) (id : Nat) :
     Forwarding.Frame :=
   let frame := spec.frame id
-  { frame with code := Defaults.Body.prependCode plan.leadingCode frame.code }
+  { frame with free := plan.moduleFree, code := Defaults.Body.prependCode plan.leadingCode frame.code }
 
 /-- Prefix failure restores the caller before defaults or installation.
 Success supplies exactly the reached wrapper state to the existing rules. -/
 inductive Returns {globals : List String} {spec : Spec} (plan : Plan globals spec)
-    (childId : Nat) (caller : State) (assigned : List (Binding × Lists.Value)) : Outcome Lists.Value → Prop where
+    (childId : Nat) (caller : State) (captures : List Lists.Capture)
+    (assigned : List (Binding × Lists.Value)) : Outcome Lists.Value → Prop where
   | failed {error : Lists.Error} {final : State} :
-      Defaults.Body.RunsPrefix (spec.block globals) (activate caller (plan.frame childId).declaration [] assigned)
+      Defaults.Body.RunsPrefix (spec.block globals) (activate caller (plan.frame childId).declaration captures assigned)
         spec.leading plan.leadingCode (.error error final) →
-      Returns plan childId caller assigned (.error error (restoreCaller caller final))
+      Returns plan childId caller captures assigned (.error error (restoreCaller caller final))
   | entered {reached : State} {out : Outcome Lists.Value} :
-      Defaults.Body.RunsPrefix (spec.block globals) (activate caller (plan.frame childId).declaration [] assigned)
+      Defaults.Body.RunsPrefix (spec.block globals) (activate caller (plan.frame childId).declaration captures assigned)
         spec.leading plan.leadingCode (.ok () reached) →
       Escape.ReturnsWith spec.wrapper childId plan.body.free spec.updates caller reached out →
-      Returns plan childId caller assigned out
+      Returns plan childId caller captures assigned out
 
 structure Admitted (globals : List String) (spec : Spec) : Prop where
   names : Names spec
