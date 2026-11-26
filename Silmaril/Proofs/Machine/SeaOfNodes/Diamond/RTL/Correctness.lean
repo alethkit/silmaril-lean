@@ -111,7 +111,7 @@ private theorem emit_exec {sorts : List (ValueSort Unit)} {out : ValueSort Unit}
         some (encode t (read model wire (entry x y) xs)) := readWire wire
   cases op with
   | const v => cases wires; rfl
-  | add | sub | eq | ne =>
+  | add | sub | eq | ne | slt =>
     cases wires with
     | cons left rest =>
       cases rest with
