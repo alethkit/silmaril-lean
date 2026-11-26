@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Defs
+public import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Defs
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Defs
 
 /-! # Forward a first Load through a scalar loop Φ -/
@@ -9,8 +9,8 @@ public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried
 
-open RVSDG (Locals Port Tuple)
-open Memory.Forwarding (originKey)
+open RVSDG (Locals Origin Port Tuple)
+open Memory.Forwarding.Disjoint (Certificate)
 
 variable {args : List ValueSort} {cells : Nat}
 
@@ -25,6 +25,8 @@ structure Graph (args : List ValueSort) where
   address : Port args .address
   body : Memory.Body args [[.word]] 0
   stop : Port args .word
+  /-- One-based version published by the Store that feeds the scalar Φ. -/
+  storeVersion : Nat
 
 def Graph.Agrees (graph : Graph args) (input : Tuple (Val cells) args) (header : Header cells) : Prop :=
   header.word = header.heap.read (input.get graph.address)
@@ -45,35 +47,36 @@ def Graph.activate (graph : Graph args) (input : Tuple (Val cells) args) (header
 
 structure Activation (cells : Nat) where
   result : Word × Heap cells
-  lastStored : Option Word
+  stored : Option Word
 
-/-- Evaluate the native table once, retaining the actual scalar operand of
-each Store when it writes. Loads and Return leave that scalar in place. -/
-def runWithLastStore (input : Tuple (Val cells) args) :
+/-- Evaluate the native table once and retain the scalar operand at the
+selected Store. Later effects still run in their original order. -/
+def runWithStore (input : Tuple (Val cells) args) (requested : Nat) :
     {past : List (List ValueSort)} → {version : Nat} → Memory.Body args past version →
     Locals (Val cells) past → Heap cells → Option Word → Activation cells
-  | _, _, .ret _ value, locals, heap, last => ⟨(readValue value input locals, heap), last⟩
-  | _, _, .load _ address rest, locals, heap, last =>
-    runWithLastStore input rest (.cons (heap.read (readValue address input locals)) .nil, locals) heap last
-  | _, _, .store _ address value rest, locals, heap, _ =>
-    let stored := readValue value input locals
-    runWithLastStore input rest locals (heap.write (readValue address input locals) stored) (some stored)
+  | _, _, .ret _ value, locals, heap, saved => ⟨(readValue value input locals, heap), saved⟩
+  | _, _, .load _ address rest, locals, heap, saved =>
+    runWithStore input requested rest (.cons (heap.read (readValue address input locals)) .nil, locals) heap saved
+  | _, version, .store _ address value rest, locals, heap, saved =>
+    let stored : Word := readValue value input locals
+    let next := if version + 1 = requested then some stored else saved
+    runWithStore input requested rest locals (heap.write (readValue address input locals) stored) next
 
 def Graph.activateWithStore (graph : Graph args) (input : Tuple (Val cells) args) (header : Header cells) :
     Activation cells :=
-  runWithLastStore input graph.body (.cons header.word .nil, PUnit.unit) header.heap none
+  runWithStore input graph.storeVersion graph.body (.cons header.word .nil, PUnit.unit) header.heap none
 
 def Graph.stopWord (graph : Graph args) (input : Tuple (Val cells) args) : Word :=
   input.get graph.stop
 
-/-- Test and return the original exported word. Feedback carries the last
-Store operand and the final heap. A checked rewrite always has a Store. -/
+/-- Test and return the original exported word. Feedback carries the
+selected Store operand and the final heap. -/
 def Graph.step (graph : Graph args) (input : Tuple (Val cells) args) (header : Header cells) :
     (Word × Heap cells) ⊕ Header cells :=
   let activation := graph.activateWithStore input header
   let result := activation.result
   if result.1 = graph.stopWord input then .inl result
-  else .inr ⟨activation.lastStored.getD result.1, result.2⟩
+  else .inr ⟨activation.stored.getD result.1, result.2⟩
 
 def Graph.evalFrom (graph : Graph args) (input : Tuple (Val cells) args) :
     Nat → Header cells → Option (Word × Heap cells)
@@ -93,23 +96,43 @@ def Graph.Returns (graph : Graph args) (input : Tuple (Val cells) args)
     (initial : Heap cells) (word : Word) (final : Heap cells) : Prop :=
   ∃ count, graph.evalAfter input initial count = some (word, final)
 
-/-- Check whether the last Store writes to this original argument port.
-Each Store replaces the previous fact. Return observes the live version. -/
-def lastStoreMatchesAt (observed : Port args .address) :
+/-- Track whether the nominated Store supplies the observed cell at Return.
+Each later Store must be covered by the certificate. -/
+def storeSurvivesAt (facts : Certificate args) (requested : Nat) :
     {past : List (List ValueSort)} → {version : Nat} → Memory.Body args past version → Bool → Bool
   | _, _, .ret _ _, matched => matched
-  | _, _, .load _ _ rest, matched => lastStoreMatchesAt observed rest matched
-  | _, _, .store _ address _ rest, _ =>
-    lastStoreMatchesAt observed rest (originKey address == .inl observed.index)
+  | _, _, .load _ _ rest, matched => storeSurvivesAt facts requested rest matched
+  | _, version, .store _ address _ rest, matched =>
+    let next := if version + 1 = requested then facts.matches address
+      else matched && (!facts.matches address && facts.covers address)
+    storeSurvivesAt facts requested rest next
 
-/-- Remove the first Load if the final Store writes to its original address
-port. The untouched suffix gets the original Load's local from the scalar Φ. -/
+/-- Forward a nominated Store to the next activation under explicit
+cell inequalities for the suffix writers. -/
+def rewriteWith (source : Loop.Graph args) (storeVersion : Nat) (facts : Certificate args) :
+    Option (Graph args) :=
+  match source.body with
+  | .load _ address rest =>
+    if facts.matches address && storeSurvivesAt facts storeVersion rest false then
+      some ⟨facts.observed, rest, source.stop, storeVersion⟩
+    else none
+  | _ => none
+
+/-- Check the concrete typed cell inequalities at the invocation. -/
+def rewriteChecked (source : Loop.Graph args) (storeVersion : Nat) (facts : Certificate args)
+    (input : Tuple (Val cells) args) : Option (Graph args) :=
+  if facts.check input then rewriteWith source storeVersion facts else none
+
+/-- Return observes this exact version of the ordered memory chain. -/
+def finalVersion : {past : List (List ValueSort)} → {version : Nat} → Memory.Body args past version → Nat
+  | _, _, .ret memory _ => memory.producer.val
+  | _, _, .load _ _ rest => finalVersion rest
+  | _, _, .store _ _ _ rest => finalVersion rest
+
+/-- The final-Store case requires no inequalities. -/
 def rewrite (source : Loop.Graph args) : Option (Graph args) :=
   match source.body with
-  | .load _ (.arg address) rest =>
-    if lastStoreMatchesAt address rest false then
-      some ⟨address, rest, source.stop⟩
-    else none
+  | .load _ (.arg address) _ => rewriteWith source (finalVersion source.body) ⟨address, []⟩
   | _ => none
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Carried

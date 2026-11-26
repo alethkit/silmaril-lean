@@ -6,6 +6,7 @@ import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
+import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
@@ -14,6 +15,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
+meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 
 namespace Silmaril.SSA.Peggy.Tests
@@ -591,5 +593,85 @@ example (env : Tuple arithmetic.Value params) :
   rcases h with eq | eq
   · exact eq ▸ selectLaw
   · exact eq ▸ compressLaw
+
+private abbrev orderedResults : List (Ty Unit) := [.count, .count, .count, .bool]
+
+/-- The first root uses vertex 2 twice. The second includes a partial sum
+in the unselected φ arm, and the third has an undefined guard. The last
+row duplicates vertex 2 when the graph is built without sharing. -/
+private def contextualTable (shared swapped : Bool) :
+    RawGraph Op params orderedResults 12 0 where
+  forest := ⟨Fin.elim0⟩
+  sort i := if i = 7 ∨ i = 9 then .bool else .count
+  node i := match i with
+    | 0 => ⟨_, .param .head, []⟩
+    | 1 => ⟨_, .op .add, [0, 0]⟩
+    | 2 => ⟨_, .op .add, [1, 0]⟩
+    | 3 => ⟨_, .op .add, [2, if shared then 2 else 11]⟩
+    | 4 => ⟨_, .op .bad, []⟩
+    | 5 => ⟨_, .op .add, [4, 4]⟩
+    | 6 => ⟨_, .op .add, [5, 4]⟩
+    | 7 => ⟨_, .op .no, []⟩
+    | 8 => ⟨_, .phi, [7, 6, 3]⟩
+    | 9 => ⟨_, .op .bottom, []⟩
+    | 10 => ⟨_, .phi, [9, 2, 0]⟩
+    | 11 => ⟨_, .op .add, [1, 0]⟩
+  roots := if swapped then [10, 8, 3, 9] else [3, 8, 10, 9]
+
+private def contextGraph (shared swapped : Bool) : Graph Op params orderedResults 12 0 :=
+  (contextualTable shared swapped).check.get (by cases shared <;> cases swapped <;> rfl)
+
+private def contextRank (i : Fin 12) : Nat := match i with
+  | 1 | 5 => 1
+  | 2 | 6 | 11 => 2
+  | 3 | 10 => 3
+  | 8 => 4
+  | _ => 0
+
+private def contextProgram (shared swapped : Bool) : RankedProgram Op params orderedResults :=
+  ⟨12, contextGraph shared swapped,
+    (Acyclic.Ranked.check (contextGraph shared swapped) contextRank).get
+      (by cases shared <;> cases swapped <;> rfl)⟩
+
+private def shared := contextProgram true false
+private def repeated := contextProgram false false
+private def swapped := contextProgram true true
+private def contextRules : List (Contextual.Schema Op) := [⟨.count, compress⟩]
+private def contextBest := Contextual.optimize opEq contextRules 2 shared
+
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 0)).isEmpty
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 1)).isEmpty
+#guard (matchTarget opEq shared compress (encodeOutputs shared.ranked 2)).isEmpty
+#guard (Contextual.discover opEq contextRules shared).length == 2
+#guard Contextual.cost shared == 10
+#guard Contextual.cost (Contextual.optimize opEq contextRules 1 shared).program == 9
+#guard Contextual.cost contextBest.program == 8
+#guard contextBest.program.size == shared.size
+#guard PEG.refNumbers
+  (contextBest.program.graph.node (contextBest.program.graph.roots.get .head).id).args == [2, 2]
+
+private def self : PEG.Ref shared.graph.sort .count := ⟨(show Fin 12 from 2), rfl⟩
+#guard (Contextual.replace shared self (PEG.Node.ofLabel (.op Op.triple) (.cons self .nil))).isNone
+
+#guard Contextual.cost repeated == 11
+#guard (Contextual.compareOutputs opEq shared repeated).isSome
+#guard (Contextual.compareOutputs opEq shared swapped).isNone
+
+#guard (shared.ranked.eval (toAcyclic arithmetic) exampleInput (show Fin 12 from 6)).isNone
+#guard (show Option Nat from contextBest.program.ranked.evalOutputs
+  (toAcyclic arithmetic) exampleInput 0) == some 84
+#guard (show Option Nat from contextBest.program.ranked.evalOutputs
+  (toAcyclic arithmetic) exampleInput 1) == some 84
+#guard (contextBest.program.ranked.evalOutputs (toAcyclic arithmetic) exampleInput 2).isNone
+
+example (env : Tuple arithmetic.Value params) :
+    shared.graph.observe arithmetic (shared.graph.denote arithmetic env
+      (demandWellFounded shared.ranked)) Fin.elim0 =
+    contextBest.program.graph.observe arithmetic (contextBest.program.graph.denote arithmetic env
+      (demandWellFounded contextBest.program.ranked)) Fin.elim0 := by
+  apply CheckedProgram.sound contextBest
+  intro rule h
+  have eq : rule = compress.core := List.mem_singleton.mp h
+  exact eq ▸ compressLaw
 
 end Silmaril.SSA.Peggy.Optimizer.Tests

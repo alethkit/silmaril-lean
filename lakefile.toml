@@ -522,6 +522,11 @@ globs = ["tests.ssa.PEGRules"]
 name = "PEGCanonicalWhileTests"
 globs = ["tests.ssa.PEGCanonicalWhile"]
 
+# Check the executable Peggy field heap and its guarded Figure 11 observation.
+[[lean_lib]]
+name = "PeggyFieldHeapTests"
+globs = ["tests.ssa.PeggyFieldHeap"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"

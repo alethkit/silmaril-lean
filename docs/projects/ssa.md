@@ -165,6 +165,15 @@ reads its free inputs from the incoming packet, even across back edges.
 With a store-reading continuation, a single discarded assignment suffices
 to [distinguish equal classes](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Institution/Refinement/Plugging/Regression.lean).
 
+[Executable cyclic linking](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Thms.lean)
+uses finite input and output ports carrying one value of the common carrier.
+Every private address names a packet-closed block. Linking allocates disjoint
+private ranges and a forwarding block per intermediate port. The right stage
+can loop within its own range and can exit through its public ports. Running
+the resulting ordinary named CFG agrees with staged exit plugging.
+Observational classes of these graphs form a category with the wire identity
+and linker composition, which is monotone for terminating-result inclusion.
+
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
 `Region.alphaEq_ofDB_toDB`, `Region.evalSSA_eq_of_alphaEq`, `Region.close_toLN`
@@ -489,6 +498,23 @@ The continuation cannot jump back to its own label.
   agreement.
   [Semantic quotient isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Quotient/Thms.lean) ·
   [Let-to-join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- The two-exit comparison uses native positional regions with exits
+  `[A, B]`. Its structured fragment has left and right branches, case
+  trees, and the acyclic binary dispatcher for existing single-exit code.
+  Encoding uses `A ⊕ B` and the decoder dispatches to the original labels.
+  An isomorphism identifies the two native label summands with the
+  singleton carrying that coproduct. The actual positional denotations
+  commute with these maps, so the exact compiled LetCase equation and
+  the native two-exit equation have the same satisfaction in each
+  coherent model. The typed equation translation and native satisfaction
+  both commute with type-changing reduct, even if it identifies the two
+  payload types. Every existing validated algebra expands on this
+  fragment with the same coherence and central-unit assumptions.
+  The joined guarded finite-interface comparison treats a separate
+  quotient and model interface.
+  [Native encoding](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Categorical/Thms.lean) ·
+  [Two-exit satisfaction and signature squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/TwoExit/Institution/Thms.lean) ·
+  [Joined guarded comparison](https://github.com/hiloopai/silmaril-lean/pull/3532)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

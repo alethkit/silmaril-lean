@@ -153,7 +153,7 @@ theorem shape_subst_leaf {n : Nat} {sorts : Fin n → α} {R : Ty α}
   | 0 => ReplyReflection.shape_constructor shape _
   | _ + 1 => .var _
 
-theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
+private theorem written_subst (h : Sequenced e Γ A a) {σ : Nat → Expr Φ}
     (ht : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2)
     (hs : ∀ i, ConstructorLeaf (σ i)) : ReplyReflection.Written A e Δ (a.subst σ) := by
   induction h generalizing Δ σ with

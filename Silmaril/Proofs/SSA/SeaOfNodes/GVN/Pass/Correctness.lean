@@ -103,7 +103,7 @@ private theorem run_some (fuel : Nat) {first : Rewrite Op args past sigs}
 variable (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
 variable (locals : Locals (Val m.value) past)
 
-private theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result) :
+theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result) :
     Routing.Agrees result.route m entry (flow.eval m entry locals) (result.flow.eval m entry locals) := by
   obtain ⟨_, candidate, representative, wire, checked⟩ := step_elimination accepted
   exact Elimination.eliminate_sound candidate representative wire m entry locals checked

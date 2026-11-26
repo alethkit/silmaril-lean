@@ -34,9 +34,9 @@ The deletion criterion also underlies the repository's numeric dominator
 solver in Machine. The typed implementation reuses the SSA natural-loop
 closure proof, with adjacency reversed for forward traversal. This keeps
 the SSA dependency boundary. The result is a Boolean relation. The
-placement checker still consumes a `DominatorTree`. Constructing its
-addresses and certifying ancestry remain a separate step.
-[Numeric solver][numeric] · [SSA closure proof][closure] · [Dependency map][regions]
+cut discovery API can use it directly. Consumers of `DominatorTree`
+still require certified tree addresses. [Numeric solver][numeric] ·
+[SSA closure proof][closure] · [Dependency map][regions] · [Cut discovery][cuts]
 
 The executable regressions cover a diamond join, an incomplete inventory,
 and a loop with two latch slots that both target the header and carry
@@ -60,3 +60,4 @@ lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.Dominance.Regression
 [numeric]: ../../Silmaril/Raw/Machine/CBackend/Graph/Dominance.lean
 [closure]: ../../Silmaril/SSA/SeaOfNodes/GCM/NaturalLoop/Thms.lean
 [regions]: ../../regions.toml
+[cuts]: sea-of-nodes-gcm-computed-dominance-cuts.md

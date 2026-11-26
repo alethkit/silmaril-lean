@@ -81,47 +81,83 @@ theorem step_eval_eq (accepted : step? program = some next)
   obtain ⟨_, _, _, checked⟩ := step_checked accepted
   exact rightIdentity_eval_eq checked entry
 
-theorem run_eval_eq (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+section Driver
+
+variable (advance : Program SubZero.Opcode inputs out → Option (Program SubZero.Opcode inputs out))
+
+theorem runWith_eval_eq (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (preserves : ∀ {current next}, advance current = some next →
+      ∀ (entry : Tuple (Val model.value) (dataPorts inputs)),
+        next.eval model entry = current.eval model entry)
     (entry : Tuple (Val model.value) (dataPorts inputs)) :
-    (run fuel program).program.eval model entry = program.eval model entry := by
+    (runWith advance fuel program).program.eval model entry = program.eval model entry := by
   induction fuel generalizing program with
   | zero => rfl
   | succ fuel ih =>
-    cases found : step? program with
-    | none => simp only [run, found]
+    cases found : advance program with
+    | none => simp only [runWith, found]
     | some next =>
-      simp only [run, found]
-      exact (ih next).trans (step_eval_eq found entry)
+      simp only [runWith, found]
+      exact (ih next).trans (preserves found entry)
 
-theorem run_progress (fuel : Nat) (program : Program SubZero.Opcode inputs out) :
-    let final := run fuel program
+theorem runWith_progress (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (shrinks : ∀ {current next}, advance current = some next →
+      next.sigs.length + 1 = current.sigs.length) :
+    let final := runWith advance fuel program
     final.program.sigs.length + final.deletions = program.sigs.length ∧ final.deletions ≤ fuel := by
   induction fuel generalizing program with
-  | zero => simp [run]
+  | zero => simp [runWith]
   | succ fuel ih =>
-    cases found : step? program with
-    | none => simp [run, found]
+    cases found : advance program with
+    | none => simp [runWith, found]
     | some next =>
       obtain ⟨size, budget⟩ := ih next
-      have stepSize := step_size found
-      simp only [run, found]
+      have stepSize := shrinks found
+      simp only [runWith, found]
       omega
 
-theorem run_normal_of_remaining (fuel : Nat) (program : Program SubZero.Opcode inputs out)
-    (remaining : (run fuel program).deletions < fuel) : Normal (run fuel program).program := by
+theorem runWith_stopped_of_remaining (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (remaining : (runWith advance fuel program).deletions < fuel) :
+    advance (runWith advance fuel program).program = none := by
   induction fuel generalizing program with
   | zero => exact False.elim (Nat.not_lt_zero _ remaining)
   | succ fuel ih =>
-    cases found : step? program with
-    | none =>
-      simp only [run, found]
-      exact (step_none_iff program).1 found
+    cases found : advance program with
+    | none => simp only [runWith, found]
     | some next =>
-      simp only [run, found] at remaining ⊢
+      simp only [runWith, found] at remaining ⊢
       exact ih next (Nat.lt_of_succ_lt_succ remaining)
 
+theorem runWith_stopped (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (shrinks : ∀ {current next}, advance current = some next →
+      next.sigs.length + 1 = current.sigs.length) (enough : program.sigs.length ≤ fuel) :
+    advance (runWith advance fuel program).program = none := by
+  by_cases remaining : (runWith advance fuel program).deletions < fuel
+  · exact runWith_stopped_of_remaining advance fuel program remaining
+  cases found : advance (runWith advance fuel program).program with
+  | none => rfl
+  | some next =>
+    have ⟨count, _⟩ := runWith_progress advance fuel program shrinks
+    have decreased := shrinks found
+    omega
+
+end Driver
+
+theorem run_eval_eq (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (entry : Tuple (Val model.value) (dataPorts inputs)) :
+    (run fuel program).program.eval model entry = program.eval model entry :=
+  runWith_eval_eq step? fuel program (fun h => step_eval_eq h) entry
+
+theorem run_progress (fuel : Nat) (program : Program SubZero.Opcode inputs out) :
+    let final := run fuel program
+    final.program.sigs.length + final.deletions = program.sigs.length ∧ final.deletions ≤ fuel :=
+  runWith_progress step? fuel program (fun h => step_size h)
+
+theorem run_normal_of_remaining (fuel : Nat) (program : Program SubZero.Opcode inputs out)
+    (remaining : (run fuel program).deletions < fuel) : Normal (run fuel program).program :=
+  (step_none_iff _).1 (runWith_stopped_of_remaining step? fuel program remaining)
+
 theorem normalize_normal (program : Program SubZero.Opcode inputs out) : Normal (normalize program).program := by
-  have counted := (run_progress (program.sigs.length + 1) program).1
-  exact run_normal_of_remaining (program.sigs.length + 1) program (by omega)
+  exact (step_none_iff _).1 (runWith_stopped step? _ program (fun h => step_size h) (Nat.le_succ _))
 
 end Silmaril.Proofs.SSA.SeaOfNodes.Pure.RightIdentityPass
