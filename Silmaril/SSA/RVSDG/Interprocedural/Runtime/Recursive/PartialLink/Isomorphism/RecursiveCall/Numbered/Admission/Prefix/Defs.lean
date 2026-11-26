@@ -117,7 +117,7 @@ structure Checked (primitives : Primitives m σ) (ids : GlobalRel)
     (localsL : Locals m.Val pastL) (localsR : Locals m.Val pastR) where
   familyL : Family m
   familyR : Family m
-  keys : List (LambdaKey V S)
+  keys : LambdaKeys V S
   certified : LinkedFamily primitives ids familyL familyR keys
   left : Table familyL localsL
   right : Table familyR localsR
@@ -212,7 +212,7 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
     let rightTable := (Table.empty groupR.In localsR).snoc (memberRow membersR groupR.ref (fun slot => .member slot))
     let checked ← walk keys actions ids ordinary unitL unitR inputsL inputsR port
       (localsL.snoc (memberValues membersL groupL.ref)) (localsR.snoc (memberValues membersR groupR.ref))
-      storeL storeR next (.seeded ⟨groupL.In, groupR.In, [], seed.down, leftTable, rightTable⟩)
+      storeL storeR next (.seeded ⟨groupL.In, groupR.In, ⟨[], []⟩, seed.down, leftTable, rightTable⟩)
     pure ⟨by simp only [linkTerm_bind, VertexTerm.toGraph, Executable.linkVertex]; exact checked.down⟩
   | _, _, _, _, _, _, _, localsL, localsR, storeL, storeR,
       .lambda (left := left) (right := right) next, .seeded earlier => do
@@ -238,8 +238,8 @@ def walk (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : 
 
 /-- Check an ordered pair of complete link prefixes, then read the
 selected export from the generated membership tables. The plan contains
-only binding selections. Each λ step retains the dispatch-key restriction
-on signatures and ordered capture types. Related successful link outcomes
+only binding selections. Each λ step checks separation using signatures,
+ordered capture types and outer body vertex counts. Related successful link outcomes
 and primitive compatibility remain premises for paired invocation. -/
 def admit (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key] (actions : Actions m σ)
     (ids : GlobalRel) (ordinary : OrdinaryOutputs Op) (unitL unitR : Nat)

@@ -838,11 +838,15 @@ example : ∃ sourceL sourceR endR,
 -- consumed by the λ's own state-changing suffix.
 private abbrev wrappedInput : Ports T := branchFn.port :: branchFn.args
 
-private def wrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+private def wrapWith {sigs : List (Ports T)} (suffix : RecursiveCall.Code Op wrappedInput [[num]] sigs [num]) :
+    RecursiveCall.Code Op wrappedInput [] ([num] :: sigs) [num] :=
   .bind (RecursiveCall.simple (.apply branchFn)
     (.cons (.arg .head) (.cons (.arg (.tail .head))
       (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))))
-    (fun i => i.elim0)) (fun i => i.elim0) addAfter
+    (fun i => i.elim0)) (fun i => i.elim0) suffix
+
+private def wrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num]] [num] :=
+  wrapWith addAfter
 
 private def wrapper {past : List (Ports T)} (capture : Origin args past branchFn.port) :
     LambdaTerm Op args past branchFn :=
@@ -1035,16 +1039,22 @@ private def combinedR : LambdaTerm Op args combinedPastR branchFn :=
 private def combinedBad : LambdaTerm Op args combinedPastR branchFn :=
   combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head)
 
-private def combinedModuleL : OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
+private def combinedModuleLWith (second : LambdaTerm Op args (prefixL ++ [[branchFn.port]]) branchFn)
+    (root : LambdaTerm Op args combinedPastL branchFn) :
+    OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
   ⟨.bind (.delta (seedDelta [])) <| .bind (.phi branchGroupL) <| .bind (.phi (emptyPhi Op args _)) <|
-    .bind (.lambda wrapperL) <| .bind (.lambda uncheckedLambda) <| .bind (.lambda combinedL) <|
+    .bind (.lambda wrapperL) <| .bind (.lambda second) <| .bind (.lambda root) <|
     .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
 
-private def combinedModuleR (root : LambdaTerm Op args combinedPastR branchFn) :
+private def combinedModuleRWith (second : LambdaTerm Op args (prefixR ++ [[branchFn.port]]) branchFn)
+    (root : LambdaTerm Op args combinedPastR branchFn) :
     OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
   ⟨.bind (.phi (emptyPhi Op args [])) <| .bind (.delta (seedDelta [[]])) <| .bind (.phi branchGroupR) <|
-    .bind (.lambda wrapperR) <| .bind (.lambda uncheckedLambda) <| .bind (.lambda root) <|
+    .bind (.lambda wrapperR) <| .bind (.lambda second) <| .bind (.lambda root) <|
     .ret (.cons (.output (5 : Fin 6) .head) .nil)⟩
+
+private abbrev combinedModuleL := combinedModuleLWith uncheckedLambda combinedL
+private abbrev combinedModuleR := combinedModuleRWith uncheckedLambda
 
 private def combinedLocalsL : Locals machine.Val combinedPastL :=
   (beforeWrapperL.snoc (.cons (wrapperRef branchRefL) .nil)).snoc (.cons uncheckedRef .nil)
@@ -1127,6 +1137,61 @@ example :
     (combinedScan combinedBad).isSome = false := by
   refine ⟨combinedBadLinks, ?_⟩
   cbv
+
+-- The paired earlier λs have the same signature and the same captured
+-- φ member. The second λ executes one more state-changing primitive.
+private def longerWrapperCode : RecursiveCall.Code Op wrappedInput [] [[num], [num], [num]] [num] :=
+  wrapWith (.bind
+    (RecursiveCall.simple (.primitive Op.seed) (.cons (.output (0 : Fin 1) .head) .nil) (fun i => i.elim0))
+    (fun i => i.elim0) (.bind
+      (RecursiveCall.simple (.primitive Op.seed) (.cons (.output (1 : Fin 2) .head) .nil) (fun i => i.elim0))
+      (fun i => i.elim0) (.ret (.cons (.output (2 : Fin 3) .head) .nil))))
+
+private def secondWrapper {past : List (Ports T)} (capture : Origin args past branchFn.port)
+    (duplicate : Bool) : LambdaTerm Op args past branchFn :=
+  if duplicate then wrapper capture else ⟨[branchFn.port], .cons capture .nil, _, longerWrapperCode⟩
+
+private def bothL (duplicate : Bool) : OmegaTerm Op args [branchFn.port] (combinedPastL ++ [[branchFn.port]]) :=
+  combinedModuleLWith (secondWrapper (.output (1 : Fin 4) .head) duplicate)
+    (combined (.output (3 : Fin 5) .head) (.output (4 : Fin 5) .head))
+
+private def bothR (duplicate : Bool) : OmegaTerm Op args [branchFn.port] (combinedPastR ++ [[branchFn.port]]) :=
+  combinedModuleRWith (secondWrapper (.output (2 : Fin 4) .head) duplicate) combinedBad
+
+private def bothPlan (duplicate : Bool) : Plan Op args args [branchFn.port] false (bothL duplicate).region
+    (bothR duplicate).region :=
+  .skipL (.skipR (.skipR (.seed (.skipL (.lambda (.lambda (.lambda .done)))))))
+
+private def bothScan (duplicate : Bool) :=
+  admit instructionKeys actions wrappedIds ordinaryOutputs 73 73 (number 1) (number 1)
+    (bothL duplicate) (bothR duplicate) (bothPlan duplicate) (fn := branchFn) .head 20 20
+
+set_option maxHeartbeats 800000 in
+example : (bothScan false).isSome = true := by cbv
+
+-- Both calls return to the final λ. It passes the first result to the
+-- second call and uses the second result in its own stateful suffix.
+example :
+    Executable.run actions 100 73 (bothL false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) ∧
+    Executable.run actions 100 73 (bothR false).toGraph (number 1) .head (branchArgs 1) 20 =
+      .ok (.returned (number 51) 63) := by
+  constructor <;> cbv
+
+private def duplicateExport (ref : machine.Val branchFn.port) : machine.Val branchFn.port :=
+  .closure (.cons (wrapperRef ref) (.cons (wrapperRef ref) .nil)) combinedBody.toGraph
+
+-- These distinct source bindings produce literally the same callable
+-- value on each side. Both links succeed, but the body-based check
+-- cannot use those values to separate the two prospective dispatches.
+set_option maxHeartbeats 800000 in
+example :
+    Executable.link actions 73 (bothL true).toGraph (number 1) 20 =
+      .linked (.cons (duplicateExport branchRefL) .nil) 23 ∧
+    Executable.link actions 73 (bothR true).toGraph (number 1) 20 =
+      .linked (.cons (duplicateExport branchRefR) .nil) 23 ∧
+    (bothScan true).isSome = false := by
+  refine ⟨?_, ?_, ?_⟩ <;> cbv
 
 private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
   RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
