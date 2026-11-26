@@ -67,9 +67,16 @@ def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
   | .scalar _ | .builtin _ | .string _ | .range _ => none
 
+/-- Scalar values admitted as dictionary key parts. -/
+inductive ScalarKey where
+  | none
+  | bool (value : Bool)
+  | int (value : Int)
+  deriving DecidableEq, BEq, Repr
+
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
-  | scalar (value : Starlark.Value)
+  | scalar (value : ScalarKey)
   | openTuple
   | closeTuple
   | function (address : Address)
@@ -268,8 +275,10 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
   match value with
   | .scalar scalar =>
     match scalar with
+    | .none => .ok [.scalar .none]
+    | .bool value => .ok [.scalar (.bool value)]
+    | .int value => .ok [.scalar (.int value)]
     | .float _ => .error (.unhashableKey (.scalar scalar))
-    | _ => .ok [.scalar scalar]
   | .tuple address =>
     match state.heap[address]? with
     | none => .error (.danglingAddress address)

@@ -72,17 +72,24 @@ example (input : Numeric.Ieee754.F64) :
 
 -- Float dictionary keys fail during display, read, or write. A tuple cannot hide the float.
 #guard
+  let rejects := fun (state : State) (key : Lists.Value) =>
+    let display := Lists.addDisplayEntry [] key (.scalar .none) state
+    let get := Lists.readIndex (.dict 0) key state
+    let put := Lists.writeIndex (.dict 0) key (.scalar .none) state
+    decide (result display = .error (.unhashableKey key) ∧
+      result get = .error (.unhashableKey key) ∧ result put = .error (.unhashableKey key) ∧
+      (finishState put).heap = state.heap)
   let key := value 0x3ff0000000000000
   let state : State := { heap := #[⟨.dict [], false⟩] }
-  let display := Lists.addDisplayEntry [] key (.scalar .none) state
-  let get := Lists.readIndex (.dict 0) key state
-  let put := Lists.writeIndex (.dict 0) key (.scalar .none) state
   let tuple := Lists.allocateTuple [key] state
   let nested := Outcome.resume tuple (fun inner => Lists.allocateTuple [inner])
-  result display = .error (.unhashableKey key) ∧
-    result get = .error (.unhashableKey key) ∧
-    result put = .error (.unhashableKey key) ∧ (finishState put).heap = state.heap ∧
-    (finishState nested).keyOf (.tuple 1) = .error (.unhashableKey (.tuple 1)) ∧
-    (finishState nested).keyOf (.tuple 2) = .error (.unhashableKey (.tuple 2))
+  let withList := finishState (Outcome.resume nested (fun outer => Lists.allocate [outer]))
+  rejects state key && rejects withList (.tuple 1) &&
+    rejects withList (.tuple 2) && rejects withList (.list 3)
+
+-- Raw heap clients use the same restricted key code type for cached tuples and dictionary entries.
+example : True := by
+  fail_if_success have _ : Lists.KeyPart := .scalar (Value.float 0)
+  trivial
 
 end Silmaril.Languages.Starlark.Binary64

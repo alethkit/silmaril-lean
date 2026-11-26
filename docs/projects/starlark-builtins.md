@@ -126,8 +126,10 @@ accepts float keys, including inside tuples, and gives equal numeric keys
 equal hashes. The resolved slice gives `binaryType` for any comparison
 involving a float, including `==` and `!=`. A float used as a dictionary
 key gives `unhashableKey` on insertion or lookup. Tuple allocation
-propagates the absence of a key through nested tuples. These guards keep
-structural bit equality out of language comparisons and dictionary lookup.
+propagates the absence of a key through nested tuples. Cached tuple codes
+and dictionary entries use key parts whose scalar cases are `None`, Boolean
+and integer. General collection comparisons and membership are outside the
+resolved profile.
 [Pinned comparisons][spec-floats] · [Pinned keys][spec-dicts] · [Go float comparison and hashing][go-float-values] · [Go mixed comparisons][go-compare]
 
 The `float()` conversion, source literals and float arithmetic require
