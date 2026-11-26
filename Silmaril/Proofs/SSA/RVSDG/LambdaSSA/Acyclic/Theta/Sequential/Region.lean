@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Model.Defs
-public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Defs
+public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Fork.Defs
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Iteration
 
 /-! # Direct monadic denotation of the flat two-loop CFG -/
@@ -659,5 +659,126 @@ theorem flat_link_denote
     exact right_start q coherent (merge e)
 
 end FlatLink
+
+section FlatFork
+
+open Flat
+open TwoBlock.TwoExit (Carrier)
+
+variable (p : Fragment Φ M E D) (q : Fragment Φ Y E D)
+
+private abbrev ForkState := FiniteLabelDen p.localTypes ⊕ FiniteLabelDen q.localTypes
+
+private def forkAt (i : Fin (p.count + q.count)) : TyDen (forkTypes p q i) → ForkState p q :=
+  Fin.addCases (motive := fun j => TyDen (forkTypes p q j) → ForkState p q)
+    (fun j x => .inl ⟨j, forkLeft_type p q j ▸ x⟩)
+    (fun j x => .inr ⟨j, forkRight_type p q j ▸ x⟩) i
+
+private def forkEncode (x : FiniteLabelDen (forkTypes p q)) := forkAt p q x.1 x.2
+
+private theorem fork_route {n : Nat} (R : Fin n → τ) (inj : FiniteLabelDen R → ForkState p q)
+    (localDest : ∀ i, Site (ForkLabels p q) (R i))
+    (localEq : ∀ i x, route (forkTypes p q) [E,D] (forkEncode p q) (localDest i) x = .inr (inj ⟨i,x⟩))
+    (site : Site (List.ofFn R ++ [E,D]) X) (x : TyDen X) :
+    route (forkTypes p q) [E,D] (forkEncode p q)
+      (redirect localDest (externalSite (forkTypes p q) [E,D]) site) x =
+        Sum.map id inj (route R [E,D] id site x) := by
+  unfold redirect
+  generalize h : splitSite R [E,D] site = dest
+  obtain ⟨dest, eq⟩ := dest
+  subst site
+  cases dest with
+  | «local» i =>
+    change route _ _ _ (localDest i) x = Sum.map id inj (route R [E,D] id (localSite _ _ i) x)
+    rw [route_local]
+    exact localEq i x
+  | external i =>
+    change route _ _ _ (externalSite _ _ i) x = Sum.map id inj (route R [E,D] id (externalSite _ _ i) x)
+    rw [route_external, route_external]
+    rfl
+
+private theorem fork_left_route (site : Site p.Labels X) (x : TyDen X) :
+    route (forkTypes p q) [E,D] (forkEncode p q) (forkLeft p q site) x =
+      Sum.map id Sum.inl (route p.localTypes [E,D] id site x) :=
+  fork_route p q p.localTypes Sum.inl _ (by
+    intro i x
+    rw [route_cast, route_local]
+    simp only [forkEncode, forkAt, Fin.addCases_left, payload_cast_cancel]) site x
+
+private theorem fork_right_route (site : Site q.Labels X) (x : TyDen X) :
+    route (forkTypes p q) [E,D] (forkEncode p q) (forkRight p q site) x =
+      Sum.map id Sum.inr (route q.localTypes [E,D] id site x) :=
+  fork_route p q q.localTypes Sum.inr _ (by
+    intro i x
+    rw [route_cast, route_local]
+    simp only [forkEncode, forkAt, Fin.addCases_right, payload_cast_cancel]) site x
+
+private noncomputable def forkStep : ForkState p q → m (LabelDen [E,D] ⊕ ForkState p q)
+  | .inl i => fragStep (ε := ε) p i >>= fun r => pure (Sum.map id Sum.inl r)
+  | .inr i => fragStep (ε := ε) q i >>= fun r => pure (Sum.map id Sum.inr r)
+
+variable (gate : TwoBlock.Instruction Φ A (Carrier Y M M))
+
+omit [Iterate m] [LawfulElgotMonad m] in
+private theorem forkDispatch (i : Fin ((fork p q gate).count)) (x : TyDen ((fork p q gate).localTypes i)) :
+    runBlock (ε := ε) (m := m) (route (forkTypes p q) [E,D] (forkEncode p q)) ((fork p q gate).blocks i) x =
+      forkStep (ε := ε) p q (forkEncode p q ⟨i,x⟩) := by
+  revert x
+  refine Fin.addCases (m := p.count) (n := q.count) ?_ ?_ i
+  · intro j x
+    simp only [fork, forkEncode, forkAt, Fin.addCases_left, flat_action_cast, forkStep, fragStep]
+    exact runBlock_map (ε := ε) (p.blocks j) _ (forkLeft p q) _ _ _ (fork_left_route p q)
+  · intro j x
+    simp only [fork, forkEncode, forkAt, Fin.addCases_right, flat_action_cast, forkStep, fragStep]
+    exact runBlock_map (ε := ε) (q.blocks j) _ (forkRight p q) _ _ _ (fork_right_route p q)
+
+private theorem forkArm {Z : τ} (arm : Fragment Φ Z E D)
+    (rename : ∀ {W}, Site arm.Labels W → Site (ForkLabels p q) W)
+    (inj : FiniteLabelDen arm.localTypes → ForkState p q)
+    (commute : ∀ {W} (site : Site arm.Labels W) (x : TyDen W),
+      route (forkTypes p q) [E,D] (forkEncode p q) (rename site) x =
+        Sum.map id inj (route arm.localTypes [E,D] id site x))
+    (stepEq : ∀ i, forkStep (ε := ε) (m := m) p q (inj i) =
+      fragStep (ε := ε) arm i >>= fun r => pure (Sum.map id inj r))
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (x : TyDen Z) :
+    (runBlock (ε := ε) (route (forkTypes p q) [E,D] (forkEncode p q)) (arm.entry.rename rename) x >>=
+      Sum.elim pure (iter (forkStep (ε := ε) p q))) =
+      Region.denote (ε := ε) (m := m) arm.typing (PUnit.unit, x) := by
+  rw [fragment_run arm id (fragStep (ε := ε) arm) (fun _ _ => rfl) coherent,
+    runBlock_map (ε := ε) arm.entry x rename _ _ _ commute]
+  simp only [bind_assoc, pure_bind]
+  congr 1
+  funext r
+  cases r with
+  | inl => rfl
+  | inr i =>
+    have square : (fragStep (ε := ε) (m := m) arm >=> liftPure (Sum.map id inj)) =
+        (liftPure inj >=> forkStep (ε := ε) (m := m) p q) := by
+      funext j
+      simp only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind]
+      exact (stepEq j).symm
+    simpa only [Bind.kleisliRight, liftPure, Function.comp_apply, pure_bind, Sum.map_inr, Sum.elim_inr] using
+      (congrFun (LawfulElgotMonad.uniformity _ _ _ square) i).symm
+
+theorem flat_fork_denote
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :
+    Region.denote (ε := ε) (m := m) (fork p q gate).typing env =
+      callCase (ε := ε) gate env.2 >>= fun
+        | .inl x => Region.denote (ε := ε) (m := m) p.typing
+            (PUnit.unit, Sum.elim id id (TypeModel.coprodEquiv M M x))
+        | .inr y => Region.denote (ε := ε) (m := m) q.typing (PUnit.unit, y) := by
+  rw [fragment_run (fork p q gate) (forkEncode p q) (forkStep (ε := ε) p q)
+    (forkDispatch p q gate) coherent]
+  simp only [fork, runBlock, bind_assoc]
+  congr 1
+  funext selected
+  cases selected with
+  | inl x =>
+    simp only [Sum.elim_inl]
+    cases TypeModel.coprodEquiv M M x <;>
+      exact forkArm p q p (forkLeft p q) Sum.inl (fork_left_route p q) (fun _ => rfl) coherent _
+  | inr y => exact forkArm p q q (forkRight p q) Sum.inr (fork_right_route p q) (fun _ => rfl) coherent y
+
+end FlatFork
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Proofs
