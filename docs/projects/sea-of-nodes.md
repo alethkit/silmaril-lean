@@ -1,6 +1,6 @@
 # Sea of Nodes source-to-Lean coverage
 
-The [Sea of Nodes coverage ledger](sea-of-nodes/coverage.md) moved. Browse all [Sea of Nodes guides](sea-of-nodes/README.md).
+This guide moved to [sea-of-nodes/coverage.md](sea-of-nodes/coverage.md). Browse all [Sea of Nodes guides](sea-of-nodes/README.md).
 
 - <a name="start-here"></a>[Start here](sea-of-nodes/coverage.md#start-here)
 - <a name="straight-line-pure-producers"></a>[Straight-line pure producers](sea-of-nodes/coverage.md#straight-line-pure-producers)

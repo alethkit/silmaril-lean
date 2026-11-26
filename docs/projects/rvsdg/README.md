@@ -1,7 +1,8 @@
 # RVSDG
 
-Start with the [RVSDG overview](overview.md) for the typed graph and term,
-their operational semantics, liveness, and the coloured firing model.
+Start with the [RVSDG overview](overview.md) for the typed graph and term
+representations, their operational semantics, liveness, and the coloured firing
+model.
 
 ## Semantics and institutions
 

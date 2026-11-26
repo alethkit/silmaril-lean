@@ -1,6 +1,6 @@
 # Regionalized value state dependence graphs
 
-The [RVSDG overview](rvsdg/overview.md) moved. Browse all [RVSDG guides](rvsdg/README.md).
+This guide moved to [rvsdg/overview.md](rvsdg/overview.md). Browse all [RVSDG guides](rvsdg/README.md).
 
 - <a name="representations-and-theorems"></a>[Representations and theorems](rvsdg/overview.md#representations-and-theorems)
 - <a name="numbered-γθ-liveness"></a>[Numbered γ/θ liveness](rvsdg/overview.md#numbered-γθ-liveness)
