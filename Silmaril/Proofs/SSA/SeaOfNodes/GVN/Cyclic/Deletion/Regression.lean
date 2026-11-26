@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.HeaderUse.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Pass.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.FixedPoint.Thms
 
 namespace Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Regression
@@ -46,9 +47,9 @@ private abbrev inputs := [word]
 private abbrev carried := [word, word]
 private abbrev sigs : List (List (Ty Unit)) := [[wordPort], [wordPort], [guardPort], [wordPort]]
 
-/-- Producer 1's only use is the guard operand. The output reads both
-producer 0 and the guard, so deleting 1 also shifts a surviving operand. -/
-private def loop : Loop.Graph Primitive inputs carried [] sigs word where
+/-- The default fixture uses producer 1 only as the guard operand.
+The alternate feedback column keeps both equivalent increments live. -/
+private def makeLoop (keep : Bool) : Loop.Graph Primitive inputs carried [] sigs word where
   preheader := .nil
   header := .cons .inc (.cons (.arg (.tail .head)) .nil)
     (.cons .inc (.cons (.arg (.tail (.tail .head))) .nil)
@@ -56,9 +57,15 @@ private def loop : Loop.Graph Primitive inputs carried [] sigs word where
         (.cons .observe (.cons (.output (2 : Fin 3) .head) (.cons (.output (0 : Fin 3) .head) .nil)) .nil)))
   phiInputs
     | .entry => .cons (.arg .head) (.cons (.arg .head) .nil)
-    | .backedge => .cons (.output (3 : Fin 4) .head) (.cons (.output (3 : Fin 4) .head) .nil)
+    | .backedge =>
+      if keep then
+        .cons (.output (0 : Fin 4) .head) (.cons (.output (1 : Fin 4) .head) .nil)
+      else
+        .cons (.output (3 : Fin 4) .head) (.cons (.output (3 : Fin 4) .head) .nil)
   predicate := .output (2 : Fin 4) .head
   result := .output (3 : Fin 4) .head
+
+private abbrev loop := makeLoop false
 
 private abbrev sortAt : Nat → ValueSort Unit
   | 4 => .predicate
@@ -66,23 +73,23 @@ private abbrev sortAt : Nat → ValueSort Unit
 
 private abbrev sorts (i : Fin 6) := sortAt i.val
 
-private def siteAt : (i : Nat) → Site loop sorts (sortAt i)
-  | 0 => .phi .head (.producer 5 rfl) .head
-  | 1 => .phi .head (.producer 5 rfl) (.tail .head)
+private def siteAt (keep : Bool) : (i : Nat) → Site (makeLoop keep) sorts (sortAt i)
+  | 0 => .phi .head (if keep then .producer 2 rfl else .producer 5 rfl) .head
+  | 1 => .phi .head (if keep then .producer 3 rfl else .producer 5 rfl) (.tail .head)
   | 2 => .pure .inc (.cons (.producer 0 rfl) .nil) .here
   | 3 => .pure .inc (.cons (.producer 1 rfl) .nil) (.later .here)
   | 4 => .pure .test (.cons (.producer 3 rfl) .nil) (.later (.later .here))
   | _ + 5 => .pure .observe (.cons (.producer 4 rfl) (.cons (.producer 2 rfl) .nil))
     (.later (.later (.later .here)))
 
-private def sites (i : Fin 6) : Site loop sorts (sorts i) := siteAt i.val
+private def sites (keep : Bool) (i : Fin 6) : Site (makeLoop keep) sorts (sorts i) := siteAt keep i.val
 
 private theorem vertex_cases (i : Fin 6) : i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3 ∨ i = 4 ∨ i = 5 := by
   simp only [Fin.ext_iff]
   omega
 
-private def graph : Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Graph Primitive inputs sorts where
-  node i := (sites i).node
+private def makeGraph (keep : Bool) : Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Graph Primitive inputs sorts where
+  node i := (sites keep i).node
   ordered i j sort pureNode operand := by
     rcases vertex_cases i with rfl | rfl | rfl | rfl | rfl | rfl
     all_goals simp [sites, siteAt, Site.node, Node.isPure, Node.addresses, Source.addresses, Source.address,
@@ -92,15 +99,19 @@ private def graph : Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Graph Primitive inputs so
       | obtain ⟨_, rfl⟩ := operand
         decide
 
-private def view : View graph loop where
-  site := sites
+private def makeView (keep : Bool) : View (makeGraph keep) (makeLoop keep) where
+  site := sites keep
   shape _ := rfl
   valid i := by
-    rcases vertex_cases i with rfl | rfl | rfl | rfl | rfl | rfl <;> first | exact ⟨rfl, rfl⟩ | rfl
+    cases keep <;> rcases vertex_cases i with rfl | rfl | rfl | rfl | rfl | rfl <;>
+      first | exact ⟨rfl, rfl⟩ | rfl
   guard := .producer 4 rfl
   result := .producer 5 rfl
   guard_eq := rfl
   result_eq := rfl
+
+private abbrev graph := makeGraph false
+private abbrev view := makeView false
 
 private def candidate : Producer loop.header word := .later .here
 private def consumer : Producer loop.header .predicate := .later (.later .here)
@@ -177,5 +188,19 @@ private def guardOnly : Loop.Graph Primitive inputs carried [] [[guardPort]] wor
   result := .arg .head
 
 theorem rejects_guard_only_use : delete? guardOnly .here = none := rfl
+
+theorem discovers_existing_redirect_then_delete : Pass.step? view = some shortened := rfl
+
+theorem discovered_step_shrinks_and_returns :
+    shortened.headerSigs.length + 1 = sigs.length ∧
+      shortened.graph.evalBackedges model 2 input = some (4 : Nat) :=
+  ⟨Pass.step_count view discovers_existing_redirect_then_delete,
+    (Pass.step_evalBackedges view discovers_existing_redirect_then_delete model input 2).trans rfl⟩
+
+theorem executable_search_rejects_feedback_live_redirect :
+    (HeaderUse.redirect? (makeView true) (normalize (makeGraph true)) consumer .head
+      (.producer 3 rfl) (.producer 2 rfl) (.output (0 : Fin 2) .head)).isSome = true ∧
+      Pass.step? (makeView true) = none :=
+  ⟨rfl, rfl⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Regression
