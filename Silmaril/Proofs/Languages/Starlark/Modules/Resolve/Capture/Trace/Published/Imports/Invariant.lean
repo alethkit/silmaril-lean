@@ -47,13 +47,6 @@ theorem keeps_frame {importName globals} {state next : State}
   · obtain ⟨address, value, frozen, owned, found⟩ := frame.2 binding member
     exact ⟨address, value, frozen, kept.1 ▸ owned, keep_cell kept found⟩
 
-theorem keeps_live {importName globals producer program} {env : Tracked importName globals} {state next : State} (live : Live importName producer program env state)
-    (kept : Body.Keeps state.heap.size state next) : Live importName producer program env next := by
-  intro name callee tracked
-  obtain ⟨slot, address, frozen, defining, owned, cell, linked, ⟨closure⟩, inherited⟩ := live name callee tracked
-  exact ⟨slot, address, frozen, defining, kept.1 ▸ owned, keep_cell kept cell, linked,
-    keep_record (callee := callee.layout) closure kept, kept.1.symm ▸ inherited⟩
-
 private theorem write_other {state : State} {target binding : Binding} {address : Nat}
     (distinct : RootCall.DistinctOwned state) (different : target ≠ binding)
     (owned : state.slots binding = some (.owned address)) (value : Lists.Value) :
@@ -72,58 +65,13 @@ theorem writes_frame {importName globals} {state : State} (frame : Frame importN
       exact ⟨address, some value, frozen, same.symm ▸ owned, written_cell value owned cell⟩
     · exact ⟨address, old, frozen, same.symm ▸ owned, (write_other frame.1 hit owned value).trans cell⟩
 
-theorem initial_live {plan : Consumer} {producer program : Program} {state defining : State}
-    {callee : Callable} {address : Nat} (frame : Frame plan.alias plan.globals state)
-    (record : ClosureAt callee.site callee.id defining state address) (linked : callee.Linked producer) :
-    Live plan.alias producer program (initial (globals := plan.globals) plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
-  intro name tracked found
-  have hit : name = plan.alias := by
-    by_contra different
-    simp [initial, track, different] at found
-  subst name
-  have same : Callee.regular callee = tracked := by simpa [initial, track] using found
-  subst tracked
-  obtain ⟨slot, old, frozen, owned, cell⟩ := frame.2 (fileSlot plan.alias) List.mem_cons_self
-  refine ⟨slot, address, frozen, defining, ?_, written_cell _ owned cell, linked, write_slot_record record owned cell _, trivial⟩
-  simp [readSlot, write_slots, owned]
-
-theorem read_live {importName globals producer program} {env : Tracked importName globals}
-    {state : State} {name : String} {callee : Callee importName globals}
-    (live : Live importName producer program env state) (tracked : env name = some callee) :
-    ∃ address defining, state.bindingValue (readSlot importName name) = .ok (.function address) ∧
-      callee.Linked producer program ∧ Nonempty (ClosureAt callee.layout.site callee.layout.id defining state address) ∧
-      callee.SharesImport defining.slots state.slots := by
-  obtain ⟨_, address, _, defining, owned, cell, linked, record, inherited⟩ := live name callee tracked
-  exact ⟨address, defining, by simp [State.bindingValue, Slot.address, owned, cell], linked, record, inherited⟩
-
-theorem writes_live {importName globals producer program} {env : Tracked importName globals} {state : State} {destination : String}
-    (frame : Frame importName globals state) (live : Live importName producer program env state) (declared : destination ∈ globals)
-    (separate : destination ≠ importName) (value : Lists.Value) (updated : Option (Callee importName globals))
-    (new : ∀ callee, updated = some callee → ∃ address defining, value = .function address ∧
-      callee.Linked producer program ∧ Nonempty (ClosureAt callee.layout.site callee.layout.id defining state address) ∧
-      callee.SharesImport defining.slots state.slots) :
-    Live importName producer program (track env destination updated) (state.write (globalSlot destination) value) := by
-  obtain ⟨slot, old, frozen, owned, cell⟩ := frame.2 (globalSlot destination)
-    (List.mem_cons_of_mem _ (List.mem_map_of_mem declared))
-  have slots := write_slots state (globalSlot destination) value
-  intro name callee found
-  by_cases same : name = destination
-  · subst name
-    obtain ⟨address, defining, equal, linked, ⟨record⟩, inherited⟩ := new callee (by simpa [track] using found)
-    subst value
-    exact ⟨slot, address, frozen, defining, by simpa [readSlot, separate, slots] using owned,
-      written_cell _ owned cell, linked, write_slot_record (callee := callee.layout) record owned cell _, slots.symm ▸ inherited⟩
-  · obtain ⟨other, address, flag, defining, read, bindingCell, linked, ⟨closure⟩, inherited⟩ :=
-      live name callee (by simpa [track, same] using found)
-    have different : globalSlot destination ≠ readSlot importName name := by
-      intro equal
-      exact same (by simpa [readSlot, globalSlot, fileSlot, apply_ite] using (congrArg Binding.name equal).symm)
-    exact ⟨other, address, flag, defining, slots.symm ▸ read,
-      (write_other frame.1 different read value).trans bindingCell, linked, write_slot_record (callee := callee.layout) closure owned cell value, slots.symm ▸ inherited⟩
-
 theorem closure_cells_of_contents {first next : State} (kept : KeepsContents first next) :
     KeepsClosureCells first next :=
-  ⟨fun _ _ _ found => kept _ _ found, fun _ value _ found => ⟨value, kept _ _ found⟩⟩
+  by
+  refine ⟨fun _ _ _ found => kept _ _ found, ?_⟩
+  intro address value flag found
+  obtain ⟨frozen, stored⟩ := kept address ⟨.binding value, flag⟩ found
+  exact ⟨value, frozen, stored, fun _ => rfl⟩
 
 theorem closure_cells_of_keeps {first next : State} (kept : Body.Keeps first.heap.size first next) :
     KeepsClosureCells first next :=
@@ -137,13 +85,16 @@ theorem closure_cells_trans {first middle last : State}
     obtain ⟨middleFlag, found⟩ := one.functions address closure flag stored
     exact two.functions address closure middleFlag found
   · intro address value flag stored
-    obtain ⟨middleValue, middleFlag, found⟩ := one.bindings address value flag stored
-    exact two.bindings address middleValue middleFlag found
+    obtain ⟨middleValue, middleFlag, found, original⟩ := one.bindings address value flag stored
+    obtain ⟨finalValue, finalFlag, kept, retained⟩ := two.bindings address middleValue middleFlag found
+    refine ⟨finalValue, finalFlag, kept, fun nonempty => ?_⟩
+    have same := original nonempty
+    exact (retained (same ▸ nonempty)).trans same
 
 theorem write_closure_cells {state : State} {target : Binding} {slot : Nat}
-    {old : Option Lists.Value} {frozen : Bool}
+    {frozen : Bool}
     (owned : state.slots target = some (.owned slot))
-    (stored : state.heap[slot]? = some ⟨.binding old, frozen⟩) (value : Lists.Value) :
+    (stored : state.heap[slot]? = some ⟨.binding none, frozen⟩) (value : Lists.Value) :
     KeepsClosureCells state (state.write target value) := by
   refine ⟨?_, ?_⟩
   · intro address closure flag found
@@ -157,14 +108,124 @@ theorem write_closure_cells {state : State} {target : Binding} {slot : Nat}
   · intro address prior flag found
     by_cases same : address = slot
     · subst address
-      exact ⟨some value, frozen, written_cell value owned stored⟩
+      have same : prior = none := by
+        simp [stored, eq_comm] at found
+        exact found.1
+      exact ⟨some value, frozen, written_cell value owned stored, fun nonempty => (nonempty same).elim⟩
     · exact ⟨prior, flag, (RootCall.write_other_cell state target value address
-        (by simpa [owned, eq_comm] using same)).trans found⟩
+        (by simpa [owned, eq_comm] using same)).trans found, fun _ => rfl⟩
 
-theorem write_global_closure_cells {importName : String} {globals : List String} {state : State}
-    (frame : Frame importName globals state) {name : String} (member : name ∈ globals) (value : Lists.Value) :
-    KeepsClosureCells state (state.write (globalSlot name) value) := by
-  obtain ⟨_, _, _, owned, stored⟩ := frame.2 _ (List.mem_cons_of_mem _ (List.mem_map_of_mem member))
+theorem write_blank_cells {state : State} {target : Binding} (blank : Blank state target) (value : Lists.Value) :
+    KeepsClosureCells state (state.write target value) := by
+  obtain ⟨_, _, owned, stored⟩ := blank
   exact write_closure_cells owned stored value
+
+theorem keeps_blank {before after : State} {target : Binding} (blank : Blank before target)
+    (kept : Body.Keeps before.heap.size before after) : Blank after target := by
+  obtain ⟨address, flag, owned, stored⟩ := blank
+  exact ⟨address, flag, kept.1 ▸ owned, keep_cell kept stored⟩
+
+theorem other_blank {state : State} {target writable : Binding}
+    (distinct : RootCall.DistinctOwned state) (separate : writable ≠ target)
+    (blank : Blank state target) (value : Lists.Value) : Blank (state.write writable value) target := by
+  obtain ⟨address, flag, owned, stored⟩ := blank
+  exact ⟨address, flag, (write_slots state writable value).symm ▸ owned,
+    (write_other distinct separate owned value).trans stored⟩
+
+theorem entered_blank_after_dependency {source : Modules.Source} {caller reached : State}
+    (slots : reached.slots = (enter source caller).slots)
+    (kept : KeepsContents (enter source caller) reached) {target : Binding}
+    (member : target ∈ source.globals.map globalSlot ++ source.fileNames.map fileSlot) :
+    Blank reached target := by
+  obtain ⟨address, owned, stored⟩ := Entry.entered_blank source caller target member
+  obtain ⟨flag, found⟩ := kept _ _ stored
+  exact ⟨address, flag, slots ▸ owned, found⟩
+
+theorem keeps_initialized {before after : State} (kept : KeepsClosureCells before after)
+    {address : Nat} {value : Lists.Value} {flag : Bool}
+    (stored : before.heap[address]? = some ⟨.binding (some value), flag⟩) :
+    ∃ frozen, after.heap[address]? = some ⟨.binding (some value), frozen⟩ := by
+  obtain ⟨found, frozen, cell, same⟩ := kept.bindings address _ flag stored
+  exact ⟨frozen, same (by simp) ▸ cell⟩
+
+private def transport_record {callee : Callable} {defining before after : State} {address : Nat}
+    (record : ClosureAt callee.site callee.id defining before address)
+    {frozen : Bool}
+    (found : after.heap[address]? = some ⟨.function ⟨callee.id, record.captures,
+      callee.site.defaultKeys.zip record.defaults⟩, frozen⟩)
+    (kept : KeepsClosureCells before after) :
+    ClosureAt callee.site callee.id defining after address :=
+  { record with
+    frozen := frozen
+    recorded := found
+    live := fun capture member => by
+      obtain ⟨value, flag, stored⟩ := record.live capture member
+      obtain ⟨next, frozen, cell, _⟩ := kept.bindings capture.address value flag stored
+      exact ⟨next, frozen, cell⟩ }
+
+theorem transport_callable {origin program : Program} {state next : State} {callee : Callee} {address : Nat}
+    (live : callee.At origin program state address) (kept : KeepsClosureCells state next) :
+    callee.At origin program next address := by
+  induction live with
+  | regular linked record =>
+    obtain ⟨_, found⟩ := kept.functions _ _ _ record.recorded
+    exact .regular linked (transport_record (callee := _) record found kept)
+  | @wrapper _ _ declaration id imported _ _ _ _ _ found earlier record captures cell _ ih =>
+    obtain ⟨_, stored⟩ := kept.functions _ _ _ record.recorded
+    obtain ⟨_, aliasStored⟩ := keeps_initialized kept cell
+    exact .wrapper found earlier (transport_record (callee := (Callee.wrapper declaration id imported).layout) record stored kept)
+      captures aliasStored ih
+
+theorem keeps_live {importName : String} {producer program : Program} {env : Tracked} {state next : State}
+    (live : Live importName producer program env state) (kept : Body.Keeps state.heap.size state next) :
+    Live importName producer program env next := by
+  intro name callee tracked
+  obtain ⟨slot, address, flag, owned, stored, record⟩ := live name callee tracked
+  exact ⟨slot, address, flag, kept.1 ▸ owned, keep_cell kept stored,
+    transport_callable record (closure_cells_of_keeps kept)⟩
+
+theorem initial_live {plan : Consumer} {producer program : Program} {state : State} {callee : Callee} {address : Nat}
+    (blank : Blank state (fileSlot plan.alias)) (record : callee.At producer program state address) :
+    Live plan.alias producer program (initial plan.alias callee) (state.write (fileSlot plan.alias) (.function address)) := by
+  intro name tracked found
+  have hit : name = plan.alias := by
+    by_contra different
+    simp [initial, track, different] at found
+  subst name
+  have same : callee = tracked := by simpa [initial, track] using found
+  subst tracked
+  obtain ⟨slot, frozen, owned, cell⟩ := blank
+  refine ⟨slot, address, frozen, ?_, written_cell _ owned cell,
+    transport_callable record (write_closure_cells owned cell _)⟩
+  simp [readSlot, write_slots, owned]
+
+theorem read_live {importName : String} {producer program : Program} {env : Tracked}
+    {state : State} {name : String} {callee : Callee}
+    (live : Live importName producer program env state) (tracked : env name = some callee) :
+    ∃ address, state.bindingValue (readSlot importName name) = .ok (.function address) ∧
+      callee.At producer program state address := by
+  obtain ⟨_, address, _, owned, cell, record⟩ := live name callee tracked
+  exact ⟨address, by simp [State.bindingValue, Slot.address, owned, cell], record⟩
+
+theorem writes_live {importName : String} {producer program : Program} {env : Tracked}
+    {state : State} {destination : String}
+    (blank : Blank state (globalSlot destination)) (live : Live importName producer program env state)
+    (separate : destination ≠ importName) (value : Lists.Value) (updated : Option Callee)
+    (new : ∀ callee, updated = some callee → ∃ address, value = .function address ∧ callee.At producer program state address) :
+    Live importName producer program (track env destination updated) (state.write (globalSlot destination) value) := by
+  obtain ⟨slot, frozen, owned, cell⟩ := blank
+  have slots := write_slots state (globalSlot destination) value
+  have kept := write_closure_cells owned cell value
+  intro name callee found
+  by_cases same : name = destination
+  · subst name
+    obtain ⟨address, equal, record⟩ := new callee (by simpa [track] using found)
+    subst value
+    exact ⟨slot, address, frozen, by simpa [readSlot, separate, slots] using owned,
+      written_cell _ owned cell, transport_callable record kept⟩
+  · obtain ⟨other, address, flag, read, bindingCell, closure⟩ :=
+      live name callee (by simpa [track, same] using found)
+    obtain ⟨next, stored⟩ := keeps_initialized kept bindingCell
+    exact ⟨other, address, next, slots.symm ▸ read, stored, transport_callable closure kept⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports

@@ -14,7 +14,7 @@ open Lists (State)
 open Loader (Manifest ModuleId Session)
 
 /-- One checked import composes with a reached dependency in any manifest. The imported call uses the actual cache entry and address. -/
-theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exports : ModuleId → Environment}
+theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exports : ModuleId → Tracked}
     {finalCommands : List Resolve.Command} {whole consumer : ResolvedModule}
     (wholeChecked : resolve finalCommands finalSeed = .ok whole)
     (plan : Consumer) (checked : resolve plan.commands seed = .ok consumer)
@@ -27,11 +27,11 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
     {dependency : Modules.Loader.Result Modules.Published}
     (nativeDependency : Modules.Loader.Runs whole.program manifest (id :: active) (.initialize dependencyId)
       {caller with runtime := enter consumer.source caller.runtime} dependency)
-    (reachedDependency : Reached origin manifest exports dependencyId
+    (reachedDependency : Reached origin whole.program manifest exports dependencyId
       {caller with runtime := enter consumer.source caller.runtime} dependency) :
     ∃ out, Edge plan seed id consumer.source caller.runtime dependency out ∧
       Modules.Loader.Runs whole.program manifest active (.initialize id) caller out ∧
-      Reached origin manifest exports id caller out :=
+      Reached origin whole.program manifest exports id caller out :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.edge_agrees
     wholeChecked plan checked originPrefix extension bound dependencyBound entry label demand permitted caller cold
     nativeDependency reachedDependency
@@ -39,19 +39,19 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
 /-- Independent source execution and loader denotation agree for a checked topological graph with one dependency per importing module. -/
 theorem agrees {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (id : ModuleId) (bound : id < manifest.size) (caller : Session)
-    (cache : Cache origin manifest graph.exports caller) :
+    (cache : Cache origin graph.linked.program manifest graph.exports caller) :
     ∃ out, TraceRun manifest id caller out ∧
       Modules.Loader.Runs graph.linked.program manifest [] (.initialize id) caller out ∧
       Modules.Loader.load graph.linked.program manifest id caller = out ∧
-      Reached origin manifest graph.exports id caller out :=
+      Reached origin graph.linked.program manifest graph.exports id caller out :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.agrees
     graph id bound caller cache
 
 /-- Actual prior requests establish the cache invariant for later requests, including after a reached failure. -/
 theorem requests {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (ids : List ModuleId) (bounded : ∀ id ∈ ids, id < manifest.size)
-    (caller : Session) (cache : Cache origin manifest graph.exports caller) :
-    ∃ next, Requests graph ids caller next ∧ Cache origin manifest graph.exports next :=
+    (caller : Session) (cache : Cache origin graph.linked.program manifest graph.exports caller) :
+    ∃ next, Requests graph ids caller next ∧ Cache origin graph.linked.program manifest graph.exports next :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.requests
     graph ids bounded caller cache
 
@@ -61,7 +61,7 @@ theorem cold_agrees {origin : Program} {manifest : Manifest} (graph : Graph orig
     ∃ out, TraceRun manifest id ⟨caller, []⟩ out ∧
       Loader.Runs graph.linked.program manifest [] (.initialize id) ⟨caller, []⟩ out ∧
       Loader.load graph.linked.program manifest id ⟨caller, []⟩ = out ∧
-      Reached origin manifest graph.exports id ⟨caller, []⟩ out :=
+      Reached origin graph.linked.program manifest graph.exports id ⟨caller, []⟩ out :=
   agrees graph id bound ⟨caller, []⟩ (fun _ _ missing => nomatch missing)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain

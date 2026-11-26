@@ -85,6 +85,16 @@ theorem enter_callable {callee : Callable}
     BodyEntry callee.site resolved.program (List.range resolved.program.size) callee.id callee.BodyRuns :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.enter_callable checked known
 
+/-- A checked ordinary body needs only declaration indices below its own. -/
+theorem enter_callable_below {callee : Callable} {prefixTable : Program}
+    {commands : List Resolve.Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (known : callee.Linked prefixTable)
+    (extension : PreservesDeclarations prefixTable resolved.program) (available : List DeclarationId)
+    (retained : List.Subset (List.range callee.id) available) :
+    BodyEntry callee.site resolved.program available callee.id callee.BodyRuns :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.enter_callable_below
+    checked known extension available retained
+
 /-- A caller in a later module can use the original callable with a reduced
 guard if it retains the producer's declaration IDs. -/
 theorem enter_callable_for {callee : Callable} {prefixTable : Program}
@@ -134,6 +144,12 @@ theorem written_cell {state : State} {binding : Binding} {address : Nat} {old : 
     (stored : state.heap[address]? = some ⟨.binding old, frozen⟩) :
     (state.write binding value).heap[address]? = some ⟨.binding (some value), frozen⟩ :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.written_cell value owned stored
+
+theorem published_function {source : Modules.Source} {name : String} {state : State} {address : Nat}
+    (member : name ∈ source.globals) (publicName : Modules.isPublic name = true)
+    (loaded : state.bindingValue (globalSlot name) = .ok (.function address)) :
+    (Modules.publish source state).1.exports.lookup name = some (.function address) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.published_function member publicName loaded
 
 theorem publish_record {source : Modules.Source} {callee : Callable} {name : String}
     {state defining : State} {address : Nat} (caller : State) (member : name ∈ source.globals)

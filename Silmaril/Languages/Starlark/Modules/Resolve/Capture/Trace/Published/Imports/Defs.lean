@@ -97,40 +97,50 @@ structure WrapperDeclaration (alias : String) (globals : List String) where
       relay.arguments relay.codes relay.keywords.source relay.keywords.codes relay.star relay.mapping active result ∧
     out = result.resume (fun value => pure (.returned value))
 
-inductive Callee (alias : String) (globals : List String) where
+/-- A wrapper records the source shape of the imported callable that it
+will invoke. Runtime provenance separately follows the actual capture cell. -/
+inductive Callee where
   | regular (callee : Callable)
-  | wrapper (declaration : WrapperDeclaration alias globals) (id : DeclarationId)
+  | wrapper {alias : String} {globals : List String}
+      (declaration : WrapperDeclaration alias globals) (id : DeclarationId) (imported : Callee)
 
-@[expose] def Callee.layout {alias globals} : Callee alias globals → Callable
+@[expose] def Callee.layout : Callee → Callable
   | .regular callee => callee
-  | .wrapper declaration id => ⟨block alias globals, .global, [], none, none, declaration.site, id, none⟩
+  | .wrapper (alias := alias) (globals := globals) declaration id _ =>
+    ⟨block alias globals, .global, [], none, none, declaration.site, id, none⟩
 
-@[expose] def Callee.BodyRuns {alias globals} (imported : Callable) :
-    Callee alias globals → State → Outcome Flow → Prop
+@[expose] def Callee.BodyRuns : Callee → State → Outcome Flow → Prop
   | .regular callee => callee.BodyRuns
-  | .wrapper declaration _ => declaration.Returns imported
+  | .wrapper (alias := alias) declaration _ imported => fun active out =>
+    ∃ result, RunsAt imported.layout.site imported.BodyRuns declaration.site.block imported.layout.id alias (fileSlot alias)
+      declaration.arguments declaration.codes declaration.keywords.source declaration.keywords.codes
+      declaration.star declaration.mapping active result ∧
+      out = result.resume (fun value => pure (.returned value))
 
-@[expose] def Callee.returned {alias globals} (imported : Callable) :
-    Callee alias globals → Option (Callee alias globals)
-  | .regular callee => callee.returned.map (Callee.regular ∘ Callable.nested)
-  | .wrapper .. => imported.returned.map (Callee.regular ∘ Callable.nested)
+@[expose] def Callee.returned : Callee → Option Callable
+  | .regular callee => callee.returned.map Callable.nested
+  | .wrapper _ _ imported => imported.returned
 
-@[expose] def Callee.Linked {alias globals} (producer final : Program) : Callee alias globals → Prop
-  | .regular callee => callee.Linked producer
-  | .wrapper declaration id => producer.size ≤ id ∧ final[id]? = some declaration.site.declaration
+abbrev Tracked := String → Option Callee
 
-/-- The wrapper is created in this module frame and retains its load slot
-through copies and calls. Ordinary callables keep their own defining frame. -/
-@[expose] def Callee.SharesImport {alias globals} :
-    Callee alias globals → (Binding → Option Lists.Slot) → (Binding → Option Lists.Slot) → Prop
-  | .regular _, _, _ => True
-  | .wrapper .., defining, current => defining (fileSlot alias) = current (fileSlot alias)
-
-abbrev Tracked (alias : String) (globals : List String) := String → Option (Callee alias globals)
-
-@[expose] def track {alias globals} (env : Tracked alias globals) (name : String)
-    (entry : Option (Callee alias globals)) : Tracked alias globals :=
+@[expose] def track (env : Tracked) (name : String) (entry : Option Callee) : Tracked :=
   fun read => if read = name then entry else env read
+
+/-- A live wrapper's own closure points to its original load cell. The
+value stored there has recursive provenance at a strictly earlier index. -/
+inductive Callee.At (origin final : Program) (state : State) : Callee → Nat → Prop where
+  | regular {callee : Callable} {defining : State} {address : Nat} :
+      callee.Linked origin → ClosureAt callee.site callee.id defining state address →
+      At origin final state (.regular callee) address
+  | wrapper {alias : String} {globals : List String} {declaration : WrapperDeclaration alias globals}
+      {id : Nat} {imported : Callee} {defining : State} {address cell target : Nat} {frozen : Bool} :
+      final[id]? = some declaration.site.declaration →
+      imported.layout.id < id →
+      (record : ClosureAt declaration.site id defining state address) →
+      record.captures = [⟨fileSlot alias, cell, true⟩] →
+      state.heap[cell]? = some ⟨.binding (some (.function target)), frozen⟩ →
+      At origin final state imported target →
+      At origin final state (.wrapper declaration id imported) address
 
 /-- A checked name copy propagates the original callable. Other assignments
 forget the destination's previous provenance. -/
@@ -138,7 +148,7 @@ inductive Copy (alias : String) : Expr → Lowering.Expr → Type where
   | forget {source code} : Copy alias source code
   | name (name : String) : Copy alias (.scalar (.read name)) (Leaf.readOperand (readSlot alias name))
 
-@[expose] def Copy.track {alias globals source code} (copy : Copy alias source code) (env : Tracked alias globals) : Option (Callee alias globals) :=
+@[expose] def Copy.track {alias source code} (copy : Copy alias source code) (env : Tracked) : Option (Callee) :=
   match copy with
   | .forget => none
   | .name read => env read
@@ -169,12 +179,12 @@ inductive Step (alias : String) (globals : List String) where
   | .define declaration => program.push declaration.site.declaration
   | _ => program
 
-@[expose] def Step.advance {alias globals} (imported : Callable) (program : Program) (env : Tracked alias globals) :
-    Step alias globals → Tracked alias globals
+@[expose] def Step.advance {alias globals} (imported : Callee) (program : Program) (env : Tracked) :
+    Step alias globals → Tracked
   | .assign destination _ _ copy => track env destination (copy.track env)
   | .invoke call =>
-    track env call.destination ((env call.callee).bind (Callee.returned imported))
-  | .define declaration => track env declaration.name (some (.wrapper declaration program.size))
+    track env call.destination ((env call.callee).bind (fun callee => callee.returned.map Callee.regular))
+  | .define declaration => track env declaration.name (some (.wrapper declaration program.size imported))
 
 @[expose] def compileSuite {alias globals} (program : Program) :
     List (Step alias globals) → List Modules.Command × Program
@@ -183,15 +193,15 @@ inductive Step (alias : String) (globals : List String) where
     let compiled := compileSuite (head.emit program) tail
     (head.code program :: compiled.1, compiled.2)
 
-@[expose] def trackSuite {alias globals} (imported : Callable) (program : Program) (env : Tracked alias globals) :
-    List (Step alias globals) → Tracked alias globals
+@[expose] def trackSuite {alias globals} (imported : Callee) (program : Program) (env : Tracked) :
+    List (Step alias globals) → Tracked
   | [] => env
   | head :: tail => trackSuite imported (head.emit program) (head.advance imported program env) tail
 
 /-- Source-order provenance enables each call and describes the destination
 after its successful return. Declaration IDs follow the current table. -/
-@[expose] def ReadyFor {alias : String} {globals : List String} (imported : Callable) (program : Program)
-    (env : Tracked alias globals) : List (Step alias globals) → Prop
+@[expose] def ReadyFor {alias : String} {globals : List String} (imported : Callee) (program : Program)
+    (env : Tracked) : List (Step alias globals) → Prop
   | [] => True
   | first :: rest =>
     let tail := ReadyFor imported (first.emit program) (first.advance imported program env) rest
@@ -220,8 +230,8 @@ structure Consumer where
 @[expose] def Consumer.code (plan : Consumer) (program : Program) : List Modules.Command :=
   .load plan.label [plan.item] :: (compileSuite program plan.body).1
 
-@[expose] def initial {globals : List String} (alias : String) (callee : Callable) : Tracked alias globals :=
-  track (fun _ => none) alias (some (.regular callee))
+@[expose] def initial (alias : String) (callee : Callee) : Tracked :=
+  track (fun _ => none) alias (some callee)
 
 /-- Producer zero has no dependencies. Consumer one has just the one
 requester-relative label. Both use the final linked table. -/
@@ -231,7 +241,7 @@ requester-relative label. Both use the final linked table. -/
 /-- The source profile tracks either a producer export or a name outside the
 producer's declared globals. The consumer supplies no declaration or address. -/
 @[expose] def Covered (exports : Environment) (producer : List Command) (plan : Consumer) (program : Program) : Prop :=
-  (∃ callee, exports plan.name = some callee ∧ ReadyFor callee program (initial plan.alias callee) plan.body) ∨
+  (∃ callee, exports plan.name = some callee ∧ ReadyFor (.regular callee) program (initial plan.alias (.regular callee)) plan.body) ∨
     plan.name ∉ Trace.names producer
 
 @[expose] def reachedSession {α : Type} : Loader.Result α → Session
@@ -276,27 +286,28 @@ inductive BindsAlias (plan : Consumer) (published : Modules.Published) (state : 
 @[expose] def FreshSlots (floor : Nat) (state : State) : Prop :=
   ∀ binding address, state.slots binding = some (.owned address) → floor ≤ address
 
-/-- Binding writes preserve function records and keep capture addresses
-allocated as binding cells. Exact contents for earlier owners use FreshSlots. -/
+/-- Initialization can fill a blank slot. Previously initialized binding
+contents and stored functions retain their identities. -/
 structure KeepsClosureCells (before after : State) : Prop where
   functions : ∀ (address : Nat) closure flag, before.heap[address]? = some ⟨.function closure, flag⟩ →
     ∃ next, after.heap[address]? = some ⟨.function closure, next⟩
   bindings : ∀ (address : Nat) value flag, before.heap[address]? = some ⟨.binding value, flag⟩ →
-    ∃ next frozen, after.heap[address]? = some ⟨.binding next, frozen⟩
+    ∃ next frozen, after.heap[address]? = some ⟨.binding next, frozen⟩ ∧ (value ≠ none → next = value)
 
-/-- Each tracked name reads a linked closure at the actual value in its slot.
-The defining-frame witness stays with the closure when the caller changes. -/
-@[expose] def Live (alias : String) {globals : List String} (producer final : Program)
-    (env : Tracked alias globals) (state : State) : Prop :=
+@[expose] def Blank (state : State) (binding : Binding) : Prop :=
+  ∃ address frozen, state.slots binding = some (.owned address) ∧
+    state.heap[address]? = some ⟨.binding none, frozen⟩
+
+/-- A tracked slot contains the actual function value and its recursive
+provenance, even if its defining module frame is inactive. -/
+@[expose] def Live (alias : String) (producer final : Program) (env : Tracked) (state : State) : Prop :=
   ∀ name callee, env name = some callee →
-    ∃ (slot address : Nat) (frozen : Bool) (defining : State),
+    ∃ (slot address : Nat) (frozen : Bool),
       state.slots (readSlot alias name) = some (.owned slot) ∧
-      state.heap[slot]? = some ⟨.binding (some (.function address)), frozen⟩ ∧ callee.Linked producer final ∧
-      Nonempty (ClosureAt callee.layout.site callee.layout.id defining state address) ∧
-      callee.SharesImport defining.slots state.slots
+      state.heap[slot]? = some ⟨.binding (some (.function address)), frozen⟩ ∧ callee.At producer final state address
 
 /-- Each importer statement uses the independent operand, definition and call rules. -/
-inductive Executes {alias : String} {globals : List String} (imported : Callable)
+inductive Executes {alias : String} {globals : List String} (imported : Callee)
     (program : Program) (state : State) : Step alias globals → Modules.Result Unit → Prop where
   | assign {name declared source code reads} {operand : Body.Operand (block alias globals) source code reads}
       {copy : Copy alias source code} {out : Outcome Lists.Value} :
@@ -305,13 +316,13 @@ inductive Executes {alias : String} {globals : List String} (imported : Callable
   | define {declaration : WrapperDeclaration alias globals} {out : Outcome Flow} :
       Lexical.DefinesFor (block alias globals) (globalSlot declaration.name) program.size declaration.site.free [] [] state out →
       Executes imported program state (.define declaration) (Modules.afterCode out)
-  | invoke {call : Invocation alias globals} (callee : Callee alias globals) {out : Outcome Lists.Value} :
-      RunsAt callee.layout.site (callee.BodyRuns imported) (block alias globals) callee.layout.id call.callee (readSlot alias call.callee)
+  | invoke {call : Invocation alias globals} (callee : Callee) {out : Outcome Lists.Value} :
+      RunsAt callee.layout.site callee.BodyRuns (block alias globals) callee.layout.id call.callee (readSlot alias call.callee)
         call.arguments call.codes call.keywords.source call.keywords.codes call.star call.mapping state out →
       Executes imported program state (.invoke call) (afterWrite call.destination out)
 
 /-- Stop at the first reached failure, keeping its exact residual heap. -/
-inductive SuiteRuns {alias : String} {globals : List String} (imported : Callable) :
+inductive SuiteRuns {alias : String} {globals : List String} (imported : Callee) :
     Program → State → List (Step alias globals) → Modules.Result Unit → Prop where
   | done (program : Program) (state : State) : SuiteRuns imported program state [] (.ok () state)
   | next {program state middle head rest out} :
@@ -342,7 +353,7 @@ inductive Runs (commands : List Command) (producer consumer : ResolvedModule)
         (.ok published reached) →
       BindsAlias plan published reached.runtime (.ok () bound) →
       exports plan.name = some callee →
-      SuiteRuns callee producer.program bound plan.body out →
+      SuiteRuns (.regular callee) producer.program bound plan.body out →
       Runs commands producer consumer plan exports caller (observed 1 consumer.source caller.runtime reached.cache out)
 
 abbrev Agrees (commands : List Command) (producer consumer : ResolvedModule)

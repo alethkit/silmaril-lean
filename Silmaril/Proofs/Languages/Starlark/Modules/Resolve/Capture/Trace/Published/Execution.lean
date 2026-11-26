@@ -27,7 +27,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.S
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call
   (ClosureAt BodyEntry RunsActual BindingRule PackRule)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
-  (runs_activated_for entry_guard return_link invoked_value_at)
+  (runs_activated_for links return_link invoked_value_at)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named (RunsAt runs_at)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
 open Silmaril.Languages.Starlark.Functions
@@ -62,24 +62,35 @@ private theorem root_linked {globals : List String} {root : Root globals} {progr
   intro id declaration found
   exact known _ _ (by simp [Root.table, Array.getElem?_push, Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp found).choose, found])
 
-theorem enter_callable_for {callee : Callable} {prefixTable : Program}
+theorem enter_callable_below {callee : Callable} {prefixTable : Program}
     {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (known : callee.Linked prefixTable)
     (extension : PreservesDeclarations prefixTable resolved.program) (available : List DeclarationId)
-    (retained : List.Subset (List.range prefixTable.size) available) :
+    (retained : List.Subset (List.range callee.id) available) :
     BodyEntry callee.site resolved.program available callee.id callee.BodyRuns := by
   obtain ⟨_, seed, bodyTable, children, size, table, suite⟩ := known
-  have prior := entry_guard suite table
-  rw [size] at prior
   have guarded : List.Subset (children.map Prod.fst) (withoutDeclaration available callee.id) := by
     intro index member
-    obtain ⟨inPrefix, different⟩ := mem_withoutDeclaration.mp (prior member)
-    exact mem_withoutDeclaration.mpr ⟨retained inPrefix, different⟩
+    obtain ⟨entry, present, rfl⟩ := List.mem_map.mp member
+    have stored := (links suite).2 entry present
+    have earlier := (Array.getElem?_eq_some_iff.mp stored).choose
+    rw [size] at earlier
+    exact mem_withoutDeclaration.mpr ⟨retained (List.mem_range.mpr earlier), Nat.ne_of_lt earlier⟩
   intro caller defining captures installed live assigned
   obtain ⟨out, ran, _, kept, exec, _, resultRecord⟩ :=
     runs_activated_for callee.site suite checked (fun id declaration found => extension id declaration (table id declaration found))
       _ guarded caller defining captures installed live assigned
   exact ⟨out, ⟨ran, resultRecord⟩, exec, Body.returned_keeps caller callee.site.declaration captures assigned out kept⟩
+
+theorem enter_callable_for {callee : Callable} {prefixTable : Program}
+    {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (known : callee.Linked prefixTable)
+    (extension : PreservesDeclarations prefixTable resolved.program) (available : List DeclarationId)
+    (retained : List.Subset (List.range prefixTable.size) available) :
+    BodyEntry callee.site resolved.program available callee.id callee.BodyRuns :=
+  enter_callable_below checked known extension available
+    (fun _ member => retained (List.mem_range.mpr
+      (Nat.lt_trans (List.mem_range.mp member) (Array.getElem?_eq_some_iff.mp known.1).choose)))
 
 theorem enter_callable {callee : Callable}
     {commands : List Silmaril.Languages.Starlark.Modules.Resolve.Command} {linked : Program} {resolved : ResolvedModule}
@@ -333,6 +344,13 @@ private theorem published_lookup (state : State) (name : String) (value : Value)
         cases visible : Modules.isPublic first <;>
           simpa [previous, Except.toOption, visible, List.lookup, different] using result
 
+theorem published_function {source : Modules.Source} {name : String} {state : State} {address : Nat}
+    (member : name ∈ source.globals) (publicName : Modules.isPublic name = true)
+    (loaded : state.bindingValue (globalSlot name) = .ok (.function address)) :
+    (Modules.publish source state).1.exports.lookup name = some (.function address) := by
+  obtain ⟨_, _, _⟩ := source
+  exact published_lookup state name _ publicName loaded member
+
 theorem publish_record {source : Modules.Source} {callee : Callable} {name : String}
     {state defining : State} {address : Nat} (caller : State) (member : name ∈ source.globals)
     (publicName : Modules.isPublic name = true) (loaded : state.bindingValue (globalSlot name) = .ok (.function address))
@@ -342,9 +360,7 @@ theorem publish_record {source : Modules.Source} {callee : Callable} {name : Str
         (Modules.restoreThread caller (Modules.publish source state).2) address, published.frozen = true := by
   have global : (name, Lists.Value.function address) ∈ Modules.globalValues source state :=
     List.mem_filterMap.mpr ⟨name, member, by simp [loaded, Except.toOption]⟩
-  have exported : (Modules.publish source state).1.exports.lookup name = some (.function address) := by
-    obtain ⟨sourceGlobals, temps, commands⟩ := source
-    exact published_lookup state name _ publicName loaded (show name ∈ sourceGlobals from member)
+  have exported := published_function member publicName loaded
   let roots := (Modules.globalValues source state).map Prod.snd
   have root : address ∈ roots.filterMap Lists.Value.address? :=
     List.mem_filterMap.mpr ⟨_, List.mem_map_of_mem global, rfl⟩

@@ -91,14 +91,17 @@ private theorem consumer_agrees {commands : List Modules.Resolve.Command}
       have frame := dependency_frame (plan := plan) globals files slots kept
       let bound := reached.runtime.write (fileSlot plan.alias) (.function address)
       let session := {reached with runtime := bound}
-      have liveBinding := initial_live (producer := producer.program) (program := consumer.program) frame record (original callee tracked)
+      obtain ⟨unique, blank, pending⟩ := consumer_pending (plan := plan) checked slots kept (value := .function address)
+      have link := original callee tracked
+      have liveBinding := initial_live (plan := plan)
+        (program := consumer.program) blank (Callee.At.regular link record)
       have independent := BindsAlias.found (plan := plan) (state := reached.runtime) loaded
       have table : PreservesDeclarations (compileSuite producer.program plan.body).2 consumer.program :=
         same ▸ fun _ _ found => found
       obtain ⟨out, tail, tailRan, _⟩ := run_suite checked (manifest := graph producer consumer plan)
         (active := [1]) (id := 1) plan.separate plan.body producer.program (fun _ _ found => found) table admitted
-        (original callee tracked) (by simp [initial, track]) session
-        (writes_frame frame (fileSlot plan.alias) (.function address)) liveBinding
+        (Array.getElem?_eq_some_iff.mp link.1).choose (by simp [initial, track]) unique session
+        (writes_frame frame (fileSlot plan.alias) (.function address)) pending liveBinding
       have native := complete _ (.step (runImport independent) tailRan)
       rw [← observed_eq (before := session)] at native
       exact ⟨_, .called sourceDependency independent tracked tail, native,

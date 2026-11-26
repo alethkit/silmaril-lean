@@ -166,13 +166,7 @@ result = held(17)
 		partial["result"] == cached["late"] && strings.Join(events, ",") == "44,31 52,44,41 52", partial)
 }
 
-func checkChain(preload string, bad bool) {
-	const middle = `load("prodé.star", loaded="escaped")
-def relay():
-    return loaded(17)
-before = relay()
-reexport = loaded
-`
+func initChain(preload, middle, source string) (starlark.StringDict, map[string]starlark.StringDict, []string, error) {
 	opts := &syntax.FileOptions{}
 	thread := &starlark.Thread{}
 	var events []string
@@ -201,6 +195,22 @@ reexport = loaded
 		_, err := thread.Load(thread, preload)
 		require(err == nil, err)
 	}
+	_, program, err := starlark.SourceProgramOptions(opts, "final.star", source, func(string) bool { return false })
+	require(err == nil, err)
+	partial, err := program.Init(thread, nil)
+	require(initializations["prodé.star"] == 1 && initializations["middle.star"] == 1, initializations)
+	require((hits["prodé.star"] == 1) == (preload == "prodé.star") &&
+		(hits["middle.star"] == 1) == (preload == "middle.star"), hits)
+	return partial, cache, events, err
+}
+
+func checkChain(preload string, bad bool) {
+	const middle = `load("prodé.star", loaded="escaped")
+def relay():
+    return loaded(17)
+before = relay()
+reexport = loaded
+`
 	mapping := `{"key": [72]}`
 	if bad {
 		mapping = `{"key": 8}`
@@ -212,12 +222,7 @@ marker = [88]
 answer = held(another=[71], *[17, 18], **%s)
 after = [199]
 `, mapping)
-	_, program, err := starlark.SourceProgramOptions(opts, "final.star", source, func(string) bool { return false })
-	require(err == nil, err)
-	partial, err := program.Init(thread, nil)
-	require(initializations["prodé.star"] == 1 && initializations["middle.star"] == 1, initializations)
-	require((hits["prodé.star"] == 1) == (preload == "prodé.star") &&
-		(hits["middle.star"] == 1) == (preload == "middle.star"), hits)
+	partial, cache, events, err := initChain(preload, middle, source)
 	prod, mid := cache["prodé.star"], cache["middle.star"]
 	require(mid["relay"] != nil && mid["reexport"] == prod["escaped"] &&
 		partial["held"] == prod["escaped"] && mid["before"] == prod["late"] &&
@@ -232,13 +237,45 @@ after = [199]
 			strings.Join(events, ",") == "44,31 52,44,31 52,44,31 52,44,72 52", partial)
 		require(partial["answer"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
 	}
-	// A later request imports the middle wrapper itself. This control
-	// observes resolved loading beyond the regular re-export theorem.
-	wrapped, err := starlark.ExecFileOptions(opts, thread, "wrapped.star", `load("middle.star", wrapped="relay")
-result = wrapped()
-`, nil)
-	require(err == nil, err)
-	require(wrapped["result"] == prod["late"] && initializations["middle.star"] == 1, wrapped)
+}
+
+func checkWrapperChain(preload string, nested, bad bool) {
+	override := ""
+	if bad {
+		override = ", **{\"key\": 8}"
+	}
+	middle := fmt.Sprintf(`load("prodé.star", loaded="escaped")
+def relay():
+    return loaded(17%s)
+before = loaded(17)
+reexport = loaded
+`, override)
+	callee := "held"
+	if nested {
+		callee = "outer"
+	}
+	source := fmt.Sprintf(`load("middle.star", wrapped="relay")
+held = wrapped
+marker = [88]
+def outer():
+    return wrapped()
+answer = %s()
+after = [199]
+`, callee)
+	partial, cache, events, err := initChain(preload, middle, source)
+	prod, mid := cache["prodé.star"], cache["middle.star"]
+	require(mid["reexport"] == prod["escaped"] && mid["before"] == prod["late"] &&
+		partial["held"] == mid["relay"] && partial["outer"] != nil && partial["marker"].String() == "[88]", partial)
+	if bad {
+		require(err != nil && strings.Contains(err.Error(), "unhandled index operation"), err)
+		require(partial["answer"] == nil && partial["after"] == nil &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44", partial)
+	} else {
+		require(err == nil, err)
+		require(partial["answer"] == prod["late"] && partial["after"].String() == "[199]" &&
+			strings.Join(events, ",") == "44,31 52,44,31 52,44,31 52", partial)
+		require(partial["answer"].(*starlark.List).SetIndex(0, starlark.MakeInt(2)) != nil, partial)
+	}
 }
 
 func main() {
@@ -256,6 +293,10 @@ func main() {
 	for _, preload := range []string{"", "prodé.star", "middle.star"} {
 		checkChain(preload, false)
 		checkChain(preload, true)
+		for _, nested := range []bool{false, true} {
+			checkWrapperChain(preload, nested, false)
+			checkWrapperChain(preload, nested, true)
+		}
 	}
 	fmt.Println("PASS cold and cached importer suites retain callable returns, saved values and producer globals")
 	fmt.Println("PASS missing export stops the suite and a second-call error retains the factory and marker")
@@ -263,4 +304,5 @@ func main() {
 	fmt.Println("PASS interleaved importer declarations, alias calls, saved defaults, and skipped effects after the first error")
 	fmt.Println("PASS a consumer wrapper returns a fresh imported closure that remains callable")
 	fmt.Println("PASS three-module re-export with cold, root-preloaded and middle-preloaded histories")
+	fmt.Println("PASS direct and nested calls through the published middle wrapper, including reached failures")
 }
