@@ -65,6 +65,7 @@ inductive Source (H : Type) where
   | brIf (branch : ForwardBranch) (fallthrough : Source H)
   | brTable (table : ForwardTable)
   | plain (code : List Op)
+  | loopThen (body tail : Source H)
   | blockThen (result : Option NumType) (body tail : Source H)
   | ifThen (result : Option NumType) (condition : LocalIdx) (left right tail : Source H)
 
@@ -102,7 +103,7 @@ def Allowed {H : Type} (mode : MemoryMode) (program : Program) (memory : MemAddr
   | .hostsThen _ _ tail | .brIf _ tail => Allowed mode program memory calls fn tail
   | .plain code =>
     CodeAllowedFor mode program memory calls fn.rank fn.declaration.module (expression (v1Code code))
-  | .blockThen _ body tail =>
+  | .blockThen _ body tail | .loopThen body tail =>
     Allowed mode program memory calls fn tail ∧ Allowed mode program memory calls fn body
   | .ifThen _ _ left right tail =>
     Allowed mode program memory calls fn tail ∧ Allowed mode program memory calls fn left ∧
@@ -110,27 +111,45 @@ def Allowed {H : Type} (mode : MemoryMode) (program : Program) (memory : MemAddr
 
 end Source
 
-/-- The innermost label comes first. The prefix and tail belong to its parent. -/
-structure OpenLabel (H : Type) where
-  saved : List Value
-  result : Option NumType
-  tail : Source H
+/-- The innermost label comes first. A void loop holds the checked body
+needed for native re-entry. Its saved operands and tail belong to its parent. -/
+inductive OpenLabel (H : Type) where
+  | block (saved : List Value) (result : Option NumType) (tail : Source H)
+  | loop (saved : List Value) (body tail : Source H)
 
 namespace OpenLabel
 
 variable {H : Type}
 
+def saved : OpenLabel H → List Value
+  | .block saved _ _ | .loop saved _ _ => saved
+
+def result : OpenLabel H → Option NumType
+  | .block _ result _ => result
+  | .loop .. => none
+
+def tail : OpenLabel H → Source H
+  | .block _ _ tail | .loop _ _ tail => tail
+
 def results (fn : Function) (labels : List (OpenLabel H)) : List NumType :=
   (labels.head?.map (fun label => label.result.toList)).getD fn.declaration.results
 
+/-- A block receives its results on a branch. A parameterless loop receives
+no inputs on restart. Its normal result is also void in this slice. -/
+def branchTypes : OpenLabel H → List NumType
+  | .block _ result _ => result.toList
+  | .loop .. => []
+
 def signatures (labels : List (OpenLabel H)) : List (List NumType) :=
-  labels.map (fun label => label.result.toList)
+  labels.map branchTypes
 
 def targets (fn : Function) (labels : List (OpenLabel H)) : List (List NumType) :=
   signatures labels ++ fn.entryLabels
 
-def needsResume (labels : List (OpenLabel H)) : Bool :=
-  labels.any (fun label => label.tail.needsResume)
+def needsResume : List (OpenLabel H) → Bool
+  | [] => false
+  | .loop .. :: _ => true
+  | .block _ _ tail :: rest => tail.needsResume || needsResume rest
 
 end OpenLabel
 
@@ -160,6 +179,7 @@ def sourceCode (seq : Sequence H) : Source H → Wasm.V1.Expr
   | .brIf branch tail => .brIf branch.depth :: seq.sourceCode tail
   | .brTable table => [.brTable table.depths table.fallback]
   | .plain code => v1Code code
+  | .loopThen body tail => .loop none (seq.sourceCode body) :: seq.sourceCode tail
   | .blockThen result body tail => .block result (seq.sourceCode body) :: seq.sourceCode tail
   | .ifThen result condition left right tail =>
     .localGet condition :: .if_ result (seq.sourceCode left) (seq.sourceCode right) :: seq.sourceCode tail
@@ -174,22 +194,27 @@ def sourceSites (seq : Sequence H) : Source H → List (HostCall.V1.Site H)
   | .hostsThen first later tail => (first.site :: later.map HostSegment.site) ++ seq.sourceSites tail
   | .brIf _ tail => seq.sourceSites tail
   | .plain _ | .br _ | .brTable _ => []
-  | .blockThen _ body tail => seq.sourceSites body ++ seq.sourceSites tail
+  | .blockThen _ body tail | .loopThen body tail => seq.sourceSites body ++ seq.sourceSites tail
   | .ifThen _ _ left right tail => (seq.sourceSites left ++ seq.sourceSites right) ++ seq.sourceSites tail
 
 def tailCode (seq : Sequence H) (label : OpenLabel H) : List Admin := expression (seq.sourceCode label.tail)
+
+/-- The native loop label carries the source loop to execute on a back-edge. -/
+def labelCode (seq : Sequence H) : List (OpenLabel H) → Wasm.V1.Expr
+  | .loop _ body _ :: _ => [.loop none (seq.sourceCode body)]
+  | _ => []
 
 /-- Insert the innermost administrative label beneath all its parents. -/
 def insert (seq : Sequence H) : List (OpenLabel H) → EvalCtx Wasm.V1.Instr
   | [] => .hole
   | label :: rest =>
-    (seq.insert rest).comp (.label (OpenLabel.results seq.root.function rest).length []
+    (seq.insert rest).comp (.label (OpenLabel.results seq.root.function rest).length (seq.labelCode rest)
       (.seq label.saved .hole (seq.tailCode label)))
 
 def context (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) : EvalCtx Wasm.V1.Instr :=
   let fn := seq.root.function
   .frame fn.declaration.results.length (fn.declaration.frame args)
-    ((seq.insert labels).comp (.label (OpenLabel.results fn labels).length [] .hole))
+    ((seq.insert labels).comp (.label (OpenLabel.results fn labels).length (seq.labelCode labels) .hole))
 
 def v1FuncFor (seq : Sequence H) (body : Source H) : Wasm.V1.Func :=
   let fn := seq.root.function
@@ -254,6 +279,9 @@ def checkSourceAt (seq : Sequence H) (stack fallthrough : List NumType) (targets
       checkForward saved targets branch && seq.checkSourceAt saved fallthrough targets resume tail)
   | .brTable table => checkTable stack targets table
   | .plain code => checkTail seq.root.function stack fallthrough targets resume code
+  | .loopThen body tail =>
+    seq.checkSourceAt stack fallthrough targets resume tail &&
+      seq.checkSourceAt [] [] ([] :: targets) true body
   | .blockThen result body tail =>
     let types := result.toList
     seq.checkSourceAt (types.reverse ++ stack) fallthrough targets resume tail &&
@@ -313,6 +341,7 @@ def Contract (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode) (me
 inductive Phase (H : Type) where
   | call (body : Source H := .root)
   | invoke (body : Source H := .root)
+  | loop (bytes : ByteArray) (stack : List Value) (body tail : Source H) (labels : List (OpenLabel H))
   | block (bytes : ByteArray) (stack : List Value) (result : Option NumType) (body tail : Source H)
       (labels : List (OpenLabel H))
   | if_ (bytes : ByteArray) (stack : List Value) (result : Option NumType) (index : LocalIdx)
@@ -351,8 +380,15 @@ def beginBody (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : By
   | .brTable table => .tableSelect bytes stack table labels
   | .br branch => .branching bytes stack branch [] labels
   | .plain code => seq.finish outer args bytes stack code labels
+  | .loopThen body tail => .loop bytes stack body tail labels
   | .blockThen result body tail => .block bytes stack result body tail labels
   | .ifThen result index left right tail => .if_ bytes stack result index left right tail labels
+
+def branchDestination (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
+    (payload : List Value) (label : OpenLabel H) (rest : List (OpenLabel H)) : Phase H :=
+  match label with
+  | .block saved _ tail => seq.beginBody outer args bytes (saved ++ payload) rest tail
+  | .loop saved body tail => .loop bytes saved body tail rest
 
 def resume (seq : Sequence H) (outer : Frame) (args : List Value) (bytes : ByteArray)
     (stack : List Value) (later : List (HostSegment H)) (labels : List (OpenLabel H) := [])
@@ -391,6 +427,8 @@ def render (seq : Sequence H) (base : Store H) (memory : MemAddr) (initial : Mem
   match phase with
   | .call _ => ⟨live start, outer, values args ++ [.source (.call seq.root.index)]⟩
   | .invoke _ => ⟨live start, outer, values args ++ [.invoke seq.root.address]⟩
+  | .loop bytes stack body tail labels =>
+    ⟨live bytes, outer, (k labels).plug value (values stack ++ expression (seq.sourceCode (.loopThen body tail)))⟩
   | .block bytes stack result body tail labels =>
     ⟨live bytes, outer, (k labels).plug value (values stack ++ expression (seq.sourceCode (.blockThen result body tail)))⟩
   | .if_ bytes stack result index left right tail labels =>
@@ -413,6 +451,16 @@ def render (seq : Sequence H) (base : Store H) (memory : MemAddr) (initial : Mem
   | .trapped bytes saved tail labels => ⟨live bytes, outer, (k labels).plug value (values saved ++ .trap :: tail)⟩
   | .graph state => Memory32.render base memory initial state
 
+/-- A live loop can reconstruct its typed body after any number of back-edges. -/
+def RestartReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
+    (calls : CallMode) (source : Source H) (label : OpenLabel H) (rest : List (OpenLabel H)) : Prop :=
+  match label with
+  | .block .. => True
+  | .loop _ body _ =>
+    Source.Allowed mode program memory calls seq.root.function body ∧
+    (∀ site ∈ seq.sourceSites body, site ∈ seq.sourceSites source) ∧
+    seq.checkSourceAt [] [] ([] :: OpenLabel.targets seq.root.function rest) true body = true
+
 def ContextReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
     (calls : CallMode) (body : Source H) : List (OpenLabel H) → Prop
   | [] => True
@@ -421,7 +469,7 @@ def ContextReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (mem
       (OpenLabel.results seq.root.function rest) (OpenLabel.targets seq.root.function rest) (OpenLabel.needsResume rest) label.tail = true ∧
     Source.Allowed mode program memory calls seq.root.function label.tail ∧
     (∀ site ∈ seq.sourceSites label.tail, site ∈ seq.sourceSites body) ∧
-    seq.ContextReady mode program memory calls body rest
+    seq.ContextReady mode program memory calls body rest ∧ seq.RestartReady mode program memory calls body label rest
 
 def SourceReady (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : MemAddr)
     (calls : CallMode) (labels : List (OpenLabel H)) (stack : List Value) (region body : Source H) : Prop :=
@@ -457,6 +505,8 @@ def Ready (seq : Sequence H) (mode : MemoryMode) (program : Program) (memory : M
   let extent := mode.extent initial.data.size
   match phase with
   | .call current | .invoke current => current = body
+  | .loop bytes stack region tail labels =>
+    extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.loopThen region tail) body
   | .block bytes stack result region tail labels =>
     extent bytes ∧ seq.SourceReady mode program memory calls labels stack (.blockThen result region tail) body
   | .if_ bytes stack result index left right tail labels | .test bytes stack result index left right tail _ labels =>
@@ -493,9 +543,12 @@ inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
   | resolve {body} : Edge seq host mode program memory base initial start outer args (.call body) (.invoke body)
   | enter {body} : Edge seq host mode program memory base initial start outer args (.invoke body)
       (seq.beginBody outer args start seq.root.function.initial [] body)
+  | openLoop {bytes stack region tail labels} :
+      Edge seq host mode program memory base initial start outer args (.loop bytes stack region tail labels)
+        (seq.beginBody outer args bytes [] (.loop stack region tail :: labels) region)
   | openBlock {bytes stack result region tail labels} :
       Edge seq host mode program memory base initial start outer args (.block bytes stack result region tail labels)
-        (seq.beginBody outer args bytes [] (⟨stack, result, tail⟩ :: labels) region)
+        (seq.beginBody outer args bytes [] (.block stack result tail :: labels) region)
   | readCondition {bytes stack result index left right tail condition labels}
       (found : (seq.root.function.declaration.frame args).locals[index.toNat]? = some (.int .i32 condition)) :
       Edge seq host mode program memory base initial start outer args
@@ -523,10 +576,14 @@ inductive Edge (seq : Sequence H) (host : HostSemantics H) (mode : MemoryMode)
       Edge seq host mode program memory base initial start outer args
         (.branching bytes stack branch skipped (label :: rest))
         (.branching bytes (label.saved ++ stack) { branch with depth := lowerLabel branch.depth } (seq.tailCode label) rest)
-  | branchExit {bytes extra payload results skipped label rest} (arity : payload.length = label.result.toList.length) :
+  | branchExit {bytes extra payload results skipped saved result tail rest} (arity : payload.length = result.toList.length) :
       Edge seq host mode program memory base initial start outer args
-        (.branching bytes (extra ++ payload) ⟨⟨0⟩, results⟩ skipped (label :: rest))
-        (seq.beginBody outer args bytes (label.saved ++ payload) rest label.tail)
+        (.branching bytes (extra ++ payload) ⟨⟨0⟩, results⟩ skipped (.block saved result tail :: rest))
+        (seq.beginBody outer args bytes (saved ++ payload) rest tail)
+  | restartLoop {bytes stack results skipped saved region tail rest} :
+      Edge seq host mode program memory base initial start outer args
+        (.branching bytes stack ⟨⟨0⟩, results⟩ skipped (.loop saved region tail :: rest))
+        (.loop bytes saved region tail rest)
   | branchFunction {bytes extra payload results skipped}
       (typed : payload.map Value.type = seq.root.function.declaration.results) :
       Edge seq host mode program memory base initial start outer args
