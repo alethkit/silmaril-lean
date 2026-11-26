@@ -37,7 +37,7 @@ local notation "T" => Coordinates.ofModel (τ := Ty Empty) J M
 local notation "N" => WithGuardedTablePacking.Step (τ := Ty Empty) (Φ := signature.Instr) false
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem sumIso_coprodIsoSum (A B : Ty Empty) :
+theorem sumIso_coprodIsoSum (A B : Ty Empty) :
     ((T).sumIso A B).hom ≫
       (Kleisli.Type.coprodIsoSum Trace ((J).obj ((M).obj A)) ((J).obj ((M).obj B))).hom =
         𝟙 ((J).obj ((M).obj (Silmaril.coprod A B))) := by
