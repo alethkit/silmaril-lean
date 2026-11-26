@@ -60,6 +60,18 @@ theorem block_typed {fn : Function} {saved : List Value} {result : Option NumTyp
   refine ⟨checkBody, fun delivered typed => ?_⟩
   simpa [Prefix.stackTypes, List.reverse_append, typed] using checkTail
 
+theorem loop_typed {fn : Function} {saved : List Value} {result : Option NumType}
+    {body rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.loop result body :: rest) labels = true) :
+    fn.checkRegion [] result.toList body ([] :: labels) = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest labels = true := by
+  change (fn.checkRegion [] result.toList body ([] :: labels) &&
+    fn.checkRegion (result.toList.reverse ++ Prefix.stackTypes saved) fallthrough rest labels) = true at checked
+  obtain ⟨checkBody, checkTail⟩ := Bool.and_eq_true_iff.mp checked
+  refine ⟨checkBody, fun delivered typed => ?_⟩
+  simpa [Prefix.stackTypes, List.reverse_append, typed] using checkTail
+
 theorem if_typed {fn : Function} {stack : List Value} {result : Option NumType}
     {left right rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
     (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) labels = true) :

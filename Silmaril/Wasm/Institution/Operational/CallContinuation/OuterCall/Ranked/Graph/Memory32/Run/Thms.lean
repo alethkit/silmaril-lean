@@ -69,6 +69,17 @@ theorem v1_call_run_iff {H : Type} {p : Program} {m : MemAddr} {base : Store H} 
   have exactRun := v1_run_iff (dst := dst) checked layout (call_ready found resolved args initial.data)
   simpa only [render, layout.initial_store] using exactRun
 
+/-- A depth-zero backedge restores the loop source. Re-entry then opens a
+new zero-input label with the same current frame and store. -/
+theorem v1_loop_restart {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {body : Wasm.V1.Expr} {saved scratch : List Value} {branchTail tail : List Admin} :
+    let loop := Wasm.V1.Instr.loop result body
+    let pending := (⟨s, f, values saved ++ [.source loop] ++ tail⟩ : Config H)
+    Step CallFrame.v1NoHost
+      ⟨s, f, values saved ++ [.label 0 [loop] (values scratch ++ [.source (.br ⟨0⟩)] ++ branchTail)] ++ tail⟩ pending ∧
+    Step CallFrame.v1NoHost pending ⟨s, f, values saved ++ [.label 0 [loop] (expression body)] ++ tail⟩ :=
+  RunProofs.loop_restart
+
 /-- A branch at the function label delivers the typed suffix inside the
 activation. A separate frame-completion step resumes the caller. -/
 theorem v1_function_branch_exit {H : Type} {s : Store H} {caller callee : Frame}
