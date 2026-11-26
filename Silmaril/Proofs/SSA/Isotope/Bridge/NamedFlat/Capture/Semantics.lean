@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Semantics.Reflection.Thms
 import Silmaril.SSA.Isotope.Bridge.CaseSSA.Thms
+import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Packet
 
 @[expose] public section
 
@@ -57,28 +58,6 @@ private theorem flat_env_iff {a : Flat F labels n}
     (agree : ∀ i : Fin n, env i.val = env' i.val) :
     Eval instr env a.erase s out value t ↔ Eval instr env' a.erase s out value t :=
   ⟨flat_env agree, flat_env (fun i => (agree i).symm)⟩
-
-/-- The environment after the decoder splits the given capture values. -/
-private def decoded : Nat → Env α → Env α → Env α
-  | 0, _, ambient => ambient
-  | n + 1, env, ambient =>
-    decoded n (env ∘ Nat.succ) (extend (extend ambient (packEnv n (env ∘ Nat.succ))) (env 0))
-
-private theorem decoded_retained (Γ : List τ) (original ambient : Env α) (i : Nat) :
-    decoded Γ.length original ambient (retained Γ i) = ambient i := by
-  induction Γ generalizing i original ambient with
-  | nil => rfl
-  | cons A Γ ih =>
-    simp only [List.length_cons, retained, decoded, ih, Semantics.extend_succ]
-
-private theorem decoded_field (Γ : List τ) (original ambient : Env α) {i : Nat}
-    (hi : i < Γ.length) : decoded Γ.length original ambient (field Γ i) = original i := by
-  induction Γ generalizing i original ambient with
-  | nil => simp at hi
-  | cons A Γ ih =>
-    cases i with
-    | zero => simp only [List.length_cons, decoded, field, decoded_retained, Semantics.extend_zero]
-    | succ i => exact ih _ _ (Nat.lt_of_succ_lt_succ hi)
 
 private theorem var_eval {i : Nat} (h : ExprEval instr env (.var i) s value t) :
     value = env i ∧ t = s := by

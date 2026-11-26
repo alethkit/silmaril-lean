@@ -20,7 +20,7 @@
 | Wasm extras | The SpecTec meta-theory and the SpecTec Lean 4 backend model, Iris program logics for Wasm and WasmFX, WASI theories over the x86 process models, the Wasm components registry and the WASI 0.3 Rust example components, and more Wasm tools | [Wasm extras](wasm-extras.md) |
 | Region extraction | Raw and lawful region relations, first-exit semantics and gluing, semantic queries, typed binary adapters, conservative x86/Wasm candidates and a raw-relation institution; explicit operational and coverage limits | [Region extraction](region-extraction.md) |
 | Function relations | Machine-independent decomposition, call graphs, indexed effects and room institution; certified direct ELF graph projections and a conditional x86 operational adapter | [Function relations](function-relations.md) |
-| RVSDG | Typed primitives and multi-way γ regions, numbered graph/term round trips, and agreement of their operational semantics | [RVSDG](rvsdg.md) |
+| RVSDG | Typed primitives and multi-way γ regions, numbered graph/term round trips, and agreement of their operational semantics | [RVSDG](rvsdg/README.md) |
 | Compiler foundations | Semantic contracts, passes, checked transformations, translations and compiler categories | [Compiler APIs](compilers.md) |
 | Logics and institutions | HOL, Metamath, ZF/ZFC, arithmetic, proof translations and Hets-style development graphs | [Logic](logic.md) |
 | Lambda calculi | Eight cube corners, STLC categorical semantics, System F/Fω parametricity and institution graphs | [Lambda cube](lambda-cube.md) |
@@ -71,7 +71,7 @@
 | Finite maps and sets | Kernel-reducible byte tries (`BytesMap`), range maps over `Nat` (`NatRangeMap`) and bit-mask sets (`NatBitSet`) with canonical forms, extensional equality and kernel benchmarks | [Finite maps](finmaps.md) |
 | Dynamically linked processes | An x86-64 process linked against glibc 2.39 with library functions as atomic contract steps, the C runtime, block certificates, library modules, the program API with standard executables and their tactics, and hello world, `cat` and an adder for gcc and clang | [Dynamic processes](dyn.md) |
 | SSA calculi and λRTL | The let family, λSSA, λRTL with loops, versioning, nameless presentations and institutions; a flat CFG with a sound validator; the SSA-form machine RTL with its λSSA translations | [SSA](ssa.md) |
-| Sea of Nodes | Source-to-Lean coverage inventory for Click’s thesis and papers, the Simple tutorial, and planned SSA, RVSDG and MLIR proof slices | [Sea of Nodes](sea-of-nodes.md) |
+| Sea of Nodes | Source-to-Lean coverage inventory for Click’s thesis and papers, the Simple tutorial, and planned SSA, RVSDG and MLIR proof slices | [Sea of Nodes](sea-of-nodes/README.md) |
 | Program Expression Graphs and Peggy | Typed graph construction, loop guards, the printed guard counterexample, and the Peggy formalization roadmap | [PEG and Peggy](peggy.md) |
 | MLIR-style scalar SSA | Typed modular arithmetic and an isolated single-block region, with checked lowerings to LambdaSSA and LetIter | [MLIR](mlir.md) |
 | Typed MLIR function modules | Body-parameterized function declarations and ordered modules with typed translation and lookup laws | [MLIR function modules](mlir-function-modules.md) |

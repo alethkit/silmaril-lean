@@ -26,7 +26,7 @@ private theorem retainedAt (Γ : VCtx τ) {Δ : VCtx τ} {i : Nat} {A : τ} (h :
   | nil => exact h
   | cons B Γ ih => exact ih (Δ := B :: packedInputType Γ :: Δ) (i := i + 2) h
 
-private theorem fieldRen (Γ Δ : VCtx τ) : Ren Γ (expanded Γ Δ) (field Γ) := by
+theorem fieldRen (Γ Δ : VCtx τ) : Ren Γ (expanded Γ Δ) (field Γ) := by
   intro i A hi
   induction Γ generalizing Δ i with
   | nil => simp [At] at hi
@@ -62,7 +62,7 @@ private theorem renameBranches {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
   | case ha _ _ ihl ihr => exact .case (ha.rename hρ) (ihl (hρ.lift _)) (ihr (hρ.lift _))
   | cfg R _ _ ihe ihb => exact .cfg R (ihe hρ) (fun i => ihb i (hρ.lift _))
 
-private theorem split_valueBranches (Γ : VCtx τ) {Δ : VCtx τ} {i : Nat} {r : Region Φ}
+theorem split_valueBranches (Γ : VCtx τ) {Δ : VCtx τ} {i : Nat} {r : Region Φ}
     {L : LCtx τ} (hi : At Δ i (packedInputType Γ)) (hr : ValueBranches (expanded Γ Δ) r L) :
     ValueBranches Δ (split Γ i r) L := by
   induction Γ generalizing Δ i with
@@ -126,6 +126,15 @@ private theorem region_subst_keeps {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     simp only [Region.substVars, tm_subst_keeps ha hθ, ihl (hθ.lift _), ihr (hθ.lift _)]
   | cfg R _ _ ihe ihb =>
     exact congrArg₂ (fun e bs => Region.cfg e _ bs) (ihe hθ) (funext fun i => ihb i (hθ.lift (R i)))
+
+theorem singleton_subst_keeps {P : τ} {L : LCtx τ} {r : Region Φ}
+    (hr : Region.HasType [P] r L) {θ : Nat → Tm Φ} (h : θ 0 = .var 0) :
+    r.substVars θ = r := by
+  apply region_subst_keeps hr
+  intro i A hi
+  cases i with
+  | zero => exact h
+  | succ i => simp [At] at hi
 
 private def Values (Δ Ξ : VCtx τ) (θ : Nat → Tm Φ) : Prop :=
   ∀ ⦃i A⦄, At Δ i A → Tm.BranchValue Ξ (θ i) A

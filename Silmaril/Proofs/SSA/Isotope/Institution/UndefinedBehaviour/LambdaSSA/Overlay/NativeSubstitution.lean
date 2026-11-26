@@ -40,7 +40,7 @@ variable {α : Type w} {σ : Type x}
   {faults : Φ → Value α → σ → σ → Prop} {prim : Φ → Value α → σ → Prop}
   {env : Env α} {s s' : σ}
 
-private theorem nativeLsubst_eval_iff {label : Nat} {value : Value α} :
+theorem nativeLsubst_eval_iff {label : Nat} {value : Value α} :
     Semantics.Region.Eval instr env (nativeLsubst r k) s label value s' ↔
       ∃ (i : Fin L.length) (a : Value α) (mid : σ), Semantics.Region.Eval instr env r.val s i a mid ∧
         Semantics.Region.Eval instr (extend env a) (k i).val mid label value s' := by
@@ -66,7 +66,7 @@ private theorem nativeLsubst_eval_iff {label : Nat} {value : Value α} :
         (blocks := fun i => (k i).val.renameLabels (L.length + ·))
         (value := value) (s := s') (Nat.le_add_right L.length label))
 
-private theorem nativeLsubst_fault_iff :
+theorem nativeLsubst_fault_iff :
     Semantics.Region.Fault instr faults env (nativeLsubst r k) s s' ↔
       Semantics.Region.Fault instr faults env r.val s s' ∨
         ∃ (i : Fin L.length) (a : Value α) (mid : σ), Semantics.Region.Eval instr env r.val s i a mid ∧
@@ -86,7 +86,7 @@ private theorem nativeLsubst_fault_iff :
     · exact .cfg_entry entry
     · exact .cfg_follow entry (.body i.isLt (fault.renameLabels (L.length + ·)))
 
-private theorem nativeLsubst_diverges_iff :
+theorem nativeLsubst_diverges_iff :
     External.Diverges instr prim (.region env (nativeLsubst r k) s) ↔
       External.Diverges instr prim (.region env r.val s) ∨
         ∃ (i : Fin L.length) (a : Value α) (mid : σ), Semantics.Region.Eval instr env r.val s i a mid ∧

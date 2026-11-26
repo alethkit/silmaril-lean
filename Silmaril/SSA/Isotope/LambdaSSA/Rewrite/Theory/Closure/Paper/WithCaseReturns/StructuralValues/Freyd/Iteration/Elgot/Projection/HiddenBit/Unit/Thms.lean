@@ -25,4 +25,19 @@ theorem unit_alternate_power {B : Comp} (g : U ⟶ B ⨿ U) :
     iterateChosen Seed (g ≫ coprod.desc coprod.inl g) = iterateChosen Seed g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitFoldUniformity.unit_alternate_power pe g
 
+local notation "Bit" => Silmaril.coprod (Silmaril.unit : τ) (Silmaril.unit : τ)
+local notation "State" => ofType Seed (Silmaril.product (Silmaril.unit : τ) Bit)
+local notation "p" => productFst Seed (Silmaril.unit : τ) Bit
+
+/-- With unit as the visible state, resetting the tag is valid when the right
+mode switches back on recurrence. The left mode can recur into either mode. -/
+theorem unit_reset_of_right_switch {B : Comp} (f : State ⟶ B ⨿ State) (g : U ⟶ B ⨿ U)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g)
+    (switch : rightMode pe (Silmaril.unit : τ) ≫ f =
+      g ≫ coprod.map (𝟙 B) (leftMode pe (Silmaril.unit : τ))) :
+    iterateChosen Seed f =
+      iterateChosen Seed (f ≫ coprod.map (𝟙 B) (p ≫ leftMode pe (Silmaril.unit : τ))) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitFoldUniformity.unit_reset_of_right_switch
+    pe f g square switch
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseReturns.StructuralValues.HiddenBit

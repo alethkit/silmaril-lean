@@ -163,4 +163,50 @@ theorem unit_alternate_power {B : Q} (g : (F).obj U ⟶ B ⨿ (F).obj U) :
   rw [eq, ← Category.assoc, transported_drop, gEq] at transIso
   exact (alternating_fold_iff_double pe g).1 transIso
 
+local notation "Obj" => ofType Seed
+local notation "I" => iterateChosen Seed
+
+private theorem unit_fold_of_right_switch {B : Q}
+    (f : Obj sunit ⨿ Obj sunit ⟶ B ⨿ (Obj sunit ⨿ Obj sunit))
+    (g : Obj sunit ⟶ B ⨿ Obj sunit)
+    (square : f ≫ coprod.map (𝟙 B) (coprod.desc (𝟙 (Obj sunit)) (𝟙 (Obj sunit))) =
+      coprod.desc (𝟙 (Obj sunit)) (𝟙 (Obj sunit)) ≫ g)
+    (switch : coprod.inr ≫ f = g ≫ coprod.map (𝟙 B) (coprod.inl : Obj sunit ⟶ _)) :
+    I f = coprod.desc (𝟙 (Obj sunit)) (𝟙 (Obj sunit)) ≫ I g :=
+  binary_fold_of_right_switch_and_double pe f g square switch (unit_alternate_power pe _)
+
+local notation "Bit" => Silmaril.coprod sunit sunit
+local notation "State" => Obj (Silmaril.product sunit Bit)
+local notation "p" => productFst Seed sunit Bit
+
+theorem unit_reset_of_right_switch {B : Q} (f : State ⟶ B ⨿ State) (g : Obj sunit ⟶ B ⨿ Obj sunit)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g)
+    (switch : rightMode pe sunit ≫ f = g ≫ coprod.map (𝟙 B) (leftMode pe sunit)) :
+    I f = I (f ≫ coprod.map (𝟙 B) (p ≫ leftMode pe sunit)) := by
+  let e := modes (τ := τ) (Φ := Φ) pe sunit
+  let d := e.hom ≫ f ≫ coprod.map (𝟙 B) e.inv
+  let k : Obj sunit ⨿ Obj sunit ⟶ Obj sunit := coprod.desc (𝟙 _) (𝟙 _)
+  have fold : e.hom ≫ p = k := modes_fst pe sunit
+  have recover : e.inv ≫ k = p := by rw [← fold, Iso.inv_hom_id_assoc]
+  have foldedSquare : d ≫ coprod.map (𝟙 B) k = k ≫ g := by
+    dsimp only [d]
+    rw [Category.assoc, Category.assoc, coprod.map_map, Category.id_comp,
+      recover, square, ← Category.assoc, fold]
+  have switched : coprod.inr ≫ d = g ≫ coprod.map (𝟙 B) (coprod.inl : Obj sunit ⟶ _) := by
+    dsimp only [d]
+    rw [← Category.assoc, show coprod.inr ≫ e.hom = rightMode pe sunit from rfl,
+      ← Category.assoc, switch, Category.assoc, coprod.map_map, Category.id_comp]
+    have back : leftMode pe sunit ≫ e.inv = coprod.inl := by
+      change (coprod.inl ≫ e.hom) ≫ e.inv = _
+      rw [Category.assoc, Iso.hom_inv_id, Category.comp_id]
+    rw [back]
+  have compare : d ≫ coprod.map (𝟙 B) e.hom = e.hom ≫ f := by
+    simp only [d, Category.assoc, coprod.map_map, Iso.inv_hom_id, coprod.map_id_id, Category.comp_id]
+  have eq := (uniformity_of_iso Seed e d f compare).symm.trans
+    (unit_fold_of_right_switch pe d g foldedSquare switched)
+  change e.hom ≫ I f = k ≫ I g at eq
+  rw [← fold, Category.assoc] at eq
+  have uniform : I f = p ≫ I g := (cancel_epi e.hom).1 eq
+  exact (uniformity_iff_reset Seed p (leftMode pe sunit) (leftMode_fst pe sunit) f g square).1 uniform
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.UnitFoldUniformity

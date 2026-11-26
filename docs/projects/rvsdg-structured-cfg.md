@@ -89,11 +89,97 @@ the γ payload. The label parser still returns the original candidate and
 certification rejects the graph.
 [Reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Reverse/Thms.lean)
 
+## Compile through the outer normal form
+
+`Normalization.normalize` covers every admitted structured source. It
+passes a serial suffix through a preceding sequence and into a fork's
+existing shared continuation. The two arm scopes stay local to the fork.
+The type of the operation preserves the boundary carrier types and the
+ordered vertex signature table. Applying it to a source already written
+in `Reverse.Normal` returns that normal form.
+
+`denote_normalize` proves equality of the repository's flat
+`Region.denote` in the coherent monadic Elgot interface. The proof uses
+the actual flat fork and flat link laws and reassociates binds. In the
+partial-state model, `compile_returns_iff` and `compile_undefined_iff`
+compare the original flat CFG with the newly emitted graph, including
+the typed exit and exact final token. Every result of reverse recovery
+on that emission has the original CFG's partial denotation.
+
+`Normalization.compile` emits the explicit normal layout. The existing
+recognizer is complete on its output for every `Syntax` witness.
+`decideNumbering` uses full typed graph equality to check the earlier and
+normal emissions for a particular source. The regression checks literal
+equality on a fork followed by a composite suffix, where stages 8 and 9
+move into the fork's continuation after stage 7. On input 0 the graph
+returns payload 123357 and token 12335789. Input 99 has no finite return.
+The compiler and round-trip theorem apply independently of the per-source
+comparison. A universal equality theorem for the two emissions would
+require a syntactic associativity law for checked splice and origin
+relocation. The existing splice law gives denotational composition.
+[Normalization API](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Theta/StructuredCFG/Normalization/Thms.lean)
+
+## Two levels of feedback
+
+`NestedFeedback.lower` is a separate forward entry point for a flat
+two-block region with an outer header of type `A`, an inner header of type
+`B`, and one typed external label of type `D`. The outer block applies
+`A → B` and jumps to the inner block. The inner block applies
+`B → K ⊕ B` and either restarts itself or sends the completed `K` to a
+`K → D ⊕ A` decision within that block. The decision exits at the external
+label or restarts the outer block. The three arrows are existing typed
+LambdaSSA instructions. The loop nesting is determined by this source
+witness, with no general cycle recognition step.
+
+The numbered outer θ contains the entry instruction, the inner θ, and
+the final decision instruction. The inner θ receives the entry
+instruction's live token, and the final decision reads both outputs of
+the inner θ. Each restart uses the activation's returned token.
+Coproduct carriers encode the different entry and exit payload types,
+and the θ tag selects exit or restart. The shared partial instruction
+model performs one source instruction per primitive. The constructor
+`Related.generated` supplies the source typing and existing single-live-token
+admission for the emitted graph.
+
+`denote_rounds` derives nested iteration from actual flat
+`Region.denote` in a coherent monadic Elgot model using codiagonal,
+naturality and pure uniformity. In `StateT σ Part`, every relation witness
+preserves and reflects finite graph returns at the typed external label,
+including the exact final token. The undefinedness theorem compares
+absence of a finite return. The fixture follows an inner restart in each
+outer activation and an outer restart, then reads the token into the
+returned payload. A second input stays in the inner loop and has no
+finite derivation.
+[Nested feedback API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Thms.lean)
+
+`NestedFeedback.Reverse.recover` takes the typed numbered graph and
+its dialect. It reads both θ regions, infers `B` and `K` from the
+opcode roles, and checks the three instruction types against the
+signature. It reconstructs the source and accepts only if re-emission
+matches the actual graph recursively, including every typed port,
+operand, child and result address. Success returns a flat region with
+a relation witness indexed by that input graph. Every canonical
+emission recovers its original region and both internal types.
+
+The recovered CFG has the same finite observations and exact final
+token in the coherent partial-state model. The regression reuses both
+nested-feedback cases and checks a mutation that replaces the inner
+θ's returned token at the decision with the outer entry token. The
+mutation leaves the payload and both θ shapes intact. Parsing succeeds
+and full certification rejects the differing token address. This
+recognizer accepts precisely the literal numbered images of the
+two-header shape. It uses the graph's outer boundary types and infers
+the inner types. Other loop layouts, arbitrary renumbering, and
+general CFG structuring are outside this API.
+[Nested feedback reverse API](../../Silmaril/SSA/RVSDG/LambdaSSA/NestedFeedback/Reverse/Thms.lean)
+
 ## Reproduce
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Reverse.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.Normalization.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms +Silmaril.Proofs.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression'
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
 ```
 
 ## Sources

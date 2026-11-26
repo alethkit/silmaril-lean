@@ -161,12 +161,12 @@ theorem run_identityAssertion {scope : Source.Scope} (space : Namespace) (contex
     runInstructionsIn space context (.scalar (.assertion (.identityChain left links)) :: rest) =
       match (assertOperand space (.identityChain left links) true).binding with
       | .ok _ => runInstructionsIn space context rest
-      | .error error => ⟨space, .error error, [], context.heap⟩ := by
+      | .error error => ⟨space, .error error, [], context.heap, Core.Module.ListHeap.empty⟩ := by
   have settlement : ∀ {α : Type} (result : Except Failure α),
       match ((result.map fun _ => (none : Option (String × Value))).mapError ModuleFailure.ofCall) with
       | .ok value => value = none
       | .error _ => True := by intro α result; cases result <;> trivial
-  simp only [runInstructionsIn, effect]
+  simp only [runInstructionsIn, effectWithLists, effect]
   cases h : (assertOperand space (.identityChain left links) true).binding with
   | error => rfl
   | ok binding =>

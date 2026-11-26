@@ -49,6 +49,41 @@ corresponding values, including Boolean and integer equality at zero and
 one. Tuple membership keeps the flat literal profile. The result is an
 exact Boolean with no runtime sequence value or allocation.
 
+A message-free assertion can compare `len(sequence)` for equality or
+inequality against a checked scalar operand. The sequence uses the closed
+list or tuple certificate above. Its elements and intermediate objects
+have no runtime uses outside the call. The plan retains the checked global
+read of `len` and the exact length. The ordinary namespace reports a missing
+`len` or an unsupported function receiver, or raises a defined error for
+a noncallable scalar. Seeded execution resolves the current module-first
+binding and uses the certified length only with the exact stock `len`
+descriptor. It records the call result before checking the right operand.
+This path uses the existing explicit seed that already supplies `len`.
+
+Run the CPython 3.13.5 controls and the fixed original inputs with
+`python3.13 -I scripts/check-python-sequence-length.py --upstream /path/to/pinned/rigorous`.
+
+A message-free module assertion can compare a stock `list` construction
+with an exact flat list literal on either side of equality. The call
+accepts zero arguments or one positional flat list or tuple literal.
+The checker preserves the scalar tags and order of all elements, and
+requires a module global reference for the constructor. The independent
+`legacyListSeed` supplies the stock descriptor in both harness placements.
+
+The seeded runner evaluates the operands in source order. It looks up
+`list` before allocating a list argument and tests callability after
+preparing that argument. A stock call appends a fresh object to the list
+allocation table even when the result is empty or matches a prior list.
+The receipt records its address and contents. The comparison uses the
+closed sequence equality above. The table records reached allocations,
+including temporary lists, and keeps the closure-cell heap separate.
+An error retains the reached table and skips the tail. The ordinary
+runner has no stock list descriptor and keeps its existing namespace
+and cell heap on a missing name or noncallable mask.
+
+Run the unchanged pin and CPython 3.13.5 identity and error-order controls
+with `python3.13 -I scripts/check-python-list-construction.py --upstream /path/to/pinned/rigorous`.
+
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
 Boolean or integer literal, including unary minus on an integer literal.

@@ -24,6 +24,8 @@ inductive Argument where
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertSequenceLength (test : SequenceLengthTest scope)
+  | assertListConstruction (test : ListConstructionTest scope)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
@@ -69,6 +71,12 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
+  | .assertSequenceLength test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertSequenceLength test :: instructions, blocks)
+  | .assertListConstruction test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertListConstruction test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -240,6 +248,14 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
+    | .assertSequenceLength _ => ([], .finished session (match session.globals "len" with
+      | none => .raised (.nameError "len")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
+    | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
+      | none => .raised (.nameError "list")
+      | some (.function _) => .scalarProfile
+      | some _ => .raised .notCallable))
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with
       | .ok () => .ready session rest
       | .error completion => .finished session completion)

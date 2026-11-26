@@ -38,27 +38,29 @@ private theorem run_encoded {r : Region Op} (h : ValueBranches [Input] r [Output
   rw [weakITreeFunctor_map_ofRegion]
   exact singletonDenote_tree raw compatible h.hasType a (fun _ => .unit)
 
-private theorem run_eq_behavior {r : Region Op} (h : ValueBranches [Input] r [Output]) (a : InputValue)
+theorem run_eq_of_encoded {r : Region Op} (h : ValueBranches [Input] r [Output]) (a : InputValue)
+    (result : TreeModel OutputValue)
     (body : region raw (extend (fun _ => .unit) (encodeValue Atoms Input a)) r =
-      (behavior a >>= fun x => pure (encode x))) : run (ofRegion h) a = behavior a := by
+      (result >>= fun x => pure (0, encodeValue Atoms Output x))) : run (ofRegion h) a = result := by
+  change _ = (result >>= fun x => pure (encode x)) at body
   have eq := (run_encoded h a).trans body
   simpa only [bind_assoc, pure_bind, decode_encode, bind_pure] using congrArg (· >>= decode) eq
 
 theorem termArrow_behavior (a : InputValue) : run termArrow a = behavior a := by
-  apply run_eq_behavior termCase_typed
+  apply run_eq_of_encoded termCase_typed
   cases a with
   | inl b =>
-    cases b <;> simp [termCase, region, term, encodeValue, extend, behavior, encode, Sum.swap]
+    cases b <;> simp [termCase, region, term, encodeValue, extend, behavior, Sum.swap]
   | inr n =>
-    simp [termCase, pollRegion, region, term, encodeValue, extend, raw, behavior, encode, vis_bind, -bind_pure_comp]
+    simp [termCase, pollRegion, region, term, encodeValue, extend, raw, behavior, vis_bind, -bind_pure_comp]
 
 theorem regionArrow_behavior (a : InputValue) : run regionArrow a = behavior a := by
-  apply run_eq_behavior regionCase_typed
+  apply run_eq_of_encoded regionCase_typed
   cases a with
   | inl b =>
-    cases b <;> simp [regionCase, region, term, encodeValue, extend, behavior, encode, Sum.swap]
+    cases b <;> simp [regionCase, region, term, encodeValue, extend, behavior, Sum.swap]
   | inr n =>
-    simp [regionCase, pollRegion, region, term, encodeValue, extend, raw, behavior, encode, vis_bind, -bind_pure_comp]
+    simp [regionCase, pollRegion, region, term, encodeValue, extend, raw, behavior, vis_bind, -bind_pure_comp]
 
 theorem sameImage : interpretation.map termArrow = interpretation.map regionArrow := by
   apply Kleisli.hom_ext

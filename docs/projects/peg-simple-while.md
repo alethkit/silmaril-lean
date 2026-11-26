@@ -60,6 +60,39 @@ counter, with concrete checks at zero and ten iterations.
 [Regression fixture](../../tests/ssa/PEGSimple.lean) ·
 [Figure 11 conventions](peg-semantics.md)
 
+## Checked scalar reversion
+
+The inverse checker `Revert.While.extract` takes a typed, numbered
+seven-vertex PEG with one loop and one carried result. It reads the unary
+continuation test and feedback update, plus the Boolean negation used
+by the exit test. It recompiles those primitives using `WhileProgram.translate`
+and compares the full serialized table. The comparison checks every sort,
+opcode, wire, loop parent and root. The dialect supplies decidable equality
+at each opcode profile. Success produces the existing SIMPLE while over
+the initial parameter, updating the single carried slot and returning it.
+[Extractor](../../Silmaril/SSA/PEG/Simple/Revert/While/Defs.lean)
+
+`Form.compile_extract` proves exact recovery of the three primitive symbols
+on the compiler image. `Certificate.compile_eq` proves that recompilation
+of any admitted input recovers the same graph. `Certificate.observe_of_returns`
+reuses the frontend's successful-return theorem with the meaning of the
+negation opcode as its sole primitive-law premise. The proof therefore
+covers Figure 11's earliest pass and every earlier eval sample needed
+for the successful return. The observation theorem goes from an extracted
+SIMPLE return to the input PEG. The converse, failure, and divergence
+correspondence remain open.
+[Public theorems](../../Silmaril/SSA/PEG/Simple/Revert/While/Thms.lean)
+
+This is a canonical case of §7.3 with one unnested loop and the existing
+compiler's numbering. It checks the exact eval/pass pairing and θ feedback
+wire. General Fig. 19 scope and Type-Eval-Pass rules, arbitrary numbering,
+multiple carried slots and simultaneous copies, loop fusion, MustEval,
+and LICM remain separate obligations. The fixture exercises the extractor,
+proves the recovered loop's countdown return at zero and arbitrary finite
+iterations, and rejects a sorted table whose pass bypasses the negation.
+[Paper §7](https://arxiv.org/pdf/1012.1802v3#page=40) ·
+[Regression](../../tests/ssa/PEGCanonicalWhile.lean)
+
 ## Follow-up
 
 Lowering loops inside sequences and branches requires a context-threading
@@ -74,9 +107,10 @@ milestone emits an eval for the one observed slot.
 ## Replay
 
 ```sh
-lake build --wfail +Silmaril.SSA.PEG.Simple.While.Thms PEGCoreTests
+lake build --wfail +Silmaril.SSA.PEG.Simple.While.Thms +Silmaril.SSA.PEG.Simple.Revert.While.Thms PEGCoreTests PEGCanonicalWhileTests
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGSimple.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PEGCanonicalWhile.lean
 lake env leanchecker Silmaril.SSA.PEG.Simple.While.Thms
 lake env leanchecker tests.ssa.PEGSimple
-make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.While.Thms PEGCoreTests'
+make check CHECK_TARGETS='+Silmaril.SSA.PEG.Simple.Revert.While.Thms PEGCoreTests PEGCanonicalWhileTests'
 ```

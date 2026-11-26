@@ -38,9 +38,12 @@ CHECK_TARGETS += +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms LetIterPacking
 CHECK_TARGETS += PEGIRBridgeTests PEGForwardCFGTests
 CHECK_TARGETS += PeggyDialectTests
 CHECK_TARGETS += PeggyEggTests
+CHECK_TARGETS += PeggyFieldHeapTests
+
 CHECK_TARGETS += PeggyInstitutionTests
 CHECK_TARGETS += PeggyEquationalTests
 CHECK_TARGETS += PEGRulesTests
+CHECK_TARGETS += PEGCanonicalWhileTests
 
 # Files Lake never reads; only the source gates in `make check` read them.
 SCOPE_EXCLUDE := 'docs/**' '**/*.md' 'scripts/**' 'apps/**' 'problems/**' 'specs/wasm/**' \

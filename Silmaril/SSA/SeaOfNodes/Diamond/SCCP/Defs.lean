@@ -81,9 +81,12 @@ def evalFacts (m : Model.{u, v, w} Op) (entry : Tuple (Fact m.value) args) :
       .cons (Flat.map (m.run op) (gather (wires.read entry locals))) .nil
     evalFacts m entry (past := past ++ [head]) (sigs := tail) rest (locals.snoc result)
 
+def factsOfLocals (locals : Locals (Fact value) sigs) : ProducerFacts value sigs :=
+  fun i => tupleFacts (locals.get i)
+
 def producerFacts (m : Model.{u, v, w} Op) (g : Graph Op inputs sigs out)
     (entry : Tuple (Fact m.value) (dataPorts inputs)) : ProducerFacts m.value (extend [] sigs) :=
-  fun i => tupleFacts ((evalFacts m entry g.dataflow PUnit.unit).get i)
+  factsOfLocals (evalFacts m entry g.dataflow PUnit.unit)
 
 /-- A known predicate marks its precise Region occurrence. An overdefined
 predicate permits either projection. Bottom defers the decision. -/
