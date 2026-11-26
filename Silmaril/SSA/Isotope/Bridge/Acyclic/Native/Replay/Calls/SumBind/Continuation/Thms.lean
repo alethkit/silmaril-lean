@@ -61,6 +61,13 @@ theorem sound {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v�
 
 end Native
 
+/-- Weakening or renaming captures leaves the request paths unchanged. -/
+theorem rename_schedule {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
+    {Γ Δ : VCtx τ} {L : LCtx τ} {p : Region Φ} {paths : List (List Φ × Nat)} {ρ : Nat → Nat}
+    (h : Schedule Γ p L paths) (typed : Ren Γ Δ ρ) :
+    Schedule Δ (p.renameVars ρ) L paths :=
+  rename_schedule_proof h typed
+
 /-- A typed case schedule can feed a fresh call and an arbitrary typed case
 schedule on its reply. Each resulting path contains one new call occurrence. -/
 theorem splice {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
