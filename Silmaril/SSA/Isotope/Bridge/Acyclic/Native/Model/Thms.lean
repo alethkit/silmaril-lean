@@ -30,6 +30,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   [FreydCategory.CentralUnit J] (M : TypeModel τ V) [InstructionModel J M Φ]
   [RegionTypingCoherent (Φ := Φ) J M]
 
+omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
+/-- The existing typed LetCase inclusion preserves its categorical arrow. -/
+theorem denote_caseIter {n : Nat} {β : BoundCtx τ n} {t : LetCase.LocallyNameless.Tm Empty Φ n} {A : τ}
+    (d : LetCase.LocallyNameless.Derivation Φ (.nil : Ctx Empty τ) β t A) :
+    LetIter.Semantics.Categorical.denote J M (Morphism.CaseIter.derivation d) =
+      LetCase.Semantics.Categorical.denote J M d :=
+  denote_caseIter_proof J M d
+
 /-- An exact realization of the written region computes its native categorical
 arrow, independently of the selected typing and code witnesses. -/
 theorem Endpoint.denote_code {n : Nat} {β : BoundCtx τ n} {A : τ} (p : Endpoint Φ β A)
