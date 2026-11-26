@@ -29,8 +29,8 @@ private def innerTail : List (Op Nat) := [.call ⟨4⟩ innerJoin]
 private def innerBranch : List (Op Nat) := .if_ innerType innerArm otherInnerArm :: innerTail
 private def outerArm : List (Op Nat) := .get ⟨0⟩ :: .get ⟨0⟩ :: .call ⟨1⟩ prepare :: innerBranch
 private def joinTail : List (Op Nat) := [.call ⟨5⟩ outerJoin]
-private def outerLabel : Label Nat := ⟨.scalar num32, [i64 42], joinTail⟩
-private def innerLabel : Label Nat := ⟨innerType, [i64 7], innerTail⟩
+private def outerLabel : Label Nat := ⟨.scalar num32, [i64 42], joinTail, none⟩
+private def innerLabel : Label Nat := ⟨innerType, [i64 7], innerTail, none⟩
 
 private def program : Program Nat where
   module := {types := [signature, armType], funcs := [⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩, ⟨5⟩, ⟨6⟩, ⟨7⟩], memories := [⟨0⟩]}
@@ -169,8 +169,8 @@ private theorem loopExit (flag : Bool) :
 private theorem inOuter (flag : Bool) :
     BodyPath ⟨loopBytes flag, .source [] (if flag then outerArm else alternateArm), [outerLabel]⟩ := by
   cases flag
-  · exact ((loopExit false).step (.if_ (saved := [i64 42]) (guard := 0) (args := []) rfl)).step .block
-  · exact ((loopExit true).step (.if_ (saved := [i64 42]) (guard := 1) (args := []) rfl)).step .block
+  · exact ((loopExit false).step (.if_ (saved := [i64 42]) (guard := 0) (args := []) rfl)).step (.block rfl)
+  · exact ((loopExit true).step (.if_ (saved := [i64 42]) (guard := 1) (args := []) rfl)).step (.block rfl)
 
 private theorem reachesInnerBlock (flag : Bool) :
     BodyPath ⟨bytes 3, .block innerLabel [i32 21, i64 22] (if flag then innerArm else otherInnerArm),
@@ -188,7 +188,7 @@ private theorem reachesInnerBlock (flag : Bool) :
 
 private theorem atInner :
     BodyPath ⟨bytes 3, .invoke [] inner [i32 21, i64 22] [], [innerLabel, outerLabel]⟩ :=
-  ((reachesInnerBlock true).step .block).step (.resolve (site := inner) (saved := []) (args := [i32 21, i64 22]) rfl)
+  ((reachesInnerBlock true).step (.block rfl)).step (.resolve (site := inner) (saved := []) (args := [i32 21, i64 22]) rfl)
 
 -- Guard consumption leaves the ordered parameters in the enclosing stack
 -- until the next native step moves them into the arity-three label.
@@ -235,7 +235,7 @@ private theorem throughInner : BodyPath ⟨bytes 6, .source [i64 42, i32 41] joi
 
 private theorem throughOtherInner : BodyPath ⟨bytes 6, .source [i64 42, i32 41] joinTail, []⟩ := by
   have pending : BodyPath ⟨bytes 3, .invoke [] innerAlternate [i32 21, i64 22] [], [innerLabel, outerLabel]⟩ :=
-    ((reachesInnerBlock false).step .block).step
+    ((reachesInnerBlock false).step (.block rfl)).step
       (.resolve (site := innerAlternate) (saved := []) (args := [i32 21, i64 22]) rfl)
   have returned : BodyPath ⟨bytes 10, .source [i64 32, i32 33, i64 35] [], [innerLabel, outerLabel]⟩ :=
     pending.step (.returned (next := bytes 10) (site := innerAlternate) (vs := [i64 32, i32 33, i64 35]) rfl rfl

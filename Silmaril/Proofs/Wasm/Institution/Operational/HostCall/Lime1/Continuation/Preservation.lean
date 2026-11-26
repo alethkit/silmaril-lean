@@ -58,6 +58,15 @@ theorem checked_brTable {depths : List LabelIdx} {fallback : LabelIdx}
   cases h with
   | brTable listed defaultTarget => exact ⟨_, _, rfl, listed, defaultTarget⟩
 
+theorem checked_loop {type : IfType} {body : List (Op H)}
+    (h : Checked base active.module (active.locals.map Value.type) targets results types (.loop type body :: ops)) :
+    ∃ saved, types = saved ++ type.signature.params ∧ type.Resolved active.module ∧
+      Checked base active.module (active.locals.map Value.type) (type.signature.params :: targets)
+        type.signature.results type.signature.params body ∧
+      Checked base active.module (active.locals.map Value.type) targets results (saved ++ type.signature.results) ops := by
+  cases h with
+  | loop resolved bodyChecked tail => exact ⟨_, rfl, resolved, bodyChecked, tail⟩
+
 theorem checked_if {type : IfType} {left right : List (Op H)}
     (h : Checked base active.module (active.locals.map Value.type) targets results types (.if_ type left right :: ops)) :
     ∃ saved, types = (saved ++ type.signature.params) ++ [.int .i32] ∧ type.Resolved active.module ∧
@@ -110,7 +119,7 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
   | @branchLower bytes stack depth ops label labels positive =>
     obtain ⟨scratch, payload, typed, target⟩ := checked_br ready.2.1
     cases ready.1 with
-    | cons _ _ outer =>
+    | cons _ _ _ outer =>
       cases depthEq : depth.toNat with
       | zero => omega
       | succ depth' =>
@@ -124,10 +133,17 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
             (labelResults results labels) ((label.saved.map Value.type ++ scratch) ++ payload)
             (.br (lowerLabel depth) :: label.tail) := .br nextTarget
         simpa only [List.map_append, typed, List.append_assoc] using next
-  | branchDeliver _ typed =>
+  | branchDeliver _ _ typed =>
     cases ready.1 with
-    | cons tail contract outer =>
+    | cons tail contract _ outer =>
       exact ⟨outer, by simpa only [List.map_append, typed] using tail, contract⟩
+  | branchRestart _ loopBody typed =>
+    cases ready.1 with
+    | cons tail tailContract restart outer =>
+      simp only [Label.RestartReady, loopBody] at restart
+      obtain ⟨resolved, bodyChecked, bodyContract⟩ := restart
+      refine ⟨outer, ?_, .loop bodyContract tailContract⟩
+      simpa only [List.map_append, typed] using Checked.loop resolved bodyChecked tail
   | functionBranch _ typed => exact ⟨.nil, rfl, typed⟩
   | @if_ bytes saved args guard type left right ops labels typed =>
     obtain ⟨savedTypes, stackEq, resolved, leftChecked, rightChecked, tail⟩ := checked_if ready.2.1
@@ -147,10 +163,24 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
           exact ⟨rightChecked, rightContract⟩
         · rw [show select guard left right = left from ite_eq_right zero]
           exact ⟨leftChecked, leftContract⟩
-      exact ⟨labelReady, resolved, typed, typed.symm ▸ selected.1, selected.2, tailChecked, tailContract⟩
-  | block =>
-    obtain ⟨labelsReady, _, _, armChecked, armContract, tailChecked, tailContract⟩ := ready
-    exact ⟨.cons tailChecked tailContract labelsReady, armChecked, armContract⟩
+      exact ⟨labelReady, rfl, resolved, typed, typed.symm ▸ selected.1, selected.2, tailChecked, tailContract⟩
+  | @block bytes label args arm labels exits =>
+    obtain ⟨labelsReady, _, _, _, armChecked, armContract, tailChecked, tailContract⟩ := ready
+    have restart : label.RestartReady mem host active (targetTypes results labels) := by
+      simp [Label.RestartReady, exits]
+    refine ⟨.cons tailChecked tailContract restart labelsReady, ?_, armContract⟩
+    simpa [targetTypes, Label.branchTypes, exits, labelResults] using armChecked
+  | @loop bytes saved args type body ops labels typed =>
+    obtain ⟨_, stackEq, resolved, bodyChecked, tail⟩ := checked_loop ready.2.1
+    simp only [List.map_append, typed] at stackEq
+    have same := List.append_cancel_right stackEq
+    cases ready.2.2 with
+    | loop bodyContract tailContract =>
+      have tailChecked : Checked base active.module (active.locals.map Value.type)
+          (targetTypes results labels) (labelResults results labels) (saved.map Value.type ++ type.signature.results) ops :=
+        same.symm ▸ tail
+      exact ⟨.cons tailChecked tailContract ⟨resolved, bodyChecked, bodyContract⟩ ready.1,
+        typed.symm ▸ bodyChecked, bodyContract⟩
   | resolve typed =>
     obtain ⟨_, split, _, allocated, tail⟩ := checked_call ready.2.1
     simp only [List.map_append] at split
@@ -164,11 +194,11 @@ theorem ready_step {a b : State H} (edge : Edge mem host active results a b)
   | armResult =>
     have typed := checked_nil ready.2.1
     cases ready.1 with
-    | cons tail contract outer =>
+    | cons tail contract _ outer =>
       exact ⟨outer, by simpa only [List.map_append, typed, labelResults] using tail, contract⟩
   | armTrap =>
     cases ready.1 with
-    | cons _ _ outer => exact ⟨outer, trivial⟩
+    | cons _ _ _ outer => exact ⟨outer, trivial⟩
   | labelTrap => exact ⟨.nil, rfl, trivial⟩
   | diverged | frameDone => exact ready
   | labelResult => exact ⟨.nil, rfl, checked_nil ready.2.1⟩
