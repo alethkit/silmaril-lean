@@ -23,9 +23,9 @@ private def Compatible (tag : Bool) (common actual : Ty κ) : Prop :=
   | false => actual = common
   | true => ∃ D : Ty κ, actual = Silmaril.coprod common D
 
-private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
+private theorem row_target {Δ : VCtx (Ty κ)} {K : LCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
     (r : Row (Φ := Φ) R L Γ) (tag : Bool) {i : Fin n} (hit : r.targets i)
-    (typed : (r.region tag ρ).HasType Δ (List.ofFn S ++ L)) :
+    (typed : (r.region tag ρ).HasType Δ (List.ofFn S ++ K)) :
     Compatible tag (R i) (S i) := by
   induction r generalizing Δ ρ with
   | jump j a =>
@@ -33,16 +33,16 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
       subst i
       cases tag with
       | false =>
-          change (Region.br j (a.term.rename ρ)).HasType Δ (List.ofFn S ++ L) at typed
+          change (Region.br j (a.term.rename ρ)).HasType Δ (List.ofFn S ++ K) at typed
           cases typed with
           | br target ha =>
-              exact (Option.some.inj (target.symm.trans (local_append S L j))).symm.trans
+              exact (Option.some.inj (target.symm.trans (local_append S K j))).symm.trans
                 (operand_type ren a _ ha)
       | true =>
-          change (Region.br j (.inl (a.term.rename ρ))).HasType Δ (List.ofFn S ++ L) at typed
+          change (Region.br j (.inl (a.term.rename ρ))).HasType Δ (List.ofFn S ++ K) at typed
           cases typed with
           | br target ha =>
-              have labelEq := Option.some.inj (target.symm.trans (local_append S L j))
+              have labelEq := Option.some.inj (target.symm.trans (local_append S K j))
               cases ha with
               | inl payload =>
                   cases operand_type ren a _ payload
@@ -50,14 +50,14 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
   | exit i hitExit a => exact False.elim hit
   | let₁ value body ih =>
       change (Region.let₁ (value.term.rename ρ)
-        (body.region tag (Silmaril.DeBruijn.lift ρ))).HasType Δ (List.ofFn S ++ L) at typed
+        (body.region tag (Silmaril.DeBruijn.lift ρ))).HasType Δ (List.ofFn S ++ K) at typed
       cases typed with
       | let₁ hv hb =>
           cases operand_type ren value _ hv
           exact ih (ren.lift _) hit hb
   | let₂ value body ih =>
       change (Region.let₂ (value.term.rename ρ)
-        (body.region tag (Silmaril.DeBruijn.liftN 2 ρ))).HasType Δ (List.ofFn S ++ L) at typed
+        (body.region tag (Silmaril.DeBruijn.liftN 2 ρ))).HasType Δ (List.ofFn S ++ K) at typed
       cases typed with
       | let₂ hv hb =>
           obtain ⟨rfl, rfl⟩ := Ty.product.inj (operand_type ren value _ hv)
@@ -65,7 +65,7 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
   | case arg left right ihl ihr =>
       change (Region.case (arg.term.rename ρ)
         (left.region tag (Silmaril.DeBruijn.lift ρ))
-        (right.region tag (Silmaril.DeBruijn.lift ρ))).HasType Δ (List.ofFn S ++ L) at typed
+        (right.region tag (Silmaril.DeBruijn.lift ρ))).HasType Δ (List.ofFn S ++ K) at typed
       cases typed with
       | case test yes no =>
           obtain ⟨rfl, rfl⟩ := Ty.coprod.inj (operand_type ren arg _ test)
@@ -73,9 +73,9 @@ private theorem row_target {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ 
           · exact ihl (ren.lift _) h yes
           · exact ihr (ren.lift _) h no
 
-theorem row_target_unwidened {Δ : VCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
+theorem row_target_unwidened {Δ : VCtx (Ty κ)} {K : LCtx (Ty κ)} {ρ : Nat → Nat} (ren : Ren Γ Δ ρ)
     (r : Row (Φ := Φ) R L Γ) {i : Fin n} (hit : r.targets i)
-    (typed : (r.region false ρ).HasType Δ (List.ofFn S ++ L)) : S i = R i :=
+    (typed : (r.region false ρ).HasType Δ (List.ofFn S ++ K)) : S i = R i :=
   row_target ren r false hit typed
 
 theorem targets_from_typing (p : Program (Φ := Φ) R L Γ)
