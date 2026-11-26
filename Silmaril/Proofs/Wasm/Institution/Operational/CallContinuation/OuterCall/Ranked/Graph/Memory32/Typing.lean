@@ -156,8 +156,8 @@ private theorem lookup_mem {program : Program} {address : FuncAddr} {fn : Functi
     have eq : slot = some fn := by simpa [h] using found
     exact List.mem_of_getElem? (eq ▸ h)
 
-theorem function_checked {program : Program} {memory : MemAddr} {mode : MemoryMode}
-    (checked : program.checkV1 memory mode = true)
+theorem function_checked {program : Program} {memory : MemAddr} {mode : MemoryMode} {calls : CallMode}
+    (checked : program.checkV1 memory mode calls = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
     fn.declaration.results.length ≤ 1 ∧ fn.code.all (fun op => fn.supports op mode) = true ∧
       fn.WellTyped fn.initial fn.code ∧ fn.declaration.module.memories[0]? = some memory := by
@@ -167,22 +167,35 @@ theorem function_checked {program : Program} {memory : MemAddr} {mode : MemoryMo
     decide_eq_true_eq, Function.WellTyped] at body ⊢
   exact ⟨body.1.1.1, body.1.1.2, body.1.2, body.2⟩
 
-theorem linked_target {program : Program} {memory : MemAddr} {mode : MemoryMode}
-    (checked : program.checkV1 memory mode = true)
+theorem linked_target {program : Program} {memory : MemAddr} {mode : MemoryMode} {calls : CallMode}
+    (checked : program.checkV1 memory mode calls = true)
     {address : FuncAddr} {fn : Function} {target : CallTarget}
     (found : program.lookup address = some fn) (used : target ∈ fn.targets) :
     ∃ callee, program.lookup target.address = some callee ∧
       fn.declaration.module.funcs[target.index.toNat]? = some target.address ∧
-      callee.declaration = target.declaration ∧ callee.rank < fn.rank := by
+      callee.declaration = target.declaration ∧ calls.permits fn.rank callee.rank := by
   have valid := (Bool.and_eq_true_iff.mp checked).1
-  have entry : program.table.lookup address = some fn.entry := by rw [lookup_table, found]; rfl
-  have member := List.mem_of_getElem? (show program.table.entries[address.value]? = some (some fn.entry) by
-    unfold Table.lookup at entry
-    cases h : program.table.entries[address.value]? <;> simp_all)
-  obtain ⟨callee, atTarget, resolves, declares, rank⟩ :=
-    (Table.check_iff program.table).mp valid _ member target used
-  rw [lookup_table] at atTarget
-  obtain ⟨body, foundBody, rfl⟩ := Option.map_eq_some_iff.mp atTarget
-  exact ⟨body, foundBody, resolves, declares, rank⟩
+  cases calls with
+  | ranked =>
+    have entry : program.table.lookup address = some fn.entry := by rw [lookup_table, found]; rfl
+    have member := List.mem_of_getElem? (show program.table.entries[address.value]? = some (some fn.entry) by
+      unfold Table.lookup at entry
+      cases h : program.table.entries[address.value]? <;> simp_all)
+    obtain ⟨callee, atTarget, resolves, declares, rank⟩ :=
+      (Table.check_iff program.table).mp valid _ member target used
+    rw [lookup_table] at atTarget
+    obtain ⟨body, foundBody, rfl⟩ := Option.map_eq_some_iff.mp atTarget
+    exact ⟨body, foundBody, resolves, declares, rank⟩
+  | recursive =>
+    unfold Program.checkLinks at valid
+    have targets := List.all_eq_true.mp valid (some fn) (lookup_mem found)
+    have link := List.all_eq_true.mp targets target used
+    cases lookup : program.lookup target.address with
+    | none => simp [lookup] at link
+    | some callee =>
+      have exactLink : callee.declaration = target.declaration ∧
+          fn.declaration.module.funcs[target.index.toNat]? = some target.address := by
+        simpa only [lookup, decide_eq_true_eq] using link
+      exact ⟨callee, rfl, exactLink.2, exactLink.1, trivial⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Proofs

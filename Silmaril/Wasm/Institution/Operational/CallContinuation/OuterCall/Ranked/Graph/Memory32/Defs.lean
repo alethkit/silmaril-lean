@@ -5,7 +5,7 @@ public import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.MemoryGrow.Defs
 
 /-!
-# Ranked V1 source with one shared Memory32
+# Checked V1 source with one shared Memory32
 
 This check reuses the ranked direct-target table and the existing checker for
 numeric, local, call, exit and scalar structured instructions. Each full-width memory
@@ -33,6 +33,16 @@ def MemoryMode.matches (mode : MemoryMode) (initial : MemInst) : Prop :=
   match mode with
   | .fixed => True
   | .growing maximum => initial.max = maximum
+
+/-- The default checks rank descent. The recursive profile checks the same
+direct links and uses finite native runs independently of rank. -/
+inductive CallMode where
+  | ranked
+  | recursive
+
+def CallMode.permits : CallMode → (caller callee : Nat) → Prop
+  | .ranked, caller, callee => callee < caller
+  | .recursive, _, _ => True
 
 /-- Full-width Memory32 operations and parameterless scalar structured instructions. -/
 inductive Op where
@@ -181,8 +191,19 @@ def Program.lookup (program : Program) (address : FuncAddr) : Option Function :=
 def Program.table (program : Program) : Table :=
   ⟨program.functions.map (Option.map Function.entry)⟩
 
-def Program.checkV1 (program : Program) (memory : MemAddr) (mode : MemoryMode := .fixed) : Bool :=
-  program.table.check &&
+def Program.checkLinks (program : Program) : CallMode → Bool
+  | .ranked => program.table.check
+  | .recursive => program.functions.all fun
+    | none => true
+    | some fn => fn.targets.all fun target =>
+      match program.lookup target.address with
+      | none => false
+      | some callee => decide (callee.declaration = target.declaration ∧
+          fn.declaration.module.funcs[target.index.toNat]? = some target.address)
+
+def Program.checkV1 (program : Program) (memory : MemAddr) (mode : MemoryMode := .fixed)
+    (calls : CallMode := .ranked) : Bool :=
+  program.checkLinks calls &&
     program.functions.all (fun slot => (slot.map (fun fn => fn.checkV1 memory mode)).getD true)
 
 /-- Native allocation is fixed outside the selected memory's bytes. -/

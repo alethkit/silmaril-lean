@@ -13,40 +13,40 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (Frame FuncAddr MemAddr ModuleInst Value)
 open Wasm.V1.Execution
 
-theorem append_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
+theorem append_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     {l r : List Admin} :
-    CodeAllowedAt mode p m rank mod (l ++ r) ↔ CodeAllowedAt mode p m rank mod l ∧ CodeAllowedAt mode p m rank mod r := by
-  simp only [CodeAllowedAt, List.mem_append, or_imp, forall_and]
+    CodeAllowedFor mode p m calls rank mod (l ++ r) ↔ CodeAllowedFor mode p m calls rank mod l ∧ CodeAllowedFor mode p m calls rank mod r := by
+  simp only [CodeAllowedFor, List.mem_append, or_imp, forall_and]
 
-theorem single_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} {x : Admin} :
-    CodeAllowedAt mode p m rank mod [x] ↔ AllowedAt mode p m rank mod x := by
-  simp [CodeAllowedAt]
+theorem single_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} {x : Admin} :
+    CodeAllowedFor mode p m calls rank mod [x] ↔ AllowedFor mode p m calls rank mod x := by
+  simp [CodeAllowedFor]
 
-theorem value_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} (v : Value) :
-    AllowedAt mode p m rank mod (value v) := by
+theorem value_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} (v : Value) :
+    AllowedFor mode p m calls rank mod (value v) := by
   rcases v with ⟨t, bits⟩
   cases t with
   | int width => exact .source (.intConst width bits)
   | float width => exact .source (.floatConst width bits)
 
-theorem values_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} (vs : List Value) :
-    CodeAllowedAt mode p m rank mod (values vs) := by
+theorem values_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} (vs : List Value) :
+    CodeAllowedFor mode p m calls rank mod (values vs) := by
   intro x hx
   obtain ⟨v, _, rfl⟩ := List.mem_map.mp hx
   exact value_allowed v
 
-theorem source_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} {i : Wasm.V1.Instr}
-    (guard : AllowedAt mode p m rank mod (.source i)) : SourceAllowedAt mode p m rank mod i := by
+theorem source_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst} {i : Wasm.V1.Instr}
+    (guard : AllowedFor mode p m calls rank mod (.source i)) : SourceAllowedFor mode p m calls rank mod i := by
   cases guard with | source h => exact h
 
 mutual
 
-private theorem code_sources {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode = true)
+private theorem code_sources {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (code : List Op)
     (labels : List (List NumType)) (supported : supportedCode code labels mode = true)
     (targets : ∀ target ∈ codeTargets code, target ∈ fn.targets) :
-    ∀ i ∈ v1Code code, SourceAllowedAt mode p m fn.rank fn.declaration.module i := by
+    ∀ i ∈ v1Code code, SourceAllowedFor mode p m calls fn.rank fn.declaration.module i := by
   cases code with
   | nil => simp [v1Code]
   | cons op rest =>
@@ -59,12 +59,12 @@ private theorem code_sources {mode : MemoryMode} {p : Program} {m : MemAddr} (ch
     · exact code_sources checked found slot rest labels checks.2
         (fun target used => targets target (List.mem_append_right _ used)) i hi
 
-private theorem op_source {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode = true)
+private theorem op_source {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn)
     (slot : fn.declaration.module.memories[0]? = some m) (op : Op)
     (labels : List (List NumType)) (supported : op.supportedIn labels mode = true)
     (targets : ∀ target ∈ op.targets, target ∈ fn.targets) :
-    SourceAllowedAt mode p m fn.rank fn.declaration.module op.v1 := by
+    SourceAllowedFor mode p m calls fn.rank fn.declaration.module op.v1 := by
   cases op with
   | load offset => exact .load offset slot
   | store offset => exact .store offset slot
@@ -98,15 +98,15 @@ private theorem op_source {mode : MemoryMode} {p : Program} {m : MemAddr} (check
     | return_ => exact .return_
     | call target =>
       have uses : target ∈ fn.targets := targets target (List.Mem.head _)
-      obtain ⟨callee, h, resolved, _, smaller⟩ := p.linked_target checked found uses
-      exact .call resolved h smaller
+      obtain ⟨callee, h, resolved, _, permitted⟩ := p.linked_target checked found uses
+      exact .call resolved h permitted
     | _ => contradiction
 
 end
 
-theorem body_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode = true)
+theorem body_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {a : FuncAddr} {fn : Function} (found : p.lookup a = some fn) :
-    CodeAllowedAt mode p m fn.rank fn.declaration.module (expression fn.v1Func.body) := by
+    CodeAllowedFor mode p m calls fn.rank fn.declaration.module (expression fn.v1Func.body) := by
   obtain ⟨_, supported, _, slot⟩ := p.function_checked checked found
   rw [fn.body_expression, append_allowed]
   refine ⟨values_allowed _, ?_⟩
@@ -115,16 +115,16 @@ theorem body_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : 
   exact .source (op_source checked found slot op fn.entryLabels (List.all_eq_true.mp supported op used)
     (fun target h => List.mem_flatMap.mpr ⟨op, used, h⟩))
 
-private theorem expression_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
-    {code : Wasm.V1.Expr} (guard : ∀ i ∈ code, SourceAllowedAt mode p m rank mod i) :
-    CodeAllowedAt mode p m rank mod (expression code) := by
+private theorem expression_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
+    {code : Wasm.V1.Expr} (guard : ∀ i ∈ code, SourceAllowedFor mode p m calls rank mod i) :
+    CodeAllowedFor mode p m calls rank mod (expression code) := by
   intro x member
   obtain ⟨i, hi, rfl⟩ := List.mem_map.mp member
   exact .source (guard i hi)
 
-theorem pure_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
+theorem pure_allowed {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {rank : Nat} {mod : ModuleInst}
     {before after : List Admin} (move : PureStep before after)
-    (guard : CodeAllowedAt mode p m rank mod before) : CodeAllowedAt mode p m rank mod after := by
+    (guard : CodeAllowedFor mode p m calls rank mod before) : CodeAllowedFor mode p m calls rank mod after := by
   cases move with
   | block result body =>
     have h := source_allowed (guard _ (List.Mem.head _))
@@ -155,7 +155,7 @@ theorem pure_allowed {mode : MemoryMode} {p : Program} {m : MemAddr} {rank : Nat
     apply append_allowed.mpr
     exact ⟨values_allowed _, single_allowed.mpr (.source .return_)⟩
   | localTee i v =>
-    change CodeAllowedAt mode p m rank mod (values [v, v] ++ [.source (.localSet i)])
+    change CodeAllowedFor mode p m calls rank mod (values [v, v] ++ [.source (.localSet i)])
     exact append_allowed.mpr ⟨values_allowed _, single_allowed.mpr (.source (.set i))⟩
   | _ =>
     first
@@ -195,10 +195,10 @@ theorem extent_mono {mode : MemoryMode} {p : Program} {m : MemAddr} {src dst : S
     exact (show written.size = bytes.size from MemoryWrite.closed_at rule).symm.le
   | _ => first | assumption | exact Nat.le_refl _
 
-theorem preserve {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode = true)
+theorem preserve {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} (checked : p.checkV1 m mode calls = true)
     {src dst : State} (move : EdgeAt mode p m src dst) {rank : Nat}
-    (ready : CodeAllowedAt mode p m rank src.frame.module src.code) :
-    CodeAllowedAt mode p m rank dst.frame.module dst.code := by
+    (ready : CodeAllowedFor mode p m calls rank src.frame.module src.code) :
+    CodeAllowedFor mode p m calls rank dst.frame.module dst.code := by
   induction move generalizing rank with
   | pure move => exact pure_allowed move ready
   | @context bytes bytes' f f' before after move saved tail ih =>
@@ -219,22 +219,22 @@ theorem preserve {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.ch
   | frame move n outer ih =>
     have guard := single_allowed.mp ready
     cases guard with
-    | frame found smaller scope arity inside =>
-      exact single_allowed.mpr (.frame found smaller ((edge_module move).trans scope) arity (ih inside))
+    | frame found permitted scope arity inside =>
+      exact single_allowed.mpr (.frame found permitted ((edge_module move).trans scope) arity (ih inside))
   | get _ => exact single_allowed.mpr (value_allowed _)
   | set _ => exact values_allowed []
   | resolve resolved =>
     have guard := source_allowed (single_allowed.mp ready)
     cases guard with
-    | call linked found smaller =>
+    | call linked found permitted =>
       cases Option.some.inj (linked.symm.trans resolved)
-      exact single_allowed.mpr (.invoke found smaller)
+      exact single_allowed.mpr (.invoke found permitted)
   | @enter bytes f a fn args found count =>
     have guard := single_allowed.mp (append_allowed.mp ready).2
     cases guard with
-    | invoke matchesTarget smaller =>
+    | invoke matchesTarget permitted =>
       cases Option.some.inj (found.symm.trans matchesTarget)
-      exact single_allowed.mpr (.frame found smaller rfl rfl (single_allowed.mpr
+      exact single_allowed.mpr (.frame found permitted rfl rfl (single_allowed.mpr
         (.label (p.function_checked checked found).1 (body_allowed checked found))))
   | load slot rule =>
     cases MemoryQuery.invert_at rule with
@@ -244,12 +244,15 @@ theorem preserve {mode : MemoryMode} {p : Program} {m : MemAddr} (checked : p.ch
   | storeTrap _ _ => exact single_allowed.mpr .trap
   | size _ _ | grow _ _ _ | growFail _ _ => exact values_allowed _
 
-theorem initial_call {mode : MemoryMode} {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
+theorem initial_call {mode : MemoryMode} {calls : CallMode} {p : Program} {m : MemAddr} {addr : FuncAddr} {fn : Function}
     {caller : Frame} {index : FuncIdx} (found : p.lookup addr = some fn)
     (resolved : caller.module.funcs[index.toNat]? = some addr) (args : List Value) (bytes : ByteArray)
     (extent : mode.extent bytes.size bytes) :
-    ReadyAt mode p m (fn.rank + 1) bytes.size ⟨bytes, caller, values args ++ [.source (.call index)]⟩ :=
+    ReadyFor mode p m calls (fn.rank + 1) bytes.size ⟨bytes, caller, values args ++ [.source (.call index)]⟩ :=
   ⟨extent, append_allowed.mpr ⟨values_allowed args,
-    single_allowed.mpr (.source (.call resolved found (Nat.lt_succ_self _)))⟩⟩
+    single_allowed.mpr (.source (.call resolved found (by
+      cases calls with
+      | ranked => exact Nat.lt_succ_self _
+      | recursive => trivial)))⟩⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.RunProofs
