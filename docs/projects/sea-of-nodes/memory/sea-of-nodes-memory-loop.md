@@ -1170,6 +1170,46 @@ equation fails at the original valuation, which lies outside the
 composite reduct image. Insertion alone has a typed retraction and
 preserves the rejection.
 
+##### Linking three numbered θs
+
+`Linked.Triple.lower` emits one numbered graph with three actual θs.
+The two `Boundary.Wiring` values select typed captures from the
+preceding word and the preceding stage's entry captures. The first
+word also survives the second boundary on its own lane. Every
+boundary forwards the complete live heap. The output carries the
+three words in execution order followed by the final heap.
+[Triple emitter and checker](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Defs.lean)
+
+`observe_eq_numbered` equates the linked partial observation with
+sequential composition of the three independently emitted observers.
+`observe_eq_linked_pair` factors it through the actual linked pair
+and the third emitted loop.
+`returns_iff_stages` exposes their separate finite fuel witnesses and
+the exact intermediate heaps. The linked coloured net has the same
+finite results by `finishes_iff_numbered`, with firing witnesses
+independent of numbered fuel. The `no_returns_iff_numbered` and
+`no_finishes_iff_numbered` laws cover absence of finite observations.
+`Triple.program` supplies the three-word program to the existing
+runtime observation syntax. The comparison is proved at canonical
+encoded entries. The linked-pair room and typed MemRef CFG linker
+remain two-stage APIs.
+[Observation laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Thms
+```
+
+In the regression the third loop reads `22` written by the second
+loop, then stores the second loop's returned `3`. The linked result is
+`(3, 3, 22)` with all cells `[11, 73, 11, 3, 91, 22]`. The fixture
+checks the lower numbered fuel bound, a stale-heap run with the same
+third-stage inputs, and a finite linked coloured completion.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Regression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
