@@ -73,7 +73,8 @@ private theorem row_positional (codes : Codes X A B captures seeds results) (pri
         rw [pack_unpack]
       change (Row.repeat _).positional ((packedCodes n codes).carrier prim)
         (invocation codes prim) = _
-      rw [eq, Row.positional, invocation_encode]
+      rw [eq, Row.positional, Row.routed]
+      simp only [Carrier.positional, invocation_encode]
       rfl
 
 private theorem classify_exactSum (cfg : Blocks Φ X A B n) (codes : Codes X A B captures seeds results)
@@ -129,7 +130,7 @@ theorem region_eq_exactSum (cfg : Blocks Φ X A B n) (codes : Codes X A B captur
   rw [carrier_encode] at closed
   exact (classify_region cfg codes prim c i input s).trans closed.symm
 
-private theorem expr_exists {Γ : List (Silmaril.Ty Empty)} (env : Bindings Γ) (a : Payload A) :
+theorem expr_exists {Γ : List (Silmaril.Ty Empty)} (env : Bindings Γ) (a : Payload A) :
     ∃ e : Expr Γ A, e.eval env = a := by
   obtain ⟨_, typed⟩ := a
   induction typed with

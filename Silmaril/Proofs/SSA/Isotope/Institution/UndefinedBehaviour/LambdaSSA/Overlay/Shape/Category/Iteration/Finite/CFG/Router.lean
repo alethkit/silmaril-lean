@@ -29,7 +29,7 @@ theorem observe_jump (prim : Primitives Φ states) (env : Bindings Γ) (i : Fin 
   subst A
   exact observe_branch prim env i a s
 
-private theorem observe_select (prim : Primitives Φ states) (env : Bindings Γ)
+theorem observe_select (prim : Primitives Φ states) (env : Bindings Γ)
     (p : Payload (.coprod A B))
     (left : Region Φ (A :: .coprod A B :: Γ) L) (right : Region Φ (B :: .coprod A B :: Γ) L)
     (s : Fin states) :
@@ -96,19 +96,30 @@ private theorem observe_cast (prim : Primitives Φ states) (env : Bindings Γ) (
   cases h
   exact denote_push prim env p r s
 
-theorem observe_routed (cfg : Blocks Φ X A B n) (prim : Primitives Φ states)
-    (i : Fin (labels A n).length) (env : Bindings [X]) (a : Payload A) (s : Fin states) :
-    denote (cfg.routed i) (extendModel (model prim env).raw a.val) s =
-      positionalAnswer ((cfg.block (blockIndex i)).eval prim (env.push a) s) := by
-  rw [Blocks.routed, observe_cast, bindOne, denote]
-  erw [Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.observe_eval prim (cfg.block (blockIndex i)) (env.push a) s]
-  cases (cfg.block (blockIndex i)).eval prim (env.push a) s with
+theorem observe_bindOne (prim : Primitives Φ states) (env : Bindings Γ)
+    (body : Program Φ Γ A) (k : Region Φ (A :: Γ) L) (s : Fin states) :
+    denote (bindOne body.region k) (model prim env).raw s =
+      match body.eval prim env s with
+      | .ret p t => denote k (model prim (env.push p)).raw t
+      | .fault t => WithTop.some {Outcome.fault t}
+      | .diverge => WithTop.some {Outcome.diverge}
+      | .ub => ⊤ := by
+  rw [bindOne, denote]
+  erw [Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.Syntax.observe_eval prim body env s]
+  cases body.eval prim env s with
   | ub => exact Behaviour.top_bind _
   | diverge => exact diverge_bind _
   | fault t => exact fault_bind t _
   | ret p t =>
-    refine (return_bind (0 : Fin 1) p.val t _).trans ?_
-    exact (denote_push prim (env.push a) p (route A B n) t).trans
-      (observe_route prim (env.push a) p t)
+    exact (return_bind (0 : Fin 1) p.val t _).trans (denote_push prim env p k t)
+
+theorem observe_routed (cfg : Blocks Φ X A B n) (prim : Primitives Φ states)
+    (i : Fin (labels A n).length) (env : Bindings [X]) (a : Payload A) (s : Fin states) :
+    denote (cfg.routed i) (extendModel (model prim env).raw a.val) s =
+      positionalAnswer ((cfg.block (blockIndex i)).eval prim (env.push a) s) := by
+  rw [Blocks.routed, observe_cast, observe_bindOne]
+  cases (cfg.block (blockIndex i)).eval prim (env.push a) s with
+  | ub | diverge | fault => rfl
+  | ret p t => exact observe_route prim (env.push a) p t
 
 end Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG
