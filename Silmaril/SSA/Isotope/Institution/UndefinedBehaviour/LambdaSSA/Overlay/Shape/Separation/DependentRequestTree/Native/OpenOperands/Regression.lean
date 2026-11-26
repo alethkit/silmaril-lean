@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FiniteSupport.Model.Ranked.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Schedule.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
@@ -443,12 +443,15 @@ private def perLabel : (i : Fin Packets.length) → CallerEnumeration (Packets.g
       obtain rfl := Fin.eq_zero i
       exact unitCaller))
 
-private def inventory : ConfigurationEnumeration Packets where
-  configs := (List.finRange Packets.length).flatMap fun i =>
-    (perLabel i).packets.map fun input => ⟨i, input⟩
+private def configurationsOf {R : List Syntax.Ty}
+    (each : (i : Fin R.length) → CallerEnumeration (R.get i)) : ConfigurationEnumeration R where
+  configs := (List.finRange R.length).flatMap fun i =>
+    (each i).packets.map fun input => ⟨i, input⟩
   complete := fun ⟨i, input⟩ =>
     List.mem_flatMap.mpr ⟨i, List.mem_finRange i,
-      List.mem_map.mpr ⟨input, (perLabel i).complete input, rfl⟩⟩
+      List.mem_map.mpr ⟨input, (each i).complete input, rfl⟩⟩
+
+private def inventory : ConfigurationEnumeration Packets := configurationsOf perLabel
 
 -- The backedges revisit both labels. The result lists each distinct typed
 -- pair only once and includes the changed payload.
@@ -1033,6 +1036,75 @@ example : ∃ (σ : Type 1) (input : Syntax.Payload Bit) (prim : Syntax.StatePri
     (raw := tickLoop.native) (raw' := oneThenExit.native) (callers := callers)
     (decodeLeft := id) (decodeRight := id) (replies := enumeration)
     (left := inventory) (right := inventory) rfl rfl).mp ⟨2, stores 2, tickEntriesReject⟩
+
+private def constantRequest {R Γ : List Syntax.Ty} (target : Fin R.length) (typed : R.get target = Bit) :
+    Row sig R Γ :=
+  .request .flip (.inl .unit) (fun _ => target) fun i => by
+    obtain rfl := Fin.eq_zero i
+    exact typed
+
+private abbrev ShortPackets : List Syntax.Ty := [Bit, Bit]
+private abbrev LongPackets : List Syntax.Ty := [.unit, Bit, Bit]
+
+private def shortCall : Table sig ShortPackets where
+  entry := 1
+  row := Fin.cases (motive := fun i => Row sig ShortPackets [ShortPackets.get i, Bit])
+    (.exit 0) (fun _ => constantRequest 0 rfl)
+  selected _ := false
+
+private def longCall : Table sig LongPackets where
+  entry := 0
+  row := Fin.cases (motive := fun i => Row sig LongPackets [LongPackets.get i, .unit])
+    (constantRequest 1 rfl)
+    (Fin.cases (motive := fun i => Row sig LongPackets [LongPackets.get i.succ, .unit])
+      (constantRequest 2 rfl) (fun _ => .exit 0))
+  selected _ := false
+
+private def shortCallers : (i : Fin ShortPackets.length) → CallerEnumeration (ShortPackets.get i) :=
+  Fin.cases (motive := fun i => CallerEnumeration (ShortPackets.get i)) callers (fun i => by
+    obtain rfl := Fin.eq_zero i
+    exact callers)
+
+private def shortInventory : ConfigurationEnumeration ShortPackets := configurationsOf shortCallers
+
+private def longInventory : ConfigurationEnumeration LongPackets :=
+  configurationsOf (Fin.cases (motive := fun i => CallerEnumeration (LongPackets.get i)) unitCaller shortCallers)
+
+-- The entries have different labels and types. The shared unit packet
+-- independently decodes to a bit on the left and unit on the right.
+example : shortCall.rankedCutoff longCall = 2 := rfl
+
+example : shortCall.checkEntries? longCall shortCall.native longCall.native unitCaller (fun _ => left) id
+    enumeration shortInventory longInventory (stores 1) = some true := rfl
+
+example : shortCall.checkRankedEntries? longCall shortCall.native longCall.native unitCaller (fun _ => left) id
+    enumeration shortInventory longInventory = some false := rfl
+
+private def cutoffPrimitives : Syntax.Primitives Op 2 := fun f _ s =>
+  match f with
+  | .flip => if s = 0 then .ret (pack (L := replies .flip) ⟨0, left⟩) 1 else .fault 1
+  | .test => .diverge
+
+-- One request returns, while the second call to the same instruction
+-- and argument sees the updated store and faults.
+example : ¬ Shape.denote (withExitUB shortCall.native shortCall.selected)
+      (Syntax.model cutoffPrimitives (shortCall.bindings left)) 0 ≤
+    Shape.denote (withExitUB longCall.native longCall.selected)
+      (Syntax.model cutoffPrimitives (longCall.bindings unitPayload)) 0 := by
+  have lower := (shortCall.observe_entry shortCall.native rfl left cutoffPrimitives 0).trans
+    (shortCall.observe_runFinite left cutoffPrimitives shortInventory (stores 2) ⟨1, left⟩ 0)
+  have upper := (longCall.observe_entry longCall.native rfl unitPayload cutoffPrimitives 0).trans
+    (longCall.observe_runFinite unitPayload cutoffPrimitives longInventory (stores 2) ⟨0, unitPayload⟩ 0)
+  intro ordered
+  have compared := Eq.mp (congrArg₂ (· ≤ ·) lower upper) ordered
+  have impossible := (TwoRequest.result_order (.ret 0 (1 : Fin 2)) (.fault 1)).mp compared
+  simp [Result.refines] at impossible
+
+example : tickLoop.checkRankedEntries? oneThenExit tickLoop.native oneThenExit.native callers id id
+    enumeration inventory inventory = none := rfl
+
+example : oneThenExit.checkRankedEntries? oneThenExit source.native oneThenExit.native callers id id
+    enumeration inventory inventory = none := rfl
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
  Classical.choice,
