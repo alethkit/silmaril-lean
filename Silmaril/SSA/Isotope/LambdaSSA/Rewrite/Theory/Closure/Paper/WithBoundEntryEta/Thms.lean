@@ -29,6 +29,12 @@ theorem reentry {n : Nat} {Γ : VCtx τ} {L : LCtx τ} {entry : Region Φ}
     Eqv Γ (.cfg entry n blocks) (entry.bindBranchArguments.lsubst (cfgEntryContinuations blocks)) L :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithBoundEntryEta.reentry R he hb
 
+/-- The zero-row instance binds a branch argument once, at its exact type. -/
+theorem bindBranch {Γ : VCtx τ} {L : LCtx τ} {i : Nat} {a : Tm Φ} {A : τ}
+    (hi : At L i A) (ha : Tm.HasType Γ a A) :
+    Eqv Γ (.br i a) (.let₁ a (.br i (.var 0))) L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithBoundEntryEta.bindBranch hi ha
+
 /-- Applying once-bound η in both directions moves an exact entry let
 outside the CFG and weakens the table across its binder. -/
 theorem entryLet {n : Nat} {Γ : VCtx τ} {L : LCtx τ} {S : τ} {a : Tm Φ} {d : Region Φ}
