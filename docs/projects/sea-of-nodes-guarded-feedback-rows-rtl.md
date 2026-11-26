@@ -200,11 +200,12 @@ without choosing a common fuel.
 The admitted shape has an empty preheader and equal input and bank widths.
 Each wrapping add/sub reads the old bank and supplies exactly one feedback
 destination. Remaining feedback slots copy old words. The final signed
-comparison reads two distinct row results in their native order. The
-true successor feeds back the whole tuple and the false successor returns
-an old field or a row result. The native `Loop.Graph` fixes that polarity.
-This adapter covers the two-computed-operand guard shape. It does not admit
-literal comparisons or pretest graphs whose comparison reads the old bank.
+comparison takes a computed result on the left and either a distinct row
+result or a latched bank slot on the right. The recognizer translates old
+header argument positions to bank-local slots. Captured inputs and literal
+operands are outside this profile. The true successor feeds back the whole
+tuple and the false successor returns an old field or a row result, as
+specified by the native `Loop.Graph`.
 
 This example isolates Simple chapter 13's
 `(arg + 79) < (32 - arg)` continuation test. The example passes
@@ -218,17 +219,19 @@ open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.SSA.RVSDG (Origin)
 open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
 def oldPort (slot : Fin 4) := suffixPort (wordPorts 4) (argumentPort 4 slot)
 
-def source : BankGraph 4 [[wordPort], [wordPort], [.value .predicate]] where
+def source (rhs : Origin (bankArgs 4) [[wordPort], [wordPort]] wordPort) :
+    BankGraph 4 [[wordPort], [wordPort], [.value .predicate]] where
   preheader := .nil
   header :=
     .cons .add (.cons (.arg (oldPort 0)) (.cons (.arg (oldPort 1)) .nil))
       (.cons .sub (.cons (.arg (oldPort 2)) (.cons (.arg (oldPort 0)) .nil))
-        (.cons .slt (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil)) .nil))
+        (.cons .slt (.cons (.output (0 : Fin 2) .head) (.cons rhs .nil)) .nil))
   phiInputs
     | .entry => .cons (.arg (argumentPort 4 0)) (.cons (.arg (argumentPort 4 2))
         (.cons (.arg (argumentPort 4 1)) (.cons (.arg (argumentPort 4 3)) .nil)))
@@ -237,15 +240,21 @@ def source : BankGraph 4 [[wordPort], [wordPort], [.value .predicate]] where
   predicate := .output (2 : Fin 3) .head
   result := .output (1 : Fin 3) .head
 
-#eval do
-  let (rtl, ssa) ← Native.lowerChecked source
+def observeNative (rhs : Origin (bankArgs 4) [[wordPort], [wordPort]] wordPort)
+    (rtlFuel lambdaFuel : Nat) := do
+  let (rtl, ssa) ← Native.lowerChecked (source rhs)
   let input : WordTuple 4 := .cons (-80 : Word) (.cons (32 : Word) (.cons (79 : Word) (.cons (0 : Word) .nil)))
   let mem := Memory.ofList 4 [29, 71, 53, 11]
-  let machine := (rtl.runMain 10 0 (words input) mem).returnedValues?
-  let typed := (Generic.Fuel.run model (inputEnv model input) 2 ssa).bind fun (_, packet) =>
+  let machine := (rtl.runMain rtlFuel 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) lambdaFuel ssa).bind fun (_, packet) =>
     (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
-  pure (machine.map (List.map BitVec.toNat), typed.map BitVec.toNat)
+  pure (machine.map (List.map BitVec.toInt), typed.map BitVec.toInt)
+
+#eval observeNative (.output (1 : Fin 2) .head) 10 2
 -- some (some [33], some 33)
+
+#eval observeNative (.arg (oldPort 3)) 14 3
+-- some (some [-46], some (-46))
 ```
 
 The first guard compares `-1 < 112` and feeds back
@@ -253,6 +262,13 @@ The first guard compares `-1 < 112` and feeds back
 return 112 there. The next guard compares `78 < 33`, so both targets
 return the fresh RHS 33. The checker refuses changing the add's left
 operand to the captured input, which would stop reading the latched value.
+
+With the old bank RHS, the second guard compares 78 with the latched 112
+and takes another backedge. The fresh RHS 33 would exit at that point.
+Both targets return the computed word `-46` on the third visit. Swapping
+the operands puts the old slot on the left and is refused. Using the
+captured input at absolute header port 3 in place of old slot 3 at port 7
+is also refused. [Native regression][native-guard-regression]
 
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \

@@ -85,13 +85,21 @@ def decodeExit (arity : Nat) (updates : List FeedbackSpec) (wire : Address) :
   | .output producer 0 => updates[producer]?.map (fun update => (update.destination, some wire))
   | .output _ (_ + 1) => none
 
-/-- Recover the candidate row from old-bank arithmetic, a final signed
-comparison of two computed results, and the two actual incoming columns. -/
+/-- Convert a header argument address to bank-local numbering. A producer
+address keeps its absolute index for the existing row checker. -/
+def guardRhs (arity : Nat) (wire : Address) : Option Address :=
+  match wire with
+  | .arg _ => (oldSlot arity wire).map Address.arg
+  | .output _ _ => some wire
+
+/-- Recover a row from the two incoming columns and a final signed comparison
+of a computed result with an old bank field or a distinct row result. -/
 def spec (arity : Nat) (code : GraphCode) : Option Spec := do
-  let (.slt, [lhs@(.output left 0), rhs@(.output _ 0)]) :: revRow := code.header.reverse | none
+  let (.slt, [lhs@(.output left 0), rhs]) :: revRow := code.header.reverse | none
   let updates ← revRow.reverse.zipIdx.mapM (fun (node, producer) =>
     decodeUpdate arity code.feedback producer node)
   let guard ← updates[left]?
+  let rhs ← guardRhs arity rhs
   let entry ← code.entry.mapM argument
   let copies ← code.feedback.zipIdx.mapM (fun (wire, slot) => copySlot arity slot wire)
   let (exitSlot, exitOrigin) ← decodeExit arity updates code.result
