@@ -38,7 +38,7 @@ CHECK_TARGETS += +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms LetIterPacking
 CHECK_TARGETS += PEGIRBridgeTests PEGForwardCFGTests
 CHECK_TARGETS += PeggyDialectTests
 CHECK_TARGETS += PeggyEggTests
-CHECK_TARGETS += PeggyFieldHeapTests
+CHECK_TARGETS += PeggyFieldHeapTests PeggyFieldHeapLinearizeTests
 
 CHECK_TARGETS += PeggyInstitutionTests
 CHECK_TARGETS += PeggyEquationalTests

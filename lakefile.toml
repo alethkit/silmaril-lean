@@ -527,6 +527,11 @@ globs = ["tests.ssa.PEGCanonicalWhile"]
 name = "PeggyFieldHeapTests"
 globs = ["tests.ssa.PeggyFieldHeap"]
 
+# Check straight-line heap-token reversion and rejection of forked effects.
+[[lean_lib]]
+name = "PeggyFieldHeapLinearizeTests"
+globs = ["tests.ssa.PeggyFieldHeapLinearize"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"
