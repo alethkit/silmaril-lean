@@ -245,7 +245,7 @@ private theorem param_correct (slots : Tuple (Port params) outs) (base : NodeVal
       rw [get_map]
       exact ih _ slot
 
-private theorem ports_get {out : Ty Data} (p : Port params out) : (ports params).get p = p := by
+theorem ports_get {out : Ty Data} (p : Port params out) : (ports params).get p = p := by
   induction p with
   | head => rfl
   | tail p ih =>
