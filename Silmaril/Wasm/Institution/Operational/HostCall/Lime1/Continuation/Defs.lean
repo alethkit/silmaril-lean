@@ -4,9 +4,9 @@ public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Defs
 
 /-! # Checked Lime1 continuations
 
-Each parameterless scalar conditional checks both arms and the rest of the
-current sequence. Every entered arm has its own operand stack and retains
-the saved operands and continuation of the surrounding label.
+Each conditional checks both arms against its resolved signature. An entered
+arm starts with the declared parameters and retains the enclosing operand
+prefix and continuation until the label exits.
 -/
 
 @[expose] public section
@@ -16,18 +16,33 @@ namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation
 open Execution.Runtime (EvalCtx Frame ModuleInst Result Value)
 open Wasm.Lime1.Execution
 
+inductive IfType where
+  | scalar (type : NumType)
+  | indexed (index : TypeIdx) (signature : Wasm.Lime1.FuncType)
+
+def IfType.blockType : IfType → Wasm.Lime1.BlockType
+  | .scalar type => .value type
+  | .indexed index _ => .typeIdx index
+
+def IfType.signature : IfType → Wasm.Lime1.FuncType
+  | .scalar type => ⟨[], [type]⟩
+  | .indexed _ signature => signature
+
+def IfType.Resolved (type : IfType) (module : ModuleInst) : Prop :=
+  blockType? module.types type.blockType = some type.signature
+
 inductive Op (H : Type) where
   | get (index : LocalIdx)
   | drop
   | call (index : FuncIdx) (site : Site H)
-  | if_ (type : NumType) (thenArm elseArm : List (Op H))
+  | if_ (type : IfType) (thenArm elseArm : List (Op H))
 
 mutual
 def Op.instr {H : Type} : Op H → Wasm.Lime1.Instr
   | .get index => .localGet index
   | .drop => .drop
   | .call index _ => .call index
-  | .if_ type left right => .if_ (.value type) (expr left) (expr right)
+  | .if_ type left right => .if_ type.blockType (expr left) (expr right)
 
 def expr {H : Type} : List (Op H) → Wasm.Lime1.Expr
   | [] => []
@@ -50,11 +65,13 @@ inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
       (resolved : module.funcs[index.toNat]? = some site.address) (allocated : site.Allocated base)
       (tail : Checked base module locals results (saved ++ site.type.results) ops) :
       Checked base module locals results (saved ++ site.type.params) (.call index site :: ops)
-  | if_ {results saved : List NumType} {type : NumType} {left right ops : List (Op H)}
-      (thenArm : Checked base module locals [type] [] left)
-      (elseArm : Checked base module locals [type] [] right)
-      (tail : Checked base module locals results (saved ++ [type]) ops) :
-      Checked base module locals results (saved ++ [.int .i32]) (.if_ type left right :: ops)
+  | if_ {results saved : List NumType} {type : IfType} {left right ops : List (Op H)}
+      (resolved : type.Resolved module)
+      (thenArm : Checked base module locals type.signature.results type.signature.params left)
+      (elseArm : Checked base module locals type.signature.results type.signature.params right)
+      (tail : Checked base module locals results (saved ++ type.signature.results) ops) :
+      Checked base module locals results ((saved ++ type.signature.params) ++ [.int .i32])
+        (.if_ type left right :: ops)
 
 inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) :
     List (Op H) → Prop where
@@ -66,15 +83,15 @@ inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : Hos
   | if_ {type left right ops} (thenArm : Contract mem host left) (elseArm : Contract mem host right)
       (tail : Contract mem host ops) : Contract mem host (.if_ type left right :: ops)
 
-/-- An open scalar arm retains the enclosing operand prefix and code. -/
+/-- An open conditional arm retains the enclosing operand prefix and code. -/
 structure Label (H : Type) where
-  type : NumType
+  type : IfType
   saved : List Value
   tail : List (Op H)
 
 inductive Phase (H : Type) where
   | source (stack : List Value) (ops : List (Op H))
-  | block (label : Label H) (arm : List (Op H))
+  | block (label : Label H) (args : List Value) (arm : List (Op H))
   | invoke (saved : List Value) (site : Site H) (args : List Value) (ops : List (Op H))
   | trapped (saved : List Value) (rest : List Admin)
   | frameResult (result : Result)
@@ -91,14 +108,14 @@ def ResultTyped (types : List NumType) : Result → Prop
 
 def labelResults {H : Type} (results : List NumType) : List (Label H) → List NumType
   | [] => results
-  | label :: _ => [label.type]
+  | label :: _ => label.type.signature.results
 
 inductive LabelsReady {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H)
     (active : Frame) (results : List NumType) : List (Label H) → Prop where
   | nil : LabelsReady mem host active results []
   | cons {label : Label H} {rest : List (Label H)}
       (tail : Checked base active.module (active.locals.map Value.type) (labelResults results rest)
-        (label.saved.map Value.type ++ [label.type]) label.tail)
+        (label.saved.map Value.type ++ label.type.signature.results) label.tail)
       (contract : Contract mem host label.tail)
       (outer : LabelsReady mem host active results rest) :
       LabelsReady mem host active results (label :: rest)
@@ -110,10 +127,12 @@ def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantic
   match phase with
   | .source stack ops => Checked base active.module (active.locals.map Value.type) delivered
       (stack.map Value.type) ops ∧ Contract mem host ops
-  | .block label arm => Checked base active.module (active.locals.map Value.type) [label.type] [] arm ∧
-      Contract mem host arm ∧
+  | .block label args arm => label.type.Resolved active.module ∧
+      args.map Value.type = label.type.signature.params ∧
+      Checked base active.module (active.locals.map Value.type) label.type.signature.results
+        (args.map Value.type) arm ∧ Contract mem host arm ∧
       Checked base active.module (active.locals.map Value.type) delivered
-        (label.saved.map Value.type ++ [label.type]) label.tail ∧ Contract mem host label.tail
+        (label.saved.map Value.type ++ label.type.signature.results) label.tail ∧ Contract mem host label.tail
   | .invoke saved site args ops => site.Allocated base ∧ site.Arguments args ∧ site.Contract mem host ∧
       Checked base active.module (active.locals.map Value.type) delivered
         (saved.map Value.type ++ site.type.results) ops ∧ Contract mem host ops
@@ -148,8 +167,8 @@ def invokeContext {H : Type} (scope : Scope) (arity : Nat) (active : Frame)
 
 def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (active : Frame) : Phase H → List Admin
   | .source stack ops => framed active [.label arity [] (values stack ++ code ops)] scope
-  | .block label arm => framed active [.label arity [] (values label.saved ++
-      .source (.block (.value label.type) (expr arm)) :: code label.tail)] scope
+  | .block label args arm => framed active [.label arity [] (values (label.saved ++ args) ++
+      .source (.block label.type.blockType (expr arm)) :: code label.tail)] scope
   | .invoke saved site args ops => (invokeContext scope arity active saved ops).plug value
       (values args ++ [.invoke site.address])
   | .trapped saved rest => framed active [.label arity [] (values saved ++ .trap :: rest)] scope
@@ -177,11 +196,11 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
         ⟨bytes, .source (stack ++ [v]) ops, labels⟩
   | drop {bytes stack v ops labels} : Edge mem host active ⟨bytes, .source (stack ++ [v]) (.drop :: ops), labels⟩
       ⟨bytes, .source stack ops, labels⟩
-  | if_ {bytes saved guard type left right ops labels} :
-      Edge mem host active ⟨bytes, .source (saved ++ [Value.int .i32 guard]) (.if_ type left right :: ops), labels⟩
-        ⟨bytes, .block ⟨type, saved, ops⟩ (select guard left right), labels⟩
-  | block {bytes label arm labels} :
-      Edge mem host active ⟨bytes, .block label arm, labels⟩ ⟨bytes, .source [] arm, label :: labels⟩
+  | if_ {bytes saved args guard type left right ops labels} (typed : args.map Value.type = type.signature.params) :
+      Edge mem host active ⟨bytes, .source ((saved ++ args) ++ [Value.int .i32 guard]) (.if_ type left right :: ops), labels⟩
+        ⟨bytes, .block ⟨type, saved, ops⟩ args (select guard left right), labels⟩
+  | block {bytes label args arm labels} :
+      Edge mem host active ⟨bytes, .block label args arm, labels⟩ ⟨bytes, .source args arm, label :: labels⟩
   | resolve {bytes saved args index site ops labels} (typed : site.Arguments args) :
       Edge mem host active ⟨bytes, .source (saved ++ args) (.call index site :: ops), labels⟩
         ⟨bytes, .invoke saved site args ops, labels⟩

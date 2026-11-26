@@ -22,7 +22,9 @@ theorem preserves (move : Edge mem host active a b)
   ⟨Proofs.ready_step move ready, Proofs.live_step move live⟩
 
 /-- Exact single-step correspondence for a checked continuation under any finite
-stack of entered labels and its function frame. -/
+stack of entered labels and its function frame. The native i32 selection
+and the selected block's ordered parameter delivery are separate steps.
+Normal label exit delivers the declared result stack to the saved prefix. -/
 theorem step_iff (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes) :
     Step host (render mem outer active results a) dst ↔
       ∃ next, Edge mem host active a next ∧ dst = render mem outer active results next :=

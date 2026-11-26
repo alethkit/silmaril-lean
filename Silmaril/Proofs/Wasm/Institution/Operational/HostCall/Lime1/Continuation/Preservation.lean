@@ -36,14 +36,14 @@ theorem checked_call
   cases h with
   | call resolved allocated tail => exact ⟨_, rfl, resolved, allocated, tail⟩
 
-theorem checked_if {type : NumType} {left right : List (Op H)}
+theorem checked_if {type : IfType} {left right : List (Op H)}
     (h : Checked base active.module (active.locals.map Value.type) results types (.if_ type left right :: ops)) :
-    ∃ saved, types = saved ++ [.int .i32] ∧
-      Checked base active.module (active.locals.map Value.type) [type] [] left ∧
-      Checked base active.module (active.locals.map Value.type) [type] [] right ∧
-      Checked base active.module (active.locals.map Value.type) results (saved ++ [type]) ops := by
+    ∃ saved, types = (saved ++ type.signature.params) ++ [.int .i32] ∧ type.Resolved active.module ∧
+      Checked base active.module (active.locals.map Value.type) type.signature.results type.signature.params left ∧
+      Checked base active.module (active.locals.map Value.type) type.signature.results type.signature.params right ∧
+      Checked base active.module (active.locals.map Value.type) results (saved ++ type.signature.results) ops := by
   cases h with
-  | if_ left right tail => exact ⟨_, rfl, left, right, tail⟩
+  | if_ resolved left right tail => exact ⟨_, rfl, resolved, left, right, tail⟩
 
 private theorem contract_tail {op : Op H} (contract : Contract mem host (op :: ops)) : Contract mem host ops := by
   cases contract <;> assumption
@@ -68,27 +68,26 @@ theorem ready_step {a b : State H} (edge : Edge mem host active a b)
     simp only [List.map_append, List.map_cons, List.map_nil] at split
     have same := (List.append_inj' split rfl).1
     exact ⟨ready.1, same ▸ tail, contract_tail ready.2.2⟩
-  | @if_ bytes saved guard type left right ops labels =>
-    obtain ⟨savedTypes, stackEq, leftChecked, rightChecked, tail⟩ := checked_if ready.2.1
-    have split : saved.map Value.type ++ [.int .i32] = savedTypes ++ [.int .i32] := by
-      simpa only [List.map_append, List.map_cons, List.map_nil, Value.int] using stackEq
-    obtain same := List.append_cancel_right split
+  | @if_ bytes saved args guard type left right ops labels typed =>
+    obtain ⟨savedTypes, stackEq, resolved, leftChecked, rightChecked, tail⟩ := checked_if ready.2.1
+    simp only [List.map_append, List.map_cons, List.map_nil, Value.int, typed] at stackEq
+    have same := List.append_cancel_right (List.append_cancel_right stackEq)
     obtain ⟨labelReady, _, contract⟩ := ready
     cases contract with
     | if_ leftContract rightContract tailContract =>
-      refine ⟨labelReady, ?_⟩
-      change Checked base active.module (active.locals.map Value.type) [type] [] (select guard left right) ∧
-        Contract mem host (select guard left right) ∧
-        Checked base active.module (active.locals.map Value.type) (labelResults results labels)
-          (saved.map Value.type ++ [type]) ops ∧ Contract mem host ops
-      rw [same]
-      by_cases zero : guard = 0
-      · rw [show select guard left right = right from ite_eq_left zero]
-        exact ⟨rightChecked, rightContract, tail, tailContract⟩
-      · rw [show select guard left right = left from ite_eq_right zero]
-        exact ⟨leftChecked, leftContract, tail, tailContract⟩
+      have tailChecked : Checked base active.module (active.locals.map Value.type) (labelResults results labels)
+          (saved.map Value.type ++ type.signature.results) ops := same.symm ▸ tail
+      have selected : Checked base active.module (active.locals.map Value.type) type.signature.results
+          type.signature.params (select guard left right) ∧ Contract mem host (select guard left right) := by
+        by_cases zero : guard = 0
+        · rw [show select guard left right = right from ite_eq_left zero]
+          exact ⟨rightChecked, rightContract⟩
+        · rw [show select guard left right = left from ite_eq_right zero]
+          exact ⟨leftChecked, leftContract⟩
+      exact ⟨labelReady, resolved, typed, typed.symm ▸ selected.1, selected.2, tailChecked, tailContract⟩
   | block =>
-    exact ⟨.cons ready.2.2.2.1 ready.2.2.2.2 ready.1, ready.2.1, ready.2.2.1⟩
+    obtain ⟨labelsReady, _, _, armChecked, armContract, tailChecked, tailContract⟩ := ready
+    exact ⟨.cons tailChecked tailContract labelsReady, armChecked, armContract⟩
   | resolve typed =>
     obtain ⟨_, split, _, allocated, tail⟩ := checked_call ready.2.1
     simp only [List.map_append] at split

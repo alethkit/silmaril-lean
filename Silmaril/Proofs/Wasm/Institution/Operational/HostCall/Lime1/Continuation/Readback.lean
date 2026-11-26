@@ -119,15 +119,16 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       exact ⟨⟨bytes, .invoke saved site args ops, labels⟩, .resolve typed,
         by simp [render, Phase.renderCode, Phase.renderIn, plug_invoke, List.append_assoc]⟩
     | if_ type left right =>
-      obtain ⟨_, typed, _, _, _⟩ := checked_if ready.2.1
-      obtain ⟨saved, args, rfl, _, guardTyped⟩ := List.map_eq_append_iff.mp typed
-      obtain ⟨v, rem, rfl, vt, argEmpty⟩ := List.map_eq_cons_iff.mp guardTyped
-      obtain rfl := List.map_eq_nil_iff.mp argEmpty
+      obtain ⟨_, typed, _, _, _, _⟩ := checked_if ready.2.1
+      obtain ⟨operands, test, rfl, operandsTyped, guardTyped⟩ := List.map_eq_append_iff.mp typed
+      obtain ⟨saved, args, rfl, _, argsTyped⟩ := List.map_eq_append_iff.mp operandsTyped
+      obtain ⟨v, rem, rfl, vt, testEmpty⟩ := List.map_eq_cons_iff.mp guardTyped
+      obtain rfl := List.map_eq_nil_iff.mp testEmpty
       rcases v with ⟨vt', guard⟩
       cases vt
-      have taken := (Computed.lime_if_iff (saved := saved) (condition := guard) (bt := .value type)
+      have taken := (Computed.lime_if_iff (saved := saved ++ args) (condition := guard) (bt := type.blockType)
         (thenBody := expr left) (elseBody := expr right) (rest := code ops)).mp inside
-      refine ⟨⟨bytes, .block ⟨type, saved, ops⟩ (select guard left right), labels⟩, .if_, ?_⟩
+      refine ⟨⟨bytes, .block ⟨type, saved, ops⟩ args (select guard left right), labels⟩, .if_ argsTyped, ?_⟩
       have blockCode :
           (if guard = 0 then expr right else expr left) = expr (select guard left right) := by
         by_cases zero : guard = (0 : BitVec 32)
@@ -139,20 +140,41 @@ private theorem source_read {stack : List Value} {ops : List (Op H)}
       cases taken
       rfl
 
-private theorem block_read {label : Label H} {arm : List (Op H)}
-    (move : Internal (render mem outer active results ⟨bytes, .block label arm, labels⟩) dst) :
-    ∃ next, Edge mem host active ⟨bytes, .block label arm, labels⟩ next ∧
+private theorem block_step {label : Label H} {args : List Value} {arm : List (Op H)}
+    (resolved : label.type.Resolved active.module)
+    (typed : args.map Value.type = label.type.signature.params) :
+    Internal ⟨mem.store bytes, active, values (label.saved ++ args) ++
+      .source (.block label.type.blockType (expr arm)) :: code label.tail⟩ dst ↔
+      dst = ⟨mem.store bytes, active, values label.saved ++
+        .label label.type.signature.results.length [] (values args ++ code arm) :: code label.tail⟩ := by
+  have arity : args.length = label.type.signature.params.length := by
+    simpa using congrArg List.length typed
+  change Step CallFrame.limeNoHost _ _ ↔ _
+  rw [Computed.lime_block_step_iff]
+  constructor
+  · rintro ⟨saved, used, signature, split, lookup, size, rfl⟩
+    change blockType? active.module.types label.type.blockType = some label.type.signature at resolved
+    rw [resolved] at lookup
+    cases lookup
+    obtain ⟨rfl, rfl⟩ := List.append_inj' split (arity.trans size.symm)
+    rfl
+  · intro same
+    exact ⟨label.saved, args, label.type.signature, rfl, resolved, arity, same⟩
+
+private theorem block_read {label : Label H} {args : List Value} {arm : List (Op H)}
+    (ready : Ready mem host active results (.block label args arm) labels)
+    (move : Internal (render mem outer active results ⟨bytes, .block label args arm, labels⟩) dst) :
+    ∃ next, Edge mem host active ⟨bytes, .block label args arm, labels⟩ next ∧
       dst = render mem outer active results next := by
   have stays (out : List Admin) :
-      ¬ PureStep active.module.types [.label (labelResults results labels).length [] (values label.saved ++
-        .source (.block (.value label.type) (expr arm)) :: code label.tail)] out :=
+      ¬ PureStep active.module.types [.label (labelResults results labels).length [] (values (label.saved ++ args) ++
+        .source (.block label.type.blockType (expr arm)) :: code label.tail)] out :=
     Computed.lime_label_stays rfl (by simp) (by simp) (by simp)
   obtain ⟨mid, inside, rfl⟩ := underLabel stays move
-  obtain rfl := (Computed.lime_block_iff (s := mem.store bytes) (f := active) (result := some label.type)
-    (stack := label.saved) (body := expr arm) (rest := code label.tail)).mp inside
-  exact ⟨⟨bytes, .source [] arm, label :: labels⟩, .block, by
-    simp [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, labelResults, code, values,
-      List.append_assoc]⟩
+  obtain rfl := (block_step ready.2.1 ready.2.2.1).mp inside
+  exact ⟨⟨bytes, .source args arm, label :: labels⟩, .block, by
+    simp only [render, Phase.renderCode, Phase.renderIn, scopeFor, labelResults, framed,
+      List.append_assoc, List.singleton_append]⟩
 
 private theorem trap_read {stack : List Value} {rest : List Admin}
     (move : Internal (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) dst) :
@@ -197,10 +219,10 @@ private theorem read {a : State H} (ready : Ready mem host active results a.phas
         | nil => simp [code, expr, expression]
         | cons op ops => cases op <;> simp [code, expr, Op.instr, expression, asValue?])
     exact source_read ready ((withoutCallout absent).mp move)
-  | block label arm =>
-    have absent : decompose? (render mem outer active results ⟨bytes, .block label arm, labels⟩) = none :=
+  | block label args arm =>
+    have absent : decompose? (render mem outer active results ⟨bytes, .block label args arm, labels⟩) = none :=
       noLabelCallout (by simp [asValue?])
-    exact block_read ((withoutCallout absent).mp move)
+    exact block_read ready ((withoutCallout absent).mp move)
   | invoke saved site args ops => exact invoke_read ready live move
   | trapped stack rest =>
     have absent : decompose? (render mem outer active results ⟨bytes, .trapped stack rest, labels⟩) = none :=
@@ -233,11 +255,11 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     have drop := (Computed.lime_drop_iff (s := mem.store bytes) (f := active) (stack := stack)
       (v := v) (rest := code ops)).mpr rfl
     exact Step.of_internal (framed_step (.label drop (labelResults results labels).length []))
-  | @if_ bytes saved guard type left right ops labels =>
-    have branch : Internal ⟨mem.store bytes, active, values (saved ++ [Value.int .i32 guard]) ++
-        .source (.if_ (.value type) (expr left) (expr right)) :: code ops⟩
-        ⟨mem.store bytes, active, values saved ++ .source (.block (.value type) (expr (select guard left right))) :: code ops⟩ := by
-      apply (Computed.lime_if_iff (saved := saved) (condition := guard) (bt := .value type)
+  | @if_ bytes saved args guard type left right ops labels _ =>
+    have branch : Internal ⟨mem.store bytes, active, values ((saved ++ args) ++ [Value.int .i32 guard]) ++
+        .source (.if_ type.blockType (expr left) (expr right)) :: code ops⟩
+        ⟨mem.store bytes, active, values (saved ++ args) ++ .source (.block type.blockType (expr (select guard left right))) :: code ops⟩ := by
+      apply (Computed.lime_if_iff (saved := saved ++ args) (condition := guard) (bt := type.blockType)
         (thenBody := expr left) (elseBody := expr right) (rest := code ops)).mpr
       by_cases zero : guard = (0 : BitVec 32)
       · have chosen : select guard left right = right := ite_eq_left zero
@@ -245,14 +267,14 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
       · have chosen : select guard left right = left := ite_eq_right zero
         rw [ite_eq_right zero, chosen]
     exact Step.of_internal (framed_step (.label branch (labelResults results labels).length []))
-  | @block bytes label arm labels =>
-    have block := (Computed.lime_block_iff (s := mem.store bytes) (f := active) (result := some label.type)
-      (stack := label.saved) (body := expr arm) (rest := code label.tail)).mpr rfl
-    have move := framed_step (scope := (scopeFor results labels)) (outer := outer) (.label block (labelResults results labels).length [])
+  | @block bytes label args arm labels =>
+    have block := (block_step (mem := mem) (bytes := bytes) (arm := arm) ready.2.1 ready.2.2.1).mpr rfl
+    have move := framed_step (scope := scopeFor results labels) (outer := outer)
+      (.label block (labelResults results labels).length [])
     apply Step.of_internal
-    change Step CallFrame.limeNoHost _ _
-    simpa [render, Phase.renderCode, Phase.renderIn, framed, scopeFor, labelResults, code, values,
-      List.append_assoc, Blocks.limeType] using move
+    change Step Execution.Runtime.noHostCalls _ _
+    simpa only [render, Phase.renderCode, Phase.renderIn, scopeFor, labelResults, framed,
+      List.append_assoc, List.singleton_append] using move
   | @resolve bytes saved args index site ops labels typed =>
     obtain ⟨_, _, resolved, _, _⟩ := checked_call ready.2.1
     have call := (Computed.lime_direct_call_iff (s := mem.store bytes) (stack := saved ++ args)
@@ -280,11 +302,11 @@ private theorem sound {a b : State H} (ready : Ready mem host active results a.p
     exact Step.of_internal (framed_step (.label move (labelResults results labels).length []))
   | @armTrap bytes label labels =>
     have move := framed_step (scope := scopeFor results (label :: labels)) (outer := outer)
-      (.pure (host := host) (mem.store bytes) active (.labelTrap 1 []))
+      (.pure (host := host) (mem.store bytes) active (.labelTrap label.type.signature.results.length []))
     simpa [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, values, List.append_assoc] using move
   | @armResult bytes stack label labels =>
     have move := framed_step (scope := scopeFor results (label :: labels)) (outer := outer)
-      (.pure (host := host) (mem.store bytes) active (.labelDone 1 [] stack))
+      (.pure (host := host) (mem.store bytes) active (.labelDone label.type.signature.results.length [] stack))
     simpa [render, Phase.renderCode, Phase.renderIn, labelResults, scopeFor, framed, code, expr, expression,
       List.append_assoc] using move
   | labelTrap => exact .frame (.pure _ _ (.labelTrap results.length [])) results.length outer
