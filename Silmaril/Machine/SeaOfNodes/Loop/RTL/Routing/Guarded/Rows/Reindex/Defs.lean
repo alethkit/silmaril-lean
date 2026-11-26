@@ -31,6 +31,11 @@ def slot : {n : Nat} → {t : PortTy} → Port (wordPorts n) t → Fin n
   | _ + 1, _, .head => 0
   | _ + 1, _, .tail port => (slot port).succ
 
+theorem slot_argumentPort : ∀ {n : Nat} (i : Fin n), slot (argumentPort n i) = i
+  | 0, i => i.elim0
+  | n + 1, i => Fin.cases (motive := fun j => slot (argumentPort (n + 1) j) = j)
+      rfl (fun j => congrArg Fin.succ (slot_argumentPort j)) i
+
 theorem slotSort : {n : Nat} → {t : PortTy} → Port (wordPorts n) t → t = wordPort
   | _ + 1, _, .head => rfl
   | _ + 1, _, .tail port => slotSort port

@@ -14,18 +14,9 @@ open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
 variable {arity : Nat}
 
-private theorem slot_argumentPort {n : Nat} (i : Fin n) :
-    InputPermutation.slot (argumentPort n i) = i := by
-  induction n with
-  | zero => exact i.elim0
-  | succ n ih =>
-    cases i using Fin.cases with
-    | zero => rfl
-    | succ i => exact congrArg Fin.succ (ih i)
-
 private theorem argument_reindex (perm : InputPermutation arity) (i : Fin arity) :
     perm.port (argumentPort arity i) = argumentPort arity (perm i) := by
-  simp only [InputPermutation.port, slot_argumentPort]
+  simp only [InputPermutation.port, InputPermutation.slot_argumentPort]
 
 private theorem checkColumn_reindex (perm : InputPermutation arity) (width : Nat) (indices : List Nat) :
     checkColumn arity width (indices.map perm.index) = (checkColumn arity width indices).map perm.column := by
