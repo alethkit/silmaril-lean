@@ -433,6 +433,40 @@ An admissible entry with coincident ports observes `Part.none` once
 the heap is fixed at an existing backedge state.
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeEntry/Regression.lean)
 
+#### Institution of generated address Phi runtime equations
+
+`RuntimeRoom.room` uses equations between emitted numbered graphs with
+their source retained for re-emission. Its models use the existing
+typed cell count and scalar valuation. At one such model,
+`modelEntry` supplies the validated raw entry for each initialized heap,
+and satisfaction compares the exact partial word-and-heap results.
+`satisfaction_iff_petri` and `satisfaction_iff_memref` give the same
+truth on the emitted backends. Firing traces and CFG budgets remain
+independent witnesses.
+[Room definitions](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeRoom/Defs.lean)
+
+A signature map from `P` to `Q` takes each typed port of `P` to a port of
+`Q`. The sentence action re-emits at the target ports, while the model
+reduct pulls a `Q` valuation back to `P`, retaining the entry occurrence
+and entire heap. `RuntimeRoom.comparison` is a comorphism over these
+same typed entry signatures into the generated room. The unrestricted
+RVSDG runtime room uses opcode maps and has its own model and entry
+quantifiers.
+[Room and comparison theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeRoom/Thms.lean)
+
+`holds_iff_all_models` connects per-valuation room truth to global
+truth at a fixed cell count. After a port map, `holds_map_iff_reduct_models`
+quantifies over the image of the target valuation reduct. A map that
+identifies two address ports only tests source valuations where those
+addresses coincide. The regression checks both a swap that preserves a
+whole-heap observation and an identification that makes an equation
+globally true at three cells even though its source version is false.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/CarriedAddress/Institution/RuntimeRoom/Regression.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.RuntimeRoom.Thms
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
