@@ -4,13 +4,18 @@ In Simple chapter 8 at `f0a6c6757a795b8e186de0076836a87acef59fa7`,
 `Node.peepholeOpt` handles constant results before `AddNode.idealize`.
 Right-zero returns the left operand before doubling or the add-spine
 rules. Discovery asks the existing `AddIdealize.step` to choose the
-rule. It admits the `.literal` and `.rightZero` decisions. In
-particular, `5 + 0` folds to a literal at the same binding before
-right-zero can be considered at that producer. Unused-producer
-erasure is a separate checked IR operation.
-Simple's recursive Java peepholing and global worklist are outside its scope.
+rule. It admits literal folding, right-zero and the off-spine
+literal-right swap. For the swap, the dispatcher reaches
+`spine_cmp` with two non-add operands. The comparator rejects a known
+literal on the right and moves a known literal from the left to the
+right. With no signed source IDs, a pair of ordinary runtime operands
+cannot take that comparison. The earlier literal and right-zero
+decisions keep their priority. Unused-producer erasure is a separate
+checked IR operation. Simple's recursive Java peepholing and global
+worklist are outside this profile.
 [Constant priority](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/Node.java#L243-L257)
-· [Right-zero precedence](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/AddNode.java#L15-L49)
+· [AddNode order](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/AddNode.java#L15-L63)
+· [Literal comparison](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter08/src/main/java/com/seaofnodes/simple/node/AddNode.java#L134-L151)
 
 `Pure.SuffixReplay.Discovery.normalize` works on the existing replay
 block, whose outgoing packet starts with the word return and includes
@@ -25,18 +30,25 @@ list and composed partial route are available in the result.
 [Discovery definitions](../../Silmaril/SSA/SeaOfNodes/Pure/SuffixReplay/Discovery/Defs.lean) ·
 [Typed replay and packet semantics](sea-of-nodes-diamond-suffix-replay.md)
 
-The progress measure is the binding count plus the number of add
-operators. The checked literal fold keeps the first count and strictly
-decreases the second. Right-zero and unused deletion each remove one
-binding, and the same progress check requires the sum to decrease.
-`normalize_count` counts erasing edits separately and bounds all
-successful edits by the initial measure. The driver uses that measure
-plus one scan as fuel, with a proof that the remaining budget exceeds
-the current measure.
+The primary measure is the binding count plus the number of add
+operators. Literal folding keeps the binding count and decreases the
+add count. Right-zero and unused deletion each remove one binding and
+decrease the primary measure. An admitted swap keeps both counts and
+strictly decreases the number of adds with a known literal only on the
+left, using the same typed prefix facts as the dispatcher. Adding up
+these occurrences includes ones an earlier branch may preempt.
 
-`normalize_noEligible` certifies that the final table has no eligible
-literal fold, right-zero erasure or unused producer under these
-checkers and the complete packet. `normalize_agrees` preserves mapped
+The fuel measure is the square of the primary measure plus the
+literal-left count. The latter is bounded by the number of bindings,
+so every strict primary decrease lowers the fuel measure even if it
+exposes new literal-left operands. With the primary measure fixed, a
+swap lowers the fuel measure directly. `normalize_count` counts
+erasures separately and bounds all edits by the initial measure. One
+extra unit of fuel lets the driver perform the last scan.
+
+`normalize_noEligible` covers the three admitted add rules and unused
+deletion with the complete packet. `normalize_stable` certifies that a
+second run makes no further edits. `normalize_agrees` preserves mapped
 reads through the replay route, and `normalize_packet_eq` preserves
 all packet values.
 [Discovery theorems](../../Silmaril/SSA/SeaOfNodes/Pure/SuffixReplay/Discovery/Thms.lean)
@@ -102,6 +114,19 @@ def summary : List Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.Rule × N
 #eval summary
 
 example : summary = ([.literal, .rightZero, .deleteUnused, .deleteUnused], 1, 5, 0) := rfl
+
+def literalLeftZero : Block [word] [] where
+  sigs := [[wordPort], [wordPort]]
+  flow := .cons (.literal 0) .nil
+    (.cons .add (.cons (.output (0 : Fin 1) .head) (.cons (.arg .head) .nil)) .nil)
+  packet := .cons (.output (1 : Fin 2) .head) .nil
+
+def ordered := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize literalLeftZero
+
+#eval (ordered.rules, ordered.state.block.packet.addresses)
+
+example : ordered.rules = [.literalRight, .rightZero, .deleteUnused] ∧
+    ordered.state.block.packet.addresses = [.arg 0] := ⟨rfl, rfl⟩
 ```
 
 The regression checks that the emitted right-column zero is live
@@ -112,5 +137,9 @@ arguments for the capture and Φ, so the literal-fold fixture appends
 a typed tail to the actual emitted table. It folds
 `0xffffffffffffffff + 1` to zero, exposes a right-zero erasure and
 keeps the folded zero live through the second packet field. The two
-input literals become unused.
+input literals become unused. Another typed tail exposes an off-spine
+swap on the emitted return through a non-add relay. Left zero enables
+erasure, and a nonzero literal moves right once. Both cases check the
+ordered surviving operands and the full packet on both predecessors.
+A pair of runtime inputs stays in its original order.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Diamond/AddPhi/Rotate/Pair/Dispatch/Materialize/SuffixReplay/Discovery/Regression.lean)

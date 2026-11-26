@@ -11,7 +11,7 @@ public section
 namespace Silmaril.Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery
 
 open Silmaril.SSA.SeaOfNodes
-open Diamond (Ty Val ValueSort dataPorts)
+open Diamond (Dataflow Ty Val ValueSort dataPorts)
 open GVN (Producer)
 open Silmaril.SSA.SeaOfNodes.Pure
 open Pure.ConstantFold
@@ -23,10 +23,34 @@ open Silmaril.SSA.RVSDG (Tuple)
 variable {inputs : List (ValueSort Unit)} {ports : List (Ty Unit)}
 variable {block : Block inputs ports} {candidate : Producer block.flow word} {edit : Edit block}
 
+private theorem countLeftLiterals_le {args : List (Ty Unit)} {past sigs : List (List (Ty Unit))}
+    (flow : Dataflow SubZero.Opcode args past sigs) (known : RightSpine.Prefix args past) :
+    countLeftLiterals known flow ≤ sigs.length := by
+  induction flow with
+  | nil => exact Nat.le_refl _
+  | cons op operands rest ih =>
+    have tail := ih (known.record op operands)
+    simp only [countLeftLiterals, List.length_cons]
+    split <;> omega
+
+private theorem weight_lt_of_primary {before after : Block inputs ports}
+    (less : primaryWeight after < primaryWeight before) : weight after < weight before := by
+  let n := primaryWeight after
+  have bound : leftLiteralCount after ≤ n :=
+    Nat.le_trans (countLeftLiterals_le after.flow RightSpine.Prefix.empty) (Nat.le_add_right _ _)
+  have square : (n + 1) * (n + 1) = n * n + n + n + 1 := by
+    rw [Nat.mul_succ, Nat.succ_mul]
+    omega
+  calc
+    weight after = n * n + leftLiteralCount after := rfl
+    _ < (n + 1) * (n + 1) := by omega
+    _ ≤ primaryWeight before * primaryWeight before := Nat.mul_self_le_mul_self less
+    _ ≤ weight before := Nat.le_add_right _ _
+
 private theorem checkedEdit_fields {rule : Rule} {state : State inputs ports block.sigs}
     (accepted : checkedEdit? block rule state = some edit) : edit.rule = rule ∧ edit.state = state := by
   by_cases valid : state.block.sigs.length + (if rule.erases then 1 else 0) = block.sigs.length ∧
-      weight state.block < weight block
+      Progress rule block state.block ∧ weight state.block < weight block
   · simp [checkedEdit?, valid] at accepted
     cases accepted
     exact ⟨rfl, rfl⟩
@@ -76,12 +100,13 @@ theorem unused?_eq_none_iff : unused? block candidate = none ↔
       exact List.eraseIdx_sublist _ _
     have adds : addCount state.block ≤ addCount block := kept.countP_le
     have bindings : state.block.sigs.length + 1 = block.sigs.length := deleted.erasure.shorter
-    have decreases : weight state.block < weight block := by
-      unfold weight
+    have primary : primaryWeight state.block < primaryWeight block := by
+      unfold primaryWeight
       omega
+    have decreases := weight_lt_of_primary primary
     simp only [unused?, checked, Option.bind_some]
     change checkedEdit? block .deleteUnused state = none ↔ some deleted = none
-    simp [checkedEdit?, Rule.erases, bindings, decreases]
+    simp [checkedEdit?, Rule.erases, Progress, bindings, primary, decreases]
 
 theorem step?_checked (accepted : step? block = some edit) :
     ∃ candidate : Producer block.flow word,
@@ -152,5 +177,14 @@ theorem normalize_spec (block : Block inputs ports) :
       weight final.state.block + final.rules.length ≤ weight block ∧ NoEligible final.state.block) ∧
       ∀ entry : Tuple (Val model.value) (dataPorts inputs), Agrees block final.state entry :=
   run_spec _ block (Nat.lt_succ_self _)
+
+theorem literalRight_progress (selected : edit.rule = .literalRight) :
+    edit.state.block.sigs.length = block.sigs.length ∧
+      addCount edit.state.block = addCount block ∧ leftLiteralCount edit.state.block < leftLiteralCount block := by
+  have count := edit.bindingCount
+  have side := edit.progress
+  simp [selected, Rule.erases] at count
+  simp [Progress, selected] at side
+  exact ⟨count, by unfold primaryWeight at side; omega, side.2⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery

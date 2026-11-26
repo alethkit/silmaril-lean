@@ -12,11 +12,12 @@ open AddPhi.Rotate.Pair.Dispatch.Materialize
 open AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay (blockOf)
 open AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay.Discovery (normalize)
 open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay (Block)
+open Silmaril.SSA.SeaOfNodes.Pure.ConstantFold.AddIdealize.Replay (findProducer?)
 open Silmaril.SSA.SeaOfNodes.Pure.SubZero (Opcode model word wordPort)
-open Silmaril.SSA.SeaOfNodes.GVN (newest weaken)
+open Silmaril.SSA.SeaOfNodes.GVN (Producer newest weaken)
 open Silmaril.SSA.RVSDG (Origin Tuple Wires extend)
 
-open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery (unused? step? addCount)
+open Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery (Edit unused? step? addCount leftLiteralCount)
 
 private abbrev inputs : List (ValueSort Unit) := [.predicate, word, word]
 private abbrev sigs := [[wordPort], [wordPort]]
@@ -90,30 +91,35 @@ theorem higher_priority_literal_fold_keeps_the_table_size :
 private abbrev args := dataPorts [word, word]
 private abbrev row := [wordPort]
 
-/-- Test-only tail on the actual emitted table: add the wrapping sum to the
-old result and make the sum itself the other outgoing value. -/
-private def appendWrappingAdd : {past sigs : List (List (Ty Unit))} →
-    Dataflow Opcode args past sigs → Origin args (extend past sigs) wordPort →
-    Σ newSigs, Dataflow Opcode args past newSigs ×
-      Wires args (extend past newSigs) [wordPort, wordPort]
-  | past, _, .nil, old =>
-    let maxWire : Origin args (past ++ [row]) wordPort := newest .head
-    let oneWire : Origin args ((past ++ [row]) ++ [row]) wordPort := newest .head
-    let sumWire : Origin args (((past ++ [row]) ++ [row]) ++ [row]) wordPort := newest .head
-    let old := weaken row (weaken row (weaken row old))
-    ⟨[row, row, row, row],
-      .cons (.literal 0xffffffffffffffff) .nil
-        (.cons (.literal 1) .nil
-          (.cons .add (.cons (weaken row maxWire) (.cons oneWire .nil))
-            (.cons .add (.cons old (.cons sumWire .nil)) .nil))),
-      .cons (newest .head) (.cons (weaken row sumWire) .nil)⟩
+private abbrev TestTail (past : List (List (Ty Unit))) :=
+  Σ sigs, Dataflow Opcode args past sigs × Wires args (extend past sigs) [wordPort, wordPort]
+
+private def appendTail (build : ∀ past, Origin args past wordPort → TestTail past) :
+    {past sigs : List (List (Ty Unit))} →
+    Dataflow Opcode args past sigs → Origin args (extend past sigs) wordPort → TestTail past
+  | past, _, .nil, old => build past old
   | _, _, .cons opcode operands rest, old =>
-    let ⟨_, flow, packet⟩ := appendWrappingAdd rest old
+    let ⟨_, flow, packet⟩ := appendTail build rest old
     ⟨_, .cons opcode operands flow, packet⟩
 
-private def withWrappingAdd (p : Program inputs sigs [word]) : Block [word, word] [wordPort] :=
-  let ⟨sigs, flow, packet⟩ := appendWrappingAdd p.suffix.dataflow p.suffix.result
+private def withTail (p : Program inputs sigs [word])
+    (build : ∀ past, Origin args past wordPort → TestTail past) : Block [word, word] [wordPort] :=
+  let ⟨sigs, flow, packet⟩ := appendTail build p.suffix.dataflow p.suffix.result
   ⟨sigs, flow, packet⟩
+
+/-- Test-only tail on the actual emitted table: add the wrapping sum to the
+old result and make the sum itself the other outgoing value. -/
+private def wrappingAdd (past : List (List (Ty Unit))) (old : Origin args past wordPort) : TestTail past :=
+  let maxWire : Origin args (past ++ [row]) wordPort := newest .head
+  let oneWire : Origin args ((past ++ [row]) ++ [row]) wordPort := newest .head
+  let sumWire : Origin args (((past ++ [row]) ++ [row]) ++ [row]) wordPort := newest .head
+  let old := weaken row (weaken row (weaken row old))
+  ⟨[row, row, row, row],
+    .cons (.literal 0xffffffffffffffff) .nil
+      (.cons (.literal 1) .nil
+        (.cons .add (.cons (weaken row maxWire) (.cons oneWire .nil))
+          (.cons .add (.cons old (.cons sumWire .nil)) .nil))),
+    .cons (newest .head) (.cons (weaken row sumWire) .nil)⟩
 
 private def packetAt (p : Program inputs sigs [word]) (block : Block [word, word] [wordPort]) (guard : Bool) :
     BitVec 64 × BitVec 64 :=
@@ -127,8 +133,8 @@ private def packetAt (p : Program inputs sigs [word]) (block : Block [word, word
 theorem wrapping_fold_exposes_right_zero_and_keeps_the_second_packet_value :
     (rewrite (sourceWith 7) x .left).map (fun result => match result with
       | .materialized .right _ p =>
-        let ext := withWrappingAdd p
-        let first := (step? ext).map fun edit => (edit.rule, edit.state.block.sigs.length, addCount edit.state.block)
+        let ext := withTail p wrappingAdd
+        let first := (step? ext).map fun (edit : Edit ext) => (edit.rule, edit.state.block.sigs.length, addCount edit.state.block)
         let final := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize ext
         some (first, final.rules, final.state.block.packet.addresses,
           packetAt p ext false, packetAt p final.state.block false,
@@ -136,5 +142,63 @@ theorem wrapping_fold_exposes_right_zero_and_keeps_the_second_packet_value :
       | _ => none) =
       .ok (some (some (.literal, 7, 3), [.literal, .rightZero, .deleteUnused, .deleteUnused],
         [.output 2 0, .output 3 0], (9, 0), (9, 0), (48, 0), (48, 0))) := rfl
+
+/-- A non-add relay provides the actual emitted return as a runtime RHS.
+The extra packet field observes the relay independently of the new add. -/
+private def literalOnLeft (value : BitVec 64) (past : List (List (Ty Unit)))
+    (old : Origin args past wordPort) : TestTail past :=
+  let lit : Origin args (past ++ [row]) wordPort := newest .head
+  let one : Origin args ((past ++ [row]) ++ [row]) wordPort := newest .head
+  let relay : Origin args (((past ++ [row]) ++ [row]) ++ [row]) wordPort := newest .head
+  let old := weaken row (weaken row old)
+  ⟨[row, row, row, row],
+    .cons (.literal value) .nil (.cons (.literal 1) .nil
+      (.cons .mul (.cons old (.cons one .nil))
+        (.cons .add (.cons (weaken row (weaken row lit)) (.cons relay .nil)) .nil))),
+    .cons (newest .head) (.cons (weaken row relay) .nil)⟩
+
+private def orderSummary (value : BitVec 64) :=
+  (rewrite (sourceWith 7) x .left).map (fun result => match result with
+    | .materialized .right _ p =>
+      let ext := withTail p (literalOnLeft value)
+      let first := (step? ext).map fun (edit : Edit ext) =>
+        (edit.rule, edit.state.block.sigs.length, addCount edit.state.block, leftLiteralCount edit.state.block)
+      let final := Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize ext
+      let after := final.state.block
+      let ordered := (findProducer? after.program after.program.result).map fun (candidate : Producer after.program.dataflow word) =>
+        candidate.key.operands.addresses
+      some (leftLiteralCount ext, first, final.rules, (step? after).isNone,
+        after.packet.addresses, ordered, packetAt p ext false, packetAt p after false,
+        packetAt p ext true, packetAt p after true)
+    | _ => none)
+
+theorem literal_left_zero_swaps_then_erases_on_the_actual_suffix :
+    orderSummary 0 =
+      .ok (some (1, some (.literalRight, 7, 3, 0), [.literalRight, .rightZero, .deleteUnused], true,
+        [.output 4 0, .output 4 0], some [.output 2 0, .output 3 0], (9, 9), (9, 9), (48, 48), (48, 48))) := rfl
+
+theorem nonzero_literal_moves_right_once_and_stays_there :
+    orderSummary 5 =
+      .ok (some (1, some (.literalRight, 7, 3, 0), [.literalRight], true,
+        [.output 6 0, .output 5 0], some [.output 5 0, .output 3 0], (14, 9), (14, 9), (53, 48), (53, 48))) := rfl
+
+theorem the_diamond_adapter_keeps_the_actual_phi_wires_after_the_swap :
+    (rewrite (sourceWith 7) x .left).map (fun result => match result with
+      | .materialized .right _ p =>
+        let extended := { p with suffix := (withTail p (literalOnLeft 0)).program }
+        let target := normalize extended
+        some (target.suffix.sigs.length, target.diamond.merge,
+          (target.diamond.arms .first).outputs.addresses, (target.diamond.arms .second).outputs.addresses,
+          observe target false, observe target true)
+      | _ => none) =
+      .ok (some (5, ⟨.onFalse⟩, [.output 0 0], [.output 2 0], 9, 48)) := rfl
+
+private def bothLive : Block [word, word] [] :=
+  ⟨residualAdd.sigs, residualAdd.dataflow, .cons residualAdd.result .nil⟩
+
+theorem ordinary_live_operands_have_no_eligible_swap :
+    step? bothLive = none ∧
+      (Silmaril.SSA.SeaOfNodes.Pure.SuffixReplay.Discovery.normalize bothLive).state.block = bothLive :=
+  ⟨rfl, rfl⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.Diamond.AddPhi.Rotate.Pair.Dispatch.Materialize.SuffixReplay.Discovery.Regression
