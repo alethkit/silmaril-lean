@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Generation.Domain.Interpretation.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Denotation.UniversalProperty.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseAndUnaryReturns.Denotation.Preservation.Thms
 
 /-! # The universal property of the generated case and unary return domain -/
@@ -32,11 +32,7 @@ open Extension.Singleton.Generation
 set_option hygiene false in
 local notation "Seed" => Step (τ := τ) (Φ := Φ) pe
 set_option hygiene false in
-local notation "F" => denoteFunctor (Φ := Φ) pe J M shared
-set_option hygiene false in
 local notation "T" => Coordinates.ofModel J M
-set_option hygiene false in
-local notation "exactObj" => (fun A : τ => Iso.refl (J.obj (M.obj A)))
 
 local notation "instruction" => InstructionModel.denote (J := J) (M := M)
 local notation "Interpretation" => Domain.Interpretation (Seed) (T) (instruction)
@@ -44,28 +40,21 @@ local notation "Interpretation" => Domain.Interpretation (Seed) (T) (instruction
 /-- The guarded model supplies a structure-preserving interpretation of the
 generated domain, with exact type coordinates and the given primitive maps. -/
 noncomputable def generatedInterpretation : Interpretation :=
-  Domain.Interpretation.restrict (Seed) (F) (exactObj) (denoteFunctor_preserves pe J M shared)
-    (denoteFunctor_map_primitive pe J M shared)
+  Extension.Singleton.generatedInterpretation J M shared (stepDenotes pe J M shared)
 
 local notation "canonical" => generatedInterpretation (Φ := Φ) pe J M shared
 
-set_option backward.isDefEq.respectTransparency false in
 /-- Any interpretation sends each generated arrow to the model arrow in its specified coordinates. -/
 theorem generatedInterpretation_map_eq (G : Interpretation) {A B : τ}
     (f : Domain.ofType (Seed) A ⟶ Domain.ofType (Seed) B) :
-    (canonical).functor.map f = Domain.mapInCoordinates (Seed) G.functor G.objIso f := by
-  have h := Domain.Interpretation.map_eq (Seed) (canonical) G f
-  change 𝟙 _ ≫ (canonical).functor.map f ≫ 𝟙 _ = _ at h
-  rwa [Category.comp_id, Category.id_comp] at h
+    (canonical).functor.map f = Domain.mapInCoordinates (Seed) G.functor G.objIso f :=
+  Extension.Singleton.generatedInterpretation_map_eq J M shared (stepDenotes pe J M shared) G f
 
-set_option backward.isDefEq.respectTransparency false in
 /-- Every preserving interpretation of the generated domain is canonically and
 uniquely isomorphic to the model interpretation through its specified type isomorphisms. -/
 theorem generatedInterpretation_universal (G : Interpretation) :
     ∃! e : (canonical).functor ≅ G.functor, ∀ A : τ,
-      e.hom.app (Domain.ofType (Seed) A) = (G.objIso A).inv := by
-  have coordinates (A : τ) : ((canonical).objIso A ≪≫ (G.objIso A).symm).hom = (G.objIso A).inv :=
-    Category.id_comp _
-  simpa only [coordinates] using Domain.Interpretation.comparison_existsUnique (Seed) (canonical) G
+      e.hom.app (Domain.ofType (Seed) A) = (G.objIso A).inv :=
+  Extension.Singleton.generatedInterpretation_universal J M shared (stepDenotes pe J M shared) G
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseAndUnaryReturns

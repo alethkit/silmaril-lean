@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseAndUnaryReturns.Denotation.Thms
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReturnDenotationPreservation
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Denotation.Preservation.Thms
 
 /-! # Structural preservation for the canonical model interpretation -/
 
@@ -42,12 +42,12 @@ local notation "exactObj" => (fun A : τ => Iso.refl (J.obj (M.obj A)))
 /-- The model's exact type coordinates and the descended denotation preserve
 all the operations used by generated singleton uniqueness. -/
 theorem denoteFunctor_preserves : Preserves (Seed) (F) (exactObj) (T) :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReturnDenotationPreservation.preserves pe J M shared
+  Extension.Singleton.denoteFunctor_preserves J M shared (stepDenotes pe J M shared)
 
 /-- A typed primitive return denotes the instruction arrow in the model. -/
 theorem denoteFunctor_map_primitive (p : Φ) :
     mapInCoordinates (Seed) (F) (exactObj) (primitive (Seed) p) =
       InstructionModel.denote (J := J) (M := M) p :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReturnDenotationPreservation.map_primitive pe J M shared p
+  Extension.Singleton.denoteFunctor_map_primitive J M shared (stepDenotes pe J M shared) p
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseAndUnaryReturns
