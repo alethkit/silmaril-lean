@@ -115,6 +115,12 @@ private theorem decoder_repack {i : Nat} {D : τ} (fallback : At L i D) (q : Exi
     exact (Equiv.case (.refl .bv) (.refl (q.inject ⟨.inl payload.1, .inl payload.2⟩).2.toHasType) tail).trans
       (inject_case_eta (γ := γ) q)
 
+theorem decoder_repack_proof {i : Nat} {D : τ} (fallback : At L i D) (s : Scope β γ) :
+    Equiv pe Γ₀ (γ.snoc (packedExitType L))
+      ((decoder (Φ := Φ) fallback L ExitSuffix.here).render s).encode.toLetCase.1
+      (.bv 0) (packedExitType L) :=
+  decoder_repack fallback ExitSuffix.here s
+
 private theorem operand_base_term {A B : τ} (a : Operand Φ (β.snoc A) B) :
     ((Scope.base : Scope β β).operand a).1 = a.1 := by
   change rename (LetCase.LocallyNameless.Tm.up (fun i => i)) a.1 = _
