@@ -76,3 +76,43 @@ A changed cell in the final heap falsifies it.
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Institution.Regression'
 ```
+
+## Two initialized cells in typed MLIR CF
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Thms
+```
+
+`MLIR.lower` compiles the native memory diamond at `Heap 2` to the
+repository's typed `MLIR.CF.Cfg`. Entry receives an `i1` Boolean guard,
+two `i64` cell values, and the original scalar arguments. Each
+`Fin 2` address is an `i1`. A Load uses one scalar `arith.select` to
+read the addressed cell. A Store uses two selects to form the new cell
+values, changing only the addressed one. Every Load and Store in the
+ordered native arms and suffix is supported at this boundary.
+
+The entry's `cf.cond_br` goes to the block for the selected predecessor
+occurrence. Each arm branches to the join with three `i64` operands:
+the exported word, cell zero, and cell one. The shared suffix can use
+these arguments and the dominating scalar inputs. The return tuple
+contains the suffix's word and both final cell values.
+[Typed CF evaluator](../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean) ·
+[Lowering](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Defs.lean)
+
+`lower_run` proves that the existing evaluator returns that tuple at
+every budget of at least three blocks. `returns_iff` preserves and
+reflects the native relation for both guards, with the two output cells
+determining the entire final heap. The profile uses scalar SSA state
+values and the fixed-width interpretation of `arith.select`. It covers
+total access to two initialized cells.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Thms.lean)
+
+The regression runs the emitted CFGs for both guards and both
+predecessor orders. It checks equal returned words with different
+heaps, rejects the heap from an omitted store, and executes a suffix
+that uses the selected export and updated heap.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Regression'
+```
