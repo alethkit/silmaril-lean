@@ -191,3 +191,4 @@ example : (J.obj dialect).Sat ((traceModel sortedLog).reduct renameOp)
 #print axioms Silmaril.Isotope.Parallel.Institution.letParCaseInclusion
 #print axioms Silmaril.Isotope.Parallel.Institution.Equation.ofLetSeq_sat
 #print axioms Silmaril.Isotope.Parallel.Institution.Equation.ofLetCase_sat
+#print axioms Silmaril.Isotope.LetParCase.ofLetParDerivation_mapInstr

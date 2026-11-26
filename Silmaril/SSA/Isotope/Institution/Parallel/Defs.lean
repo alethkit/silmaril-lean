@@ -104,8 +104,8 @@ end Model
 variable {τ ε : Type u} {tier : Tier} {ν : Type v}
   [HasProduct τ] [HasUnit τ] [CaseTypes tier τ] [DecidableEq ν]
 
-/-- An equation between two exact derivations in the same contexts and result type.
-The typing data are part of the sentence. -/
+/-- An equation between two particular exact derivations in the same contexts and
+result type. The sentence retains the chosen typing witnesses for interpretation. -/
 structure Equation (S : InstrSig τ ε) (tier : Tier) [CaseTypes tier τ] (Γ : Ctx ν τ) where
   n : Nat
   bound : BoundCtx τ n

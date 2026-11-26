@@ -334,9 +334,12 @@ the chosen purity judgment as well. Both free and bound contexts retain their
 types. The value interpretation and its product, unit and, where available,
 coproduct and empty equivalences are fixed throughout.
 
-Sentences carry two native `Parallel.Derivation` endpoints in a common scope
-and result type. The interpreter evaluates both endpoints with the supplied
-`ParOp`. Satisfaction compares full computations at every environment.
+Sentences carry two particular native `Parallel.Derivation` witnesses in a
+common scope and result type. The interpreter evaluates these witnesses with
+the supplied `ParOp`. Satisfaction compares full computations at every
+environment. Reusing an endpoint's denotation with a different witness of
+the same term and type requires a separate agreement proof.
+
 A model has a lawful monad, a typed primitive interpreter and an explicit
 parallel operation. Strict model arrows preserve monadic operations,
 parallel pairing and primitive evaluation. Signature reducts restrict primitive
@@ -349,11 +352,20 @@ accept any supplied parallel operation, so a derivable swap may fail as an
 observation in a model that sequences effects. The regression also compares
 native parallel pairing with ordinary ordered pairing within one model.
 
-`letParCaseInclusion` is an institution comorphism with identity signature
-and model maps. `Equation.ofLetSeq_sat` and `Equation.ofLetCase_sat` restrict
-observation to the native sequential fragments in the same monad and
-primitive interpretation. The bundled observation institutions cover the
-two lower parallel tiers.
+The restrictions transport specific witnesses in the same monad and
+primitive interpretation.
+
+| Inclusion | Witness transport used in satisfaction | Native syntactic equation preservation |
+| --- | --- | --- |
+| LetSeq → LetPar | `LetPar.derivation` on both endpoints, checked by `LetPar.denote_derivation` | `LetPar.embed_equiv` |
+| LetCase → LetParCase | `LetParCase.derivation` on both endpoints, checked by `LetParCase.denote_derivation` | `LetParCase.embed_equiv` |
+| LetPar → LetParCase | `LetParCase.ofLetParDerivation` on both endpoints, checked by `LetParCase.denote_ofLetParDerivation` | `LetParCase.ofLetPar_equiv` |
+
+The syntactic preservation theorems apply to the native term-indexed
+congruences. `LetParCase.ofLetParDerivation_mapInstr` checks that widening
+and relabeling the same witness in either order yield heterogeneously equal
+derivations. This is the endpoint compatibility in `letParCaseInclusion`,
+the comorphism with identity signature and model maps.
 
 LetIter denotational soundness (`Silmaril.Isotope.LetIter.ProofRelevant.Semantics`).
 `sound` and `related_sound` preserve the denotations at the given proof-relevant

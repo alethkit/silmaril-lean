@@ -5,6 +5,22 @@ import Silmaril.Proofs.SSA.Isotope.Institution.Parallel.Inclusions
 
 @[expose] public section
 
+namespace Silmaril.Isotope.LetParCase
+
+open Institution Parallel CategoryTheory
+
+universe u v
+
+/-- Widening and opcode relabeling commute on the specified exact witness. -/
+theorem ofLetParDerivation_mapInstr {τ ε : Type u} {S S' : InstrSig τ ε}
+    {ν : Type v} [DecidableEq ν] [TypeFormers τ] {Γ : Ctx ν τ}
+    {n : Nat} {β : BoundCtx τ n} {t : LetPar.Tm ν S.Instr n} {A : τ}
+    (f : S ⟶ S') (d : Derivation S.Instr Γ β t A) :
+    HEq ((ofLetParDerivation d).mapInstr f) (ofLetParDerivation (d.mapInstr f)) :=
+  Parallel.InstitutionProofs.widen_derivation_map f d
+
+end Silmaril.Isotope.LetParCase
+
 namespace Silmaril.Isotope.Parallel.Institution
 
 open Silmaril.Isotope.Institution Silmaril.Logic.Institution CategoryTheory Semantics
@@ -16,7 +32,7 @@ variable {τ ε : Type u} {S S' : InstrSig τ ε} {ν : Type v} [DecidableEq ν]
 
 namespace Equation
 
-/-- Restrict observation to LetSeq by forgetting parallel pairing and using its native interpreter. -/
+/-- Compare the specified LetSeq witnesses with their images under `LetPar.derivation`. -/
 theorem ofLetSeq_sat [HasProduct τ] [HasUnit τ] [ProductModel D] [UnitModel D]
     {l r : LetSeq.LocallyNameless.Tm ν S.Instr n}
     (dl : LetSeq.LocallyNameless.Derivation S.Instr Γ β l A)
@@ -27,7 +43,7 @@ theorem ofLetSeq_sat [HasProduct τ] [HasUnit τ] [ProductModel D] [UnitModel D]
   change (ofLetSeq dl dr).Holds X _ ↔ _
   simp only [Equation.Holds, Equation.ofLetSeq, InstitutionProofs.lowerControl_seq, LetPar.denote_derivation]
 
-/-- Restrict observation to LetCase by forgetting parallel pairing and using its native interpreter. -/
+/-- Compare the specified LetCase witnesses with their images under `LetParCase.derivation`. -/
 theorem ofLetCase_sat [TypeFormers τ] [ProductModel D] [UnitModel D] [CoproductModel D] [EmptyModel D]
     {l r : LetCase.LocallyNameless.Tm ν S.Instr n}
     (dl : LetCase.LocallyNameless.Derivation S.Instr Γ β l A)
@@ -38,10 +54,12 @@ theorem ofLetCase_sat [TypeFormers τ] [ProductModel D] [UnitModel D] [Coproduct
   change (ofLetCase dl dr).Holds X _ ↔ _
   simp only [Equation.Holds, Equation.ofLetCase, InstitutionProofs.lowerControl_case, LetParCase.denote_derivation]
 
+/-- Both routes transport the same witnesses, by `LetParCase.ofLetParDerivation_mapInstr`. -/
 theorem ofLetPar_map [TypeFormers τ] (f : S ⟶ S') (φ : Equation S .seq Γ) :
     φ.ofLetPar.map f = (φ.map f).ofLetPar :=
   InstitutionProofs.equation_widen_map f φ
 
+/-- Compare the given parallel witnesses with their images under `LetParCase.ofLetParDerivation`. -/
 theorem ofLetPar_sat [TypeFormers τ] [ProductModel D] [UnitModel D] [CoproductModel D] [EmptyModel D]
     (φ : Equation S .seq Γ) (X : Model D S) :
     ((LetParCase.observation Γ D).obj S).Sat X φ.ofLetPar ↔
