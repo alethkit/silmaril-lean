@@ -11,6 +11,7 @@ extents and `Tensor.Tensor` for the elements of a rank-one extent tensor.
 [Variadic definitions](../../Silmaril/SSA/MLIR/Shape/Variadic/Defs.lean) ·
 [Variadic theorems](../../Silmaril/SSA/MLIR/Shape/Variadic/Thms.lean) ·
 [Reduction theorems](../../Silmaril/SSA/MLIR/Shape/Reduce/Thms.lean) ·
+[Reduction lowering](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Thms.lean) ·
 [Static tensor definitions](../../Silmaril/SSA/MLIR/Tensor/Defs.lean)
 
 ## Values and admission
@@ -219,6 +220,36 @@ pinned conversion to `scf.for` supports extent tensors and maps block arguments
 as axis, extracted extent, and carried tuple. The Lean proofs concern the
 value-level fold. [Pinned conversion](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Conversion/ShapeToStandard/ShapeToStandard.cpp#L403-L452)
 
+### Lowering the concrete reduction to SCF
+
+`ReduceBody.lowerToFor` constructs the existing checked unsigned `SCF.For`
+with lower bound zero, exclusive upper bound equal to rank, and step one.
+The parent input carries those bounds, the initial tuple, and the original
+captures. Each iteration looks up the extent in an immutable array of the
+encoded concrete extents, then executes the copied body. Typed renaming sends
+the original axis, extent, carry, and capture references to their new slots.
+The Shape yield becomes an SCF yield, and the continuation returns the final
+carry. [Lowering definitions](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Defs.lean)
+
+The array lookup is a primitive of the extended pure scalar model. Its optional
+lookup returns an encoded extent exactly below rank. The evaluator uses zero
+as the total primitive's fallback, and the body theorem shows every executed
+lookup succeeds. The checked source admission keeps rank and extents below
+`2^(indexWidth − 1)`. The target adds its existing width bound `2^24 − 1`.
+On that common domain the trip count is exactly rank, the target arithmetic
+admission holds, and `ReduceBody.lowerToFor_run` identifies the SCF result
+with the source `run?`. At supported widths `runLowered?` retains the source
+guard, and at wider widths it returns `none`.
+
+`ReduceBody.lowerToFor_cfg_run` composes with the existing SCF-to-CF theorem
+at fuel `2 * rank + 3`. The existing rank-zero and order-sensitive fixtures
+execute the lowered SCF program too. This is a concrete table specialization
+in the Lean SCF model. The pinned conversion instead extracts from the extent
+tensor inside the loop. Native MLIR lowering and execution remain outside
+this proof. [Lowering theorems](../../Silmaril/SSA/MLIR/Shape/Reduce/SCF/Thms.lean) ·
+[Checked examples](../../Silmaril/SSA/MLIR/Shape/Reduce/Examples/Thms.lean) ·
+[Pinned conversion](https://github.com/llvm/llvm-project/blob/cc45e189bc99870d26d50c5e3a3d215068e74880/mlir/lib/Conversion/ShapeToStandard/ShapeToStandard.cpp#L403-L452)
+
 ## Upstream operation coverage
 
 The inventory covers the 40 operations in llvm-project at commit
@@ -240,7 +271,7 @@ future work. [Dialect reference](https://mlir.llvm.org/docs/Dialects/ShapeDialec
 | `shape.broadcast` | One or more concrete operands with right-aligned extents and order-independent results. The shape result propagates operand errors. The extent-tensor form has no defined result on incompatible extents. |
 | `shape.is_broadcastable` | Boolean predicate for common compatibility of a list of concrete shape views, including zero or one operand. |
 | `shape.cstr_broadcastable` | Passing witness or unsatisfied constraint on two or more concrete shape views. |
-| `shape.reduce` | Rank-ordered fold over a concrete extent tensor with representable indices and a typed, single-block pure scalar body. |
+| `shape.reduce` | Rank-ordered fold over a concrete extent tensor with representable indices and a typed, single-block pure scalar body. A checked lowering to `SCF.For` specializes the extent tensor to a finite lookup table. |
 | `shape.yield` | Typed carried-tuple terminator of the checked `shape.reduce` body. |
 | `shape.shape_of` | Shape result for a static `Tensor.Tensor` via `shapeOf`. |
 | `shape.rank` | Shape input and size output, including unknown rank and invalid shape. |

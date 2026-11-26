@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.MLIR.Shape.Reduce.Thms
+import Silmaril.SSA.MLIR.Shape.Reduce.SCF.Thms
 
 /-! Order-sensitive examples with a heterogeneous carry and a capture. -/
 
@@ -68,5 +69,31 @@ private def emptyYield : ReduceBody Op narrowIndex [] [] := .terminator .nil
 example : emptyYield.run? evalOp (extentTensor [0]) .nil .nil = some .nil := rfl
 
 example : emptyYield.run? evalOp (extentTensor [0, 0]) .nil .nil = none := rfl
+
+/-! Execute the lowered SCF programs on the same captured, order-sensitive body. -/
+
+example :
+    body.runLowered? evalOp (extentTensor [5, 0]) initial captures = some (.cons (-5) (.cons 9 .nil)) ∧
+      body.runLowered? evalOp (extentTensor [0, 5]) initial captures = some (.cons 5 (.cons 9 .nil)) :=
+  ⟨rfl, rfl⟩
+
+example : body.runLowered? evalOp (extentTensor []) initial captures = some initial := rfl
+
+example :
+    let shape := extentTensor [5, 0]
+    let loop := body.lowerToFor shape (by decide)
+    loop.lower.run (Silmaril.MLIR.SCF.For.lowerEval (ReduceBody.forEval evalOp)) 7
+        (ReduceBody.lowerInput shape initial captures) = some (.cons (-5) (.cons 9 .nil)) := rfl
+
+example : (ReduceBody.extentTable indexWidth (extentTensor [5, 0]))[2]? = none := rfl
+
+example : body.runLowered? evalOp (extentTensor [32768]) initial captures = none := rfl
+
+example : emptyYield.runLowered? evalOp (extentTensor [0, 0]) .nil .nil = none := rfl
+
+private def unsupportedIndex : Width := ⟨2 ^ 24, by decide⟩
+private def unsupportedBody : ReduceBody Op unsupportedIndex [] [] := .terminator .nil
+
+example : unsupportedBody.runLowered? evalOp (extentTensor []) .nil .nil = none := rfl
 
 end Silmaril.MLIR.Shape.Reduce.Examples
