@@ -10,7 +10,7 @@ open Execution.Runtime (FuncAddr MemAddr ModuleInst Value)
 open CallResolution.Indirect (Outcome resolveTable)
 open Computed
 
-private theorem split_i32 {stack : List Value} {resume : List NumType → Bool}
+theorem split_i32 {stack : List Value} {resume : List NumType → Bool}
     (checked : Graph.checkCondition (Prefix.stackTypes stack) resume = true) :
     ∃ (saved : List Value) (bits : BitVec 32),
       stack = saved ++ [Value.int .i32 bits] ∧ resume (Prefix.stackTypes saved) = true := by

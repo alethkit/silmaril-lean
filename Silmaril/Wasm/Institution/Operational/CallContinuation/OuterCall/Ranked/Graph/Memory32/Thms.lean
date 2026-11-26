@@ -12,6 +12,13 @@ open Execution.Runtime (Frame FuncAddr MemAddr MemInst ModuleInst Value)
 open Wasm.V1.Execution
 open Computed
 
+/-- A checked i32 test exposes the ordered operands used by its continuation. -/
+theorem split_i32 {stack : List Value} {resume : List NumType → Bool}
+    (checked : Graph.checkCondition (Prefix.stackTypes stack) resume = true) :
+    ∃ (saved : List Value) (bits : BitVec 32),
+      stack = saved ++ [Value.int .i32 bits] ∧ resume (Prefix.stackTypes saved) = true :=
+  Proofs.split_i32 checked
+
 /-- The selector is above the ordered argument suffix. The continuation
 receives the declared results above the saved operand types. -/
 theorem Function.indirect_typed {fn : Function} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}

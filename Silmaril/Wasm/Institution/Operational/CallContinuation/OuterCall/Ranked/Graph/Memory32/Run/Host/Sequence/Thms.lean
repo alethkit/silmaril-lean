@@ -35,12 +35,12 @@ through cleanup of the remaining code. -/
 theorem return_ready (checked : seq.Checked mode program memory calls base outer args source)
     (layout : Layout program base memory initial) (contract : seq.Contract host mode memory initial base source)
     {bytes : ByteArray} {saved actual : List Value} {site : HostCall.V1.Site H}
-    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {branch : Option ForwardBranch} {after : Store H} {r : Execution.Runtime.Result}
-    (ready : seq.Ready mode program memory calls initial (.pending bytes saved actual site later labels branch) source)
+    {later : List (HostSegment H)} {labels : List (OpenLabel H)} {tail : Option (Source H)} {after : Store H} {r : Execution.Runtime.Result}
+    (ready : seq.Ready mode program memory calls initial (.pending bytes saved actual site later labels tail) source)
     (returned : host site.target (storeWithBytes base memory initial bytes) actual (.returned after r)) :
     ∃ next, after = storeWithBytes base memory initial next ∧ bytes.size ≤ next.size ∧ HostCall.V1.ResultTyped site.signature.results r ∧
       Layout program after memory { initial with data := next } ∧
-      seq.Ready mode program memory calls initial (seq.delivered outer args next saved later r labels branch) source :=
+      seq.Ready mode program memory calls initial (seq.delivered outer args next saved later r labels tail) source :=
   Proofs.return_ready checked layout contract ready returned
 
 /-- The typed continuation and live-store invariant is preserved by each edge. -/
