@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Defs
+import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Forwarding.Correctness
 
@@ -15,6 +16,11 @@ open RVSDG (Tuple)
 variable {args : List ValueSort} {cells : Nat}
 variable {graph rewritten : Graph args} {candidate : Memory.Forwarding.Candidate}
 variable {certificate : Memory.Forwarding.Disjoint.Certificate args} {input : Tuple (Val cells) args}
+
+/-- A statically accepted graph is the checked rewrite at every admissible input. -/
+theorem rewriteWith_checked (success : rewriteWith graph candidate certificate = some rewritten)
+    (valid : certificate.Valid input) : rewrite graph candidate certificate input = some rewritten := by
+  simpa [rewrite, (certificate.check_iff_valid input).mpr valid] using success
 
 /-- At any latched heap, the activation exports the same test word and
 entire heap. -/
