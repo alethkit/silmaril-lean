@@ -3,13 +3,13 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Defs
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Sequence.Search.Inference.Defs
 
-/-! Retain one certified disjoint Load after a final entry Store. -/
+/-! Retain certified disjoint Loads after a final entry Store. -/
 
 @[expose] public section
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.LoadTail
 
-open RVSDG (Tuple)
+open RVSDG (Port Tuple)
 open Discovery.MemRef.CF (Program Programs lowerDiamond runWord)
 open Silmaril.MLIR.MemRef (Buffer)
 open Memory.Forwarding.Disjoint (Certificate)
@@ -18,14 +18,23 @@ open Retained.Load.Static.Sequence.Search
 
 variable {args : List ValueSort} {cells : Nat}
 
-/-- After the nominated Store, admit exactly one original-argument Load
-followed by Return. The certificate names the Store and covers the Load. -/
-def checkTail (facts : Certificate args) (store : PrefixStore args) :
-    {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool
-  | _, _, .load _ (.arg reader) (.ret _ _) =>
-    facts.matches (past := []) (.arg store.address) &&
-      (!facts.matches (past := []) (.arg reader) && facts.covers (past := []) (.arg reader))
-  | _, _, _ => false
+/-- List the argument-addressed readers of a load-only suffix in order. -/
+def readPorts :
+    {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live →
+      Option (List (Port args .address))
+  | _, _, .ret _ _ => some []
+  | _, _, .load _ (.arg reader) rest => (readPorts rest).map (reader :: ·)
+  | _, _, _ => none
+
+/-- Require a nonempty Load chain ending in Return. The certificate names
+the nominated Store and covers every reader. -/
+def checkTail (facts : Certificate args) (store : PrefixStore args)
+    {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live) : Bool :=
+  facts.matches (past := []) (.arg store.address) &&
+    match readPorts tail with
+    | none => false
+    | some readers => !readers.isEmpty && readers.all fun reader =>
+        !facts.matches (past := []) (.arg reader) && facts.covers (past := []) (.arg reader)
 
 /-- Reconnect the final suffix after removing the designated Store from an
 argument-Store prefix. Scalar wires remain in their original scope. -/

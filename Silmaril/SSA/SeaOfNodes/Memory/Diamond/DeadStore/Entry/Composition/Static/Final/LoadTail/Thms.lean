@@ -18,6 +18,17 @@ open Silmaril.MLIR.MemRef (Buffer)
 variable {args : List ValueSort} {cells : Nat}
 variable {facts : Certificate args} {input : Tuple (Val cells) args}
 
+/-- Every admitted reader sees the same word on the retained buffer
+and on that buffer with the nominated Store applied. Loads leave that
+buffer live for the entire chain. -/
+theorem checkTail_read_word {past : List (List ValueSort)} {live : Nat}
+    {tail : Memory.Body args past live} {readers : List (Port args .address)}
+    (store : PrefixStore args) (valid : facts.Valid input)
+    (accepted : checkTail facts store tail = true) (listed : readPorts tail = some readers)
+    (reader : Port args .address) (member : reader ∈ readers) (initial : Heap cells) :
+    ((store.table.denote input initial).2).read (cell input reader) = initial.read (cell input reader) :=
+  Proofs.checkTail_read_word store valid accepted listed reader member initial
+
 /-- The checked Load reads the same word with or without the nominated
 write, even when Return exports a different word. -/
 theorem checkTail_load_word {past : List (List ValueSort)} {live : Nat}
