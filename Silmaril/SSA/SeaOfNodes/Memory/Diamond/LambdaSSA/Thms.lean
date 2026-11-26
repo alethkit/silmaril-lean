@@ -11,13 +11,49 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA
 
 open SeaOfNodes.Diamond (Projection Slot)
-open RVSDG (Locals Tuple)
+open RVSDG (Locals Port Tuple)
 open Silmaril.Isotope (Value)
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 
 variable {args : List ValueSort} {past : List (List ValueSort)} {context labels : List Code}
 variable {cells version : Nat}
+
+theorem instruction_deterministic : Semantics.InstrDeterministic (Instruction cells) :=
+  Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.instruction_deterministic
+
+theorem entry_match (input : Tuple (Val cells) args) :
+    Matches (Routing.entry args) (inputEnv input) input PUnit.unit :=
+  Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.entry_match input
+
+theorem weaken_match {route : Routing args past context} {env : Env (Atom cells)}
+    {input : Tuple (Val cells) args} {locals : Locals (Val cells) past}
+    (matched : Matches route env input locals) (A : Code) (value : Value (Atom cells)) :
+    Matches (Routing.weaken A route) (extend env value) input locals :=
+  Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.weaken_match matched A value
+
+/-- Append any typed continuation to the emitted ordered operations. -/
+theorem schedule_typed (body : Memory.Body args past version)
+    (route : Routing args past context) {tail : Region Opcode}
+    (typed : tail.HasType (schedule body route).context labels) :
+    (prepend (schedule body route).statements tail).HasType context labels :=
+  Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.schedule_typed body route typed
+
+/-- The continuation receives the current heap, the source Return word and
+the retained input variables after the entire ordered body has run. -/
+theorem schedule_eval (body : Memory.Body args past version)
+    {route : Routing args past context} {env : Env (Atom cells)}
+    {input : Tuple (Val cells) args} {locals : Locals (Val cells) past}
+    (matched : Matches route env input locals) (initial : Heap cells) {tail : Region Opcode}
+    {label : Nat} {payload : Value (Atom cells)} {final : Heap cells}
+    (runTail : ∀ finalEnv,
+      finalEnv (schedule body route).result.val = encode (sort := .word) (body.denote input locals initial).1 →
+      (∀ {sort} (p : Port args sort), finalEnv ((schedule body route).inputRef p).val = encode (input.get p)) →
+      Semantics.Region.Eval (Instruction cells) finalEnv tail (body.denote input locals initial).2
+        label payload final) :
+    Semantics.Region.Eval (Instruction cells) env (prepend (schedule body route).statements tail)
+      initial label payload final :=
+  Proofs.SSA.SeaOfNodes.Memory.Diamond.LambdaSSA.schedule_eval body matched initial runTail
 
 theorem body_hasType (body : Memory.Body args past version) (route : Routing args past context)
     {label : Nat} (target : At labels label wordPacket) :
