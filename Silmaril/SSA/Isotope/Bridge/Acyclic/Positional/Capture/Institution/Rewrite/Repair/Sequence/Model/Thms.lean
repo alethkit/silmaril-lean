@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Sequence.Model.Defs
+public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Sequence.Model.Coherence.Thms
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Sequence.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Sequence.Model.Trace
 
@@ -66,16 +66,11 @@ theorem traceSat_iff_repaired (tail : List Sorts) (p q : Body) :
       Repaired false (equation tail p q) :=
   (traceSat_iff_normal tail p q).trans (repaired_iff_normal tail p q).symm
 
-/-- If the trace interpretation is region-typing-coherent, validity in its
-validated room has the same characterization. -/
-theorem validatedTrace_iff_repaired
-    (coherent : letI := traceInstructions
-      LambdaSSA.Semantics.Categorical.RegionTypingCoherent (Φ := signature.Instr)
-        traceJ traceTypes)
-    (tail : List Sorts) (p q : Body) :
+/-- The separator reflects validity in the existing validated room. -/
+theorem validatedTrace_iff_repaired (tail : List Sorts) (p q : Body) :
     (∀ B : (grammarRoom traceJ signature).Mod, (grammarRoom traceJ signature).Sat B (equation tail p q)) ↔
       Repaired false (equation tail p q) :=
-  ⟨fun h => (traceSat_iff_repaired tail p q).mp (h (validatedTrace coherent)),
+  ⟨fun h => (traceSat_iff_repaired tail p q).mp ((validatedTraceModel_sat_iff _).mp (h validatedTraceModel)),
     fun h => (sequencesEmpty_of_normal tail p q ((repaired_iff_normal tail p q).mp h)).sat⟩
 
 end Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Sequence

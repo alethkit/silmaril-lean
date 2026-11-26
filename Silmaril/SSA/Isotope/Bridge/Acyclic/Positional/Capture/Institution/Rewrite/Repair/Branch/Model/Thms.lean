@@ -10,7 +10,7 @@ public section
 
 namespace Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Branch
 
-open Sequence (Normal Sorts signature value run traceAlgebra traceJ traceTypes traceInstructions validatedTrace)
+open Sequence (Normal Sorts signature value run traceAlgebra traceJ validatedTraceModel)
 open LambdaSSA.Region (packedExitType)
 open LetIter.Semantics.Categorical (boundEnv)
 
@@ -40,25 +40,17 @@ theorem traceSat_iff_repaired (tail : List Sorts) (p q : ProgramBody) :
       Repaired false (equation tail p q) :=
   (traceSat_iff_normal tail p q).trans (repaired_iff_normal tail p q).symm
 
-/-- Room membership keeps the same region typing coherence premise as the
-straight-line comparison. -/
-theorem validatedTrace_sat_iff_repaired
-    (coherent : letI := traceInstructions
-      LambdaSSA.Semantics.Categorical.RegionTypingCoherent (Φ := signature.Instr) traceJ traceTypes)
-    (tail : List Sorts) (p q : ProgramBody) :
-    (grammarRoom traceJ signature).Sat (validatedTrace coherent) (equation tail p q) ↔
+/-- The admitted separator tests repaired derivability in the existing room. -/
+theorem validatedTrace_sat_iff_repaired (tail : List Sorts) (p q : ProgramBody) :
+    (grammarRoom traceJ signature).Sat validatedTraceModel (equation tail p q) ↔
       Repaired false (equation tail p q) :=
-  traceSat_iff_repaired tail p q
+  (Sequence.validatedTraceModel_sat_iff _).trans (traceSat_iff_repaired tail p q)
 
-/-- The validated trace model is sufficient to reflect room-wide validity on
-the branch slice whenever its region typing coherence is supplied. -/
-theorem repaired_of_validated_valid
-    (coherent : letI := traceInstructions
-      LambdaSSA.Semantics.Categorical.RegionTypingCoherent (Φ := signature.Instr) traceJ traceTypes)
-    (tail : List Sorts) (p q : ProgramBody)
+/-- The concrete model reflects room-wide validity on the branch slice. -/
+theorem repaired_of_validated_valid (tail : List Sorts) (p q : ProgramBody)
     (valid : ∀ B : (grammarRoom traceJ signature).Mod,
       (grammarRoom traceJ signature).Sat B (equation tail p q)) :
     Repaired false (equation tail p q) :=
-  (validatedTrace_sat_iff_repaired coherent tail p q).mp (valid (validatedTrace coherent))
+  (validatedTrace_sat_iff_repaired tail p q).mp (valid validatedTraceModel)
 
 end Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Branch
