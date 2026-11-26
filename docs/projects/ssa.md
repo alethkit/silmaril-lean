@@ -436,6 +436,19 @@ The continuation cannot jump back to its own label.
   the reduced algebra therefore gives the same coherent SSA model as
   expanding first and applying the witnessed SSA pullback.
   [Object-level expansion square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/TypeChange/Thms.lean)
+- The validated LetCase institution keeps the original exact equations,
+  with equality arrows between models carrying a chosen presentation.
+  Expansion and validation are inverse model functors onto the entire
+  discrete coherent SSA room. Forgetting the chosen presentation has
+  the same object image as the original SSA reduct. The algebra arrows
+  it carries are exactly the transports along equalities of validated
+  models. Reification and compilation are natural over the type-changing
+  signature category and preserve satisfaction. Compiling a reified
+  equation gives the original LetCase equation. Reifying a compiled SSA
+  equation can change the structured code while preserving truth in every
+  coherent model. Its fixed points are exactly the reified sentences.
+  Equational consequence agrees on the validated class.
+  [Validated institutional retraction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
