@@ -929,12 +929,53 @@ both callers before they assign their destinations. Lean checks the
 forwarded addresses, retained allocations, unassigned destinations
 and restored caller state.
 
-The suite theorem covers the immediate owned-name copy and the
-existing lexical, integer, index and singleton-list positional
-operands. Later callee provenance across intervening statements,
-other expression positions, keywords and spreads, general
-dispatch, loads, text parsing and module publication remain open.
+The immediate-copy rule covers the existing lexical, integer,
+index and singleton-list positional operands. The suite profile
+below removes the syntactic adjacency requirement for owned
+locals.
 [Suite rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
+
+### Live local closure provenance
+
+`Call.Suite.Provenance.Elaborates` admits calls through owned names
+across intervening definitions, lexical assignments and other
+checked calls. At activation the provenance map is empty. A
+reached definition records its emitted declaration at the target
+name. An owned-name copy transfers the source's current witness.
+An ordinary assignment or successful call result clears the
+destination. Distinct owned slots make rebinding one name
+independent of values copied to other slots. The live invariant
+connects each tracked name to its reached binding cell, the
+closure at the stored address, its saved defaults and its live
+capture cells.
+
+At invocation the proof reads that local and dispatches using its
+actual closure record. The ordered positional operands and
+existing binder run before activation. The callee suite starts
+with its own empty map under the reduced available declaration
+set. `entry_guard` derives availability from stable table lookup
+at ordinary function entry. Each child's earlier-emitted IDs
+survive removing its own ID, and the remaining declaration list
+strictly decreases. The assignment and the tail run after a
+successful restoration of the caller. Failure preserves the first
+reached error and exact heap while skipping the destination and
+tail.
+
+Lean and pinned Go check a transitive copy across an allocation
+and a second definition. The copy uses the original default and
+captured index after the original name is rebound and the
+intermediate alias overwritten. Calling the rebound name instead
+uses the replacement declaration and its required parameter.
+A reached operand error takes precedence over its binder. Lean
+also checks the earlier return, retained allocations and restored
+caller on both errors.
+
+Callable provenance from parameters, captures, module names, heap
+reads or returned values, calls through untracked values, other
+expression positions, keywords and spreads, general dispatch,
+loads, text parsing and module publication remain outside the
+profile.
+[Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

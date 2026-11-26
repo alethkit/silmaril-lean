@@ -99,4 +99,15 @@ inductive Runs : LexicalBlock → State → Statement → Functions.Body → Out
       Runs block state (assignment.source site.name rest) (assignment.code site.name tail)
         (result.resume fun _ _ => out)
 
+  | invoke {block : LexicalBlock} {state : State} {rest : Statement} {tail : Functions.Body} {id : DeclarationId}
+      {site : Site block} {callee destination : String} {arguments : List Expr} {codes : List Lowering.Expr}
+      {result : Outcome Lists.Value} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
+      Call.RunsWith site bodyRuns block id callee arguments codes state result →
+      (∀ active childOut, bodyRuns active childOut → Runs site.block active site.source site.body.code childOut) →
+      (∀ value returned, result = .ok value returned →
+        Runs block (returned.write (fileSlot destination) value) rest tail out) →
+      Runs block state (.seq (.assign destination (.call (.scalar (.read callee)) arguments [] none none)) rest)
+        (.seq (.assignExpr (fileSlot destination) (Call.expression callee codes)) tail)
+        (result.resume fun _ _ => out)
+
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite
