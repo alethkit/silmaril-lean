@@ -1,14 +1,15 @@
 module
 
-import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Host.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Host.Body.Thms
 import Silmaril.Wasm.Institution.Operational.HostCall.V1.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryQuery.Native.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Thms
 
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32
 
-open Execution.Runtime (AdminInstr Frame FuncAddr HostOutcome MemAddr MemInst ModuleInst Result Value)
+open Execution.Runtime (AdminInstr EvalCtx Frame FuncAddr HostOutcome MemAddr MemInst ModuleInst Result Value)
 open Wasm.V1.Execution
+open Computed
 
 private abbrev i32 := Value.int .i32
 private abbrev i64 := Value.int .i64
@@ -197,5 +198,132 @@ example : ¬ HostStoreEffect .fixed slot memory live { firstStore with tables :=
   have length := congrArg (fun s : Store Nat => s.tables.length) eq
   change 0 = 1 at length
   cases length
+
+private def sourceTail : List Op := [.ranked (.set ⟨0⟩), .load 1]
+private def numeric : List Prefix.Op := [.get ⟨0⟩, .bin .i32 .sub]
+private def seed : List Value := saved ++ [i64 81, i32 100]
+private def intermediate : List Value := seed ++ [i32 91]
+
+private theorem typedPrefix :
+    HostPrefixTyped fn caller seed numeric hostType sourceTail fn.declaration.results fn.entryLabels :=
+  ⟨rfl, rfl, rfl⟩
+
+private theorem getLocal : Prefix.Reduce caller.locals seed (.get ⟨0⟩) (.values intermediate) := .get rfl
+
+private theorem sum : Prefix.Reduce caller.locals intermediate (.bin .i32 .sub) (.values (saved ++ args)) :=
+  .bin (stack := saved ++ [i64 81]) rfl
+
+-- Derive the actual mixed-width argument suffix from the reached stack.
+private theorem reached :
+    site.Checked live caller args ∧
+    ∀ payload : List Value, payload.map Value.type = hostType.results →
+      fn.checkRegion (Prefix.stackTypes (saved ++ payload)) fn.declaration.results sourceTail fn.entryLabels = true := by
+  have ready := (typedPrefix.preserve getLocal).preserve sum
+  obtain ⟨below, actual, split, readySite, continuation⟩ :=
+    ready.arguments (site := site) (s := live) rfl rfl (by decide)
+  have length : actual.length = args.length := by
+    simpa [site, hostType, args] using congrArg List.length readySite.arguments
+  obtain ⟨rfl, rfl⟩ := List.append_inj' split length.symm
+  exact ⟨readySite, continuation⟩
+
+private def source : Config Nat := site.source live caller saved args tail
+private def start : Config Nat :=
+  ⟨live, caller, values seed ++ numeric.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: tail⟩
+
+private def context : EvalCtx Wasm.V1.Instr := .frame 1 caller (.label 1 [] .hole)
+
+private theorem reachesPending : Steps host (wrap start) (wrap pending) := by
+  have read := (v1_host_prefix_step_iff (host := host) (s := live)
+    (tail := Prefix.emit v1Syntax (.bin .i32 .sub) :: .source (.call site.index) :: tail)).mpr
+      ⟨.values intermediate, getLocal, rfl⟩
+  have subtract := (v1_host_prefix_step_iff (host := host) (s := live) (tail := .source (.call site.index) :: tail)).mpr
+    ⟨.values (saved ++ args), sum, rfl⟩
+  have resolve : Step host source pending := (HostCall.V1.source_step_iff reached.1.resolved).mpr rfl
+  have readInside := Step.plug_activeFrame context outer (host := host) read
+  have addInside := Step.plug_activeFrame context outer (host := host) subtract
+  have resolveInside := Step.plug_activeFrame context outer resolve
+  exact .head readInside (.head addInside (.single resolveInside))
+
+private theorem wrapAllowed (code : List Admin) (allowed : CodeAllowed program slot 0 caller.module code) :
+    CodeAllowed program slot 1 outer.module (context.plug value code) := by
+  intro item member
+  change item ∈ [AdminInstr.frame 1 caller [.label 1 [] code]] at member
+  obtain rfl := List.mem_singleton.mp member
+  refine .frame (address := wasmAddress) (fn := fn) rfl (by decide) rfl rfl ?_
+  intro body h
+  obtain rfl := List.mem_singleton.mp h
+  exact .label (by decide) allowed
+
+private theorem wrapRun {a b : Config Nat} (run : Steps CallFrame.v1NoHost a b) :
+    Steps host (wrap a) (wrap b) := by
+  induction run with
+  | refl => exact .refl
+  | tail _ step ih => exact ih.tail (.frame (.label (Step.of_internal step) 1 []) 1 outer)
+
+private theorem checkedRun {dst : Config Nat} (run : Steps host (wrap pending) dst) (moved : dst ≠ wrap pending) :
+    ∃ start out, Runs program slot start out ∧ Ready program slot 1 memory.data.size out ∧
+      dst = render base slot memory out := by
+  have correspondence := v1_host_graph_run_iff (host := host) (mode := .fixed) (calls := .ranked)
+    (bytes := prior) (k := context) (outer := outer) (saved := saved) (dst := dst)
+    graphChecked layout trivial rfl reached.1 contract tailAllowed wrapAllowed
+  rcases correspondence.mp run with stopped | ⟨_, _, _, out, _, _, _, _, _, edges, finalReady, rendered⟩
+  · exact (moved stopped).elim
+  · exact ⟨_, out, edges, finalReady, rendered⟩
+
+example : Steps host (wrap start) (wrap observedFirst) :=
+  reachesPending.trans (.head (.frame (.label (delivery .first) 1 []) 1 outer) (wrapRun first))
+
+private def observedByte (cfg : Config Nat) : Option UInt8 :=
+  cfg.store.memories[0]?.map fun inst => inst.data[1]!
+
+example := checkedRun (.head (.frame (.label (delivery .first) 1 []) 1 outer) (wrapRun first)) (by
+  intro eq
+  have byte := congrArg observedByte eq
+  change some 0x44 = some 0x55 at byte
+  cases byte)
+
+example := checkedRun (.head (.frame (.label (delivery .second) 1 []) 1 outer) (wrapRun second)) (by
+  intro eq
+  have byte := congrArg observedByte eq
+  change some 0x99 = some 0x55 at byte
+  cases byte)
+
+example := checkedRun (.head (.frame (.label (delivery .trap) 1 []) 1 outer) (Steps.of_internal unwind)) (by
+  intro eq
+  have byte := congrArg observedByte eq
+  change some 0x99 = some 0x55 at byte
+  cases byte)
+
+-- The host's divergence and lack of a declared outcome remain distinct even
+-- with a live function frame and label.
+example : Step host (wrap pending) (wrap pending) :=
+  (v1_host_pending_step_iff (outer := outer) (k := context) (saved := saved) (tail := tail) reached.1).mpr
+    (.inr ⟨⟨rfl, rfl, rfl, .diverge⟩, rfl⟩)
+
+example {dst : Config Nat} : ¬ Step CallFrame.v1NoHost (wrap pending) dst := by
+  intro move
+  rcases (v1_host_pending_step_iff (outer := outer) (k := context) (saved := saved) (tail := tail)
+    reached.1).mp move with ⟨_, _, impossible, _⟩ | ⟨impossible, _⟩
+  · exact impossible
+  · exact impossible
+
+example : fn.checkHostPrefix (Prefix.stackTypes seed) numeric
+    ⟨[.int .i32, .int .i64], hostType.results⟩ sourceTail fn.declaration.results fn.entryLabels = false := rfl
+
+example : fn.checkHostPrefix (Prefix.stackTypes seed) numeric hostType [.store 1]
+    fn.declaration.results fn.entryLabels = false := rfl
+
+-- A well-typed numeric prefix can trap before the direct call resolves.
+private def divide : Prefix.Op := .bin .i32 (.div .unsigned)
+private def zeroDivisor : List Value := (saved ++ [i64 81]) ++ [i32 9, i32 0]
+
+example : fn.checkHostPrefix (Prefix.stackTypes zeroDivisor) [divide] hostType sourceTail
+    fn.declaration.results fn.entryLabels = true := rfl
+
+example : Step host
+    ⟨live, caller, values zeroDivisor ++ Prefix.emit v1Syntax divide :: .source (.call site.index) :: tail⟩
+    ⟨live, caller, values (saved ++ [i64 81]) ++ .trap :: .source (.call site.index) :: tail⟩ :=
+  v1_host_prefix_step_iff.mpr
+    ⟨.trap (saved ++ [i64 81]), .trap (stack := saved ++ [i64 81]) (Numerics.intBinOp_div_zero .i32 .unsigned 9), rfl⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32
