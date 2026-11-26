@@ -53,8 +53,12 @@ private theorem branch_comp_eq {Q R S : τ} {a b c : Tm Φ}
   simp only [compLSubst, lsubst, liftLSubstVars, substVars_renameVars, Region.substVars, liftEq, e]
   exact Paper.Eqv.refl (.br rfl hc.hasType)
 
+theorem reset_comp_reset {later : Tm Φ} (hlater : Tm.BranchValue [] later P) :
+    action hw .literal ≫ action hlater .literal = action hlater .literal :=
+  branch_comp_eq (resetValue hw) (resetValue hlater) (resetValue hlater) (closed_subst hlater rfl _)
+
 private theorem reset_idem : action hw .literal ≫ action hw .literal = action hw .literal :=
-  branch_comp_eq (resetValue hw) (resetValue hw) (resetValue hw) (closed_subst hw rfl _)
+  reset_comp_reset hw hw
 
 theorem reset_then_inl :
     action hw .literal ≫ (sumCofan P P).inl =

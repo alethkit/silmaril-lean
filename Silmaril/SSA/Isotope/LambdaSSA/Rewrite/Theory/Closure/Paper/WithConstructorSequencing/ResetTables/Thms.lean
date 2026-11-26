@@ -22,6 +22,17 @@ local notation "iterate" => Paper.TypeCategory.iterate
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {P : τ} {w : Tm Φ} (hw : Tm.BranchValue [] w P)
 
+/-- A second constructor assignment replaces an earlier one. -/
+theorem reset_comp_reset {later : Tm Φ} (hlater : Tm.BranchValue [] later P) :
+    action hw .literal ≫ action hlater .literal = action hlater .literal :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ResetTables.reset_comp_reset hw hlater
+
+/-- The iteration of a resetting singleton self-loop equals the forwarding loop. -/
+theorem iterate_selfStep (Y : Paper.TypeCategory (τ := τ) Φ) (m : Payload) :
+    iterate (action hw m ≫ (coprod.inr : ofType P ⟶ Y ⨿ ofType P)) =
+      iterate (coprod.inr : ofType P ⟶ Y ⨿ ofType P) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ResetTables.iterate_selfStep hw Y m
+
 /-- A finite composition of payload actions remembers whether a reset occurred. -/
 theorem action_comp (left right : Payload) :
     action hw left ≫ action hw right = action hw (left.then right) :=
