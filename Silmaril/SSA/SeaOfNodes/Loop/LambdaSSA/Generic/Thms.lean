@@ -4,6 +4,7 @@ public import Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.Defs
 public import Silmaril.SSA.SeaOfNodes.Loop.Thms
 public import Silmaril.SSA.PhiView.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.Correctness
+import Silmaril.Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.Activation
 
 /-! # Typing and finite operational agreement of the generated CFG -/
 
@@ -12,7 +13,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA.Generic
 
 open Diamond (Model Val ValueSort dataPorts sortValue)
-open Diamond.LambdaSSA (Atom LayoutMatch encodeTuple inputEnv instruction)
+open Diamond.LambdaSSA (Atom Code LayoutMatch Primitive encodeTuple inputEnv instruction)
 open RVSDG (Tuple)
 open Silmaril.Isotope (Value)
 open Silmaril.Isotope.LambdaSSA
@@ -24,6 +25,28 @@ variable {Data : Type u} {Op : Diamond.Signature.{u,v} Data} {σ : Type x}
 variable {inputs carried : List (ValueSort Data)}
 variable {entrySigs headerSigs : List (List (Diamond.Ty Data))} {out : ValueSort Data}
 variable (g : Graph Op inputs carried entrySigs headerSigs out)
+
+section Unpack
+
+variable {ports : List (Diamond.Ty Data)} {context labels : List (Code Data)}
+variable {tail : Region (Primitive Op)}
+
+/-- A region following tuple destructuring sees the expanded variable context. -/
+theorem unpack_typed (ports : List (Diamond.Ty Data))
+    (typed : tail.HasType (unpackContext context ports) labels) :
+    (unpack ports tail).HasType (packed ports :: context) labels :=
+  Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.unpack_typed ports typed
+
+/-- Structurally decode a packed tuple, preserving the observation of the tail. -/
+theorem unpack_eval (m : Model.{u,v,w} Op) (values : Tuple (Val m.value) ports) (captured : Env (Atom m))
+    {start finish : σ} {label : Nat} {payload : Value (Atom m)}
+    (runTail : Semantics.Region.Eval (instruction m) (unpackEnv m values captured)
+      tail start label payload finish) :
+    Semantics.Region.Eval (instruction m) (extend captured (encodeTuple m values))
+      (unpack ports tail) start label payload finish :=
+  Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.unpack_eval m values captured runTail
+
+end Unpack
 
 theorem lower_hasType : (lower g).HasType (inputContext inputs) [packed [.value out]] :=
   Proofs.SSA.SeaOfNodes.Loop.LambdaSSA.Generic.lower_hasType g
