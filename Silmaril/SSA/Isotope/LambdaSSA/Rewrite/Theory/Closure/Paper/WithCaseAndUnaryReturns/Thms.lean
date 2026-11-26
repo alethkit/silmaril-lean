@@ -15,7 +15,7 @@ open Silmaril Silmaril.Isotope.LambdaSSA
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
 open CategoryTheory CategoryTheory.Limits
 open CfgEta.TypeCategory (returnRegion_typed)
-open Paper.Extension.Singleton (ofRegion)
+open Paper.Extension.Singleton (diagonalArrow ofRegion ofType whiskerLeftFunctor)
 open Paper.Extension.Singleton.Generation (Generated)
 open Paper.Extension.Singleton.ValueCoproducts (exactCopair)
 open Paper.RetainedLet (unpackBody_typed)
@@ -52,6 +52,16 @@ include contains in
 theorem returnLet_eq_let (ha : Tm.HasType [X] a A) (hb : Tm.HasType [A, X] b D) :
     Lit (returnRegion_typed (.let₁ ha hb)) = Lit (.let₁ ha (returnRegion_typed hb)) :=
   CaseAndUnaryReturnGeneration.returnLet_eq_let pe Seed contains ha hb
+
+include contains in
+/-- Copy the input, compute the scrutinee once on the right, then run the body
+on the original input and the scrutinee result. -/
+theorem literalLet_eq_copy_whisker_unpack {r : Region Φ} (ha : Tm.HasType [X] a A)
+    (hr : ValueBranches [A, X] r [D]) :
+    Lit (.let₁ ha hr) =
+      (diagonalArrow Seed (ofType Seed X) ≫ (whiskerLeftFunctor Seed (ofType Seed X)).map
+        (Lit (returnRegion_typed ha))) ≫ Lit (unpackBody_typed hr) :=
+  CaseAndUnaryReturnGeneration.literalLet_eq_copy_whisker_unpack pe Seed contains ha hr
 
 include contains in
 /-- Generation of the returned scrutinee and the packed body gives generation of the literal unary let. -/

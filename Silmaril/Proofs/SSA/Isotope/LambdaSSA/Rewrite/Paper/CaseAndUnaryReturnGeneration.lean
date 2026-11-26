@@ -16,7 +16,7 @@ open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open Paper.WithCaseAndUnaryReturns
 open CategoryTheory CategoryTheory.Limits
 open CfgEta.TypeCategory (returnRegion_typed seqValueBranches caseValueBranches)
-open Paper.Extension.Singleton (ofRegion ofRegion_eq_iff)
+open Paper.Extension.Singleton (diagonalArrow ofRegion ofRegion_eq_iff ofType whiskerLeftFunctor)
 open Paper.Extension.Singleton.Generation (Generated generated_branchValue generated_primitive_branchValue)
 open Paper.Extension.Singleton.ValueCoproducts (exactCopair)
 open Paper.RetainedLet (returnOnce_typed unpackBody_typed diagonal_typed)
@@ -68,13 +68,13 @@ theorem returnLet_eq_let (ha : Tm.HasType [X] a A) (hb : Tm.HasType [A, X] b D) 
 
 set_option backward.isDefEq.respectTransparency false in
 include contains in
-theorem generated_returnLet {r : Region Φ} (ha : Tm.HasType [X] a A)
-    (hr : ValueBranches [A, X] r [D]) (g₁ : Generated (Seed) (Lit (returnRegion_typed ha)))
-    (g₂ : Generated (Seed) (Lit (unpackBody_typed hr))) :
-    Generated (Seed) (Lit (.let₁ ha hr)) := by
+theorem literalLet_eq_copy_whisker_unpack {r : Region Φ} (ha : Tm.HasType [X] a A)
+    (hr : ValueBranches [A, X] r [D]) :
+    Lit (.let₁ ha hr) =
+      (diagonalArrow Seed (ofType Seed X) ≫ (whiskerLeftFunctor Seed (ofType Seed X)).map
+        (Lit (returnRegion_typed ha))) ≫ Lit (unpackBody_typed hr) := by
   have h : Lit (returnRegion_typed ha) = Lit (returnOnce_typed ha) :=
-    (ofRegion_eq_iff (Seed) _ _).2 (Paper.UnaryReturn.returnRegion_eq_returnOnce (fun h => contains (includeUnary pe h)) ha)
-  have gr := h ▸ g₁
+    (ofRegion_eq_iff Seed _ _).2 (Paper.UnaryReturn.returnRegion_eq_returnOnce (fun h => contains (includeUnary pe h)) ha)
   let diag := diagonal_typed (Φ := Φ) X
   let scrutinee := returnOnce_typed ha
   let retained := CfgEta.TypeCategory.whiskerLeftRegion_typed X scrutinee
@@ -82,13 +82,19 @@ theorem generated_returnLet {r : Region Φ} (ha : Tm.HasType [X] a A)
   let sequenced := seqValueBranches diag retained
   let body := seqValueBranches sequenced pack
   have eq : Lit body = Lit (.let₁ ha hr) :=
-    (ofRegion_eq_iff (Seed) body (.let₁ ha hr)).2 (.paper (Paper.RetainedLet.literal_let ha hr.hasType))
-  rw [← eq]
-  change Generated (Seed) ((P).map (Paper.TypeCategory.ofRegion body))
+    (ofRegion_eq_iff Seed body (.let₁ ha hr)).2 (.paper (Paper.RetainedLet.literal_let ha hr.hasType))
+  rw [← eq, h]
+  change (P).map (Paper.TypeCategory.ofRegion body) = _
   rw [← Paper.TypeCategory.ofRegion_comp sequenced pack body,
     ← Paper.TypeCategory.ofRegion_comp diag retained sequenced,
     ← Paper.TypeCategory.whiskerLeft_ofRegion X scrutinee, (P).map_comp, (P).map_comp]
-  exact .comp (.comp (.copy X) (.left X gr)) g₂
+  rfl
+
+include contains in
+theorem generated_returnLet {r : Region Φ} (ha : Tm.HasType [X] a A)
+    (hr : ValueBranches [A, X] r [D]) (g₁ : Generated Seed (Lit (returnRegion_typed ha)))
+    (g₂ : Generated Seed (Lit (unpackBody_typed hr))) : Generated Seed (Lit (.let₁ ha hr)) :=
+  (literalLet_eq_copy_whisker_unpack pe Seed contains ha hr).symm ▸ .comp (.comp (.copy X) (.left X g₁)) g₂
 
 include contains in
 /-- A returning let with a genuinely retained input uses the returned

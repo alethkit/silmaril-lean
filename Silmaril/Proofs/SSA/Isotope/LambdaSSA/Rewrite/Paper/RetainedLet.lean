@@ -1,11 +1,13 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Values.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Tensor.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Iteration.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Singleton.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Outward.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.ReturnFusion.Thms
 
 /-! # Proofs of literal retained unary let -/
 
@@ -165,6 +167,7 @@ open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (duplicate)
 
 universe u₁ u₂ v₁ v₂
 
@@ -191,6 +194,26 @@ theorem returnOnce_denotation (ha : Tm.HasType [X] a A)
     denoteRegion J M (returnOnce_typed ha).hasType at hb
   rw [← hb]
   exact denoteSingletonRegion_br J M d
+
+set_option backward.isDefEq.respectTransparency false in
+theorem unpack_return_let₂_denotation
+    (copyCentral : ∀ E : V, PremonoidalCategory.IsCentral (J.map (duplicate E) ≫
+      (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
+    {X A D : τ} {b : Tm Φ} (hb : Tm.HasType [A, X] b D) :
+    denoteRegion J M (unpackBody_typed (returnRegion_typed hb)).hasType =
+      denoteRegion J M (returnRegion_typed (.let₂ (.var (i := 0) rfl)
+        (hb.rename (((Ren.wk [] (product X A)).lift X).lift A)))).hasType := by
+  let ren := ((Ren.wk ([] : VCtx τ) (product X A)).lift X).lift A
+  let hp : Tm.HasType [product X A] (.var 0 : Tm Φ) (product X A) := .var rfl
+  have shape : unpackBody (returnRegion b) =
+      .let₂ (.var 0) (returnRegion (b.rename (lift (lift Nat.succ)))) :=
+    congrArg (Region.let₂ (.var 0)) (returnRegion_rename b _).symm
+  have same {r s : Region Φ} (eq : r = s) (hr : HasType [product X A] r [D]) (hs : HasType [product X A] s [D]) :
+      denoteRegion J M hr = denoteRegion J M hs := by
+    subst s
+    rfl
+  exact (same shape _ (.let₂ hp (returnRegion_typed (hb.rename ren)).hasType)).trans
+    (denote_let₂_returnRegion_fusion J M copyCentral hp (hb.rename ren))
 
 end Denotation
 

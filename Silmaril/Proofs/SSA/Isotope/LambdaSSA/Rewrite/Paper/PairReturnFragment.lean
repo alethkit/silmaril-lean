@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Generation.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPairReturns.Thms
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseAndUnaryReturns.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedLet.Generation.Thms
 
 /-! # Generation of recursive singleton returns -/
 
@@ -61,6 +61,9 @@ theorem generated_returnFragment {computedCalls : Bool}
   | @seq X A D a b ha hb _ _ ga gb =>
     rw [Paper.WithCaseAndUnaryReturns.returnLet_eq_comp Seed ha hb]
     exact .comp ga gb
+  | @retained X A D a c ha hc _ _ ga gc =>
+    exact Paper.RetainedLet.generated_packed_returnLet Seed pe
+      (fun step => includeJoin (.inl (.inr step))) ha hc ga gc
   | @caseInput A B D a b ha hb pa pb _ _ ga gb =>
     rw [Paper.WithCaseAndUnaryReturns.returnCase_eq_copair pe Seed (fun step => includeJoin (.inl (.inr step))) ha hb pa pb]
     exact .copair ga gb
