@@ -185,8 +185,78 @@ stride. It also checks re-emission after swapping inputs 0 and 1
 using `Rows.Reindex.Thms`.
 [Simple comparison class][simple-lt] · [Signed guard regression][signed-regression]
 
+## Check a native signed loop
+
+`Rows.Native.lowerChecked` takes a typed `BankGraph` directly.
+It reconstructs the guarded row from the native header and its entry
+and feedback columns, then checks the reconstructed opcodes and typed
+wire origins against the graph. `Native.recognize_sound` proves the
+checked plan reconstructs that graph, including the predicate and
+exit projection. `Native.activation_agrees` identifies the taken
+packet in both emitted targets. The two return iff laws preserve the
+whole memory, and `Native.no_finite_return_iff` handles undefinedness
+without choosing a common fuel.
+
+The admitted shape has an empty preheader and equal input and bank widths.
+Each wrapping add/sub reads the old bank and supplies exactly one feedback
+destination. Remaining feedback slots copy old words. The final signed
+comparison reads two distinct row results in their native order. The
+true successor feeds back the whole tuple and the false successor returns
+an old field or a row result. The native `Loop.Graph` fixes that polarity.
+This adapter covers the two-computed-operand guard shape. It does not admit
+literal comparisons or pretest graphs whose comparison reads the old bank.
+
+This example isolates Simple chapter 13's
+`(arg + 79) < (32 - arg)` continuation test. The example passes
+the offsets as inputs and exposes the computed RHS on exit.
+[Simple loop branch][simple-two-expressions] · [Native regression][native-guard-regression]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (model word)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.SSA.SeaOfNodes.Diamond.LambdaSSA (inputEnv)
+open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
+
+def oldPort (slot : Fin 4) := suffixPort (wordPorts 4) (argumentPort 4 slot)
+
+def source : BankGraph 4 [[wordPort], [wordPort], [.value .predicate]] where
+  preheader := .nil
+  header :=
+    .cons .add (.cons (.arg (oldPort 0)) (.cons (.arg (oldPort 1)) .nil))
+      (.cons .sub (.cons (.arg (oldPort 2)) (.cons (.arg (oldPort 0)) .nil))
+        (.cons .slt (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil)) .nil))
+  phiInputs
+    | .entry => .cons (.arg (argumentPort 4 0)) (.cons (.arg (argumentPort 4 2))
+        (.cons (.arg (argumentPort 4 1)) (.cons (.arg (argumentPort 4 3)) .nil)))
+    | .backedge => .cons (.output (0 : Fin 3) .head) (.cons (.arg (oldPort 1))
+        (.cons (.arg (oldPort 2)) (.cons (.output (1 : Fin 3) .head) .nil)))
+  predicate := .output (2 : Fin 3) .head
+  result := .output (1 : Fin 3) .head
+
+#eval do
+  let (rtl, ssa) ← Native.lowerChecked source
+  let input : WordTuple 4 := .cons (-80 : Word) (.cons (32 : Word) (.cons (79 : Word) (.cons (0 : Word) .nil)))
+  let mem := Memory.ofList 4 [29, 71, 53, 11]
+  let machine := (rtl.runMain 10 0 (words input) mem).returnedValues?
+  let typed := (Generic.Fuel.run model (inputEnv model input) 2 ssa).bind fun (_, packet) =>
+    (Generic.Fuel.decodeArgs model [word] packet).map fun fields => Silmaril.SSA.RVSDG.Tuple.get fields .head
+  pure (machine.map (List.map BitVec.toNat), typed.map BitVec.toNat)
+-- some (some [33], some 33)
+```
+
+The first guard compares `-1 < 112` and feeds back
+`(-1, 79, 32, 112)`. Both unsigned and reversed comparison would
+return 112 there. The next guard compares `78 < 33`, so both targets
+return the fresh RHS 33. The checker refuses changing the add's left
+operand to the captured input, which would stop reading the latched value.
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
+  +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.SignedGuardRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.BankOperandRegression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.ComputedExitRegression \
@@ -209,3 +279,4 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [simple-two-expressions]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter13/src/test/java/com/seaofnodes/simple/Chapter13Test.java#L169-L173
 [simple-lt]: https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter13/src/main/java/com/seaofnodes/simple/node/BoolNode.java#L72
 [signed-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Fuel/SignedGuardRegression.lean
+[native-guard-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Regression.lean
