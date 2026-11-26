@@ -7,20 +7,21 @@ import Silmaril.SSA.MLIR.CF.SwitchAssert.Denotation.Thms
 
 public section
 
-namespace Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Proofs
+namespace Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Bank.Proofs
 
-open Diamond (Dataflow dataPorts)
+open Diamond (Dataflow)
 open Diamond.SCCP (TupleCovers)
 open RVSDG (extend)
 open SeaOfNodes.MLIR (Word sourceInputs)
 open SeaOfNodes.MLIR.Lowering (Scope lowerCode)
-open Loop.MLIR.CF (Label TargetOp evalOp headerScope headerTerm inputSorts lower model opcode)
+open Loop.MLIR.CF (TargetOp evalOp model opcode)
+open Loop.MLIR.CF.Bank (Label Values bankEnv headerScope headerTerm lower)
 open Silmaril.MLIR.Arith (Env Width)
 open Silmaril.MLIR.CF (Cfg Frame Terminator)
 open Silmaril.MLIR.Pure (Code)
 open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 
-variable {Γ : List Width} {carried result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
+variable {Γ carried : List Width} {result : Width} {entrySigs headerSigs : List (List (Diamond.Ty Width))}
 
 private theorem map_lowerCode {ports : List (Diamond.Ty Width)} {past sigs : List (List (Diamond.Ty Width))}
     (flow : Dataflow Loop.MLIR.CF.Op ports past sigs) (scope : Scope ports past Γ)
@@ -34,7 +35,7 @@ private theorem map_lowerCode {ports : List (Diamond.Ty Width)} {past sigs : Lis
     congr 1
     exact ih _ (fun final => finish final)
 
-variable (g : Loop.MLIR.CF.Program Γ carried result entrySigs headerSigs) (facts : InputFacts Γ)
+variable (g : Loop.MLIR.CF.Bank.Program Γ carried result entrySigs headerSigs) (facts : InputFacts Γ)
 variable (input : Env Γ)
 
 theorem header_shape :
@@ -85,44 +86,45 @@ theorem rewrite_eq_some_iff {cfg : Cfg TargetOp (Label carried result) Γ [resul
     exact ⟨(fun equal => nomatch equal), fun claims => (refused claims.1).elim⟩
 
 theorem step_exit (admitted : ExitOnly g facts) (covered : TupleCovers facts (sourceInputs input))
-    {old : Word carried} (hold : BankCovers (solve model g facts).2.1 (.cons old .nil)) :
-    ∃ value, g.step model (sourceInputs input) (.cons old .nil) = .inl value := by
+    {old : Values carried} (hold : BankCovers (solve model g facts).2.1 old) :
+    ∃ value, g.step model (sourceInputs input) old = .inl value := by
   have step := solve_step model g (input := facts) (entry := sourceInputs input)
-    (old := .cons old .nil) covered hold
-  cases h : g.step model (sourceInputs input) (.cons old .nil) with
+    (old := old) covered hold
+  cases h : g.step model (sourceInputs input) old with
   | inl value => exact ⟨value, rfl⟩
   | inr next =>
     rw [h] at step
     exact False.elim (admitted.2 step.1)
 
-theorem header_frame (old : Word carried) (value : Word result)
-    (taken : g.step model (sourceInputs input) (.cons old .nil) = .inl value) :
-    ((directExit g).block .header).eval evalOp (fun term env => term.eval env) (.cons old input) =
+theorem header_frame (old : Values carried) (value : Word result)
+    (taken : g.step model (sourceInputs input) old = .inl value) :
+    ((directExit g).block .header).eval evalOp (fun term env => term.eval env) ((bankEnv old).append input) =
       .inl ⟨.exit, .cons value .nil⟩ := by
   apply eval_mapTerm
-  rw [Loop.MLIR.CF.lower_header_frame, taken]
+  rw [Loop.MLIR.CF.Bank.lower_header_frame, taken]
 
-private theorem run_at_exit (old : Word carried) (value : Word result)
-    (initial : (g.initial model (sourceInputs input)).get .head = old)
-    (taken : g.step model (sourceInputs input) (.cons old .nil) = .inl value) (fuel : Nat) :
+private theorem run_at_exit (value : Word result)
+    (taken : g.step model (sourceInputs input) (g.initial model (sourceInputs input)) = .inl value) (fuel : Nat) :
     (directExit g).run evalOp fuel input = (lower g).run evalOp fuel input := by
-  have entry := Loop.MLIR.CF.lower_entry_frame g input
-  rw [initial] at entry
-  have header := Loop.MLIR.CF.lower_header_frame g input old
+  let old := g.initial model (sourceInputs input)
+  have entry := Loop.MLIR.CF.Bank.lower_entry_frame g input
+  have header := Loop.MLIR.CF.Bank.lower_header_frame g input old
+  change g.step model (sourceInputs input) old = .inl value at taken
   rw [taken] at header
   have direct := header_frame g input old value taken
   cases fuel with
   | zero => rfl
   | succ fuel =>
     have directEntry : (directExit g).entry.eval evalOp (fun term env => term.eval env) input =
-        .inl (⟨.header, .cons old .nil⟩ : Frame (Label carried result)) := entry
+        .inl (⟨.header, bankEnv old⟩ : Frame (Label carried result)) := entry
     unfold Cfg.run
     rw [Cfg.runBlock, Cfg.runBlock, directEntry, entry]
     cases fuel with
     | zero => rfl
     | succ fuel =>
-      change (directExit g).runBlock evalOp input (fuel + 1) ((directExit g).block .header) (.cons old input) =
-        (lower g).runBlock evalOp input (fuel + 1) ((lower g).block .header) (.cons old input)
+      change (directExit g).runBlock evalOp input (fuel + 1) ((directExit g).block .header)
+          ((bankEnv old).append input) =
+        (lower g).runBlock evalOp input (fuel + 1) ((lower g).block .header) ((bankEnv old).append input)
       rw [Cfg.runBlock, Cfg.runBlock, direct, header]
       cases fuel <;> rfl
 
@@ -131,20 +133,16 @@ theorem run_eq (admitted : ExitOnly g facts) (covered : TupleCovers facts (sourc
     (directExit g).run evalOp fuel input = (lower g).run evalOp fuel input := by
   have initial : BankCovers (solve model g facts).2.1 (g.initial model (sourceInputs input)) :=
     (solve_arrives model g covered .entry).2
-  generalize h : g.initial model (sourceInputs input) = latch at initial ⊢
-  cases latch with
-  | cons old tail =>
-    cases tail
-    obtain ⟨value, taken⟩ := step_exit g facts input admitted covered initial
-    exact run_at_exit g input old value (congrArg (fun bank => bank.get .head) h) taken fuel
+  obtain ⟨value, taken⟩ := step_exit g facts input admitted covered initial
+  exact run_at_exit g input value taken fuel
 
 theorem denotePart_eq (admitted : ExitOnly g facts) (covered : TupleCovers facts (sourceInputs input)) :
     (Silmaril.MLIR.CF.SwitchAssert.Cfg.embed (directExit g)).denotePart evalOp input =
       (g.denote model (sourceInputs input)).map (fun value => Outcome.returned (.cons value .nil)) := by
-  rw [← Loop.MLIR.CF.lower_denotePart]
+  rw [← Loop.MLIR.CF.Bank.lower_denotePart]
   apply Part.ext
   intro outcome
   simp only [Silmaril.MLIR.CF.SwitchAssert.Cfg.mem_denotePart_iff,
     Silmaril.MLIR.CF.SwitchAssert.Cfg.embed_run, run_eq g facts input admitted covered]
 
-end Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Proofs
+end Silmaril.SSA.SeaOfNodes.Loop.SCCP.PruneExit.Bank.Proofs
