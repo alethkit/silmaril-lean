@@ -186,6 +186,22 @@ theorem selected_frame (block : LexicalBlock) (declaration : Declaration)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.selected_frame block declaration slots
     selected caller owner captures installed cells assigned
 
+theorem frame_preserved {block : LexicalBlock} {free : List FreeName} {floor : Nat} {state next : State}
+    (frame : Frame block free floor state) (kept : Keeps state.heap.size state next) :
+    Frame block free floor next :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.extend_frame frame
+    ⟨kept.1, fun address cell found => kept.2 address cell (Array.getElem?_eq_some_iff.mp found).choose found⟩
+
+theorem written_frame {block : LexicalBlock} {free : List FreeName} {floor : Nat}
+    {state : State} {name : String} (member : name ∈ block.owned) (value : Lists.Value)
+    (frame : Frame block free floor state) :
+    Frame block free floor (state.write (fileSlot name) value) ∧ Keeps floor state (state.write (fileSlot name) value) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.written_frame member value frame
+
+theorem keeps_trans {floor : Nat} {first middle last : State}
+    (head : Keeps floor first middle) (tail : Keeps floor middle last) : Keeps floor first last :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.keeps_trans head tail
+
 /-- Each reached assignment extends the trace once. A reached error
 retains the prior heap and stops the body. The final frame is preserved
 and the source outcome agrees exactly with execution and denotation. -/

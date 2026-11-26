@@ -95,4 +95,31 @@ theorem runs_installed_alias {parent : LexicalBlock} (site : Site parent)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias
     site profile checked table id found available permitted step receipts cells owned legal frame related
 
+/-- The alias call keeps its caller's slot map and every cell present before
+argument evaluation, on success and on every admitted error. -/
+theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site parent)
+    {seed final : Program} {emissions : Emissions}
+    (profile : Elaborates site.block site.source seed site.body final emissions)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (id : DeclarationId) (found : resolved.program[id]? = some site.declaration)
+    (available : List DeclarationId) (permitted : id ∈ available)
+    {defining installed : State} {captures : List Capture}
+    (step : Nested.SiteResult parent site.name site.parameters site.defaults id captures defining (.ok .next installed))
+    (receipts : Installs defining site.free captures) (cells : Body.CaptureCells defining captures)
+    {name : String} (owned : name ∈ parent.owned) (legal : name.toList.head? ≠ some '$')
+    {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor installed)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments parent arguments codes reads) :
+    ∃ address out, Body.Evaluates parent installed (.scalar (.read site.name)) (Leaf.readOperand (fileSlot site.name))
+        (.ok (.function address) installed) ∧
+      (let copied := installed.write (fileSlot name) (.function address)
+       (Lowering.Resolve.resolveTracked parent.context (.call (.scalar (.read name)) arguments [] none none) =
+          .ok (expression name codes, fileSlot name :: reads)) ∧
+       Runs site parent id name arguments codes copied out ∧
+       ExecExpr resolved.program available copied (expression name codes) out ∧
+       Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving
+    site profile checked table id found available permitted step receipts cells owned legal frame related
+
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call
