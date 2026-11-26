@@ -16,6 +16,42 @@ ROOT = Path(__file__).resolve().parents[4]
 EMITTER = ROOT / "tools/python-source/source_ast.py"
 LAKE = os.environ.get("LAKE", "lake")
 
+# Run the first fixture through Lake and snapshot its child environment without
+# sending the snapshot through the fixture's stdout or stderr.
+_CAPTURE_AND_EXEC = """
+import json
+import os
+import sys
+
+with open(sys.argv[1], "w", encoding="ascii") as snapshot:
+    json.dump([os.getcwd(), dict(os.environ)], snapshot)
+os.execvp(sys.argv[2], sys.argv[2:])
+"""
+_lean_context = None
+
+
+def _run_lean(destination, *, capture_output):
+    global _lean_context
+    command = ["lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)]
+    options = {"capture_output": capture_output, "text": True}
+    if os.name != "posix":
+        return subprocess.run([LAKE, "env", *command], cwd=ROOT, **options)
+    if _lean_context is not None:
+        cwd, env = _lean_context
+        return subprocess.run(command, cwd=cwd, env=env, **options)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        snapshot = Path(tmp) / "environment.json"
+        result = subprocess.run(
+            [LAKE, "env", sys.executable, "-I", "-S", "-c", _CAPTURE_AND_EXEC, str(snapshot), *command],
+            cwd=ROOT,
+            **options,
+        )
+        if result.returncode == 0:
+            # Each driver loads its own copy of this helper via runpy.
+            _lean_context = json.loads(snapshot.read_text(encoding="ascii"))
+        return result
+
 
 def emit(source, destination, text, *, check=True):
     source.write_text(text, encoding="utf-8")
@@ -37,12 +73,7 @@ def check_lean(destination, regression, *, extra_imports=(), capture_output=Fals
         original.replace(f"public import {syntax}", imports, 1) + "\n" + regression,
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [LAKE, "env", "lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)],
-        cwd=ROOT,
-        capture_output=capture_output,
-        text=True,
-    )
+    result = _run_lean(destination, capture_output=capture_output)
     if capture_output and result.returncode:
         sys.stderr.write(result.stdout + result.stderr)
     result.check_returncode()
