@@ -1,10 +1,10 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Recognize.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 meta import Silmaril.SSA.Isotope.Types.Defs
-meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Recognize.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Serial.Tests
 
@@ -111,6 +111,24 @@ example : (Spine.ofLoop (ExplicitRuntime.Reverse.canonical stepLoop)).source = s
   rw [Spine.ofLoop, ExplicitRuntime.Reverse.canonical_decode]
   rfl
 
+private theorem pipelineForm : Recognize.LeftAssociated pipeline :=
+  .push finalLoop (.push stepLoop (.single stepLoop (.instruction _)) (.instruction _)) (.instruction _)
+
+private theorem pipelineRecognized : Recognize.recognize pipeline.graph = some recovered :=
+  Recognize.complete pipeline pipelineForm
+
+private def nestedLoop : Loop Op number number number number number :=
+  { stepLoop with
+    body := .sequence
+      (.choice stepLoop.header stepLoop.body (.sequence stepLoop.body stepLoop.body))
+      stepLoop.body }
+
+private def nestedPipeline := Spine.link stage (.loop nestedLoop)
+
+example : Recognize.recognize nestedPipeline.graph = some nestedPipeline.decomposition :=
+  Recognize.complete nestedPipeline (.push nestedLoop (.single stepLoop (.instruction _))
+    (.thenChoice stepLoop.header (.instruction _) (.thenInstruction _ (.instruction _)) (.instruction _)))
+
 private def exit (n : Nat) : LabelDen [number,number] := .inr (.inl n)
 private def finalExit : LabelDen [unitTy,number] := .inr (.inl (23 : Nat))
 
@@ -160,8 +178,10 @@ private theorem pipelineDone : observe (ε := Bool) pipeline.graph (1 : Nat) (0 
 -- The first θ feeds back once. Later bodies see the tokens accumulated at
 -- the two cuts, and the flat recovered CFG returns the same typed exit.
 example (coherent : RegionCoherent (τ := Ty) (Φ := Op) (ε := Bool) (m := Runtime)) :
-    (Region.denote (ε := Bool) (m := Runtime) recovered.recover.typing (PUnit.unit, (1 : Nat))).run 0 =
-      Part.some (finalExit, 12) := by
+    Recognize.recognize pipeline.graph = some recovered ∧
+      (Region.denote (ε := Bool) (m := Runtime) recovered.recover.typing (PUnit.unit, (1 : Nat))).run 0 =
+        Part.some (finalExit, 12) := by
+  refine ⟨pipelineRecognized, ?_⟩
   apply (recovered.region_returns_iff coherent _ _ _ _).mp
   exact (NestedTheta.Partial.observe_eq_some _ _ _ _).mp pipelineDone
 
@@ -195,7 +215,36 @@ private theorem staleDifferent : joinedGraph firstTwo.code finalStage.code ≠ s
 
 example : certifyCut firstTwo.code finalStage.code stale = none := rejectCut staleDifferent
 
+private theorem staleScan : Recognize.scan stale.toTerm = Recognize.scan pipeline.graph.toTerm := by
+  unfold stale
+  rw [NestedTheta.Term.toTerm_toGraph]
+  generalize pipeline.graph.toTerm = term
+  cases term with
+  | bind first a rest =>
+    cases rest with
+    | bind link₁ b rest =>
+      cases rest with
+      | bind second c rest =>
+        cases rest with
+        | bind link₂ d tail => cases link₂; rfl
+
+-- The labels still parse. Rejection comes from checking the relocated token origin.
+private theorem staleParsed : Recognize.candidate stale = some pipeline := by
+  have parsed := Recognize.candidate_generated pipeline pipelineForm
+  unfold Recognize.candidate at parsed ⊢
+  rw [staleScan]
+  exact parsed
+
+example : Recognize.recognize stale = none :=
+  Recognize.reject_wiring pipeline staleParsed staleDifferent
+
 #eval show IO Unit from do
+  unless (Recognize.recognize pipeline.graph).isSome do
+    throw (IO.userError "could not recover the three-loop pipeline from its graph")
+  unless (Recognize.recognize nestedPipeline.graph).isSome do
+    throw (IO.userError "could not recover the nested-choice leaf")
+  unless (Recognize.candidate stale).isSome && (Recognize.recognize stale).isNone do
+    throw (IO.userError "serial recognition failed to check the stale token")
   unless (certifyCut stage.code stage.code firstTwo.graph).isSome do
     throw (IO.userError "first serial cut was rejected")
   unless (certifyCut firstTwo.code finalStage.code pipeline.graph).isSome do

@@ -197,6 +197,13 @@ private theorem loop_parse (s : Loop Φ A B K E D) (h : RightAssociated s.body) 
     loop fuel A E D (loopLabels s) = some ⟨B, K, s⟩ := by
   simp [loopLabels, loop, body_parse h fuel enough]
 
+theorem parse_thetaBody (s : Loop Φ A B K E D) (h : RightAssociated s.body) :
+    loop (budget (Wires.liftChecked (ExplicitRuntime.Wiring.thetaBody s).2.2).1)
+      A E D [.theta (ExplicitRuntime.Reverse.read (ExplicitRuntime.Wiring.thetaBody s).2.1)] =
+      some ⟨B, K, s⟩ := by
+  rw [budget_lift, budget_thetaBody, read_thetaBody]
+  exact loop_parse s h _ (by omega)
+
 private theorem guarded_parse (s : Conditional.Guarded Φ A I B K M M) (h : RightAssociated s.loop.body)
     (fuel : Nat) (enough : weight s.loop.body ≤ fuel) :
     guarded fuel A I M

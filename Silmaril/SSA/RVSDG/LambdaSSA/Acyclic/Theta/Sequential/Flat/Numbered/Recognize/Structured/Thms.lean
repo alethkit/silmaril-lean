@@ -14,6 +14,15 @@ universe u
 variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ] [DecidableEq τ] [DecidableEq Φ]
 variable {A I B K M C J E D : τ}
 
+omit [DecidableEq Φ] in
+/-- The body of a generated θ supplies enough fuel for the shared parser,
+including after embedding the leaf into the serial wire dialect. -/
+theorem parse_thetaBody (s : Loop Φ A B K E D) (h : RightAssociated s.body) :
+    loop (budget (Wires.liftChecked (ExplicitRuntime.Wiring.thetaBody s).2.2).1)
+      A E D [.theta (ExplicitRuntime.Reverse.read (ExplicitRuntime.Wiring.thetaBody s).2.1)] =
+      some ⟨B, K, s⟩ :=
+  Proofs.parse_thetaBody s h
+
 /-- The exact recognizer reconstructs generated right-associated components,
 including the typed instruction sequence and recursively nested γ arms. -/
 theorem recognize_rightAssociated (p : Conditional.Guarded Φ A I B K M M) (q : Loop Φ M C J E D)
