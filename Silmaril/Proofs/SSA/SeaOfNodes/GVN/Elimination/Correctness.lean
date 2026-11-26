@@ -82,7 +82,7 @@ private theorem wires_read {route : Routing args past target}
     congr 1
     exact agree _ wire
 
-private theorem push_agrees {route : Routing args past target}
+theorem push_agrees {route : Routing args past target}
     {old : Locals (Val m.value) past} {new : Locals (Val m.value) target}
     (agree : route.Agrees m entry old new) {head : List (Ty Data)}
     (next : Tuple (Val m.value) head) :
@@ -100,7 +100,7 @@ private theorem push_agrees {route : Routing args past target}
     rw [← splitRead]
     simp only [Routing.push, split, read_newest]
 
-private theorem routeSuffix_agrees (flow : Dataflow Op args past sigs)
+theorem routeSuffix_agrees (flow : Dataflow Op args past sigs)
     (route : Routing args past target) (old : Locals (Val m.value) past)
     (new : Locals (Val m.value) target) (agree : route.Agrees m entry old new) :
     let result := routeSuffix flow route

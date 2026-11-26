@@ -11,34 +11,34 @@ namespace Silmaril.Wasm.Institution.Operational.MemoryWrite.Proofs
 open Silmaril.Wasm.Execution Silmaril.Wasm.Execution.Core Silmaril.Wasm.Numerics
 open Silmaril.Wasm.SingleThreaded.Det
 
-theorem core_sound {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
-    (lookup : s.mem? f MemoryQuery.index = some (a, m)) {q out : State} (edge : Edge m.bytes q out) :
-    Step P noHost (coreConfig s f a m q) (coreConfig s f a m out) := by
-  cases invert edge with
+theorem core_sound (immediate : Wasm.V1.MemArg) {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
+    (lookup : s.mem? f MemoryQuery.index = some (a, m)) {q out : State} (edge : EdgeAt m.bytes immediate.offset.val q out) :
+    Step P noHost (coreConfigAt immediate s f a m q) (coreConfigAt immediate s f a m out) := by
+  cases invert_at edge with
   | write address word out stored =>
-    have hp : Memory.store m.bytes (effAddr address.toNat MemoryQuery.arg.toCore)
+    have hp : Memory.store m.bytes (effAddr address.toNat immediate.toCore)
         (count := IntType.i32.width / 8) (BitVec.setWidth _ word) = some out := by
-      change Memory.store m.bytes address.toNat (count := 4) (word.setWidth 32) = some out
+      change Memory.store m.bytes (address.toNat + immediate.offset.val) (count := 4) (word.setWidth 32) = some out
       rw [BitVec.setWidth_eq]
       exact stored
     exact .memory (.storeIntVal (a := .i32) (i := address) lookup hp)
   | trap address word oob =>
     exact .memory (.storeIntOob (a := .i32) (i := address) lookup oob)
 
-private theorem write_head {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
+private theorem write_head (immediate : Wasm.V1.MemArg) {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
     {input : List Admin} {dst : Config H}
     (step : MemoryStep P ⟨s, f, input⟩ dst) {address word : BitVec 32}
-    (support : List.Sublist input (coreConfig s f a m (.store address word)).code)
+    (support : List.Sublist input (coreConfigAt immediate s f a m (.store address word)).code)
     (lookup : s.mem? f MemoryQuery.index = some (a, m)) :
-    ∃ out, input = (coreConfig s f a m (.store address word)).code ∧
-      Edge m.bytes (.store address word) out ∧ dst = coreConfig s f a m out := by
+    ∃ out, input = (coreConfigAt immediate s f a m (.store address word)).code ∧
+      EdgeAt m.bytes immediate.offset.val (.store address word) out ∧ dst = coreConfigAt immediate s f a m out := by
   cases step with
   | @storeIntVal _ _ t x arg w i bits index mem out found stored =>
     have op := support.subset (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
-    simp [coreConfig] at op
+    simp [coreConfigAt] at op
     obtain ⟨rfl, rfl, rfl⟩ := op
     have code := support.eq_of_length rfl
-    simp only [coreConfig, List.cons.injEq, Admin.plain.injEq, and_true] at code
+    simp only [coreConfigAt, List.cons.injEq, Admin.plain.injEq, and_true] at code
     cases w
     case i64 => cases (Instr.intConst.inj code.1).1
     have first : i = address := eq_of_heq (Instr.intConst.inj code.1).2
@@ -47,15 +47,15 @@ private theorem write_head {H : Type} {P : Profile} {s : Store H} {f : Frame} {a
     subst bits
     rw [lookup] at found
     obtain ⟨rfl, rfl⟩ := Option.some.inj found
-    change Memory.store m.bytes address.toNat (count := 4) (word.setWidth 32) = some out at stored
+    change Memory.store m.bytes (address.toNat + immediate.offset.val) (count := 4) (word.setWidth 32) = some out at stored
     rw [BitVec.setWidth_eq] at stored
-    exact ⟨.written out, rfl, fact (.write address word out stored), rfl⟩
+    exact ⟨.written out, rfl, fact_at (.write address word out stored), rfl⟩
   | @storeIntOob _ _ t x arg w i bits index mem found bound =>
     have op := support.subset (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
-    simp [coreConfig] at op
+    simp [coreConfigAt] at op
     obtain ⟨rfl, rfl, rfl⟩ := op
     have code := support.eq_of_length rfl
-    simp only [coreConfig, List.cons.injEq, Admin.plain.injEq, and_true] at code
+    simp only [coreConfigAt, List.cons.injEq, Admin.plain.injEq, and_true] at code
     cases w
     case i64 => cases (Instr.intConst.inj code.1).1
     have first : i = address := eq_of_heq (Instr.intConst.inj code.1).2
@@ -64,20 +64,20 @@ private theorem write_head {H : Type} {P : Profile} {s : Store H} {f : Frame} {a
     subst bits
     rw [lookup] at found
     obtain ⟨rfl, rfl⟩ := Option.some.inj found
-    exact ⟨.trap, rfl, fact (.trap address word bound), rfl⟩
+    exact ⟨.trap, rfl, fact_at (.trap address word bound), rfl⟩
   | _ =>
     have check := support.subset
-    simp [coreConfig] at check
+    simp [coreConfigAt] at check
 
-theorem core_readback {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
+theorem core_readback (immediate : Wasm.V1.MemArg) {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Nat} {m : MemInst}
     (lookup : s.mem? f MemoryQuery.index = some (a, m)) {q : State} {dst : Config H}
-    (step : Step P noHost (coreConfig s f a m q) dst) :
-    ∃ out, Edge m.bytes q out ∧ dst = coreConfig s f a m out := by
+    (step : Step P noHost (coreConfigAt immediate s f a m q) dst) :
+    ∃ out, EdgeAt m.bytes immediate.offset.val q out ∧ dst = coreConfigAt immediate s f a m out := by
   cases q with
   | written bytes => exact (not_step_vals (W := []) step).elim
   | trap => exact (not_step_trap step).elim
   | store address word =>
-    let op := Admin.plain (.intStore .i32 none MemoryQuery.index MemoryQuery.arg.toCore)
+    let op := Admin.plain (.intStore .i32 none MemoryQuery.index immediate.toCore)
     let values : List Val := [.i32 address, .i32 word]
     change Step P noHost ⟨s, f, vals values ++ [op]⟩ dst at step
     rcases Silmaril.Wasm.SingleThreaded.Det.Step.decomp step with head | bubble
@@ -90,7 +90,7 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {f : Frame} {a : Na
       have support : List.Sublist (vals args ++ [op]) (vals values ++ [op]) := by
         rw [code]
         exact List.sublist_append_right _ _
-      obtain ⟨out, redex, edge, rfl⟩ := write_head family support lookup
+      obtain ⟨out, redex, edge, rfl⟩ := write_head immediate family support lookup
       change vals args ++ [op] = vals values ++ [op] at redex
       rw [redex] at code
       have len := congrArg List.length code

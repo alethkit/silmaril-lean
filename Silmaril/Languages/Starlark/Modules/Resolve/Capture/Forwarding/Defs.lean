@@ -98,7 +98,8 @@ inductive Emits (globals : List String) : List (List String) → Chain → List 
 /-- Link each wrapper's definition instruction to its child's emitted ID.
 The mixed leaf is the endpoint of the wrapper path. -/
 inductive Links (seed : Program) : Chain → List Frame → Prop where
-  | mixed (name : String) (parameters : List String) (body : MixedBody) (frame : Frame) :
+  | mixed (name : String) (parameters : List String) (body : MixedBody) (frame : Frame)
+      (block : LexicalBlock) : LeafCode block body frame.code →
       Links seed (.mixed name parameters body) [frame]
   | wrapper {name : String} {parameters : List String} {child : Chain}
       {frame childFrame : Frame} {rest : List Frame} :
@@ -107,6 +108,18 @@ inductive Links (seed : Program) : Chain → List Frame → Prop where
         (.returnExpr (.atom (.read (.bound (fileSlot child.name))))) →
       Links seed child (childFrame :: rest) →
       Links seed (.wrapper name parameters child) (frame :: childFrame :: rest)
+
+/-- The linked leaf uses the exact lexical scopes collected along the
+emitted chain. The enclosing scopes are kept in nearest-first order. -/
+inductive ScopedLeaves (globals : List String) : List (List String) → Chain → List Frame → Prop where
+  | mixed {outer : List (List String)} {name : String} {params : List String} {body : MixedBody}
+      {frame : Frame} :
+      LeafCode ⟨frame.owned, outer.flatten, globals⟩ body frame.code →
+      ScopedLeaves globals outer (.mixed name params body) [frame]
+  | wrapper {outer : List (List String)} {name : String} {params : List String} {child : Chain}
+      {frame : Frame} {rest : List Frame} :
+      ScopedLeaves globals (frame.owned :: outer) child rest →
+      ScopedLeaves globals outer (.wrapper name params child) (frame :: rest)
 
 /-- Compiler capture entries use the same lexical name at each frame. -/
 abbrev reference (binding : Binding) : FreeName := ⟨binding, binding⟩

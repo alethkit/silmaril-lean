@@ -3,21 +3,21 @@ module
 public import Silmaril.SSA.SeaOfNodes.Diamond.SCCP.Dataflow.Defs
 public import Silmaril.SSA.SeaOfNodes.Loop.Defs
 
-/-! Executable occurrence and constant equations for a single carried loop value. -/
+/-! Executable occurrence and constant equations for a typed carried bank. -/
 
 @[expose] public section
 
 namespace Silmaril.SSA.SeaOfNodes.Loop.SCCP
 
 open Diamond (Model Signature Ty Val ValueSort dataPorts sortValue)
-open Diamond.SCCP (Fact evalFacts readLocal)
+open Diamond.SCCP (Fact TupleCovers evalFacts readLocal tupleFacts)
 open RVSDG (Tuple)
 open Semantics.Dataflow (Flat)
 
 universe u v w
 
 variable {Data : Type u} {Op : Signature.{u, v} Data}
-variable {inputs : List (ValueSort Data)} {carry : Data}
+variable {inputs : List (ValueSort Data)} {carried : List (ValueSort Data)}
 variable {entrySigs headerSigs : List (List (Ty Data))} {out : ValueSort Data}
 
 /-- One data value is latched at the existing native Loop Region. -/
@@ -33,30 +33,47 @@ def incomingIndex : Incoming → Fin 3
 
 def exitIndex : Fin 3 := 2
 
-abbrev State (value : Data → Type w) (carry : Data) (out : ValueSort Data) :=
-  Executable × (Flat (value carry) × Flat (sortValue value out))
+/-- One flat fact at each typed port, ordered pointwise. -/
+abbrev BankFacts (value : Data → Type w) (ports : List (Ty Data)) :=
+  (i : Fin ports.length) → Fact value ports[i]
 
-structure HeaderFacts (value : Data → Type w) (carry : Data) (out : ValueSort Data) where
+/-- The pointwise joins only need decidable equality at the carried ports. -/
+class BankDecidableEq (value : Data → Type w) (ports : List (Ty Data)) where
+  atPort (i : Fin ports.length) : DecidableEq (Val value ports[i])
+
+/-- Read a numbered abstract bank as the native ordered tuple. -/
+def bankTuple {value : Data → Type w} :
+    {ports : List (Ty Data)} → BankFacts value ports → Tuple (Fact value) ports
+  | [], _ => .nil
+  | _ :: _, bank => .cons (bank 0) (bankTuple fun i => bank i.succ)
+
+def BankCovers {value : Data → Type w} {ports : List (Ty Data)}
+    (bank : BankFacts value ports) (concrete : Tuple (Val value) ports) : Prop :=
+  TupleCovers (bankTuple bank) concrete
+
+abbrev State (value : Data → Type w) (carried : List (ValueSort Data)) (out : ValueSort Data) :=
+  Executable × (BankFacts value (dataPorts carried) × Flat (sortValue value out))
+
+structure HeaderFacts (value : Data → Type w) (carried : List (ValueSort Data)) (out : ValueSort Data) where
   guard : Flat (ULift.{w} Bool)
-  feedback : Flat (value carry)
+  feedback : BankFacts value (dataPorts carried)
   result : Flat (sortValue value out)
 
-variable (m : Model.{u, v, w} Op) (g : Program Op inputs carry entrySigs headerSigs out)
+variable (m : Model.{u, v, w} Op) (g : Graph Op inputs carried entrySigs headerSigs out)
 variable (input : Tuple (Fact m.value) (dataPorts inputs))
 
-/-- Read the entry column in the preheader context. -/
-def entryFact : Flat (m.value carry) :=
+/-- Read the entire entry column in the preheader context. -/
+def entryFacts : BankFacts m.value (dataPorts carried) :=
   let locals := evalFacts m input g.preheader PUnit.unit
-  readLocal input locals ((g.phiInputs .entry).get .head)
+  tupleFacts ((g.phiInputs .entry).read input locals)
 
-/-- Abstractly run one producer table in dependency order on the old latch.
-The feedback and exit wires share that table with the guard wire. -/
-def headerFacts (latch : Flat (m.value carry)) : HeaderFacts m.value carry out :=
-  let args : Tuple (Fact m.value) (headerPorts inputs [.data carry]) :=
-    appendTuple (.cons (F := Fact m.value) (t := RVSDG.PortType.value (.data carry)) latch .nil) input
+/-- Read every feedback operand, the guard, and the result in the same
+producer environment built from the old latch. -/
+def headerFacts (latch : BankFacts m.value (dataPorts carried)) : HeaderFacts m.value carried out :=
+  let args := appendTuple (bankTuple latch) input
   let locals := evalFacts m args g.header PUnit.unit
   ⟨readLocal args locals g.predicate,
-    readLocal args locals ((g.phiInputs .backedge).get .head),
+    tupleFacts ((g.phiInputs .backedge).read args locals),
     readLocal args locals g.result⟩
 
 def successors : Flat (ULift.{w} Bool) → Executable
@@ -77,18 +94,25 @@ def gate {α : Type*} (old : Executable) (i : Fin 3) (fact : Flat α) : Flat α 
 def phiFact {α : Type*} [DecidableEq α] (old : Executable) (entry feedback : Flat α) : Flat α :=
   Flat.join (gate old (incomingIndex .entry) entry) (gate old (incomingIndex .backedge) feedback)
 
-/-- Every right-hand side reads the old assignment. In particular the Phi
-depends on the old latch through the backedge column and its guard. -/
-def transfer [DecidableEq (m.value carry)] (old : State m.value carry out) : State m.value carry out :=
+/-- Apply the same occurrence marks to every typed Phi in the bank. -/
+def phiFacts {value : Data → Type w} {ports : List (Ty Data)}
+    [equal : BankDecidableEq value ports]
+    (edges : Executable) (entry feedback : BankFacts value ports) : BankFacts value ports :=
+  fun i => @phiFact _ (equal.atPort i) edges (entry i) (feedback i)
+
+/-- Every right-hand side reads the old assignment. The complete feedback
+column is read before the pointwise joins build the next bank. -/
+def transfer [BankDecidableEq m.value (dataPorts carried)]
+    (old : State m.value carried out) : State m.value carried out :=
   let header := headerFacts m g input old.2.1
   (control old.1 header.guard,
-    phiFact old.1 (entryFact m g input) header.feedback,
+    phiFacts old.1 (entryFacts m g input) header.feedback,
     gate old.1 exitIndex header.result)
 
 /-- Finite native prefixes, including prefixes with no eventual return.
 The index records the occurrence by which the header was reached. -/
 inductive Arrives (entry : Tuple (Val m.value) (dataPorts inputs)) :
-    Incoming → Nat → Tuple (Val m.value) (dataPorts [.data carry]) → Prop where
+    Incoming → Nat → Tuple (Val m.value) (dataPorts carried) → Prop where
   | entry : Arrives entry .entry 0 (g.initial m entry)
   | backedge {via count old next} (arrived : Arrives entry via count old)
       (taken : g.step m entry old = .inr next) :

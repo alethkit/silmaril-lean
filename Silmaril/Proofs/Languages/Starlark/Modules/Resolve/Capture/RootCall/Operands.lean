@@ -59,6 +59,22 @@ private theorem resolve_actuals {globals : List String} {source : List SourceExp
     refine ⟨final, ?_⟩
     simp [List.mapM_cons, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure, first, rest]
 
+theorem resolves_display {globals : List String} {items : List SourceExpr} {codes : List ResolvedExpr}
+    (related : InOrder (Operand globals) items codes) :
+    ∃ reads, resolveTracked ⟨[], globals⟩ (.list items) = .ok (.list codes, reads) ∧
+      resolveTracked ⟨[], globals⟩ (.tuple items) = .ok (.tuple codes, reads) := by
+  obtain ⟨final, resolved⟩ := resolve_actuals related []
+  have spine : (items.attach.mapM fun arg => resolveExpr (context globals) arg.val) =
+      items.mapM (resolveExpr (context globals)) := by
+    calc
+      _ = (items.attach.map Subtype.val).mapM (resolveExpr (context globals)) := by
+        simp only [List.mapM_map, Function.comp_def]
+      _ = _ := by rw [List.attach_map_subtype_val]
+  refine ⟨final.reverse, ?_, ?_⟩ <;>
+    change resolveTracked (context globals) _ = _ <;>
+    rw [resolveTracked, resolveExpr.eq_def] <;>
+    simp [spine, resolved, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure, Except.map]
+
 theorem resolves_call {globals : List String} {callee : SourceExpr} {positional : List SourceExpr}
     {function : ResolvedExpr} {actuals : List ResolvedExpr} (related : Operand globals callee function)
     (arguments : InOrder (Operand globals) positional actuals) :
@@ -164,12 +180,16 @@ private theorem fixed_read_index (receiver index : Value) : Fixed (readIndex rec
     · rfl
     · split <;> rfl
 
-private theorem operand_total {globals : List String} {source : SourceExpr} {code : ResolvedExpr}
+theorem read_index_state (receiver index : Value) (state : State) :
+    Silmaril.Languages.Starlark.Lists.Iteration.finishState (Silmaril.Languages.Starlark.Lists.readIndex receiver index state) = state :=
+  fixed_read_index receiver index state
+
+theorem operand_total {globals : List String} {source : SourceExpr} {code : ResolvedExpr}
     (related : Operand globals source code) (state : State) :
-    ∃ out, Evaluates state source out ∧ residual out = state := by
+    ∃ out, Evaluates state source out ∧ Silmaril.Languages.Starlark.Lists.Iteration.finishState out = state := by
   induction related with
   | @global name _ _ =>
-    exact ⟨_, .name name, by cases read : state.bindingValue (globalSlot name) <;> simp [State.read, read, residual]⟩
+    exact ⟨_, .name name, by cases read : state.bindingValue (globalSlot name) <;> simp [State.read, read, Silmaril.Languages.Starlark.Lists.Iteration.finishState]⟩
   | int n => exact ⟨_, .int n, rfl⟩
   | string text => exact ⟨_, .string text, rfl⟩
   | index _ _ recv sub =>

@@ -300,7 +300,179 @@ The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
 and the exact capture packet. The general corollary applies to its actual
 capture-closed table. The resulting packed tree feeds the capture reply
 into the seed request and each tick reply into the next tick's operand.
-[Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+[Typed capture and repeated back-edge requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Refinement through a common capture producer
+
+`packed_run_tree_refines_of_mono` transports a pointwise relation on named
+runs to the accepted packed dispatcher. It uses the same effectful producer
+on both sides, the exact capture packet equation, and version-zero agreement
+at every returned capture value. The relation must be preserved by the
+return map that applies `treeExitNumber` and `packedTreeOutput`. The packed
+relation must also be preserved by binding pointwise related continuations
+to the common producer. When the other continuation also has an accepted
+packed dispatcher, its `packed_run_tree` equation rewrites the specification
+side to that dispatcher.
+[Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
+
+`TraceLE` instantiates the transport with inclusion of finite observations.
+Each completed exchange records a request and a reply of its actual reply
+type. A path can stop at a prefix, at a pending request (including a request
+with no possible reply), or at a return with its result. Weak tree equality
+allows substitution on either side and `τ` is invisible. The proofs follow
+the same replies through the common producer and show that a pure return map
+changes only result endpoints. Literal inclusion of whole `Tree.observe`
+nodes fails this bind law because it compares their children by equality.
+[Trace definitions](../../Silmaril/Semantics/ITree/Trace/Defs.lean)
+· [Trace composition laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Whole-node counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
+
+`packed_run_tree_traceLE` uses the existing accepted elaboration, typed
+closure, capture packet equation and version-zero agreement at each value
+returned by the common producer. The regression reuses the generated cyclic
+capture fixture and makes seed reply `0` go silent. After capture reply `7`
+and seed reply `0`, the richer specification has a terminating trace with
+the tagged exit `(0, .inl (atom 0))`. The accepted packed run has no such
+trace, and its observations are included in the specification's.
+[Packed refinement theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Directed capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+On deterministic weak trees, `eq_iff_traceLE` equates mutual finite
+inclusion with weak tree equality. A terminal observation fixes the return
+value, a pending request fixes the indexed event even without replies, and
+each exchange gives mutual inclusion after that actual reply. Induction on
+observation depth then determines the tree. `Tree.tracePartialOrder` exposes
+this order on the existing weak-tree type, where equality already identifies
+the weakly equal representatives. `packed_run_tree_eq_iff_traceLE` compares
+a packed specification with the whole named run after capture and exit
+retagging. The visible capture fixture checks the equivalence and uses the
+partial order for its strict comparison.
+[Weak tree partial order](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+· [Packed comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Trace/Thms.lean)
+· [Capture regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+Silent divergence contributes only an empty prefix at the point where it
+occurs. Inclusion can replace it with further events or a return, so it
+does not preserve may-divergence as a positive observation. The relation
+compares attainable finite progress and returns. It does not assert
+must-termination, fairness, or an infinite-path witness. The equality result
+concerns deterministic weak-tree denotations.
+[Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+
+### Ordered sequencing and feedback
+
+`TraceLE.bind_left` follows the same typed requests through refined
+producers and passes the same returned value to a common continuation.
+Together with `bind_right`, this gives monotonicity in both arguments.
+`out_resume_runs_iff` describes observation of the actual weak Elgot
+iterator's resumed body by a finite normalizer run. Recursive returns
+continue at the same feedback state in both trees. A final return or
+request is preserved, and replies are compared by induction on the
+remaining finite trace. This gives pointwise body monotonicity
+`TraceLE.iter` for the existing iterator.
+[Ordered weak ITree laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+
+`packedExecution_traceLE` lifts entry and block comparisons to the actual
+packed CFG executions at a common positional interface. Each block
+comparison uses the same incoming packet, and the conclusion applies the
+same outward tagging to the result. The primitive interpreters and
+ambient environments can differ. The captured back-edge fixture compares
+two interpretations that share the capture and seed requests and differ
+after tick reply `0`.
+[Packed CFG refinement](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/PackedTrace/Thms.lean)
+· [Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+These laws use finite observations of deterministic weak trees. They give
+no arbitrary suprema, preservation of may-divergence, or completeness for
+syntactic rewrites.
+
+### Ordered Kleisli semantics and primitive reduct
+
+`WeakKleisli` is the existing Type–Kleisli category of weak deterministic
+ITrees with pointwise `TraceLE` on arrows. Composition is monotone in both
+arguments, and the categorical iterator is monotone using its existing
+coproduct comparison and weak-tree implementation.
+[Ordered Kleisli category](../../Silmaril/Semantics/ITree/Kleisli/Thms.lean)
+
+`Program.ofCFG` uses the literal typed singleton representative of packed
+execution. Its existing typed denotation agrees with the actual guarded
+packed arrow. For two such programs at a common exit interface,
+`satisfies_ofCFG_iff` identifies the typed hom order with the comparison of
+their erased packed trees. The reflection uses injective pure result
+encoding in the same event family.
+[Packed semantics and satisfaction](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+
+`Model.reduct` accepts the existing primitive `SignatureMap` with identity
+type component and a bottom-preserving Boolean effect component. The value
+carriers and indexed event family are shared. The source and target profile
+equations transport typed primitive arguments and results, and the effect
+map transports purity witnesses. The erased interpreter precomposes with
+the instruction map. `satisfies_map_iff` compares typed satisfaction after
+relabelling the already packed representative with satisfaction in the
+reduct. The regression identifies two opcodes through a non-injective map
+and checks a strict comparison between a silent and a visible packed
+program.
+[Reduct definition](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Thms.lean)
+· [Packed relabelling regression](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Regression.lean)
+
+This comparison uses a shared event family. Type-changing maps and
+reflection along event renaming are outside the checked law.
+
+### Relabelling before closure and packing
+
+`FiniteCFG.mapInstr` applies the existing primitive map to the scoped
+entry and every block at its original index. The mapped table has the same
+capture context and block and exit profiles. `close_mapInstr` runs the
+existing capture-closure algorithm on the mapped table and mapped producer.
+After projecting out the certificates, its result is the mapped original
+result, including failure. The decoder and position of each packed capture
+are unchanged.
+[Flat table typing](../../Silmaril/SSA/Isotope/LambdaSSA/Flat/InstructionMap/Thms.lean)
+· [Executable capture closure](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Capture/InstructionMap/Thms.lean)
+
+The routed entry and the literal dispatcher commute with relabelling.
+`packedExecutionRegion_mapInstr` is a propositional equality of written
+region syntax over the target instruction signature. `Program.ofCFG_mapInstr`
+also identifies the exact typed singleton representatives using proof
+irrelevance for their typing certificates. `satisfies_ofCFG_map_iff` applies
+the ordered reduct law to the repacked tables, with an identity type map, a
+bottom-preserving Boolean effect map, and a shared event family.
+[Packed syntax](../../Silmaril/SSA/Isotope/LambdaSSA/Flat/InstructionMap/Packing/Thms.lean)
+· [Ordered satisfaction square](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Thms.lean)
+
+The generated capture fixture maps seed and tick to the same opcode. It
+reruns capture closure on the mapped table, then checks the typed packed
+equality and strict satisfaction against a silent self-loop. The separating
+trace uses the capture reply and follows the back edge to the next tick.
+[Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Institution of ordered flat comparisons
+
+`FlatInstitution.institution` uses the existing room and corridor API.
+A sentence pairs two capture-free typed flat tables with one ordered
+external payload profile and the unit entry of packed execution. Each side
+keeps its own internal labels and types. Sentence translation maps the
+actual tables, with identity and composition checked on the syntax and
+proof irrelevance for the typing witnesses.
+[Signatures and sentences](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Institution/Defs.lean)
+
+Models are discrete categories of the compatible typed and erased weak
+ITree interpretations with fixed atomic carriers and a shared event family.
+The signature maps have identity type component and preserve bottom in the
+Boolean effect component. Model reduct is the existing primitive reduct.
+It respects identity and composition as equality of models. The proof
+recovers the typed computations from the erased primitive interpretation
+using injective result encoding, then recovers the pure functions on
+bottom-effect instructions. The corridor's satisfaction field is the
+ordered packed comparison square on the two written tables.
+[Institution and functor laws](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Institution/Thms.lean)
+
+An open table is input to the executable partial `Capture.close` front end.
+A successful result supplies a capture-free table for a sentence. In the
+cyclic non-injective fixture, the institution translates to the table
+returned by relabelling and rerunning closure. The corridor checks strict
+satisfaction using the existing visible back-edge trace.
+[Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
 
 ### Edge arguments for a normalized φ port
 
@@ -335,3 +507,179 @@ lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
 lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```
+
+### Packing as an institution comorphism
+
+`PackedInstitution.packingComorphism` has the identity signature functor
+and uses the same model categories and reduct functors as the flat
+institution. A packed sentence compares two written singleton programs
+from unit to the sum of one shared external payload profile. Packing
+preserves that profile and applies `Program.ofCFG` to each written table.
+The packed room evaluates both programs with the existing weak ITree
+order.
+[Packed rooms and sentence map](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution/Defs.lean)
+
+`packSentence_map` is an equality of typed syntax. Its two program
+equalities come from `Program.ofCFG_mapInstr`. The model side of the
+naturality square uses the shared reduct and the identity model functors.
+Packing preserves and reflects satisfaction in each model and semantic
+consequence between translated sentences. The relabelled cyclic
+capture fixture checks the bundled square against the program obtained
+by rerunning closure and checks strict satisfaction in the packed room.
+[Comorphism and laws](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution/Thms.lean)
+· [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+The sentence map is noninjective on typed flat syntax. A graph that exits
+immediately can have an unreachable self-loop carrying either a unit or an
+empty parameter. The two annotations give distinct flat sentences and
+the same written packed program. The witness concerns internal profile
+annotations.
+[Noninjectivity witness](../../Silmaril/Proofs/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Packed/Institution.lean)
+
+### Packing with a typed external entry
+
+`EntryInstitution.institution Events κ β` fixes an exact bound context
+`β` for the room family. Each sentence shares an ordered exit profile
+between its two tables. Each table keeps its own heterogeneous block
+parameter types. The entry can read `β`, and every block can read the
+same context under its own local payload binder. `Program.ofCFGEntry`
+runs the existing one-label packed dispatcher under the pure decoder for
+`Region.packedInputType β.toList`. The context head is the right field
+and the product terminates in unit.
+[Entry representative](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Defs.lean)
+· [Institution data](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Institution/Thms.lean)
+
+`satisfies_ofCFGEntry_iff` compares weak traces at every value of the
+packed input type using the compatible typed and raw model. The
+comorphism targets the existing packed institution at that input type.
+Packing commutes with relabelling as equality of typed syntax, and the
+shared models give satisfaction and entailment in both directions. The
+signature maps still have identity type components and preserve bottom
+Boolean effect in a fixed event family. The original unit-entry
+`FlatInstitution` and its packing map remain available.
+[Pointwise satisfaction and relabelling](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Ordered/Flat/Entry/Thms.lean)
+
+`Capture.close` accepts a producer typed in the empty context and returns
+a capture-free graph. The supplied-entry path starts with the existing
+open `HasType β R E` judgment. `packed_entry_run_tree` relates the actual
+packed code with an encoded input record to the named runner on matching
+version-zero captures, and applies the existing exit tag. The regression
+uses the actual `compileTyped` back-edge graph with input `((), 7)`.
+The first mapped tick receives 7, and successive replies 3 and 5 become
+the next tick operands. A silent loop refines the relabelled cycle at
+every typed input, and that trace at 7 separates the reverse comparison.
+[Named supplied-entry theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+· [Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Admitted named comparisons at a typed entry
+
+`NamedFlat.Entry.Interface` fixes the typed entry context, distinct names
+for its slots, and an ordered exit list with a payload type at each
+position. The product input is the same record as in `Program.ofCFGEntry`.
+`inputEnv_packet` checks its runtime encoding, `store_at` checks a
+lookup at each supplied name, and `store_version_zero` checks the
+projection to a mutable input store. Names outside the supplied profile
+have the default value unit.
+[Typed record and store](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Thms.lean)
+
+`Entry.SSA.admit` checks a named lexical table at its supplied internal
+profile. `Entry.RTL.admit` uses the actual `compileTyped` result of cyclic
+versioning. A certificate records the elaborated open table and its
+exact typing. `elaborateAt_mapOp` commutes with primitive relabelling at
+the original block count, including failure of untyped elaboration.
+`Versioning.compile_mapOp` commutes with the literal generated syntax.
+Sentence translation transports the certificate at its written internal
+profile, so both squares use literal syntax equality and proof
+irrelevance. They require no independent choice of a typing profile.
+[Elaboration law](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/InstructionMap/Thms.lean)
+· [Versioning law](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/InstructionMap/Thms.lean)
+· [Admission and translation](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Institution/Defs.lean)
+
+The named rooms use the flat room's models and reducts. Their satisfaction
+compares finite weak traces of the actual named runners at every typed
+input after numbering and tagging external exits. The RTL observation
+forgets the final store. `RTL.observe_version` uses the weak ITree
+instance of the lawful Elgot versioning theorem, with the structural pair
+law. `SSA.observe_tree` agrees with the actual packed execution at the
+same typed input. The two comorphisms compose with the open flat packing
+map and their satisfaction laws hold in both directions. Named lexical
+admission checks the supported table and its typed elaboration. Global
+φ certification, and named `Part` linking, have separate APIs.
+[Runner agreement and comorphisms](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Institution/Thms.lean)
+
+The generated cyclic example supplies `((), 7)` directly. The
+noninjective seed/tick map is tested against fresh execution of the
+admission checker at the same profile. The named mutable trace witnesses
+strict refinement from a silent self-loop, and the composed comorphism
+transports the comparison to packed satisfaction.
+[Cyclic regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+### Typed live-outs at mutable exits
+
+The existing `Versioning.run_commutes` observes the exit label and
+argument. `Cyclic.LiveOut.attach` makes selected final-store reads explicit
+in the original mutable CFG before invoking that versioner. For each
+branch to a missing label it pairs the old argument with an ordered,
+right-nested register record ending in unit. The same lookup determines
+internal edges, and their arguments are preserved. The transformation
+uses only variables, pairs, and unit.
+[Exit transformation](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/Defs.lean)
+
+`run_project` proves the whole-run equation with the projected original
+exit, including the same effects and final store in the underlying
+mutable execution. It uses a step square and lawful Elgot iteration.
+`versioned_run_project` applies the existing pair-law versioner to the
+transformed source. The new reads go through the versioner's existing
+register support and current-version calculation, including when a
+register was only written in the original CFG.
+[Mutable and lexical runner equations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/Thms.lean)
+
+The typed checker admits the actual versioned table at the supplied
+block profiles and the enlarged external payload types. The original
+typed entry record supplies the same named store as before. For every
+accepted graph, `Admission.denote_tree` identifies the encoded typed
+packed result with the original mutable runner's projected exit.
+`satisfies_iff` gives both directions of pointwise trace comparison at a
+common projection interface. This adds a separate observation with
+selected fields alongside the existing forgetful institution.
+[Typed admission and comparison](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/Thms.lean)
+
+The fixture picks one of two fields from the same supplied record, writes
+it to a register, then jumps to a block that exits with unit. The old
+exit observations agree for every input. The packed observations at
+`(((), 7), 9)` return the distinct live-outs 7 and 9. The checker also
+rejects a unit declaration for the numeric live-out.
+[Checked fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)
+
+### Relabelling typed live-out comparisons
+
+`Cyclic.run_mapOp` exposes the existing cyclic runner reduct law at the
+universes of the typed weak-tree model. It preserves the final store.
+`attach_mapOp` commutes on the written syntax because opcode relabelling
+preserves lookup hits and misses. `project_reduct` uses the same pair and
+unit operations for the caller's ordered register list. Together the laws
+give `observe_mapOp`, an equality of whole weak trees at the same typed
+input record, including the tagged old argument and ordered fields.
+[Runner reduct](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/InstructionMap/Thms.lean)
+· [Attachment and projection](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/LiveOut/InstructionMap/Thms.lean)
+
+`Admission.map` transports an existing certificate through the named
+versioning and elaboration maps at its supplied block profiles. The
+live-out room fixes the input context, the ordered exits, and the typed
+field lists. It uses the same models and reduct functors as the named
+typed-entry room. The attachment comorphism composes with the existing
+named-to-packed comorphism. Both packing orders give equal typed syntax,
+and `toPacked_satisfies_map_iff` preserves and reflects pointwise
+satisfaction in the reduct. The signature maps fix types and the event
+family and preserve bottom Boolean effect. The admission law concerns
+certificate transport at those profiles.
+[Certificate transport and institution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/Institution/Thms.lean)
+
+The fixture identifies two effectful opcodes. Both renamed sources can
+request the same operation with argument 7 and receive reply 11. One
+source keeps the reply and the other overwrites it with 7 before the
+internal jump. Their old unit results agree at that trace, while their
+ordered live-out records are `(11, 7)` and `(7, 7)`. The fixture also
+reruns admission of the renamed reply-carrying graph at the same
+profile.
+[Checked relabelling fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)

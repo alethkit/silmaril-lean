@@ -6,7 +6,7 @@ public section
 
 namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture
 
-open Assignment (InOrder LexicalBlock OperandResolves RhsResolves TargetResolves)
+open Assignment (AssignmentResolves InOrder LexicalBlock OperandResolves RhsResolves TargetResolves)
 open Functions (FreeName)
 open Lists (State Address)
 
@@ -55,6 +55,17 @@ inductive BodyReads (block : LexicalBlock) : Statement → List Binding → Prop
       BodyReads block
         (.seq (.assignTargetCompExpr (.tuple [.scalar (.read name), .index receiver index]) rhs)
           (.ret (some returned))) ((right ++ target) ++ tail)
+
+/-- The exact compiled body paired with the independent mixed-assignment
+and return witnesses in its lexical block. -/
+inductive LeafCode (block : LexicalBlock) (body : MixedBody) : Functions.Body → Prop where
+  | linked (assignment : ResolvedPatternAssignment) (returned : Functions.Lowering.Expr)
+      (reads : List Binding) :
+      AssignmentResolves block .local body.target body.rhs assignment →
+      OperandResolves block body.returned returned reads →
+      LeafCode block body
+        (.seq (Functions.Comprehensions.assignPatternCode assignment.pattern assignment.rhs
+          Functions.Comprehensions.directStages) (.returnExpr returned))
 
 /-- Retain each free reference at its first occurrence. Module references
 record the global slots actually read by the body. -/

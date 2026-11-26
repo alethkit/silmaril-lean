@@ -333,7 +333,7 @@ private theorem nominated_spec (picked : pickBindingAndHoist? g tree index = som
       ∃ operands : Operands Input binding.args,
         binding.captured? = some operands ∧
         output.2 = emitHeader (lower g).entry binding.op operands (binding.rewrite Var.there .here) := by
-  unfold pickBindingAndHoist? at picked
+  unfold pickBindingAndHoist? hoistBindingWith? at picked
   obtain ⟨⟨_, binding⟩, found, ranked⟩ := Option.bind_eq_some_iff.mp picked
   obtain ⟨chosen, selected, emitted⟩ := Option.bind_eq_some_iff.mp ranked
   split at emitted
@@ -421,11 +421,59 @@ private theorem afterPrerequisiteAgree {origins : Origins Input Γ} {source : En
 
 variable {prerequisite consumer : Width}
 
+private theorem evalSliceConsumer
+    (code : Block TargetOp (SourceLabel carried result) Γ [result])
+    (gap level : Nat) (prerequisiteRef : Var Γ prerequisite)
+    (origins : Origins (prerequisite :: Input) Γ)
+    (binding : SliceConsumer Input Γ prerequisite consumer carried result)
+    (found : findSliceConsumer gap level prerequisiteRef origins code = some ⟨consumer, binding⟩)
+    (inputs : Env (prerequisite :: Input)) (source : Env Γ) (agree : CapturesAgree origins source inputs)
+    (target : Env Δ) (rename : Rename Γ Δ)
+    (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
+    (keepConsumer : Var Δ consumer) (keepPrerequisite : Var Δ prerequisite)
+    (second : target.get keepConsumer = evalOp binding.op (binding.inputs.eval inputs)) :
+    (binding.rewrite rename keepConsumer keepPrerequisite).eval evalOp
+        (fun term env => Terminator.eval env term) target =
+      (code.eval evalOp (fun term env => Terminator.eval env term) source).map
+        (carryFrameWith (extra := [consumer]) (.cons (target.get keepConsumer)
+          (.cons (target.get keepPrerequisite) .nil))) id := by
+  induction code generalizing gap level Δ with
+  | terminator => simp [findSliceConsumer] at found
+  | letOp op operands rest ih =>
+    cases gap with
+    | zero =>
+      simp only [findSliceConsumer] at found
+      split at found
+      · contradiction
+      · obtain ⟨captured, capture, paired⟩ := Option.bind_eq_some_iff.mp found
+        cases paired
+        rw [Code.eval, evalCaptureOrigins origins operands capture source inputs agree, ← second]
+        apply evalCodeWith
+        intro _ ref
+        cases ref with
+        | here => rfl
+        | there ref => exact same ref
+    | succ gap =>
+      simp only [findSliceConsumer, Option.map_eq_some_iff] at found
+      obtain ⟨⟨_, later⟩, found, paired⟩ := found
+      cases paired
+      simp only [SliceConsumer.prepend, Code.eval, evalRename _ _ _ same]
+      apply ih gap (level + 1) (.there prerequisiteRef) (afterBinding origins (level + 1)) later found
+      · intro _ ref cap origin
+        cases ref with
+        | here => cases origin
+        | there ref => exact agree ref cap origin
+      · intro _ ref
+        cases ref with
+        | here => rfl
+        | there ref => exact same ref
+      · exact second
+
 private theorem evalSlice
     (code : Block TargetOp (SourceLabel carried result) Γ [result])
-    (index level : Nat) (origins : Origins Input Γ)
+    (index gap level : Nat) (origins : Origins Input Γ)
     (slice : Slice Input Γ prerequisite consumer carried result)
-    (found : findSlice index level origins code = some ⟨prerequisite, consumer, slice⟩)
+    (found : findSliceAcross index gap level origins code = some ⟨prerequisite, consumer, slice⟩)
     (input : Env Input) (source : Env Γ) (agree : CapturesAgree origins source input)
     (target : Env Δ) (rename : Rename Γ Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref)
@@ -439,34 +487,24 @@ private theorem evalSlice
         (carryFrameWith (extra := [consumer]) (.cons (target.get keepConsumer)
           (.cons (target.get keepPrerequisite) .nil))) id := by
   induction code generalizing index level Δ with
-  | terminator => simp [findSlice] at found
+  | terminator => simp [findSliceAcross] at found
   | letOp op operands rest ih =>
     cases index with
     | zero =>
-      cases rest with
-      | terminator => simp [findSlice] at found
-      | letOp nextOp nextOperands tail =>
-        simp only [findSlice] at found
-        split at found
-        · contradiction
-        · obtain ⟨firstInputs, firstCapture, next⟩ := Option.bind_eq_some_iff.mp found
-          obtain ⟨secondInputs, secondCapture, paired⟩ := Option.bind_eq_some_iff.mp next
-          cases paired
-          have firstEval := evalCaptureOrigins origins operands firstCapture source input agree
-          have secondEval := evalCaptureOrigins (afterPrerequisite origins) nextOperands secondCapture
-            (.cons (target.get keepPrerequisite) source) (.cons (target.get keepPrerequisite) input)
-            (afterPrerequisiteAgree agree (target.get keepPrerequisite))
-          rw [Code.eval, firstEval, ← first, Code.eval, secondEval, ← second]
-          apply evalCodeWith
-          intro _ ref
-          cases ref with
-          | here => rfl
-          | there ref =>
-            cases ref with
-            | here => rfl
-            | there ref => exact same ref
+      simp only [findSliceAcross] at found
+      obtain ⟨captured, capture, next⟩ := Option.bind_eq_some_iff.mp found
+      obtain ⟨⟨_, binding⟩, consumerFound, paired⟩ := Option.bind_eq_some_iff.mp next
+      cases paired
+      rw [Code.eval, evalCaptureOrigins origins operands capture source input agree, ← first]
+      refine evalSliceConsumer rest gap (level + 1) .here (afterPrerequisite origins) binding consumerFound
+        _ _ (afterPrerequisiteAgree agree (target.get keepPrerequisite)) target
+        (replaceBinding rename keepPrerequisite) ?_ keepConsumer keepPrerequisite second
+      intro _ ref
+      cases ref with
+      | here => rfl
+      | there ref => exact same ref
     | succ index =>
-      simp only [findSlice, Option.map_eq_some_iff] at found
+      simp only [findSliceAcross, Option.map_eq_some_iff] at found
       obtain ⟨⟨_, _, later⟩, found, paired⟩ := found
       cases paired
       simp only [Slice.prepend, Code.eval, evalRename _ _ _ same]
@@ -482,8 +520,7 @@ private theorem evalSlice
       · exact first
       · exact second
 
-
-variable {consumerIndex : Nat} {moved : SliceOutput Input carried result}
+variable {prerequisiteIndex gap : Nat} {moved : SliceOutput Input carried result}
 
 private theorem atPreheader {site : Point (SourceLabel carried result)}
     (entry : site.block.isNone = true) (zero : (site.cut == 0) = true) :
@@ -491,55 +528,47 @@ private theorem atPreheader {site : Point (SourceLabel carried result)}
   cases site with
   | mk block cut => cases block <;> simp_all
 
-private theorem pickedSlice_spec (picked : pickSliceAndHoist? g tree consumerIndex = some moved) :
-    ∃ (index : Nat)
-      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
-      consumerIndex = index + 1 ∧
-      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+private theorem pickedSliceAcross_spec
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved) :
+    ∃ slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result,
+      findSliceAcross prerequisiteIndex gap 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
       LoopForest.choosePlacement tree blocks slice.prerequisiteSites slice.prerequisiteUses = some ⟨none, 0⟩ ∧
       LoopForest.choosePlacement tree blocks slice.consumerSites slice.consumerUses = some ⟨none, 0⟩ ∧
       moved.cfg = (emitSlice (lower g).entry slice).cfg := by
-  cases consumerIndex with
-  | zero => simp [pickSliceAndHoist?] at picked
-  | succ index =>
-    simp only [pickSliceAndHoist?] at picked
-    obtain ⟨⟨_, _, slice⟩, found, ranked⟩ := Option.bind_eq_some_iff.mp picked
-    obtain ⟨firstCut, firstRank, ranked⟩ := Option.bind_eq_some_iff.mp ranked
-    obtain ⟨secondCut, secondRank, emitted⟩ := Option.bind_eq_some_iff.mp ranked
-    split at emitted
-    · rename_i accepted
-      simp only [Bool.and_eq_true] at accepted
-      obtain ⟨⟨⟨firstEntry, firstZero⟩, secondEntry⟩, secondZero⟩ := accepted
-      cases emitted
-      exact ⟨index, slice, rfl, found, firstRank.trans (congrArg some (atPreheader firstEntry firstZero)),
-        secondRank.trans (congrArg some (atPreheader secondEntry secondZero)), rfl⟩
-    · contradiction
+  unfold pickSliceAcrossAndHoist? at picked
+  obtain ⟨⟨_, _, slice⟩, found, ranked⟩ := Option.bind_eq_some_iff.mp picked
+  obtain ⟨firstCut, firstRank, ranked⟩ := Option.bind_eq_some_iff.mp ranked
+  obtain ⟨secondCut, secondRank, emitted⟩ := Option.bind_eq_some_iff.mp ranked
+  split at emitted
+  · rename_i accepted
+    simp only [Bool.and_eq_true] at accepted
+    obtain ⟨⟨⟨firstEntry, firstZero⟩, secondEntry⟩, secondZero⟩ := accepted
+    cases emitted
+    exact ⟨slice, found, firstRank.trans (congrArg some (atPreheader firstEntry firstZero)),
+      secondRank.trans (congrArg some (atPreheader secondEntry secondZero)), rfl⟩
+  · contradiction
 
-theorem pickSliceAndHoist?_placement (picked : pickSliceAndHoist? g tree consumerIndex = some moved) :
-    ∃ (index : Nat)
-      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
-      consumerIndex = index + 1 ∧
-      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+theorem pickSliceAcrossAndHoist?_placement
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved) :
+    ∃ slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result,
+      findSliceAcross prerequisiteIndex gap 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
       (⟨none, 0⟩ : Point (SourceLabel carried result)) ∈ candidateCuts (lower g) blocks ∧
       Legal (lower g) slice.prerequisiteSites slice.prerequisiteUses ⟨none, 0⟩ ∧
       Legal (lower g) slice.consumerSites slice.consumerUses ⟨none, 0⟩ := by
-  obtain ⟨index, slice, nominated, found, firstRank, secondRank, _⟩ := pickedSlice_spec picked
+  obtain ⟨slice, found, firstRank, secondRank, _⟩ := pickedSliceAcross_spec picked
   obtain ⟨represented, firstLegal⟩ := LoopForest.choosePlacement_sound firstRank
-  exact ⟨index, slice, nominated, found, represented, firstLegal,
-    (LoopForest.choosePlacement_sound secondRank).2⟩
+  exact ⟨slice, found, represented, firstLegal, (LoopForest.choosePlacement_sound secondRank).2⟩
 
-theorem pickSliceAndHoist?_routes (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
-    (input : Env Input) :
-    ∃ (index : Nat)
-      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
-      consumerIndex = index + 1 ∧
-      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+theorem pickSliceAcrossAndHoist?_routes
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved) (input : Env Input) :
+    ∃ slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result,
+      findSliceAcross prerequisiteIndex gap 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
       RoutesWith (lower g) moved.cfg input (slice.savedValues input) := by
-  obtain ⟨index, slice, nominated, found, _, _, emitted⟩ := pickedSlice_spec picked
+  obtain ⟨slice, found, _, _, emitted⟩ := pickedSliceAcross_spec picked
   rw [emitted]
   let first := evalOp slice.prerequisiteOp (slice.prerequisiteInputs.eval input)
   let second := evalOp slice.consumerOp (slice.consumerInputs.eval (.cons first input))
-  refine ⟨index, slice, nominated, found, ⟨?_, ?_⟩⟩
+  refine ⟨slice, found, ⟨?_, ?_⟩⟩
   · exact evalCodeWith (extra := [moved.consumer]) (saved := moved.prerequisite) (lower g).entry
       (fun ref => .there (.there ref)) input (.cons second (.cons first input))
       (fun _ => rfl) (.cons .here (.cons (.there .here) .nil))
@@ -552,9 +581,63 @@ theorem pickSliceAndHoist?_routes (picked : pickSliceAndHoist? g tree consumerIn
         cases values with
         | cons old tail =>
           cases tail
-          exact evalSlice ((lower g).block .header) index 0 headerOrigins slice found input
+          exact evalSlice ((lower g).block .header) prerequisiteIndex gap 0 headerOrigins slice found input
             (.cons old input) (headerCapturesAgree old input) (.cons second (.cons first (.cons old input)))
             (fun ref => .there (.there ref)) (fun _ => rfl) .here (.there .here) rfl rfl
+
+theorem pickSliceAcrossAndHoist?_run_eq
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved)
+    (input : Env Input) (fuel : Nat) :
+    moved.cfg.run evalOp fuel input = (lower g).run evalOp fuel input := by
+  obtain ⟨_, _, routing⟩ := pickSliceAcrossAndHoist?_routes picked input
+  exact runEqOfRoutes routing fuel
+
+theorem pickSliceAcrossAndHoist?_budget
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved)
+    (input : Env Input) (budget : Nat) :
+    moved.cfg.run evalOp (budget + 3) input =
+      (g.evalBackedges model budget (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input)).map
+        (fun value => Env.cons value .nil) :=
+  (pickSliceAcrossAndHoist?_run_eq picked input (budget + 3)).trans (lower_run g input budget)
+
+theorem pickSliceAcrossAndHoist?_returns_iff
+    (picked : pickSliceAcrossAndHoist? g tree prerequisiteIndex gap = some moved)
+    (input : Env Input) (value : BitVec result.val) :
+    g.Returns model (Silmaril.SSA.SeaOfNodes.MLIR.sourceInputs input) value ↔
+      ∃ fuel, moved.cfg.run evalOp fuel input = some (.cons value .nil) :=
+  (lower_returns_iff g input value).trans
+    (exists_congr (fun fuel => by rw [← pickSliceAcrossAndHoist?_run_eq picked input fuel]))
+
+variable {consumerIndex : Nat}
+
+theorem pickSliceAndHoist?_placement (picked : pickSliceAndHoist? g tree consumerIndex = some moved) :
+    ∃ (index : Nat)
+      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
+      consumerIndex = index + 1 ∧
+      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+      (⟨none, 0⟩ : Point (SourceLabel carried result)) ∈ candidateCuts (lower g) blocks ∧
+      Legal (lower g) slice.prerequisiteSites slice.prerequisiteUses ⟨none, 0⟩ ∧
+      Legal (lower g) slice.consumerSites slice.consumerUses ⟨none, 0⟩ := by
+  cases consumerIndex with
+  | zero => cases picked
+  | succ index =>
+    obtain ⟨slice, found, represented, firstLegal, secondLegal⟩ :=
+      pickSliceAcrossAndHoist?_placement (prerequisiteIndex := index) (gap := 0) picked
+    exact ⟨index, slice, rfl, found, represented, firstLegal, secondLegal⟩
+
+theorem pickSliceAndHoist?_routes (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
+    (input : Env Input) :
+    ∃ (index : Nat)
+      (slice : Slice Input (carried :: Input) moved.prerequisite moved.consumer carried result),
+      consumerIndex = index + 1 ∧
+      findSlice index 0 headerOrigins ((lower g).block .header) = some ⟨_, _, slice⟩ ∧
+      RoutesWith (lower g) moved.cfg input (slice.savedValues input) := by
+  cases consumerIndex with
+  | zero => cases picked
+  | succ index =>
+    obtain ⟨slice, found, routing⟩ :=
+      pickSliceAcrossAndHoist?_routes (prerequisiteIndex := index) (gap := 0) picked input
+    exact ⟨index, slice, rfl, found, routing⟩
 
 theorem pickSliceAndHoist?_run_eq (picked : pickSliceAndHoist? g tree consumerIndex = some moved)
     (input : Env Input) (fuel : Nat) :

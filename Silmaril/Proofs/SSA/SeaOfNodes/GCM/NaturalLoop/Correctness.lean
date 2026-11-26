@@ -59,7 +59,7 @@ private theorem edge_eq_true_iff (src dst : BlockId Label) :
   | none => simp [edge?]
   | some target => simp [edge?, List.any_eq_true, slot_mem]
 
-private theorem close_spec {B : Type} [DecidableEq B] (hasEdge : B → B → Bool)
+theorem reverseClose_spec {B : Type} [DecidableEq B] (hasEdge : B → B → Bool)
     (Q : B → Prop) (remaining reached : List B)
     (seeds : ∀ b ∈ reached, Q b)
     (step : ∀ src ∈ remaining, ∀ dst, hasEdge src dst = true → Q dst → Q src) :
@@ -95,7 +95,7 @@ private theorem members_iff (checked : checkBackedge tree blocks edge = true)
   let seeds := if latch = header then [] else [latch]
   let closed := reverseClose (edge? tree) remaining seeds
   have reachable := mem_vertices_iff_reachable (backedgeChecks checked).1
-  have ⟨retains, sound, predecessor⟩ := close_spec (edge? tree) (ToLatch cfg edge) remaining seeds
+  have ⟨retains, sound, predecessor⟩ := reverseClose_spec (edge? tree) (ToLatch cfg edge) remaining seeds
     (by
       intro node member
       by_cases same : latch = header
