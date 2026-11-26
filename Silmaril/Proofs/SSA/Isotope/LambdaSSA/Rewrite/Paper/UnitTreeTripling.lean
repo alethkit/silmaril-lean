@@ -29,31 +29,9 @@ private noncomputable def tag {A : P} : Phase → (A ⟶ Phases A)
   | .middle => coprod.inl ≫ coprod.inr
   | .last => coprod.inr ≫ coprod.inr
 
-private noncomputable def phasesMap {A D : P} (f : A ⟶ D) : Phases A ⟶ Phases D :=
-  coprod.map f (coprod.map f f)
-
-private noncomputable def interleave (A D : P) : Phases (A ⨿ D) ≅ Phases A ⨿ Phases D where
-  hom := coprod.desc (coprod.map (tag .first) (tag .first))
-    (coprod.desc (coprod.map (tag .middle) (tag .middle)) (coprod.map (tag .last) (tag .last)))
-  inv := coprod.desc (phasesMap coprod.inl) (phasesMap coprod.inr)
-  hom_inv_id := by
-    apply coprod.hom_ext
-    · apply coprod.hom_ext <;> simp [phasesMap, tag, Category.assoc]
-    · apply coprod.hom_ext
-      · apply coprod.hom_ext <;> simp [phasesMap, tag, Category.assoc]
-      · apply coprod.hom_ext <;> simp [phasesMap, tag, Category.assoc]
-  inv_hom_id := by
-    apply coprod.hom_ext
-    · apply coprod.hom_ext
-      · simp [phasesMap, tag, Category.assoc]
-      · apply coprod.hom_ext <;> simp [phasesMap, tag, Category.assoc]
-    · apply coprod.hom_ext
-      · simp [phasesMap, tag, Category.assoc]
-      · apply coprod.hom_ext <;> simp [phasesMap, tag, Category.assoc]
-
 private theorem interleave_tag (A D : P) (i : Phase) :
-    tag i ≫ (interleave A D).hom = coprod.map (tag i) (tag i) := by
-  cases i <;> simp [interleave, tag, Category.assoc]
+    tag i ≫ (phaseInterleave A D).hom = coprod.map (tag i) (tag i) := by
+  cases i <;> simp [phaseInterleave_hom, tag, Category.assoc]
 
 private noncomputable def regroupEmpty : Phases Z ≅ Z where
   hom := coprod.desc (𝟙 Z) (coprod.desc (𝟙 Z) (𝟙 Z))
@@ -67,7 +45,7 @@ private noncomputable def regroupEmpty : Phases Z ≅ Z where
 noncomputable def regroup : (t : UnitTree) → Phases (t.obj (τ := τ) (Φ := Φ)) ≅ t.phaseObj
   | .empty => regroupEmpty
   | .unit => UnitThreeCycle.split.symm
-  | .sum l r => interleave l.obj r.obj ≪≫ coprod.mapIso (regroup l) (regroup r)
+  | .sum l r => phaseInterleave l.obj r.obj ≪≫ coprod.mapIso (regroup l) (regroup r)
 
 private theorem regroup_tag (t : UnitTree) (i : Phase) :
     tag i ≫ (regroup (τ := τ) (Φ := Φ) t).hom ≫ t.forget = t.reset := by
@@ -86,9 +64,9 @@ private theorem regroup_tag (t : UnitTree) (i : Phase) :
         UnitThreeCycle.split.inv ≫ UnitThreeCycle.forget = UnitThreeCycle.reset
       rw [Category.assoc, p2]
   | sum l r hl hr =>
-    change tag i ≫ ((interleave l.obj r.obj).hom ≫ coprod.map (regroup l).hom (regroup r).hom) ≫
+    change tag i ≫ ((phaseInterleave l.obj r.obj).hom ≫ coprod.map (regroup l).hom (regroup r).hom) ≫
       coprod.map l.forget r.forget = coprod.map l.reset r.reset
-    rw [Category.assoc, ← Category.assoc (tag i) (interleave l.obj r.obj).hom, interleave_tag,
+    rw [Category.assoc, ← Category.assoc (tag i) (phaseInterleave l.obj r.obj).hom, interleave_tag,
       coprod.map_map, coprod.map_map, hl, hr]
 
 theorem forget_tree (t : UnitTree) : ConstructorCoproduct (t.forget (τ := τ) (Φ := Φ)) := by
