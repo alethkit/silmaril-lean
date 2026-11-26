@@ -770,6 +770,24 @@ theorem destructure_reentry_ne : ¬ Paper.WithEntryLet.Eqv [] original reentered
   have same := entryLet_observe rfl eq env he
   exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env (same ▸ before) after))
 
+theorem destructure_recurring_ne :
+    let A := Silmaril.coprod U U
+    let θ := Tm.singleSubst (.unit : Tm Instruction) ∘ Silmaril.DeBruijn.lift Nat.succ
+    ¬ Paper.WithEntryLet.Eqv [A] ((recurring moved).substVars θ) ((recurring original).substVars θ) [A] := by
+  intro A θ eq
+  let env : Env := fun _ => .inl .unit
+  have he : EnvTyped [A] env := by
+    intro i T hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact .inl .unit
+    | succ i => simp [At] at hi
+  have movedRun : observe env ((recurring moved).substVars θ) ⟨0, .inr .unit, true, false⟩ :=
+    execute_sound 4 _ env rfl
+  have flatRun : observe env ((recurring original).substVars θ) ⟨0, .inr .unit, true, true⟩ :=
+    execute_sound 4 _ env rfl
+  have same := entryLet_observe rfl eq env he
+  exact Bool.noConfusion (congrArg Exit.marked (observe_unique _ env (same ▸ movedRun) flatRun))
+
 end Destructure
 
 private local instance : MarkArity where

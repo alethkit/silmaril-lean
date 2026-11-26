@@ -80,7 +80,7 @@ private theorem repaired_square :
   exact taggedSource_forget _
 
 private theorem move_written : Site.here.move flatRecurringRequest = some movedRecurringRequest := by
-  simp only [flatRecurringRequest, flatRequest, movedRecurringRequest, movedRequest, compLSubst, lsubst, Site.move]
+  simp only [flatRecurringRequest, flatRequest, movedRecurringRequest, movedRequest, compLSubst, lsubst, Site.move, Site.rewriteAt, Site.moveEntry]
   congr 2
   apply congrArg (Region.cfg (.br 0 (.var 0) : Region Instruction) 2)
   funext i

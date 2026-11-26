@@ -23,21 +23,30 @@ inductive Site where
   | entry (next : Site)
   | block (index : Nat) (next : Site)
 
-/-- Move the entry let at one addressed CFG. Failure means the address does
-not reach a CFG with a unary let at its entry. -/
-def Site.move {Φ : Type v} : Site → Region Φ → Option (Region Φ)
-  | .here, .cfg (.let₁ a body) n blocks =>
-    some (.let₁ a (.cfg body n (fun i => (blocks i).renameVars (lift Nat.succ))))
-  | .unaryBody next, .let₁ a body => (next.move body).map (.let₁ a)
-  | .binaryBody next, .let₂ a body => (next.move body).map (.let₂ a)
-  | .leftArm next, .case a left right => (next.move left).map (fun l => .case a l right)
-  | .rightArm next, .case a left right => (next.move right).map (.case a left)
-  | .entry next, .cfg body n blocks => (next.move body).map (fun e => .cfg e n blocks)
+/-- Apply a partial region rewrite at one address. -/
+def Site.rewriteAt {Φ : Type v} (action : Region Φ → Option (Region Φ)) :
+    Site → Region Φ → Option (Region Φ)
+  | .here, r => action r
+  | .unaryBody next, .let₁ a body => (next.rewriteAt action body).map (.let₁ a)
+  | .binaryBody next, .let₂ a body => (next.rewriteAt action body).map (.let₂ a)
+  | .leftArm next, .case a left right => (next.rewriteAt action left).map (fun l => .case a l right)
+  | .rightArm next, .case a left right => (next.rewriteAt action right).map (.case a left)
+  | .entry next, .cfg body n blocks => (next.rewriteAt action body).map (fun e => .cfg e n blocks)
   | .block i next, .cfg body n blocks =>
     if hi : i < n then
-      (next.move (blocks ⟨i, hi⟩)).map (fun b => .cfg body n (Function.update blocks ⟨i, hi⟩ b))
+      (next.rewriteAt action (blocks ⟨i, hi⟩)).map (fun b => .cfg body n (Function.update blocks ⟨i, hi⟩ b))
     else none
   | _, _ => none
+
+/-- Move a unary let out of the CFG at the root. -/
+def Site.moveEntry {Φ : Type v} : Region Φ → Option (Region Φ)
+  | .cfg (.let₁ a body) n blocks =>
+    some (.let₁ a (.cfg body n (fun i => (blocks i).renameVars (lift Nat.succ))))
+  | _ => none
+
+/-- Move a unary entry let at one addressed CFG. -/
+abbrev Site.move {Φ : Type v} (site : Site) (r : Region Φ) : Option (Region Φ) :=
+  site.rewriteAt Site.moveEntry r
 
 /-- Apply the sites in order. Each address is relative to the region
 produced by the previous move. -/

@@ -49,7 +49,7 @@ private theorem move_second_block :
     Site.here.move ((flatRecurringRequest.renameVars (lift Nat.succ)).renameLabels Nat.succ) =
       some ((movedRecurringRequest.renameVars (lift Nat.succ)).renameLabels Nat.succ) := by
   simp only [flatRecurringRequest, flatRequest, movedRecurringRequest, movedRequest, compLSubst,
-    lsubst, renameVars, renameLabels, Site.move]
+    lsubst, renameVars, renameLabels, Site.move, Site.rewriteAt, Site.moveEntry]
   congr 2
   apply congrArg (Region.cfg (.br 0 (.var 0) : Region Instruction) 2)
   funext i
@@ -61,8 +61,10 @@ private theorem entry_move :
 private theorem block_move (p : Region Instruction) :
     (Site.block 0 .here).move (sequenceRequests p flatRecurringRequest) =
       some (sequenceRequests p movedRecurringRequest) := by
-  simp only [sequenceRequests, CfgEta.singleCfg, Site.move, Nat.zero_lt_succ, dite_true,
-    move_second_block, Option.map_some, Option.some.injEq]
+  simp only [sequenceRequests, CfgEta.singleCfg, Site.move, Site.rewriteAt, Nat.zero_lt_succ, dite_true]
+  change (Site.here.move _).map _ = _
+  rw [move_second_block]
+  simp only [Option.map_some, Option.some.injEq]
   congr 1
   funext i
   have hi : i = (0 : Fin 1) := Subsingleton.elim _ _
@@ -78,17 +80,17 @@ private theorem only_request_root (site : Site) {a payload : Tm Instruction}
   | here => rfl
   | entry s =>
     cases s with
-    | unaryBody next => cases next <;> simp [Site.move] at hm
-    | _ => simp [Site.move] at hm
+    | unaryBody next => cases next <;> simp [Site.move, Site.rewriteAt, Site.moveEntry] at hm
+    | _ => simp [Site.move, Site.rewriteAt, Site.moveEntry] at hm
   | block i next =>
-    simp only [Site.move] at hm
+    simp only [Site.move, Site.rewriteAt] at hm
     split at hm
     next hi =>
       obtain ⟨ℓ, t, hb⟩ := branches ⟨i, hi⟩
       rw [hb] at hm
-      cases next <;> simp [Site.move] at hm
+      cases next <;> simp [Site.rewriteAt, Site.moveEntry] at hm
     next _ => contradiction
-  | _ => simp [Site.move] at hm
+  | _ => simp [Site.move, Site.rewriteAt] at hm
 
 private theorem one_move (site : Site) {r : Region Instruction}
     (hm : site.move twoFlatRequests = some r) :
@@ -106,11 +108,11 @@ private theorem one_move (site : Site) {r : Region Instruction}
   | block idx next =>
     have hidx : idx < 1 := by
       by_contra h
-      simp [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, Site.move, h] at hm
+      simp [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, Site.move, Site.rewriteAt, h] at hm
     have hz : idx = 0 := by omega
     subst idx
     have hm' := hm
-    simp only [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, Site.move,
+    simp only [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, Site.move, Site.rewriteAt,
       Nat.zero_lt_succ, dite_true] at hm'
     obtain ⟨out, hout, _⟩ := Option.map_eq_some_iff.mp hm'
     have same : next = .here := by
@@ -123,7 +125,7 @@ private theorem one_move (site : Site) {r : Region Instruction}
     change (Site.block 0 .here).move (sequenceRequests flatRequest flatRecurringRequest) = some r at hm
     rw [block_move] at hm
     exact .inr (Option.some.inj hm).symm
-  | _ => simp [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, flatRequest, Site.move] at hm
+  | _ => simp [twoFlatRequests, sequenceRequests, CfgEta.singleCfg, flatRequest, Site.move, Site.rewriteAt, Site.moveEntry] at hm
 
 local notation "substForget" => (Tm.singleSubst (Tm.unit : Tm Instruction) ∘ lift Nat.succ)
 
@@ -246,7 +248,8 @@ theorem mixed_expansion :
       intro he
       exact no_substituted_var_zero a (Region.let₁.inj he).1
     | _ => simp [Region.substVars, expandedFirstMove]
-  · simp only [expandedFirstMove, Site.move]
+  · change ((Site.block 0 .here).move
+      ((firstRequestMoved.substVars substForget).renameVars Nat.succ)).map (Region.let₁ (.var 0)) = _
     rw [renameVars_eq_substVars, Site.move_substVars, block_move_composite]
     simp only [Option.map_some, renameVars_eq_substVars]
 
