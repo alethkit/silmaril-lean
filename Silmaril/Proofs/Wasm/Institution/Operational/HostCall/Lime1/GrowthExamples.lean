@@ -196,11 +196,13 @@ private theorem contract : program.Contract mem host := by
           cases found
           rfl
         | succ => simp [IndirectSite.memoryLookup, indirect] at found
-      refine ⟨fun callee found => ?_, fun parent found call used => ?_⟩
+      refine ⟨fun callee found => ?_, fun parent found call used => ?_, fun parent found index sig used => ?_⟩
       · rw [catalog callee found]
         exact ⟨rfl, rfl, rfl, rfl⟩
       · rw [catalog parent found] at used
         simp [target, fn, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets, Graph.Op.targets] at used
+      · rw [catalog parent found] at used
+        simp [target, fn] at used
   constructor
   · intro _ _ _ _ _ _ answer
     cases answer.2.2

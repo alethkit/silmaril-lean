@@ -99,12 +99,13 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
 
 def MemoryTarget.supportedOp (growthEnabled : Bool) : Graph.Memory32.Op → Bool
   | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
+  | .callIndirect .. => true
   | .grow => growthEnabled
   | _ => false
 
-/-- Straight-line memory instructions and local reads under the selected
-extent policy. Reuse operand typing
-with the complete ordered result list, independent of the V1 scalar guard. -/
+/-- Straight-line memory instructions, local reads and calls under the selected
+extent policy. Operand typing uses the complete ordered result list.
+The per-instruction allocation links are checked by `IndirectSite.MemoryLinked`. -/
 structure MemoryTarget.Checked {H : Type} (callee : MemoryTarget) {base : Store H}
     (memory : Memory32 base) : Prop where
   slot : callee.fn.declaration.module.memories[0]? = some memory.address
@@ -153,12 +154,33 @@ structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : Indirect
   allocated : child.Allocated base
   smaller : child.fn.rank < parent.fn.rank
 
+/-- Resolve a nested site's type in the active callee while using the same
+fixed table and memory function registry as the enclosing dispatcher. -/
+def IndirectSite.memorySite (site : IndirectSite) (index : TypeIdx)
+    (signature : Wasm.V1.FuncType) : IndirectSite :=
+  ⟨⟨site.table, index, ⟨signature.params, signature.results⟩⟩, ⟨[]⟩, site.memoryFunctions⟩
+
+/-- Every nonnull entry is allocated. Entries with the expected ordered
+signature must be registered Wasm children of strictly smaller rank. -/
+structure IndirectSite.MemoryIndirect {H : Type} (site : IndirectSite) (base : Store H)
+    (parent : MemoryTarget) (index : TypeIdx) (signature : Wasm.V1.FuncType) : Prop where
+  tableAt : frameTable base ⟨[], parent.fn.declaration.module⟩ = some site.table
+  signatureAt : parent.fn.declaration.module.types[index.toNat]? = some ⟨signature.params, signature.results⟩
+  entries : ∀ address, some address ∈ site.table.refs →
+    ∃ fn : FuncInst Wasm.Lime1.Func H, base.funcs[address.value]? = some fn ∧
+      (fn.type = ⟨signature.params, signature.results⟩ →
+        ∃ child, site.memoryLookup address = some child ∧
+          (⟨address, child⟩ : MemoryTarget).Allocated base ∧ child.rank < parent.fn.rank)
+
 /-- Static checks of the address-indexed graph used by the memory callee. -/
 structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : IndirectSite)
     (memory : Memory32 base) : Prop where
   checked : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn → callee.Checked memory
   direct : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
     ∀ target ∈ parent.fn.targets, ∃ child, site.MemoryDirect (base := base) parent target child
+  indirect : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
+    ∀ index signature, .callIndirect index signature ∈ parent.fn.code →
+      site.MemoryIndirect base parent index signature
 
 /-- Matching hosts supply the embedding contract. Registered memory targets
 check their code and the designated memory of the actual allocated module. -/

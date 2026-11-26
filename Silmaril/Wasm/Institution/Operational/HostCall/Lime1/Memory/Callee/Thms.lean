@@ -37,9 +37,11 @@ theorem extent_mono (move : Edge mem site callee bytes phase written next) : byt
   Proofs.extent_mono move
 
 /-- Exact native steps of the reached callee in the caller's operand and
-instruction context, including rank-decreasing direct children linked to their
-actual allocation. Native label and frame exits are distinct. A child's frame
-exit restores the suspended checked suffix or exposes a trap for cleanup. -/
+instruction context, including rank-decreasing direct and indirect children.
+A nested lookup consumes the live selector and either leaves a pending
+invocation or traps with the current bytes. Native label and frame exits are
+distinct. A child's frame exit restores the checked suffix or exposes a trap
+for cleanup. -/
 theorem step_iff (linked : site.MemoryLinked mem)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
