@@ -31,16 +31,6 @@ private theorem split_request {L : List Sorts} (es : List Bool) (req : Bool)
       (es, requestTree req (l.traceTree b) (r.traceTree b)) :=
   splitEmits_foldr es _ rfl
 
-private theorem request_inj {R : Type} {req req' : Bool}
-    {l r l' r' : Bool → Reply.Normal R}
-    (h : requestTree req l r = requestTree req' l' r') :
-    req = req' ∧ (∀ b, l b = l' b) ∧ (∀ b, r b = r' b) := by
-  obtain ⟨request, left, right⟩ := Reply.Normal.ask.inj h
-  obtain ⟨_, lowLeft, highLeft⟩ := Reply.Normal.ask.inj left
-  obtain ⟨_, lowRight, highRight⟩ := Reply.Normal.ask.inj right
-  exact ⟨request, fun b => match b with | false => lowLeft | true => highLeft,
-    fun b => match b with | false => lowRight | true => highRight⟩
-
 private theorem inner_inj {L : List Sorts} (p q : InnerNormal L)
     (h₀ : ∀ b, p.traceTree false b = q.traceTree false b)
     (h₁ : ∀ b, p.traceTree true b = q.traceTree true b) : p = q := by
@@ -76,15 +66,15 @@ private theorem outer_inj {L : List Sorts} (p q : OuterNormal L)
       have prefixes₁ := congrArg splitEmits h₁
       rw [split_request, split_request] at prefixes₀ prefixes₁
       obtain ⟨emits, rest₀⟩ := Prod.mk.inj prefixes₀
-      obtain ⟨request, l₀, r₀⟩ := request_inj rest₀
-      obtain ⟨_, l₁, r₁⟩ := request_inj (Prod.mk.inj prefixes₁).2
+      obtain ⟨request, l₀, r₀⟩ := requestTree_inj rest₀
+      obtain ⟨_, l₁, r₁⟩ := requestTree_inj (Prod.mk.inj prefixes₁).2
       rw [emits, request, inner_inj l l' l₀ l₁, inner_inj r r' r₀ r₁]
 
 theorem outcomes_injective_proof (L : List Sorts) : Function.Injective (@Normal.outcomes L) := by
   intro p q h
   have tracks : p.traceTree = q.traceTree :=
     Reply.Normal.outcomesWith_injective _ (Exits.Exit.packed_injective L) h
-  obtain ⟨request, left, right⟩ := request_inj tracks
+  obtain ⟨request, left, right⟩ := requestTree_inj tracks
   have lhs := outer_inj p.left q.left (left false) (left true)
   have rhs := outer_inj p.right q.right (right false) (right true)
   cases p

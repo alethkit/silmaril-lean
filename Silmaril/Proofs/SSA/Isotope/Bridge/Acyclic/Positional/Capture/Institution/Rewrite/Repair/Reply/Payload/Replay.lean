@@ -32,7 +32,7 @@ theorem expr_replay_proof (e : Expr) {n : Nat} (β : BoundCtx Sorts n) (i : Fin 
     exact (Equiv.caseEta (pureEff := false) d).symm.trans
       (.case (.refl d) (.inl (unit_slot β)) (.inr (unit_slot β)))
 
-private theorem tag_congr {n : Nat} {β : BoundCtx Sorts n} (L : List Sorts) (i : Nat)
+theorem tag_congr_proof {n : Nat} {β : BoundCtx Sorts n} (L : List Sorts) (i : Nat)
     {A : Sorts} (h : At L i A) (a b : Operand signature.Instr β A)
     (eq : Equiv false Γ₀ β a.1 b.1 A) :
     Equiv false Γ₀ β (FiniteExit.tag L i h a).1 (FiniteExit.tag L i h b).1 (packedExitType L) := by
@@ -51,7 +51,7 @@ theorem arm_replay_at_proof {L : List Sorts} (a : Arm L) (effects : List Bool)
     Equiv false Γ₀ β (a.renderPrefix effects β i h).1
       (a.normal.render.renderPrefix effects β i h).1 (packedExitType L) := by
   induction effects generalizing n with
-  | nil => exact tag_congr L _ _ _ _ (expr_replay_proof a.result β i h)
+  | nil => exact tag_congr_proof L _ _ _ _ (expr_replay_proof a.result β i h)
   | cons b effects ih => exact .let₁ (.refl (.op .unit)) (ih (β.snoc U) i.succ h)
 
 theorem request_replay_proof {n : Nat} {β : BoundCtx Sorts n} {A : Sorts}
