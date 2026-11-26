@@ -244,6 +244,24 @@ and exercises the no-return case and typed address reindexing.
 [Backend comparison](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
 [Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
 
+### Compare coloured Petri completion and MemRef CF
+
+At the same typed model and initial heap, `petri_completion_iff_memref`
+identifies a completed firing trace of the emitted memory θ with the
+MemRef CFG's partial return of the same word and whole heap.
+`petri_completion_iff_memref_run` gives the corresponding finite CFG
+execution witness. `petri_no_completion_iff_memref` compares absence
+of any completed firing trace with absence of a finite MemRef return.
+Firing traces and CFG block fuel are separate witnesses.
+
+The regression uses the portable two-backedge completion and the
+emitted MemRef execution of the three-cell shift. Both updated cells
+are observed, and a completion that changes the untouched sentinel
+is ruled out even with the same return word.
+[Coloured completion](../../sea-of-nodes-memory-loop-petri.md) ·
+[Backend theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean) ·
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
+
 Save this example to a Lean file and run `lake env lean <file>`. The
 activation results list the selector, word, and both final cells. The
 feedback and CFG results list the word and both final cells on return.

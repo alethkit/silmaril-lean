@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Thms
-import Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Portable.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Loop.Theta.Defs
@@ -18,6 +18,7 @@ open Memory.Diamond.Institution renaming Signature → EntrySignature, Model →
 open Memory.Diamond.LambdaSSA (packet)
 open Memory.Diamond.MLIR.Finite (Profile)
 open Memory.Diamond.MLIR.Finite renaming encodeResult → encodeCFResult
+open RVSDG.NestedTheta.Petri (Finishes)
 open Silmaril.MLIR.MemRef (Buffer)
 
 private def sig : EntrySignature := ⟨args⟩
@@ -64,6 +65,30 @@ private theorem shiftMemRefRun :
 example : MLIR.MemRef.CF.Institution.observe (P := sig) shift model (initial 1) = Part.some (0, atExit) :=
   (memref_observation_iff_theta_returns (P := sig) shift model (initial 1) 0 atExit).mpr
     ((memref_run_iff_theta_run (P := sig) shift model (initial 1) 0 atExit).mp ⟨5, shiftMemRefRun⟩)
+
+private theorem shiftPortable : Portable.Observation shift input (initial 1) 2 0 atExit :=
+  (shift.returnsAfter_iff_portable input (initial 1) 2 0 atExit).mp
+    ((shift.returnsAfter_iff_evalAfter input (initial 1) 2 0 atExit).mpr (by cbv))
+
+private theorem shiftMemRefFromPetri :
+    MLIR.MemRef.CF.Institution.observe (P := sig) shift model (initial 1) = Part.some (0, atExit) :=
+  (petri_completion_iff_memref (P := sig) shift model (initial 1) 0 atExit).mp shiftPortable.petriCompletion
+
+example : Finishes (thetaRuntime 3) shift.lowerTheta (Memory.encodeInput (initial 1) input)
+    (Memory.encodeResult 0 atExit) :=
+  (petri_completion_iff_memref_run (P := sig) shift model (initial 1) 0 atExit).mpr ⟨5, shiftMemRefRun⟩
+
+private def wrongSentinel : Heap 3 := atExit.write untouched 0
+
+-- Keeping the returned word and the two updated cells cannot hide an
+-- incorrect value for the untouched sentinel.
+example : ¬ Finishes (thetaRuntime 3) shift.lowerTheta (Memory.encodeInput (initial 1) input)
+    (Memory.encodeResult 0 wrongSentinel) := by
+  intro completed
+  have observed := (petri_completion_iff_memref (P := sig) shift model (initial 1) 0 wrongSentinel).mp completed
+  have same := Part.some_inj.mp (shiftMemRefFromPetri.symm.trans observed)
+  exact (by decide : atExit untouched ≠ wrongSentinel untouched)
+    (congrArg (fun result : Word × Heap 3 => result.2 untouched) same)
 
 private def clearTail : Graph args :=
   ⟨.load (.latest 0) headWire
@@ -123,6 +148,10 @@ private theorem noMemRef : MLIR.MemRef.CF.Institution.observe (P := sig) clearTa
 
 example : thetaObservation clearTail model cycling = Part.none :=
   (theta_no_return_iff_memref (P := sig) clearTail model cycling).mpr noMemRef
+
+example : ∀ output, ¬ Finishes (thetaRuntime 3) clearTail.lowerTheta
+    (Memory.encodeInput cycling input) output :=
+  (petri_no_completion_iff_memref (P := sig) clearTail model cycling).mpr noMemRef
 
 example : MLIR.Institution.observe (P := sig) clearTail model cycling = Part.none :=
   (mlir_observation_eq_map_memref (P := sig) clearTail model cycling).trans (by rw [noMemRef, Part.map_none])

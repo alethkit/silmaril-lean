@@ -3,12 +3,14 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Institution.Thms
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.MemRef.CF.Institution.Thms
+public import Silmaril.SSA.RVSDG.NestedTheta.Petri.Defs
+import Silmaril.SSA.RVSDG.NestedTheta.Petri.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.MLIR.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Theta.Thms
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Observation
 
-/-! Compare emitted λSSA, numbered θ, scalar CF, and MemRef CF
-observations at a shared native typed valuation and initialized heap. -/
+/-! Compare emitted λSSA, numbered θ, coloured Petri completion,
+scalar CF, and MemRef CF at a shared typed valuation and initialized heap. -/
 
 public section
 
@@ -18,6 +20,7 @@ open Memory.Diamond.Institution renaming Signature → EntrySignature, Model →
 open Memory.Diamond.LambdaSSA (Atom packet)
 open Memory.Diamond.MLIR.Finite (Profile evalOp)
 open Memory.Diamond.MLIR.Finite renaming encodeResult → encodeCFResult
+open RVSDG.NestedTheta.Petri (Finishes finishes_iff)
 open Silmaril.MLIR.CF.SwitchAssert (Outcome)
 open Isotope (Value)
 
@@ -109,6 +112,25 @@ theorem memref_run_iff_theta_run (graph : Graph P.args) (model : EntryModel P)
       some (Memory.encodeResult word final) :=
   Proofs.memref_run_iff_theta_run graph model initial word final
 
+/-- A finite coloured completion observes exactly the same word and
+whole final heap as the emitted MemRef CFG. -/
+theorem petri_completion_iff_memref (graph : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) (word : Word) (final : Heap model.cells) :
+    Finishes (thetaRuntime model.cells) graph.lowerTheta (Memory.encodeInput initial model.input)
+        (Memory.encodeResult word final) ↔
+      MLIR.MemRef.CF.Institution.observe graph model initial = Part.some (word, final) :=
+  (finishes_iff _ _ _ _).trans (memref_observation_iff_theta_returns graph model initial word final).symm
+
+/-- A completed firing trace and a successful run of the emitted CFG
+witness the same complete return. -/
+theorem petri_completion_iff_memref_run (graph : Graph P.args) (model : EntryModel P)
+    (initial : Heap model.cells) (word : Word) (final : Heap model.cells) :
+    Finishes (thetaRuntime model.cells) graph.lowerTheta (Memory.encodeInput initial model.input)
+        (Memory.encodeResult word final) ↔
+      ∃ fuel, (MLIR.MemRef.CF.lower model.cells graph).run (MLIR.MemRef.CF.evalBody model.input)
+        fuel .nil ⟨initial⟩ = (some (.cons word .nil), ⟨final⟩) :=
+  (finishes_iff _ _ _ _).trans (memref_run_iff_theta_run graph model initial word final).symm
+
 theorem mlir_no_return_iff (graph : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
     MLIR.Institution.observe graph model initial = Part.none ↔ graph.denote model.input initial = Part.none :=
   Proofs.mlir_no_return_iff graph model initial
@@ -127,6 +149,14 @@ theorem theta_no_return_iff_memref (graph : Graph P.args) (model : EntryModel P)
     thetaObservation graph model initial = Part.none ↔ MLIR.MemRef.CF.Institution.observe graph model initial = Part.none := by
   rw [MLIR.MemRef.CF.Institution.observe_eq]
   exact theta_no_return_iff graph model initial
+
+/-- The absence of a finite coloured completion at any output tuple
+agrees with absence of a finite MemRef CFG return. -/
+theorem petri_no_completion_iff_memref (graph : Graph P.args) (model : EntryModel P) (initial : Heap model.cells) :
+    (∀ output, ¬ Finishes (thetaRuntime model.cells) graph.lowerTheta
+      (Memory.encodeInput initial model.input) output) ↔
+      MLIR.MemRef.CF.Institution.observe graph model initial = Part.none :=
+  (Proofs.petri_no_completion_iff_theta graph model initial).trans (theta_no_return_iff_memref graph model initial)
 
 theorem theta_satisfaction_iff_memref (e : Equation P) (model : EntryModel P) :
     thetaHolds e model ↔ MLIR.MemRef.CF.Institution.Holds e model :=
