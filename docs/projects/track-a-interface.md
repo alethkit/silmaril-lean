@@ -19,20 +19,31 @@ equivalence's inverse law. Coalgebra equalities here are equalities of
 unfoldings on a common state carrier.
 
 The hiding policy is a deterministic partial responder indexed by state and
-request. Its only state advance is through the source continuation. For a
-distinct refusal outcome use a result type with a separate constructor, such
-as `Option A` with refusal `none`. A refusal has precisely the empty finite
-trace returning that result. A supplied reply admits exactly the observations
-of the resulting successor in the hidden coalgebra. A hidden request that
-loops after being answered can diverge silently.
+request. Its only state advance is through the source continuation. When the
+policy returns `none`, hiding terminates with the caller's `refusal` result.
+The refusal has precisely the empty finite trace returning that result. A
+supplied reply admits exactly the observations of the resulting successor in
+the hidden coalgebra. A hidden request that loops after being answered can
+diverge silently.
+
+Use an explicit ordinary refusal such as `.error e` with result type
+`Except Error Value`. At the Track A UB boundary, `UB.atBoundary` maps
+`Set (Trace S (Option A))` to `UB.Explicit (Trace S A)`. With
+`A = Except Error Value`, supply `some (.error e)` as the refusal result.
+The boundary preserves it as an ordinary error trace. Supply the outer
+`none` only for deliberate UB. A trace returning that value contributes
+the UB marker and makes `UB.collapse` yield the catastrophic top.
+[Track A UB definitions](../../Silmaril/Semantics/TrackA/Interaction/UB/Defs.lean)
 
 The interpretation acts on the coalgebra before observation. It can select a
 continuation via a typed response or end an execution via refusal. The
 regression exercises both cases with a hidden Boolean read whose reply controls
-the next public request. It also checks an infinite sequence of visible reads
-that becomes silent divergence under an internal response policy, and a
-renaming that changes both the request and its reply encoding. The checked
-laws concern sequential unfoldings and the Track A may-observation model.
+the next public request. It checks that ordinary refusal survives boundary
+collapse as a singleton without UB and that returning the outer `none`
+collapses to top. It also checks an infinite sequence of visible reads that
+becomes silent divergence under an internal response policy, and a renaming
+that changes both the request and its reply encoding. The checked laws
+concern sequential unfoldings and the Track A may-observation model.
 SC path projection and preservation under concurrent composition are outside
 this interface's scope.
 

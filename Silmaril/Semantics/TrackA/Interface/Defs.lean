@@ -126,8 +126,11 @@ def Policy.staged {P Q : S.Request → Prop} [DecidablePred Q] (first : Policy S
     if h : Q q then second x ⟨q, h⟩ hidden else first x q h
 
 /-- Forward selected requests with their original continuations. A hidden
-request takes one tau step with the supplied reply, or terminates with the
-explicit refusal result. Returns, tau and choice retain their layers. -/
+request takes one tau step with the supplied reply. A policy result of
+`none` returns the supplied `refusal : A`. At a UB boundary with result
+type `Option (Except Error Value)`, use `some (.error e)` for ordinary
+refusal. Returning the outer `none` is explicit UB at that boundary.
+Returns, tau and choice retain their layers. -/
 def hide (P : S.Request → Prop) [dec : DecidablePred P] (policy : Policy S P X)
     (refusal : A) (c : Interaction.Coalgebra S B A X) :
     Interaction.Coalgebra (Signature.restrict S P) B A X :=
