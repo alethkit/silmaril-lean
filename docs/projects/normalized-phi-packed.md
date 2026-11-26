@@ -632,3 +632,32 @@ left-exit registers still emits a scoped, packet-closed RTL table that
 elaborates and typechecks at the generated profile. Its final flat block
 differs from the admitted one, so exact reverse acceptance rejects it.
 [Swap regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
+
+#### Inferring the relocated reverse allocation
+
+`GeneratedSplit.reverseRelocated` starts with the original checked reverse
+allocation and its actual RTL output. It reads the generated split's flat
+table with the existing reverse body lowerer, using symbolic names for
+inputs, the block parameter, and each local binder depth. Keeping the exit
+arguments in that pass reveals the binder required for each declared
+live-out position. The solver preserves the original physical exit names
+and packet parameter. For unrequested depths it chooses distinct names
+above the original writes and the requested registers.
+[Inference](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Relocation/Defs.lean)
+
+The supported fragment uses numbered input registers, direct variable
+reads in the ordered live-out record, and one allocation for each local
+depth throughout a graph. The same depth must satisfy every request for
+it. Forced names at distinct depths must be distinct and outside the
+entry captures and the packet parameter. Reads of an input or the packet
+parameter require their fixed physical name. The inferred allocation
+satisfies these constraints, and the ordinary reverse checker still
+verifies the actual emission and its exact flat readback.
+[Soundness](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Relocation/Thms.lean)
+
+The swap now obtains its allocation from this inference. The four
+live-out requests pin depths `12, 14, 16, 17` to registers
+`14, 16, 18, 19` in exit-record order. The existing same-typed
+swapped allocation fails the requests and still produces the exact
+readback counterexample.
+[Swap regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
