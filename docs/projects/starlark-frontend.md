@@ -107,12 +107,12 @@ still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
 `**`. Operands use the module expression grammar, including scalar
-expressions, applications, and list displays. This admits
+expressions, applications, and list and tuple displays. This admits
 calls such as `f(*identity(xs), **identity(identity(kw)))` and call-free
-expressions such as `f(*(xs if flag else ys), **(False or kw))`. At a spread
-root, `*` also accepts a tuple display of scalar operands and `**`
-accepts a dictionary display with simple unescaped quoted keys and scalar
-values. Module assignments can bind these displays to names.
+expressions such as `f(*(xs if flag else ys), **(False or kw))`.
+`*` accepts list and tuple displays. At a spread root, `**` also accepts
+a dictionary display with simple unescaped quoted keys and scalar values.
+Module assignments can bind these displays to names.
 
 ```starlark
 # 雪
@@ -204,7 +204,7 @@ three left-associated normalized applications and their original UTF-8
 spans, then checks the following assignment was parsed separately.
 
 The head's parenthesized expression uses the existing call-free scalar
-profile. Attribute lookup, subscripts, and calls within tuple and dict displays
+profile. Attribute lookup, subscripts, and calls within dictionary displays
 remain outside this grammar. The normalized checker and evaluator
 handle callable values, binding, runtime errors, and the existing restriction
 on recursive closure invocation.
@@ -350,7 +350,7 @@ Go-only mutation controls record test and suite order and skipped effects.
 
 The checked module operator profile admits `and`, `or`, and conditional
 expressions. Computed callees formed from call-containing groups and calls
-in parameter defaults and tuple or dict display elements remain outside this profile.
+in parameter defaults and dictionary display elements remain outside this profile.
 Unary `not`, `+`, `-`, and `~`, binary arithmetic
 `+`, `-`, `*`, `/`, `//`, and `%`, equality, ordering, membership, shifts,
 and bitwise operators remain outside the checked module operator profile.
@@ -380,9 +380,38 @@ display and immediate element positions on the same CRLF input. Shared
 controls cover nested lists and calls, function bodies, spreads, invalid
 separators, and a reached binding error. Lean inspects the allocation
 prefix. Go-only mutation traces check element order and skipped effects.
-The standalone scalar parser stays call-free. Tuple and dictionary
-elements, comprehensions, and default expressions keep their prior scope.
+The standalone scalar parser stays call-free. Dictionary elements,
+comprehensions, and default expressions keep their prior scope.
 [List display checks](../../Silmaril/Languages/Starlark/Frontend/Module/ListDisplayChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Calls in tuple displays
+
+The module precedence parser shares the opening parse for groups and
+tuples. `(f())` groups the call, `(f(),)` makes a singleton tuple, and
+`()` makes an empty tuple. After the first comma, the same delimiter
+loop as list displays reads the remaining elements with the module
+expression grammar. Nested displays, conditional and logical expressions,
+and optional trailing commas after multiple elements are supported.
+Unparenthesized tuples remain outside this profile. A grouped call can
+be a tuple element. Computed callees such as `(f())()` remain outside
+the supported callee forms.
+
+`lowerOperand_tuple` preserves element order and collects each element's
+application metadata. `denoteTuple_cons` gives one evaluation of the
+first element and the exact state handed to the remainder.
+`denoteTuple_order` allocates the tuple after all elements succeed and
+preserves the exact reached error state. Lean checks a failure after a
+completed inner tuple, with no later element effects or outer allocation.
+Go-only mutation controls check the reached prefix and skipped effects.
+
+Lean checks grouping, normalized shape, and exact UTF-8 tuple, element,
+callee, application, and operand spans. Pinned Go checks the tuple and
+element line and column spans on the same CRLF source. The oracle uses
+Go's enclosing parenthesis node for nonempty tuples and advances the
+empty tuple's closing-token position to its half-open end.
+Standalone scalar parsing and the dictionary, comprehension, and
+default-expression boundaries retain their prior scope.
+[Tuple display checks](../../Silmaril/Languages/Starlark/Frontend/Module/TupleDisplayChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -513,7 +542,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks \
   +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks \
-  +Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.TupleDisplayChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 

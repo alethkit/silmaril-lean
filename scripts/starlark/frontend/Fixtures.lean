@@ -23,6 +23,8 @@ import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks
 import Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks
 meta import Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks
+import Silmaril.Languages.Starlark.Frontend.Module.TupleDisplayChecks
+meta import Silmaril.Languages.Starlark.Frontend.Module.TupleDisplayChecks
 import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 meta import Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks
 
@@ -30,7 +32,8 @@ open Lean Silmaril.Languages.Starlark.Frontend
 open Silmaril.Languages.Starlark.Frontend.Module
   (Observation controls spreadControls computedCallControls returnCallControls assignmentCallControls callStatementControls logicalCallControls
     conditionalCallControls branchCallControls branchSyntaxControls branchSpanSource branchTestSpans
-    listDisplayControls listSyntaxControls listSpanSource listDisplaySpans)
+    listDisplayControls listSyntaxControls listSpanSource listDisplaySpans
+    tupleDisplayControls tupleSyntaxControls tupleSpanSource tupleDisplaySpans)
 
 private def moduleObservation (expected : Observation) : Json :=
   let (phase, want) := match expected with
@@ -76,17 +79,22 @@ public def main (args : List String) : IO Unit := do
      ("accepts", toJson fixture.goAccepts)]
   let moduleControls := controls ++ spreadControls ++ computedCallControls ++
     returnCallControls ++ assignmentCallControls ++ callStatementControls ++ logicalCallControls ++
-      conditionalCallControls ++ branchCallControls ++ listDisplayControls
+      conditionalCallControls ++ branchCallControls ++ listDisplayControls ++ tupleDisplayControls
   let modules := moduleControls.toArray.map fun control =>
     Json.mkObj [("name", toJson control.name), ("source", toJson control.source),
       ("accepts", toJson true), ("module", moduleObservation control.expected)]
   let loaders := Silmaril.Languages.Starlark.Frontend.Module.Loader.controls.toArray.map loaderFixture
-  let moduleSyntax := (branchSyntaxControls ++ listSyntaxControls).toArray.map fun (name, source, _, accepts) =>
-    Json.mkObj [("name", toJson name), ("source", toJson source), ("accepts", toJson accepts)]
+  let moduleSyntax := (branchSyntaxControls ++ listSyntaxControls ++ tupleSyntaxControls).toArray.map
+    fun (name, source, _, accepts) =>
+      Json.mkObj [("name", toJson name), ("source", toJson source), ("accepts", toJson accepts)]
   let branchSpans := Json.mkObj [("name", toJson "utf8-branch-test-spans"),
     ("source", toJson branchSpanSource), ("accepts", toJson true),
     ("branchTests", spanCoordinates branchTestSpans)]
   let listSpans := Json.mkObj [("name", toJson "utf8-list-display-spans"),
     ("source", toJson listSpanSource), ("accepts", toJson true),
     ("listDisplays", spanCoordinates listDisplaySpans)]
-  IO.FS.writeFile output (Json.arr (entries ++ modules ++ loaders ++ moduleSyntax ++ #[branchSpans, listSpans])).compress
+  let tupleSpans := Json.mkObj [("name", toJson "utf8-tuple-display-spans"),
+    ("source", toJson tupleSpanSource), ("accepts", toJson true),
+    ("tupleDisplays", spanCoordinates tupleDisplaySpans)]
+  IO.FS.writeFile output
+    (Json.arr (entries ++ modules ++ loaders ++ moduleSyntax ++ #[branchSpans, listSpans, tupleSpans])).compress

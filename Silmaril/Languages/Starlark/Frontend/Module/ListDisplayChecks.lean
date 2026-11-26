@@ -107,7 +107,6 @@ public def listSyntaxControls : List (String × String × DiagnosticKind × Bool
   ("list-double-comma", "out=[f(),, g()]", .expected "an expression", false),
   ("list-semicolon", "out=[f(); g()]", .expected "',' or ']'", false),
   ("list-comprehension-outside-profile", "out=[f(x) for x in xs]", .unsupported .collection, true),
-  ("tuple-element-call-outside-profile", "out=(f(),)", .unsupported .call, true),
   ("dict-value-call-outside-profile", "out={'a': f()}", .unsupported .call, true),
   ("list-default-outside-profile", "def f(x=[g()]):\n  return x", .unsupported .collection, true)]
 

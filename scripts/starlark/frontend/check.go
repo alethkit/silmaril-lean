@@ -13,13 +13,14 @@ import (
 )
 
 type fixture struct {
-	Name         string
-	Source       string
-	Accepts      bool
-	Module       *moduleControl
-	Loader       *loaderControl
-	BranchTests  [][4]int32
-	ListDisplays [][4]int32
+	Name          string
+	Source        string
+	Accepts       bool
+	Module        *moduleControl
+	Loader        *loaderControl
+	BranchTests   [][4]int32
+	ListDisplays  [][4]int32
+	TupleDisplays [][4]int32
 }
 
 type moduleControl struct {
@@ -47,6 +48,10 @@ func checkNodeSpans(file *syntax.File, want [][4]int32, locate func(syntax.Node)
 	syntax.Walk(file, func(node syntax.Node) bool {
 		for _, located := range locate(node) {
 			start, end := located.Span()
+			// Go's empty tuple reports the closing token, not the half-open end.
+			if tuple, ok := located.(*syntax.TupleExpr); ok && tuple.Lparen.IsValid() {
+				end.Col++
+			}
 			got = append(got, [4]int32{start.Line, start.Col, end.Line, end.Col})
 		}
 		return true
@@ -66,14 +71,33 @@ func branchTestNodes(node syntax.Node) []syntax.Node {
 
 func listDisplayNodes(node syntax.Node) []syntax.Node {
 	if display, ok := node.(*syntax.ListExpr); ok {
-		nodes := make([]syntax.Node, 1, len(display.List)+1)
-		nodes[0] = display
-		for _, element := range display.List {
-			nodes = append(nodes, element)
-		}
-		return nodes
+		return displayNodes(display, display.List)
 	}
 	return nil
+}
+
+func tupleDisplayNodes(node syntax.Node) []syntax.Node {
+	// A nonempty parenthesized tuple is a ParenExpr over a bare TupleExpr.
+	switch display := node.(type) {
+	case *syntax.ParenExpr:
+		if tuple, ok := display.X.(*syntax.TupleExpr); ok && !tuple.Lparen.IsValid() {
+			return displayNodes(display, tuple.List)
+		}
+	case *syntax.TupleExpr:
+		if display.Lparen.IsValid() {
+			return displayNodes(display, display.List)
+		}
+	}
+	return nil
+}
+
+func displayNodes(display syntax.Node, elements []syntax.Expr) []syntax.Node {
+	nodes := make([]syntax.Node, 1, len(elements)+1)
+	nodes[0] = display
+	for _, element := range elements {
+		nodes = append(nodes, element)
+	}
+	return nodes
 }
 
 func checkModule(file *syntax.File, control moduleControl) error {
@@ -226,6 +250,12 @@ func main() {
 		}
 		if f.ListDisplays != nil {
 			if err := checkNodeSpans(file, f.ListDisplays, listDisplayNodes); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
+		if f.TupleDisplays != nil {
+			if err := checkNodeSpans(file, f.TupleDisplays, tupleDisplayNodes); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
 				failed = true
 			}
