@@ -43,10 +43,12 @@ def Session.publish (session : Session) (table : CodeTable) (name : GlobalName)
 inductive Operand where
   | literal (value : Closure.Value)
   | readGlobal (name : GlobalName)
+  | tuple (items : List GlobalTupleItem)
 
 def Operand.lower {layout : Layout} : Operand → Executor.Operand layout
   | .literal value => .literal value
   | .readGlobal name => .readGlobal name
+  | .tuple items => .tuple (items.map GlobalTupleItem.lower)
 
 inductive Destination where
   | discard

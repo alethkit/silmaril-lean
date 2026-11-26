@@ -44,6 +44,21 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
 
+theorem advance_bindTuple_ok {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem}
+    {values : List Core.Module.Value} {rest : List (Instruction scope)}
+    (evaluated : evaluateTuple session items = .ok (.tuple values)) :
+    advance table (.ready session (.bindTuple name items :: rest)) =
+      ([], .ready (session.bindGlobal name (.tuple values)) rest) := by
+  simp [advance, bindTuple, evaluated]
+
+theorem advance_bindTuple_failure {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    {session : Core.Module.Functions.Session} {name : String} {items : List Core.Closure.GlobalTupleItem}
+    {error : Completion} {rest : List (Instruction scope)}
+    (failed : bindTuple session name items = .error error) :
+    advance table (.ready session (.bindTuple name items :: rest)) = ([], .finished session error) := by
+  simp [advance, failed]
+
 theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name)
     (reference : GlobalReference scope name) (selected : Operand scope) (rest : List (Instruction scope)) :
