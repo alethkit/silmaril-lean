@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Search.Replay.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Refinement.Checker.Interface.Thms
@@ -476,6 +476,112 @@ example : ¬ ∃ pairs, backedge.checkProduct literalLoop left left enumeration 
   rintro ⟨_, impossible⟩
   change ProductSearch.Result.mismatch (loopNext, loopNext) adversePath = .accepted _ at impossible
   cases impossible
+
+private abbrev entryQuery : InterpreterScript.Query Op 2 := ⟨.flip, left, 0⟩
+private abbrev advanceReply := InterpreterScript.Row.success (S := sig) entryQuery ⟨0, right⟩ 1
+private abbrev faultTest : InterpreterScript.Row Op 2 := ⟨⟨.flip, right, 1⟩, .fault 1⟩
+private abbrev divergeTest : InterpreterScript.Row Op 2 := ⟨⟨.flip, left, 1⟩, .diverge⟩
+
+private def routeToZero (i : Fin (sig.replies Op.flip).length)
+    (a : Syntax.Payload ((sig.replies Op.flip).get i)) : Packet Packets :=
+  have typed : Packets.get (0 : Fin 3) = (sig.replies Op.flip).get i := by
+    obtain rfl := Fin.eq_zero i
+    rfl
+  ⟨0, cast (congrArg Syntax.Payload typed.symm) a⟩
+
+private theorem initialSchedule :
+    ScheduledPath backedge literalLoop left left (loopStart, loopStart) (0 : Fin 2)
+      [] [] (loopStart, loopStart) 0 [] := .start
+
+private theorem adverseSchedule :
+    ScheduledPath backedge literalLoop left left (loopStart, loopStart) (0 : Fin 2)
+      adversePath [1] (loopNext, loopNext) 1 [advanceReply] :=
+  initialSchedule.step (f := Op.flip) (arg := left) (next := routeToZero) (next' := routeToZero)
+    rfl rfl ⟨0, right⟩ 1
+
+example : ∃ final rows, ScheduledPath backedge literalLoop left left (loopStart, loopStart) (0 : Fin 2)
+    adversePath [1] (loopNext, loopNext) final rows :=
+  Table.schedule_rejection (g := backedge) (h := literalLoop) (replies := enumeration)
+    (left := inventory) (right := inventory) rfl 0 [1] rfl
+
+private abbrev replayScript := [advanceReply, faultTest, divergeTest]
+
+private theorem adverseConsistent : InterpreterScript.Consistent replayScript :=
+  (InterpreterScript.feasible_iff _).mp ⟨adversePrim, by
+    intro row mem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
+    rcases mem with rfl | rfl | rfl <;> rfl⟩
+
+private def rebuilt : Syntax.Primitives Op 2 := InterpreterScript.extend replayScript (fun _ _ _ => .diverge)
+
+example : InterpreterScript.Realizes rebuilt replayScript :=
+  InterpreterScript.extend_realizes adverseConsistent _
+
+example : ∃ prim : Syntax.Primitives Op 2,
+    ¬ Shape.denote (withExitUB backedge.native backedge.selected)
+        (Syntax.model prim (backedge.bindings left)) 0 ≤
+      Shape.denote (withExitUB literalLoop.native literalLoop.selected)
+        (Syntax.model prim (literalLoop.bindings left)) 0 :=
+  ScheduledPath.refutes_queries (raw := backedge.native) (raw' := literalLoop.native)
+    rfl rfl adverseSchedule rfl rfl 1 adverseConsistent
+
+private abbrev stayLeft := InterpreterScript.Row.success (S := sig) entryQuery ⟨0, left⟩ 0
+private abbrev changeAtSameState := InterpreterScript.Row.success (S := sig) entryQuery ⟨0, right⟩ 0
+private def repeatedPath : List (ProductEdge sig Packets Packets) :=
+  (⟨.flip, ⟨0, left⟩⟩, loopStart, loopStart) :: adversePath
+
+private theorem repeatedSchedule :
+    ScheduledPath backedge literalLoop left left (loopStart, loopStart) (0 : Fin 2)
+      repeatedPath [0, 0] (loopNext, loopNext) 0 [stayLeft, changeAtSameState] :=
+  (initialSchedule.step (f := Op.flip) (arg := left) (next := routeToZero) (next' := routeToZero)
+    rfl rfl ⟨0, left⟩ 0).step (f := Op.flip) (arg := left) (next := routeToZero) (next' := routeToZero)
+      rfl rfl ⟨0, right⟩ 0
+
+example : ¬ ∃ prim : Syntax.Primitives Op 2, InterpreterScript.Realizes prim [stayLeft, changeAtSameState] ∧
+    backedge.observeAt left prim loopStart 0 = backedge.observeAt left prim loopNext 0 ∧
+    literalLoop.observeAt left prim loopStart 0 = literalLoop.observeAt left prim loopNext 0 := by
+  intro existsRun
+  have consistent := repeatedSchedule.feasible_iff.mp existsRun
+  have clash := consistent stayLeft (by simp) changeAtSameState (by simp) rfl
+  have payloads := congrArg (fun reply : Syntax.Reply (instrTrg Op.flip) 2 =>
+    match reply with
+    | .ret payload _ => payload.val
+    | _ => .unit) clash
+  cases payloads
+
+private abbrev repeatAtStoreOne : InterpreterScript.Query Op 2 := ⟨.flip, left, 1⟩
+private abbrev advanceStore := InterpreterScript.Row.success (S := sig) entryQuery ⟨0, left⟩ 1
+private abbrev changeAtDifferentState := InterpreterScript.Row.success (S := sig) repeatAtStoreOne ⟨0, right⟩ 1
+
+private def twoStoreInterpreter : Syntax.Primitives Op 2 :=
+  InterpreterScript.extend [advanceStore, changeAtDifferentState] (fun _ _ _ => .diverge)
+
+example : InterpreterScript.Realizes twoStoreInterpreter [advanceStore, changeAtDifferentState] := by
+  intro row mem
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
+  rcases mem with rfl | rfl <;> rfl
+
+private def terminalTable (i : Tag) : Table sig [.unit] where
+  entry := 0
+  row _ := .exit i
+  selected _ := false
+
+example : ∃ prim : Syntax.Primitives Op 2,
+    ¬ Shape.denote (withExitUB (terminalTable 0).native (terminalTable 0).selected)
+        (Syntax.model prim ((terminalTable 0).bindings unitPayload)) 0 ≤
+      Shape.denote (withExitUB (terminalTable 1).native (terminalTable 1).selected)
+        (Syntax.model prim ((terminalTable 1).bindings unitPayload)) 0 := by
+  have initialPath : ScheduledPath (terminalTable 0) (terminalTable 1) unitPayload unitPayload
+      (⟨0, unitPayload⟩, ⟨0, unitPayload⟩) (0 : Fin 2) []
+      [] (⟨0, unitPayload⟩, ⟨0, unitPayload⟩) 0 [] := .start
+  exact initialPath.refutes_exits (raw := (terminalTable 0).native) (raw' := (terminalTable 1).native)
+    rfl rfl (by simp [InterpreterScript.Consistent]) rfl rfl (.inr (by decide))
+
+/-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.ScheduledPath.refutes_queries' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound] -/
+#guard_msgs in
+#print axioms ScheduledPath.refutes_queries
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.searchProduct_accepts_iff' depends on axioms: [propext,
  Classical.choice,
