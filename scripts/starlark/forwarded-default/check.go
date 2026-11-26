@@ -339,6 +339,78 @@ result = factory()
 	fmt.Println("PASS a tracked child without lexical captures accepts a required-only suffix after named *rest")
 }
 
+func kwargsSource(arguments string) string {
+	return fmt.Sprintf(`data = [0, 22]
+def factory(data, index):
+    def child(required, spare=[31], *rest, key, stage=[32], saved=data, **extras):
+        made = [44]
+        check = required[saved[key]][index]
+        return extras
+    copy = child
+    marker = [17]
+    result = copy(%s)
+    after = [99]
+    return result
+result = factory(data, 0)
+finished = [91]
+`, arguments)
+}
+
+func checkKwargs(opts *syntax.FileOptions) {
+	for _, test := range []struct {
+		arguments string
+		keys      []string
+	}{
+		{"[[11]], key=0", nil},
+		{"[[11]], [74], 73, data, zeta=data, key=0, extras=data", []string{"zeta", "extras"}},
+		{"[[11]], [74], 73, data, zeta=data, key=1, extras=data, saved=[22, 0]", []string{"zeta", "extras"}},
+	} {
+		globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "tracked-kwargs.star",
+			kwargsSource(test.arguments), nil)
+		require(err == nil, err)
+		items := globals["result"].(*starlark.Dict).Items()
+		require(len(items) == len(test.keys) && globals["finished"].String() == "[91]", globals)
+		for i, item := range items {
+			require(item[0] == starlark.String(test.keys[i]) && item[1] == globals["data"], globals)
+		}
+	}
+	fmt.Println("PASS keyword collection preserves unmatched key order and original aliases with *args and saved or explicit values")
+
+	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread), "fresh-kwargs.star", `def child(**extras):
+    return extras
+alias = child
+first = alias()
+second = alias()
+`, nil)
+	require(err == nil, err)
+	first := globals["first"].(*starlark.Dict)
+	second := globals["second"].(*starlark.Dict)
+	require(first != second && first.Len() == 0 && second.Len() == 0, globals)
+	fmt.Println("PASS repeated calls allocate distinct empty keyword dictionaries")
+
+	for _, test := range []struct {
+		arguments string
+		errorText string
+	}{
+		{"[[11]], [74], 73, data, zeta=data, extras=data", "missing 1 argument (key)"},
+		{"[[11]], [74], 73, data, zeta=[85], required=[86]", `multiple values for parameter "required"`},
+		{"[[11]], [74], 73, data, zeta=[85], key=[0][1], extras=[77]", "index 1 out of range"},
+		{"[[11]], [74], 73, data, key=1, zeta=data, extras=data", "index 22 out of range"},
+	} {
+		_, compiled, err := starlark.SourceProgramOptions(opts, "tracked-kwargs-error.star",
+			kwargsSource(test.arguments), func(string) bool { return false })
+		require(err == nil, err)
+		partial, err := compiled.Init(new(starlark.Thread), nil)
+		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
+		require(partial["result"] == nil && partial["finished"] == nil, partial)
+	}
+
+	_, _, err = starlark.SourceProgramOptions(opts, "repeated-unmatched-keyword.star",
+		kwargsSource("[[11]], key=0, zeta=[], zeta=[]"), func(string) bool { return false })
+	require(err != nil && strings.Contains(err.Error(), `keyword argument "zeta" is repeated`), err)
+	fmt.Println("PASS duplicate binding precedes a missing formal, repeated unmatched syntax is static, and first errors skip continuation")
+}
+
 func main() {
 	opts := &syntax.FileOptions{}
 	for _, test := range []struct {
@@ -372,5 +444,6 @@ func main() {
 	checkLiveProvenance(opts)
 	checkKeywordOnlyDefaults(opts)
 	checkVarargs(opts)
+	checkKwargs(opts)
 	checkExplicitOperandOrder(opts)
 }

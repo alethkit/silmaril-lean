@@ -49,7 +49,8 @@ inductive Evaluates (block : LexicalBlock) :
 /-- Evidence for the actual record reached at a function value. The
 defining frame supplies the addresses and the current heap supplies the
 live cells and still-stored default values. -/
-structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs)
+structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent keywords varargs kwargs)
     (id : DeclarationId) (defining state : State) (address : Nat) where
   captures : List Lists.Capture
   defaults : List Value
@@ -61,7 +62,8 @@ structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParamet
   live : Body.CaptureCells state captures
 
 /-- The body proof operates at the callee's reduced declaration set. -/
-abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs) (program : Program)
+abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent keywords varargs kwargs) (program : Program)
     (available : List DeclarationId) (id : DeclarationId) (bodyRuns : State → Outcome Flow → Prop) : Prop :=
   ∀ (caller defining : State) (captures : List Lists.Capture), Installs defining site.free captures →
     Body.CaptureCells caller captures → ∀ (assigned : List (Binding × Lists.Value)),
@@ -79,7 +81,8 @@ abbrev Unpacked : PackRule (List (Binding × Value)) :=
 /-- The call first reads the local callee and then evaluates its
 explicit operands. Binding consults the reached heap only after all
 operands succeed. A failed bind has no activation premise. -/
-inductive RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs) (bodyRuns : State → Outcome Flow → Prop)
+inductive RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent keywords varargs kwargs) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock)
     (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr)
     {Bound : Type} (collect : List Value → Actual) (binds : BindingRule Bound) (packs : PackRule Bound) : State → Outcome Value → Prop where

@@ -957,23 +957,26 @@ private theorem keyword_reads (parameters : List PlainKeywordParameter) :
 /-- With plain defaults before and after the star boundary, compilation
 emits a direct definition and retains the defining reads in source order. -/
 theorem compileBody_plainParameterDefinition (block : BlockContext) (name : String) (required : List String)
-    (defaults : List PlainPositionalDefault) (keywords : List PlainKeywordParameter) (varargs : Option String)
+    (defaults : List PlainPositionalDefault) (keywords : List PlainKeywordParameter) (varargs kwargs : Option String)
     (body : Statement) (program next : Program) (layout : FunctionLayout) (compiled : ResolvedBody)
     (closed : ∀ item ∈ defaults ++ keywords.filterMap PlainKeywordParameter.default,
       resolveTracked block.reads item.source = .ok (item.value, item.reads))
     (collected : collectFunctionLayout block.reads
       { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
         keywordOnly := keywords.map PlainKeywordParameter.source
-        varargs := varargs } body = .ok layout)
+        varargs := varargs
+        kwargs := kwargs } body = .ok layout)
     (bodyCode : compileBody layout.block body program = .ok (compiled, next)) :
     let source : SourceSignature :=
       { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
         keywordOnly := keywords.map PlainKeywordParameter.source
-        varargs := varargs }
+        varargs := varargs
+        kwargs := kwargs }
     let signature : Functions.Signature :=
       { positional := (requiredSignature required).positional ++ defaults.map PlainPositionalDefault.resolved
         keywordOnly := keywords.map PlainKeywordParameter.resolved
-        varargs := varargs.map fileSlot }
+        varargs := varargs.map fileSlot
+        kwargs := kwargs.map fileSlot }
     let captures := captureNames (source.parameterNames ++ layout.locals) compiled.reads
     compileBody block (.define name source body) program =
       .ok (⟨.define (fileSlot name) next.size,
@@ -1015,7 +1018,7 @@ theorem compileBody_plainPositionalDefinition (block : BlockContext) (name : Str
     compileBody block (.define name source body) program =
       .ok (⟨.define (fileSlot name) next.size, defaults.flatMap PlainPositionalDefault.reads ++ captures.map FreeName.source⟩,
         next.push ⟨signature, layout.locals.map fileSlot, captures, compiled.code⟩) := by
-  simpa using compileBody_plainParameterDefinition block name required defaults [] none body program next layout
+  simpa using compileBody_plainParameterDefinition block name required defaults [] none none body program next layout
     compiled (by simpa using closed) collected bodyCode
 
 theorem compileBody_plainAssign (block : BlockContext) (name : String) (source : Lowering.Resolve.SourceExpr)
