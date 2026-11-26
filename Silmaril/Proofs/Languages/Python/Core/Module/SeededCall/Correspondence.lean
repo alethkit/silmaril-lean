@@ -9,6 +9,32 @@ namespace Silmaril.Proofs.Languages.Python.Core.Module.SeededCall
 open Silmaril.Languages.Python.Core.Module.SeededCall
 open Silmaril.Languages.Python.Core.Module.TupleDispatch (equalContents)
 
+theorem lookupBinding_remove (bindings : Bindings) (name query : String) :
+    lookupBinding (bindings.filter fun binding => binding.1 != name) query =
+      if query = name then none else lookupBinding bindings query := by
+  induction bindings with
+  | nil => simp [lookupBinding]
+  | cons item rest ih =>
+    obtain ⟨key, value⟩ := item
+    by_cases removed : key = name
+    · subst key
+      by_cases target : query = name
+      · subst query
+        simpa [List.filter_cons] using ih
+      · simpa [List.filter_cons, lookupBinding, List.findSome?_cons, target] using ih
+    · rw [List.filter_cons]
+      have keep : ((key != name) : Bool) = true := by simp [removed]
+      simp only [keep, ite_true]
+      by_cases hit : query = key
+      · subst query
+        simp [lookupBinding, removed]
+      · by_cases target : query = name
+        · have miss : name ≠ key := Ne.symm removed
+          subst query
+          simp only [lookupBinding] at ih ⊢
+          simpa only [List.findSome?_cons, Prod.fst, ite_eq_right miss] using ih
+        · simpa [lookupBinding, List.findSome?_cons, hit, target] using ih
+
 theorem delivers_iff {expectation : Expectation} {input output : Result} :
     expectation.deliver input = output ↔ Delivers expectation input output := by
   constructor

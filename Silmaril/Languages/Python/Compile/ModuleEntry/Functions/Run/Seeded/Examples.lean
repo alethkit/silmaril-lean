@@ -254,4 +254,28 @@ private def namedRaiseEvidence (explicit : Bool) : Bool := Id.run do
 #guard namedRaiseEvidence false
 #guard namedRaiseEvidence true
 
+private def handlerTargetEvidence (abrupt : Bool) : Bool := Id.run do
+  let handler := [.assign "saved" (.name "caught")] ++
+    if abrupt then [.assign "stopped" (.name "missing")] else [.assign "caught" (.integer 9)]
+  let source : Source.Module := ⟨[
+    .assign "caught" (.integer 5),
+    .try_ [.raise_ (some (.name "TypeError")) none]
+      [⟨some (.name "TypeError"), some "caught", handler⟩] []
+      [.assign "cleaned" (.name "saved")]]⟩
+  let .ok compiled := Run.compile source | return false
+  let space : Namespace := ⟨[], [("TypeError", .exceptionClass .typeError)]⟩
+  let instanceValue : Core.Module.SeededCall.Value := .exceptionInstance (.empty .typeError)
+  let initial := (Run.seed .empty).bindGlobal "TypeError" (.exceptionClass .typeError)
+  let (events, state) := Run.runPrefix compiled.table 10 (.ready initial compiled.instructions)
+  let .finished ordinary completion := state | return false
+  let seeded := run space compiled
+  return events.isEmpty && completion == (if abrupt then .raised (.nameError "missing") else .normal) &&
+    (ordinary.globals "caught").isNone && (ordinary.globals "cleaned").map seededValue == some instanceValue &&
+    seeded.completion == (if abrupt then .error (.raised (.runtime (.nameError "missing"))) else .ok ()) &&
+    seeded.residual.moduleGlobals == [("cleaned", instanceValue), ("saved", instanceValue)] &&
+    seeded.residual.builtins == space.builtins && seeded.calls.isEmpty
+
+#guard handlerTargetEvidence false
+#guard handlerTargetEvidence true
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

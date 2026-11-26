@@ -372,8 +372,20 @@ lookup. The checked ancestry relation uses the represented stock classes.
 Missing names and invalid class bindings replace the pending error. If
 every class misses, the original error and payload remain pending. Cleanup
 runs with that reached state and can replace the pending error. Tuple
-filters, general handler expressions, exception target binding and
-exception chaining are outside this observation profile.
+filters, general handler expressions and exception chaining are outside
+this observation profile.
+
+A selected named handler can bind an explicit stock exception instance or
+an empty `AssertionError` to its module target. Reads and aliases carry
+the exact class and arguments. On either exit from the handler, the runner
+removes the module target before cleanup, even if the handler assigned it
+again. Earlier bindings of that name are discarded, aliases retain their
+payloads, and the seeded lookup resumes builtin fallback. A selected
+target for a runtime error with no represented instance is outside the
+execution profile. The checked rules make no instance identity observation.
+In unchanged `testtry1.py`, the protected suite completes, both handlers
+are skipped, and else and cleanup leave `x = 5`, `y = 6`, `z = 7`. Run
+`python3.13 -I scripts/check-python-handler-targets.py --upstream /path/to/pinned/rigorous`.
 
 The protected suite of a standalone module-level try can use bare
 `raise` when no exception is active. It produces Python's no-active-exception

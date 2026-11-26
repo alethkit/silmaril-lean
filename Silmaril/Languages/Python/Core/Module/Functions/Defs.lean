@@ -28,6 +28,9 @@ def Session.mk (globals : GlobalLookup) (heap : Heap) : Session :=
 def Session.bindGlobal (session : Session) (name : GlobalName) (value : Closure.Value) : Session :=
   { session with globals := fun query => if query = name then some value else session.globals query }
 
+def Session.unbindGlobal (session : Session) (name : GlobalName) : Session :=
+  { session with globals := fun query => if query = name then none else session.globals query }
+
 /-- A module-level function uses global names for module bindings. Only
 function-nested definitions create closure cells in this profile. -/
 structure TopFunction where

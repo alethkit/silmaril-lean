@@ -19,6 +19,19 @@ theorem Namespace.builtin_fallback (space : Namespace) {name : String}
 theorem Namespace.bind_preserves_builtins (space : Namespace) (name : String) (value : Value) :
     (space.bindGlobal name value).builtins = space.builtins := rfl
 
+theorem Namespace.lookup_unbindGlobal (space : Namespace) (name : String) :
+    (space.unbindGlobal name).lookupGlobal name = lookupBinding space.builtins name := by
+  simp [Namespace.unbindGlobal, Namespace.lookupGlobal,
+    Proofs.Languages.Python.Core.Module.SeededCall.lookupBinding_remove]
+
+theorem Namespace.lookup_unbindOther (space : Namespace) {name query : String} (different : query ≠ name) :
+    (space.unbindGlobal name).lookupGlobal query = space.lookupGlobal query := by
+  simp [Namespace.unbindGlobal, Namespace.lookupGlobal, different,
+    Proofs.Languages.Python.Core.Module.SeededCall.lookupBinding_remove]
+
+theorem Namespace.unbind_preserves_builtins (space : Namespace) (name : String) :
+    (space.unbindGlobal name).builtins = space.builtins := rfl
+
 theorem Operand.eval_local {slots : Nat} (space : Namespace) (locals : Locals slots) (slot : Fin slots) :
     (Operand.local slot).eval space locals =
       (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok := rfl

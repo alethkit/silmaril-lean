@@ -905,10 +905,21 @@ def matchHandler (space : Namespace) (error : ModuleFailure) (name : String) : E
       (fun failure => failure.elim .unsupported (.raised ∘ .runtime))
   | _ => .error .unsupported
 
+def ModuleFailure.handlerInstance? : ModuleFailure → Option Core.Closure.ExceptionInstance
+  | .raised error => error.handlerInstance?
+  | _ => none
+
+def bindCaught (space : Namespace) (name : String) (pending : ModuleFailure) : Except ModuleFailure Namespace :=
+  pending.handlerInstance?.elim (.error .unsupported) fun value =>
+    .ok (space.bindGlobal name (.exceptionInstance value))
+
+def handlerOperations : ExceptionalTry.HandlerOperations Namespace ModuleFailure :=
+  ⟨matchHandler, bindCaught, Namespace.unbindGlobal⟩
+
 def runExceptionalTry {scope : Scope} (space : Namespace) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
     (heap : Heap := .empty) :
     ExceptionalTry.Outcome Namespace ModuleFailure :=
-  ExceptionalTry.run (ExceptionalTry.runSuite (exceptionalStep heap)) ModuleFailure.isPythonError matchHandler space plan
+  ExceptionalTry.run (ExceptionalTry.runSuite (exceptionalStep heap)) ModuleFailure.isPythonError handlerOperations space plan
 
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=

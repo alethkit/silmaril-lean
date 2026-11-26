@@ -41,6 +41,11 @@ def Raised.classify : Raised → ExceptionClass
   | .assertionError _ => .assertionError
   | .runtime error => error.classify
 
+def Raised.handlerInstance? : Raised → Option Core.Closure.ExceptionInstance
+  | .assertionError .empty => some (.empty .assertionError)
+  | .runtime error => error.handlerInstance?
+  | .assertionError _ => none
+
 inductive Helper where
   | assertEqual
   | assertTrue
@@ -139,6 +144,9 @@ def Namespace.lookupGlobal (space : Namespace) (name : String) : Option Value :=
 
 def Namespace.bindGlobal (space : Namespace) (name : String) (value : Value) : Namespace :=
   { space with moduleGlobals := (name, value) :: space.moduleGlobals.filter (fun binding => binding.1 != name) }
+
+def Namespace.unbindGlobal (space : Namespace) (name : String) : Namespace :=
+  { space with moduleGlobals := space.moduleGlobals.filter (fun binding => binding.1 != name) }
 
 /-- Lexical resolution makes the local/global choice before execution. -/
 inductive Operand (slots : Nat) where

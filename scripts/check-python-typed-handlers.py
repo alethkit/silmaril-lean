@@ -223,10 +223,6 @@ def unchanged(checkout):
     _, checked = guard(source, {"x": 6, "y": 7}, seed={"RuntimeError": RuntimeError})
     yield source, "\n".join(guards + [checked])
 
-    source = pinned("testtry1.py", "75b614661cf9767306b18a85c483659385b3e4d33b3f63a7de1d9c352a77bce7")
-    execute(source.encode(), {"x": 5, "y": 6, "z": 7}, None)
-    yield source, "#guard !(Run.compile pythonSource).isOk"
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

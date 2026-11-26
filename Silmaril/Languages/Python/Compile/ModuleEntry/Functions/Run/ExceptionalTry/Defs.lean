@@ -8,7 +8,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 @[expose] public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.ExceptionalTry
 
-open Functions.ExceptionalTry (Outcome Plan)
+open Functions.ExceptionalTry (HandlerOperations Outcome Plan)
 open Core.Module.Functions (Session)
 open Core.Closure.Executor (CodeTable)
 
@@ -22,7 +22,7 @@ def ordinarySuite {scope : Source.Scope} (table : CodeTable) (session : Session)
 
 def ordinary {scope : Source.Scope} (table : CodeTable) (session : Session)
     (plan : Plan (ModuleEntry.Action scope)) : Outcome Session Completion :=
-  Functions.ExceptionalTry.run (ordinarySuite table) Completion.isPythonError matchHandler session plan
+  Functions.ExceptionalTry.run (ordinarySuite table) Completion.isPythonError handlerOperations session plan
 
 /-- Preserve the observation delivered before the compound statement,
 including its ordered receipts. -/
@@ -37,8 +37,13 @@ def seeded {scope : Source.Scope} (context : Seeded.CallContext) (incoming : See
   match incoming.completion with
   | .error _ => incoming
   | .ok () =>
+    let operations : HandlerOperations Seeded.Observation Seeded.ModuleFailure :=
+      { testClass := fun observed => Seeded.matchHandler observed.residual
+        bindCaught := fun observed name pending =>
+          (Seeded.bindCaught observed.residual name pending).map fun residual => { observed with residual }
+        unbind := fun observed name => { observed with residual := observed.residual.unbindGlobal name } }
     let result := Functions.ExceptionalTry.run (seededSuite context) Seeded.ModuleFailure.isPythonError
-      (fun observed => Seeded.matchHandler observed.residual) incoming plan
+      operations incoming plan
     { result.reached with completion := result.completion }
 
 

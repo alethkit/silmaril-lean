@@ -208,6 +208,13 @@ inductive RuntimeError where
   | .raisedInstance instanceValue => instanceValue.classify
   | .noActiveException => .runtimeError
 
+/-- The target binding can retain an explicit instance or an empty assertion.
+Other runtime errors require their exception object payload to be modeled. -/
+def RuntimeError.handlerInstance? : RuntimeError → Option ExceptionInstance
+  | .raisedInstance value => some value
+  | .assertionError => some (.empty .assertionError)
+  | _ => none
+
 /-- Invalid runtime references are distinct from defined Python exceptions. -/
 inductive Failure where
   | defined (error : RuntimeError)
