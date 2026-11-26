@@ -297,3 +297,54 @@ merge operand, incoming latch guard, feedback field and counter refusals.
 The interface covers the checked pure nested split, common merge and
 tested latch.
 [CF regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/Regression.lean)
+
+## Remove an unused pure latch producer
+
+Section 3.1 tracks which definition each use reads. Section 3.2 uses
+those references to analyze the instructions. On the checked latch table, `Split.DeadProducer.first` reuses the existing GVN
+producer enumeration and typed eraser to try one deletion in table
+order. The eraser refuses an unmapped operand of any surviving
+instruction. The check also requires every outgoing wire to remap,
+including the resolved guard, exit word and simultaneous feedback.
+This retains all transitive dependencies of those observations.
+The packet theorem holds for every input to the narrowed latch.
+[Typed eraser](../../Silmaril/SSA/SeaOfNodes/GVN/Cyclic/Deletion/Thms.lean) ·
+[Checked packet](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/Split/DeadProducer/Thms.lean)
+
+`Latch.MLIR.CF.DeadProducer.lower` emits the shorter table in the
+original latch block with the same typed terminator and labels.
+`latch_packet` and `latch_frame` relate the actual emitted branch to
+the checked packet. `lower_run` keeps the original source/CF budget
+relation `n` to `n + 1`. Finite returns and absence of any finite return
+agree with the source and with the existing numbered RVSDG endpoint,
+which uses its own θ activation bound. The pass removes one pure
+total binding from the CF latch on each accepted cut.
+[CF proofs](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/DeadProducer/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer.Example.Defs`.
+Paste into `QuadLatchDeadProducer.lean` and run
+`lake env lean -DwarningAsError=true QuadLatchDeadProducer.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.MLIR.CF.DeadProducer.Example
+
+#eval latchCounts
+#eval refuses
+#eval (runSource 14, runCF 15, runRVSDG 3)
+#eval (runSource 13, runCF 14, runRVSDG 2)
+```
+
+The initial comparison writes a predicate that the final comparison
+replaces before any use. Its deletion reduces the actual latch from
+five operations to four. The checker refuses to delete the constant
+`254` that feeds the decrement computation, the live counter update,
+or the final guard. The regression checks incoming edges in the
+original order `[3, 2, 4]` and both exact feedback frames. The three
+runners return `16` at budgets `14/15/3` and exhaust one unit below.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/MLIR/CF/DeadProducer/Regression.lean)
