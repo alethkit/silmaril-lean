@@ -32,13 +32,16 @@ def afterReply {A : Type} (request right : Bool) (s : Set (Outcome A)) : Set (Ou
   prepend (.answer request right) ⁻¹' s
 
 /-- The independently specified finite paths of a normal tree. -/
-def Normal.outcomes {A : Type} (success : A) : Normal → Set (Outcome A)
-  | .returnUnit => {(.ok success, 1)}
+def Normal.outcomesWith {R A : Type} (success : R → A) : Normal R → Set (Outcome A)
+  | .ret r => {(.ok (success r), 1)}
   | .stop fault => {(.error fault, 1)}
-  | .emit bit next => prepend (.emit bit) '' next.outcomes success
+  | .emit bit next => prepend (.emit bit) '' next.outcomesWith success
   | .ask request l r =>
-    (prepend (.answer request false) '' l.outcomes success) ∪
-      (prepend (.answer request true) '' r.outcomes success)
+    (prepend (.answer request false) '' l.outcomesWith success) ∪
+      (prepend (.answer request true) '' r.outcomesWith success)
+
+def Normal.outcomes {A : Type} (success : A) (p : Normal) : Set (Outcome A) :=
+  p.outcomesWith (fun _ => success)
 
 def model : Isotope.Semantics.InstructionModel value signature.Instr Trace where
   eval

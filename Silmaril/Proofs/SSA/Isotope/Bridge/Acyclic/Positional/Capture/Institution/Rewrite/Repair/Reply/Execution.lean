@@ -76,29 +76,28 @@ private theorem stop_bind {A : Type} (fault : Bool) (k : value Ty.empty → Trac
     cases h
     exact Or.inl ⟨fault, rfl, rfl⟩
 
-private theorem normal_run {A : Type} (p : Normal) (finish : PUnit → A)
-    {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) :
-    (Kleisli.run model (p.render.operand β).2 ρ >>= fun u => pure (finish u)).outcomes =
-      p.outcomes (finish PUnit.unit) := by
+theorem normal_run_with_proof {R A : Type} {B : Sorts} (ret : ReturnOperand R B)
+    (finish : value B → Trace A) (success : R → A)
+    (onReturn : ∀ {n : Nat} (β : BoundCtx Sorts n) (ρ : BoundEnv value β) (r : R),
+      (Kleisli.run model (ret β r).2 ρ >>= finish).outcomes = {(.ok (success r), 1)})
+    (p : Normal R) {n : Nat} {β : BoundCtx Sorts n} (ρ : BoundEnv value β) :
+    (Kleisli.run model (p.render.operandWith ret β).2 ρ >>= finish).outcomes =
+      p.outcomesWith success := by
   induction p generalizing n with
-  | returnUnit =>
-    simp only [Normal.render, Tree.operand, Kleisli.run, Derivation.denote, pure_bind]
-    rfl
+  | ret r => exact onReturn β ρ r
   | emit bit next ih =>
-    simp only [Normal.render, Tree.operand, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
+    simp only [Normal.render, Tree.operandWith, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
     change ((model.eval (.emit bit) PUnit.unit >>= fun u =>
-      Kleisli.run model (next.render.operand (β.snoc U)).2 (ρ.snoc u) >>= fun v =>
-        pure (finish v)).outcomes) = _
+      Kleisli.run model (next.render.operandWith ret (β.snoc U)).2 (ρ.snoc u) >>= finish).outcomes) = _
     rw [emit_bind, ih]
     rfl
   | stop bit =>
-    simp only [Normal.render, Tree.operand, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
+    simp only [Normal.render, Tree.operandWith, Kleisli.run, Derivation.denote, pure_bind, bind_assoc]
     exact stop_bind bit _
   | ask req l r ihl ihr =>
     let query : Derivation signature.Instr Γ₀ β (.op (.ask req) .unit) Answer := .op .unit
     change (Kleisli.run model
-      (.case query (l.render.operand (β.snoc U)).2 (r.render.operand (β.snoc U)).2) ρ >>=
-        fun u => pure (finish u)).outcomes = _
+      (.case query (l.render.operandWith ret (β.snoc U)).2 (r.render.operandWith ret (β.snoc U)).2) ρ >>= finish).outcomes = _
     simp only [Kleisli.run, query, Derivation.denote, pure_bind, bind_assoc]
     have unitValue : (Isotope.Semantics.UnitModel.unitEquiv (D := value)).symm PUnit.unit =
         PUnit.unit := rfl
@@ -113,7 +112,10 @@ private theorem packed_normal_run (tail : List Sorts) (p : Normal) :
   let entry := (p.render.operand .nil).2
   change (Kleisli.run model (.let₁ entry (.let₁ (.bv (ι := 0)) (.inl (.bv (ι := 0))))) ρ).outcomes = _
   simp only [Kleisli.run, Derivation.denote, pure_bind]
-  exact normal_run p Sum.inl ρ
+  refine normal_run_with_proof unitReturn (fun u => pure (Sum.inl u)) (fun _ => Sum.inl PUnit.unit) ?_ p ρ
+  intro n β ρ r
+  simp only [unitReturn, Kleisli.run, Derivation.denote, pure_bind]
+  rfl
 
 theorem programOutcomes_proof (tail : List Sorts) (p : Tree) :
     p.programOutcomes tail = p.normal.outcomes (Sum.inl PUnit.unit : value (packedExitType (U :: tail))) := by
