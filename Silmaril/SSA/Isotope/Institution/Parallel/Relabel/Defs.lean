@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.InstrSig.Thms
+public import Silmaril.SSA.Isotope.Institution.LetCase.Thms
 public import Silmaril.SSA.Isotope.LetParCase.Thms
 
 /-! Opcode relabeling on the native scoped parallel syntax and its exact typing evidence. -/
