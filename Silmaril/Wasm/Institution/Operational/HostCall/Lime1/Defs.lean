@@ -82,6 +82,8 @@ def Site.pending {H : Type} (site : Site H) (s : Store H) (outer : Frame)
 structure IndirectSite extends CallResolution.Indirect.Site where
   graph : Graph.Program
   memoryFunctions : List (Option Graph.Memory32.Function) := []
+  /-- Keep rank descent by default. The opt-in recursive policy admits cyclic Wasm linkage. -/
+  memoryCalls : Graph.Memory32.CallMode := .ranked
 
 def IndirectSite.memoryLookup (site : IndirectSite) (address : FuncAddr) :
     Option Graph.Memory32.Function :=
@@ -143,8 +145,8 @@ structure IndirectSite.Linked {H : Type} (site : IndirectSite) (base : Store H)
             ∃ checked, site.memoryLookup address = some checked ∧
               (⟨address, checked⟩ : MemoryTarget).Allocated base)
 
-/-- A direct edge resolves in the caller's module, matches the full
-declaration of an allocated registered function, and descends in rank. -/
+/-- A direct Wasm edge resolves in the caller's module and matches the full
+declaration of an allocated registered function. -/
 structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : IndirectSite)
     (parent : MemoryTarget) (target : CallTarget) (child : MemoryTarget) : Prop where
   resolves : parent.fn.declaration.module.funcs[target.index.toNat]? = some target.address
@@ -152,7 +154,6 @@ structure IndirectSite.MemoryDirect {H : Type} {base : Store H} (site : Indirect
   declaration : child.fn.declaration = target.declaration
   registered : site.memoryLookup child.address = some child.fn
   allocated : child.Allocated base
-  smaller : child.fn.rank < parent.fn.rank
 
 /-- The declared numeric signature of a direct call and its allocated host code. -/
 def Site.directTarget {H : Type} (target : CallTarget) (code : H) : Site H :=
@@ -170,13 +171,13 @@ structure MemoryDirectHost {H : Type} {base : Store H} (memory : Memory32 base) 
 fixed table and memory function registry as the enclosing dispatcher. -/
 def IndirectSite.memorySite (site : IndirectSite) (index : TypeIdx)
     (signature : Wasm.V1.FuncType) : IndirectSite :=
-  ⟨⟨site.table, index, ⟨signature.params, signature.results⟩⟩, ⟨[]⟩, site.memoryFunctions⟩
+  ⟨⟨site.table, index, ⟨signature.params, signature.results⟩⟩, ⟨[]⟩, site.memoryFunctions, site.memoryCalls⟩
 
-/-- Every nonnull entry is allocated. Matching Wasm entries must be registered
-children of strictly smaller rank. Matching hosts require their embedding
-contract, including store and result typing on returned traps. -/
+/-- Every nonnull entry is allocated. Matching Wasm entries admit the selected
+call policy, and matching hosts require their embedding contract. -/
 structure IndirectSite.MemoryIndirect {H : Type} (site : IndirectSite) {base : Store H}
-    (memory : Memory32 base) (host : HostSemantics H) (parent : MemoryTarget) (index : TypeIdx) (signature : Wasm.V1.FuncType) : Prop where
+    (memory : Memory32 base) (host : HostSemantics H) (parent : MemoryTarget) (index : TypeIdx)
+    (signature : Wasm.V1.FuncType) (calls : Graph.Memory32.CallMode := site.memoryCalls) : Prop where
   tableAt : frameTable base ⟨[], parent.fn.declaration.module⟩ = some site.table
   signatureAt : parent.fn.declaration.module.types[index.toNat]? = some ⟨signature.params, signature.results⟩
   entries : ∀ address, some address ∈ site.table.refs →
@@ -184,18 +185,20 @@ structure IndirectSite.MemoryIndirect {H : Type} (site : IndirectSite) {base : S
       (fn.type = ⟨signature.params, signature.results⟩ → match fn with
         | .host type code => (⟨address, type, code⟩ : Site H).Contract memory host
         | .wasm .. => ∃ child, site.memoryLookup address = some child ∧
-            (⟨address, child⟩ : MemoryTarget).Allocated base ∧ child.rank < parent.fn.rank)
+            (⟨address, child⟩ : MemoryTarget).Allocated base ∧ calls.permits parent.fn.rank child.rank)
 
-/-- Static checks of the address-indexed graph used by the memory callee. -/
+/-- Static checks of the address-indexed graph. Rank is a policy for admitting
+Wasm links. The finite-step machine uses the underlying allocation witnesses. -/
 structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : IndirectSite)
-    (memory : Memory32 base) (host : HostSemantics H) : Prop where
+    (memory : Memory32 base) (host : HostSemantics H) (calls : Graph.Memory32.CallMode := site.memoryCalls) : Prop where
   checked : ∀ callee : MemoryTarget, site.memoryLookup callee.address = some callee.fn → callee.Checked memory
   direct : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
-    ∀ target ∈ parent.fn.targets, (∃ child, site.MemoryDirect (base := base) parent target child) ∨
+    ∀ target ∈ parent.fn.targets,
+      (∃ child, site.MemoryDirect (base := base) parent target child ∧ calls.permits parent.fn.rank child.fn.rank) ∨
       ∃ code, MemoryDirectHost memory host parent target code
   indirect : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
     ∀ index signature, .callIndirect index signature ∈ parent.fn.code →
-      site.MemoryIndirect memory host parent index signature
+      site.MemoryIndirect memory host parent index signature calls
 
 /-- Matching hosts supply the embedding contract. Registered memory targets
 check their code and the designated memory of the actual allocated module. -/

@@ -76,4 +76,23 @@ theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callou
         simpa only [store, hostEq, argsEq] using diverged
       exact ⟨c, inner, here, .diverged inside, by cases dst; simp_all⟩
 
+theorem memoryLinked_forFiniteRun {indirect : IndirectSite}
+    {calls : CallContinuation.OuterCall.Ranked.Graph.Memory32.CallMode}
+    (linked : indirect.MemoryLinked memory host calls) : indirect.MemoryLinked memory host .recursive := by
+  refine ⟨linked.checked, ?_, ?_⟩
+  · intro parent registered target used
+    rcases linked.direct parent registered target used with ⟨child, link, _⟩ | hostLink
+    · exact .inl ⟨child, link, trivial⟩
+    · exact .inr hostLink
+  · intro parent registered index signature used
+    have link := linked.indirect parent registered index signature used
+    refine ⟨link.tableAt, link.signatureAt, fun address member => ?_⟩
+    obtain ⟨fn, allocated, matched⟩ := link.entries address member
+    refine ⟨fn, allocated, fun typed => ?_⟩
+    cases fn with
+    | host => exact matched typed
+    | wasm =>
+      obtain ⟨child, found, childAllocated, _⟩ := matched typed
+      exact ⟨child, found, childAllocated, trivial⟩
+
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Proofs

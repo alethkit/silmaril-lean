@@ -61,7 +61,7 @@ private def fn : Graph.Memory32.Function where
 
 private def target : MemoryTarget := ⟨⟨0⟩, fn⟩
 private def table : TableInst := ⟨[some ⟨0⟩], none⟩
-private def indirect : IndirectSite := ⟨⟨table, ⟨1⟩, signature⟩, ⟨[]⟩, [some fn]⟩
+private def indirect : IndirectSite := ⟨⟨table, ⟨1⟩, signature⟩, ⟨[]⟩, [some fn], .ranked⟩
 private def prepare : Site Nat := ⟨⟨4⟩, ⟨[.int .i64, .int .i32], [.int .i32, .int .i32, .int .i32]⟩, 9⟩
 private def observe : Site Nat := ⟨⟨1⟩, ⟨[.int .i32] ++ signature.results, [.int .i32]⟩, 7⟩
 private def saved : List Value := [i32 23]

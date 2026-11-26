@@ -91,7 +91,7 @@ private def parent : Graph.Memory32.Function where
 private def parentTarget : MemoryTarget := ⟨⟨5⟩, parent⟩
 private def table : Execution.Runtime.TableInst := ⟨[some ⟨0⟩, some ⟨5⟩, none, some ⟨7⟩, some ⟨8⟩], none⟩
 private def indirect : IndirectSite :=
-  ⟨⟨table, ⟨1⟩, parentType⟩, ⟨[]⟩, [some fn, none, none, none, none, some parent, none, some nestedFn]⟩
+  ⟨⟨table, ⟨1⟩, parentType⟩, ⟨[]⟩, [some fn, none, none, none, none, some parent, none, some nestedFn], .ranked⟩
 private def childResults : List Value := [i64 9, i32 word]
 private def afterFirstChild : List Value := i64 13 :: childResults
 private def indirectResults : List Value := [i64 19, i32 24]
@@ -246,12 +246,9 @@ example : ¬ ({ target with fn := { fn with declaration :=
 private theorem parentChecked : parentTarget.Checked mem := ⟨rfl, rfl, rfl, rfl⟩
 
 private theorem directLinked : indirect.MemoryDirect (base := base) parentTarget direct target :=
-  ⟨rfl, rfl, rfl, rfl, rfl, by decide⟩
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
 
-example : ¬ indirect.MemoryDirect (base := base)
-    { parentTarget with fn := { parent with rank := 0 } } direct target := by
-  intro link
-  exact Nat.lt_irrefl 0 link.smaller
+example : ¬ indirect.memoryCalls.permits 0 target.fn.rank := by decide
 
 private theorem tableEntries {address : Execution.Runtime.FuncAddr}
     (member : some address ∈ indirect.table.refs) : address = ⟨0⟩ ∨ address = ⟨5⟩ ∨ address = ⟨7⟩ ∨ address = ⟨8⟩ := by
@@ -403,7 +400,7 @@ private theorem programContract : program.Contract mem checkedHost := by
             simpa [parentTarget, parent, afterDirect, nestedSite, nestedCall, reloadOps, Graph.Memory32.Function.targets,
               Graph.Memory32.Op.targets, Graph.Op.targets] using used
           subst call
-          exact .inl ⟨target, directLinked⟩
+          exact .inl ⟨target, directLinked, by decide⟩
         · have same : call = directHost := by
             simpa [nestedTarget, nestedFn, hostOps, hostCall, hostTail, Graph.Memory32.Function.targets,
               Graph.Memory32.Op.targets, Graph.Op.targets] using used
@@ -522,7 +519,7 @@ private abbrev resolvedSite := indirect.memorySite ⟨1⟩ ⟨signature.params, 
 
 private theorem nestedInvoked :
     ParentPath written (.child [i32 0, i32 3] afterFirstChild nestedTarget (.invoke [i32 0]) reloadOps) :=
-  (atNestedLookup 3).calleeStep (.callIndirect (child := nestedTarget) (.memory rfl rfl rfl rfl) (by decide) rfl)
+  (atNestedLookup 3).calleeStep (.callIndirect (child := nestedTarget) (.memory rfl rfl rfl rfl) rfl)
 
 -- Resolution consumes only the selector and leaves a pending native invocation.
 example : Steps checkedHost checkedLaunch ⟨mem.store written, entryCaller, program.functionCode 7

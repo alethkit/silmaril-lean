@@ -117,7 +117,7 @@ private theorem tail_supported {enabled : Bool} {op : Graph.Memory32.Op} {ops : 
 
 theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : MemoryTarget}
     {host : HostSemantics H} {site : IndirectSite} {bytes written : ByteArray} {phase next : Phase H}
-    (linked : site.MemoryLinked mem host) (registered : site.memoryLookup callee.address = some callee.fn)
+    (linked : site.MemoryLinked mem host .recursive) (registered : site.memoryLookup callee.address = some callee.fn)
     (move : Edge mem host site callee bytes phase written next)
     (ready : Ready mem host site callee phase) : Ready mem host site callee next := by
   induction move with
@@ -146,20 +146,20 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
     exact ⟨ready.1, tail_supported ready.2.1, typed _, fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)⟩
   | @call callee child bytes args saved operands target rest link typed =>
     have resume := direct_resume typed ready.2.2.1
-    refine ⟨ready.1, link.registered, link.allocated, link.smaller, by simp, ?_,
+    refine ⟨ready.1, link.registered, link.allocated, by simp, ?_,
       tail_supported ready.2.1, (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), ?_⟩
     · simpa only [Ready, link.declaration] using typed
     · simpa only [link.declaration] using resume
   | callHost link typed =>
     exact ⟨ready.1, link.allocated, typed, link.contract, tail_supported ready.2.1,
       (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), direct_resume typed ready.2.2.1⟩
-  | @callIndirect callee child bytes args saved operands index signature selector rest lookup smaller typed =>
+  | @callIndirect callee child bytes args saved operands index signature selector rest lookup typed =>
     have resume := indirect_resume typed ready.2.2.1
     cases lookup with
     | memory _ found allocated signatureEq =>
       have params := congrArg (fun (ty : Wasm.Lime1.FuncType) => ty.params) signatureEq
       have results := congrArg (fun (ty : Wasm.Lime1.FuncType) => ty.results) signatureEq
-      refine ⟨ready.1, found, allocated, smaller, by simp, ?_, tail_supported ready.2.1,
+      refine ⟨ready.1, found, allocated, by simp, ?_, tail_supported ready.2.1,
         (fun op member => ready.2.2.2 op (List.mem_cons_of_mem _ member)), ?_⟩
       · exact typed.trans params.symm
       · exact fun vs typed => resume vs (typed.trans results)
@@ -181,9 +181,9 @@ theorem ready_step {H : Type} {base : Store H} {mem : Memory32 base} {callee : M
   | hostTrapped => exact ready.1
   | hostDiverged => exact ready
   | @child callee child bytes written args saved phase next rest move ih =>
-    obtain ⟨argsTyped, found, allocated, smaller, _, childReady, supported, inCode, resume⟩ := ready
+    obtain ⟨argsTyped, found, allocated, _, childReady, supported, inCode, resume⟩ := ready
     have after := ih found childReady
-    cases next <;> try exact ⟨argsTyped, found, allocated, smaller, by simp, after, supported, inCode, resume⟩
+    cases next <;> try exact ⟨argsTyped, found, allocated, by simp, after, supported, inCode, resume⟩
     case done out =>
       cases out with
       | trap => exact argsTyped

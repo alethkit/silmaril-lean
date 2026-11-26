@@ -313,7 +313,7 @@ private theorem call_iff {args stack : List Value} {target : CallTarget}
     exact ⟨_, resolve.mpr rfl, rfl⟩
 
 private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
-    (link : site.MemoryIndirect mem host callee index signature) :
+    (link : site.MemoryIndirect mem host callee index signature .recursive) :
     (site.memorySite index signature).Linked base callee.fn.declaration.module := by
   refine ⟨link.tableAt, link.signatureAt, rfl, ?_, ?_⟩
   · intro address fn found
@@ -329,7 +329,7 @@ private theorem indirect_linked {index : TypeIdx} {signature : Wasm.V1.FuncType}
 
 private theorem indirect_iff {args stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
     {selector : BitVec 32} {rest : List Graph.Memory32.Op}
-    (link : site.MemoryIndirect mem host callee index signature) :
+    (link : site.MemoryIndirect mem host callee index signature .recursive) :
     Step CallFrame.limeNoHost (cfg bytes (.body args (stack ++ [Value.int .i32 selector])
       (.callIndirect index signature :: rest))) dst ↔
       ∃ target, (site.memorySite index signature).Lookup base selector target ∧
@@ -351,22 +351,6 @@ private theorem indirect_iff {args stack : List Value} {index : TypeIdx} {signat
     exact ⟨target, lookup, rfl⟩
   · rintro ⟨target, lookup, rfl⟩
     exact ⟨_, resolve.mpr ⟨target, lookup, rfl⟩, rfl⟩
-
-private theorem indirect_rank {index : TypeIdx} {signature : Wasm.V1.FuncType} {selector : BitVec 32}
-    {child : MemoryTarget} (link : site.MemoryIndirect mem host callee index signature)
-    (lookup : (site.memorySite index signature).Lookup base selector (some (.memory child))) :
-    child.fn.rank < callee.fn.rank := by
-  cases lookup with
-  | memory entry found allocated typed =>
-    obtain ⟨fn, seen, registered⟩ := link.entries _ (List.mem_of_getElem? entry)
-    unfold MemoryTarget.Allocated at allocated
-    rw [allocated] at seen
-    cases seen
-    obtain ⟨other, same, _, smaller⟩ := registered typed
-    change site.memoryLookup _ = _ at found
-    rw [found] at same
-    cases same
-    exact smaller
 
 private def activationContext (callee : MemoryTarget) (args saved : List Value) (tail : List Admin) :
     EvalCtx Wasm.Lime1.Instr :=
@@ -425,7 +409,7 @@ private theorem child_context {args stack : List Value} {child : MemoryTarget} {
     (fun _ => stays (callee := child) (saved := stack) (tail := code rest) notDone)
   simpa only [config, render, MemoryWrite.limeActivationCode, List.append_assoc, List.singleton_append] using keep
 
-private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
+private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out)
     (move : Step CallFrame.limeNoHost (cfg bytes phase) dst) :
@@ -469,7 +453,7 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
           | bin => contradiction
         | call target =>
           obtain ⟨stack, operands, rfl, typed, used, _⟩ := call_typed ready.2.2.1
-          rcases linked.direct callee registered target used with ⟨child, link⟩ | ⟨hostCode, link⟩
+          rcases linked.direct callee registered target used with ⟨child, link, _⟩ | ⟨hostCode, link⟩
           · obtain rfl := (call_iff link.resolves).mp move
             exact ⟨_, _, .call link typed, by
               simp [config, render, MemoryWrite.limeActivationCode, link.address, values_append, List.append_assoc]⟩
@@ -494,11 +478,11 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
             cases lookup with
             | wasm _ found _ _ => simp [IndirectSite.memorySite, Graph.Program.lookup] at found
           | memory child =>
-            exact ⟨_, _, .callIndirect lookup (indirect_rank link lookup) typed, by
+            exact ⟨_, _, .callIndirect lookup typed, by
               simp [config, render, MemoryWrite.limeActivationCode, IndirectSite.lookupHead, values_append, List.append_assoc]⟩
       | _ => contradiction
   | child args stack child phase rest ih =>
-    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
+    obtain ⟨_, found, childAllocated, childActive, childReady, _, _, _⟩ := ready
     obtain ⟨mid, inside, rfl⟩ := (child_context childActive).mp move
     obtain ⟨written, next, step, rfl⟩ := ih found childAllocated childReady live childActive inside
     refine ⟨_, _, .child step, ?_⟩
@@ -524,7 +508,7 @@ private theorem read {phase : Phase H} (linked : site.MemoryLinked mem host)
   | exit args out => exact ⟨_, _, .frameDone, (leave_frame_iff ready.2).mp move⟩
   | done out => exact (notDone out rfl).elim
 
-private theorem sound {phase next : Phase H} {written : ByteArray} (linked : site.MemoryLinked mem host)
+private theorem sound {phase next : Phase H} {written : ByteArray} (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn)
     (allocated : callee.Allocated base) (ready : Ready mem host site callee phase) (live : mem.Live bytes)
     (move : Edge mem host site callee bytes phase written next) : Step host (cfg bytes phase) (cfg written next) := by
@@ -548,7 +532,7 @@ private theorem sound {phase next : Phase H} {written : ByteArray} (linked : sit
     apply Step.of_internal
     exact (call_iff link.resolves).mpr (by
       simp [config, render, MemoryWrite.limeActivationCode, Site.directTarget, List.append_assoc])
-  | @callIndirect callee child bytes args operandsSaved operands index signature selector rest lookup _ _ =>
+  | @callIndirect callee child bytes args operandsSaved operands index signature selector rest lookup _ =>
     have link := linked.indirect callee registered index signature (ready.2.2.2 _ (by simp))
     apply Step.of_internal
     refine (indirect_iff link).mpr ⟨_, lookup, ?_⟩
@@ -570,7 +554,7 @@ private theorem sound {phase next : Phase H} {written : ByteArray} (linked : sit
   | hostDiverged answer =>
     exact (host_iff ready.2.1 ready.2.2.1 ready.2.2.2.1 live).mpr (.inr (.inr ⟨answer, rfl⟩))
   | @child parent child bytes written args stack phase next rest move ih =>
-    obtain ⟨_, found, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
+    obtain ⟨_, found, childAllocated, childActive, childReady, _, _, _⟩ := ready
     have inside := ih (caller := parent.fn.declaration.frame args) (saved := stack) (tail := code rest)
       found childAllocated childReady live
     simpa only [config, render, after_child_render, List.append_assoc, List.singleton_append] using
@@ -625,7 +609,7 @@ private theorem read_answer {phase : Phase H} {c : Callout H Wasm.Lime1.Instr}
   | body _ _ ops =>
     exact (no_callout (by simp [decompose?, config, render, List.append_assoc, code_absent]) located).elim
   | child args stack child phase rest ih =>
-    obtain ⟨_, _, childAllocated, _, childActive, childReady, _, _, _⟩ := ready
+    obtain ⟨_, _, childAllocated, childActive, childReady, _, _, _⟩ := ready
     have plugged : (config mem caller saved tail callee bytes (.child args stack child phase rest)).code =
         (activationContext callee args saved tail).plug value
           (config mem (callee.fn.declaration.frame args) stack (code rest) child bytes phase).code := by
@@ -654,7 +638,7 @@ private theorem read_answer {phase : Phase H} {c : Callout H Wasm.Lime1.Instr}
     exact (no_callout (by cases out <;> simp [decompose?, config, render, result]) located).elim
   | done out => exact (notDone out rfl).elim
 
-theorem step_iff {phase : Phase H} (linked : site.MemoryLinked mem host)
+theorem step_iff {phase : Phase H} (linked : site.MemoryLinked mem host .recursive)
     (registered : site.memoryLookup callee.address = some callee.fn) (allocated : callee.Allocated base)
     (ready : Ready mem host site callee phase) (live : mem.Live bytes) (notDone : ∀ out, phase ≠ .done out) :
     Step host (cfg bytes phase) dst ↔
