@@ -14,6 +14,9 @@ Every module is in the root `Silmaril` library; there is no executable.
 The [LambdaIter family matrix](lambda-iter-family.md) records the assumptions of
 the semantics comparisons and the forward flat SSA/RTL commuting square.
 
+The [LetIter heap reindexing note](letiter-heap-reindexing.md) describes the typed
+allocation dialect and its finite trace theorem.
+
 ## The calculi and translations
 
 ```mermaid
@@ -229,6 +232,58 @@ supported target outcome. A source return requires a target return at the same
 port. Unsupported syntax reached on either side gives `none`. With a common
 pair-lawful `Part` model, the verdict decides refinement for these graphs.
 Using a wiring graph as the target gives the same verdict as `refinement?`.
+The decision is exact for satisfaction by the compiled named SSA classes at
+every input port and initial store in each pair-lawful `Part` model. When
+compiling after primitive renaming, the same verdict applies by model reduct.
+
+Entry outcomes compose through the executable linker. A left cycle ends the
+scan in its own stage. A left return selects a right input through the matching
+handoff port, and private diagnostics use the linked address of their stage.
+The linked graph is entry-typed exactly when the left inputs are supported and
+the right inputs are supported at the intermediate ports those inputs return.
+
+[Packet field routing](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Fields/Thms.lean)
+checks named blocks that copy registers, build pairs, and destructure known
+pairs. The interface uses one fixed width and the usual right-nested pairs
+ending in unit. Each output slot selects an input slot, so blocks can permute
+fields or discard a field by duplicating another. The executable traversal
+composes these selections along the path and checks for repeats. Checked
+cycles stay private and preserve packet shape even when the payload changes.
+
+The verdict compares actual `Part` observations on packed inputs. Soundness
+holds in every pair-lawful model. Completeness in a given model requires that
+distinct field maps can be distinguished by some packed input. Pair-lawfulness
+and two distinct field values suffice. Branches, primitive calls, and
+destructuring opaque fields are outside the checker.
+
+[Variable-width routing](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Fields/Width/Thms.lean)
+assigns widths to each port and private label. It checks that each
+input agrees with its entry label, and checks each reachable jump at the
+declared target width. Routes have type `Fin target → Fin source` and compose
+at their common width. Linking requires the same width family at the left
+exits and right inputs, which the handoff blocks preserve. The `Part`
+observation theorem also applies to the compiled named SSA classes when
+the designated register holds the packed input. Zero fields encode as unit,
+and all routes to an empty packet agree without a field-separation premise.
+
+`Width.packedSat` uses the existing compiled named SSA sentence sides and
+pair-lawful `Part` models. The checker decides this restricted satisfaction in
+a separating model. Primitive relabelling preserves the verdict, and packed
+satisfaction after relabelling is satisfaction in the reduct. Both laws
+allow noninjective renamings. For compatible intermediate widths, linking
+preserves packed refinement when the source left stage is checked and thus
+produces a packed input for the right stage. All-store satisfaction implies
+packed satisfaction. The converse fails for a one-field block that normalizes
+the tail of a raw pair, while a wire keeps it.
+
+[Boolean packet control](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Link/Fields/Boolean/Thms.lean)
+checks a block with one sum-case on a Boolean input field and a jump in the
+selected arm. The model splits its Boolean tags to left and right with unit
+payloads. The checker explores finite label/packet pairs over Boolean fields,
+using the same width profiles and named SSA observation. A repeat of the full
+state gives no terminating result. An unsupported instruction on a selected
+path gives no verdict. The per-input theorem covers supported packets and the
+whole-interface decision enumerates every Boolean packet at each input port.
 
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
@@ -607,6 +662,61 @@ The continuation cannot jump back to its own label.
   [Cycle criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Thms.lean) ·
   [Denotation](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Categorical/Thms.lean) ·
   [Diamond and cycle regressions](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Regression.lean)
+- Ranked positional blocks can read the shared typed ambient context as
+  well as their newest packet. The checker still uses all local targets.
+  The structured lowering projects away intervening packet binders while
+  preserving the shared values and the current packet. The native proof
+  unfolds the contextual dispatcher once at each ranked block. It retains
+  the ambient context through the current computation and then runs the
+  selected continuation. This gives the same native arrow at the ordered
+  exits in coherent strong Elgot Freyd models with central unit. Primitive
+  arrows may have ordered effects. A backward-numbered diamond reads a
+  shared bias in both arms and again at their common successor. Its
+  state-trace examples record the entry, classifier, selected arm and
+  shared computation in order.
+  [Captured tables](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Defs.lean) ·
+  [Denotation square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Categorical/Thms.lean) ·
+  [Diamond trace](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Regression.lean)
+- Every successful captured lowering produces a LetCase term in a typed
+  grammar of an entry binder, jumps, cases and indexed outward returns.
+  A witness for this grammar allows reverse compilation of the actual term
+  to a typed positional table that passes the same global rank checker.
+  Lowering the rebuilt table returns the exact LetCase term. The native
+  round trip preserves the arrow at the original ordered exits for any
+  ambient context and primitive interpretation under the captured model
+  assumptions. Numbering the grammar tree can duplicate shared blocks.
+  The reverse compiler requires a grammar witness, which the successful
+  forward lowering supplies.
+  [Grammar and certification](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Thms.lean) ·
+  [Ordered-exit round trip](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Categorical/Thms.lean) ·
+  [Three-exit state traces](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Regression.lean)
+- The ranked captured and witnessed LetCase equations use the existing
+  ordered finite-exit interface and discrete coherent and validated models.
+  Their forward comparison commutes with signature changes on actual typed
+  LetCase equations, including when two exit types map to the same type.
+  Either order of reverse compilation and relabelling gives the same exact
+  structured finite-exit lowering and the same native satisfaction.
+  Numbering and reading are inverse on classes of equations that hold in
+  the same models. A shared successor can be duplicated in the native
+  round trip, and the quotient establishes model-wise equivalence for this
+  grammar. Syntactic rewrite completeness is a separate question.
+  [Signature and satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Thms.lean) ·
+  [Institution isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Thms.lean) ·
+  [Shared successor and type collision](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Semantic/Regression.lean)
+- Native rewrite reflection for the witnessed LetCase grammar fails at
+  effectful empty elimination. At a signature with effectful primitives
+  from unit to empty, direct abort and binding the empty result before
+  aborting give a witnessed equation valid in every validated model.
+  Let-η with a central unit, followed by the empty eliminator, forces
+  this equality already in distributive Freyd interpretations. A pure
+  case decoder removes the captured entry and first-exit tag using
+  native rewrites, so a derivation would contradict the checked
+  empty-sequencing independence proof. The native term model rejects
+  the witnessed equation and cannot have the required Freyd presentation.
+  The witness uses only outward position zero and allows any tail of the
+  ordered exit interface.
+  [Witness and model obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Thms.lean) ·
+  [Existing independence proof](../../Silmaril/SSA/Isotope/LetIter/Categorical/Empty/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

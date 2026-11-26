@@ -1,7 +1,9 @@
 module
 
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -67,24 +69,36 @@ private def target (first : Projection) : Graph args :=
     | .first => diamond.arm (diamond.merge.predecessor .first)
     | .second => diamond.arm (diamond.merge.predecessor .second) }
 
-private theorem accepted (first : Projection) :
+example (first : Projection) :
     rewrite (source first) (candidate first) input = some (target first) := by
+  cases first <;> rfl
+
+private def inferred (first : Projection) : Candidate args
+  | .first => candidate first .first
+  | .second => candidate first .second
+
+private theorem accepted (first : Projection) :
+    Discovery.rewrite (source first) input = some ⟨inferred first, target first⟩ := by
   cases first <;> rfl
 
 -- The occurrence order can be reversed. The two witnesses differ in
 -- overwrite version and reader port, and only the taken arm writes.
 example (first : Projection) : (source first).Returns true input initial 2 afterTrue :=
-  (rewrite_returns_iff input (accepted first) true initial 2 afterTrue).mp
+  (Discovery.rewrite_returns_iff input (accepted first) true initial 2 afterTrue).mp
     (((target first).returns_iff_denote true input initial 2 afterTrue).mpr (by cases first <;> cbv))
 
 example (first : Projection) : (source first).Returns false input initial 3 afterFalse :=
-  (rewrite_returns_iff input (accepted first) false initial 3 afterFalse).mp
+  (Discovery.rewrite_returns_iff input (accepted first) false initial 3 afterFalse).mp
     (((target first).returns_iff_denote false input initial 3 afterFalse).mpr (by cases first <;> cbv))
+
+example (first : Projection) : (Discovery.rewrite (source first) (input 3)).isSome = true := by
+  cases first <;> rfl
 
 -- The false predecessor is first and has no qualifying overwrite.
 example : (rewriteSlot (source .onFalse false) (candidate .onFalse) input .second).isSome = true := rfl
 example : rewriteSlot (source .onFalse false) (candidate .onFalse) input .first = none := rfl
 example : rewrite (source .onFalse false) (candidate .onFalse) input = none := rfl
+example : Discovery.rewrite (source .onFalse false) input = none := rfl
 
 -- A same-cell read sees 99 from the entry Store. Bypassing that Store
 -- would instead return 7. The other arm is still admitted.
@@ -95,5 +109,18 @@ example : ((source .onFalse true headPort).diamond.denote true input initial).1 
 
 -- The two ports in the false certificate may name one concrete cell.
 example : rewrite (source .onFalse) (candidate .onFalse) (input headCell) = none := rfl
+example : Discovery.discoverSlot (source .onFalse) .first = some ⟨2, [rightPort]⟩ := rfl
+example : (rewriteSlot (source .onFalse) (inferred .onFalse) (input headCell) .second).isSome = true := rfl
+example : rewriteSlot (source .onFalse) (inferred .onFalse) (input headCell) .first = none := rfl
+example (first : Projection) : Discovery.rewrite (source first) (input headCell) = none := by
+  cases first <;> rfl
+
+/-- info: (some (2, 1), true) -/
+#guard_msgs in
+#eval
+  let good := Discovery.rewrite (source .onFalse) input
+  let bad := Discovery.rewrite (source .onFalse) (input headCell)
+  (good.map fun result =>
+    ((result.candidate .first).storeVersion, (result.candidate .second).storeVersion), bad.isNone)
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
