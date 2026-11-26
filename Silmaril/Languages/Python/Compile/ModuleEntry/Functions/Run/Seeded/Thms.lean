@@ -276,6 +276,27 @@ theorem observeTupleIdentityCall_helper (space : Namespace) (context : CallConte
   simp only [observeTupleIdentityCall, saved, evaluated]
   rfl
 
+theorem observeTupleFromEmptyList_stock (space : Namespace) (lists : ListHeap)
+    (stock : space.lookupGlobal "tuple" = some (.builtin .tuple)) :
+    observeTupleFromEmptyList space lists =
+      (⟨.ok (.returnedTuple []), none⟩, (lists.allocate []).2) := by
+  simp [observeTupleFromEmptyList, tupleBinding, stock, Core.Module.TupleDispatch.constructFromEmptyList_stock,
+    Except.map, Except.mapError]
+
+theorem observeTupleFromEmptyList_mask (space : Namespace) (lists : ListHeap)
+    (masked : space.lookupGlobal "tuple" = some .none) :
+    observeTupleFromEmptyList space lists =
+      (⟨.error (.raised (.runtime .notCallable)), none⟩, (lists.allocate []).2) := by
+  simp [observeTupleFromEmptyList, tupleBinding, masked, (Core.Module.TupleDispatch.constructFromEmptyList_mask lists).1,
+    TupleChain.runtimeError?, Except.map, Except.mapError]
+
+theorem observeTupleFromEmptyListCall_outer_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String} (remaining : List Argument)
+    (missing : space.lookupGlobal name = none) :
+    observeTupleFromEmptyListCall space context destination (some (name, remaining)) lists =
+      ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists) := by
+  simp [observeTupleFromEmptyListCall, missing]
+
 theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Bool) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =
@@ -698,7 +719,7 @@ theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallC
     (failed : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
       (.error error, calls, heap)) :
     observeNestedCallIn space context destination name arguments = (⟨.error error, calls⟩, heap) := by
-  simp [observeNestedCallIn, found, failed]
+  simp [observeNestedCallIn, observeRemainingCallIn, found, failed]
 
 theorem observeNestedCallIn_settledArguments {space : Namespace} {context : CallContext}
     {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
@@ -712,7 +733,7 @@ theorem observeNestedCallIn_settledArguments {space : Namespace} {context : Call
         let outer := acceptObservation destination name result
         ({ outer with calls := calls ++ outer.calls }, residual)
       | (.error error, residual) => (⟨.error error, calls⟩, residual) := by
-  simp [observeNestedCallIn, found, evaluated]
+  simp [observeNestedCallIn, observeRemainingCallIn, found, evaluated]
   rfl
 
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

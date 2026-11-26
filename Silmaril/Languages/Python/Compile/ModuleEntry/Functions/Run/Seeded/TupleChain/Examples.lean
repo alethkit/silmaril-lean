@@ -112,4 +112,25 @@ private def closedOriginEvidence (placement : SeedPlacement) : Bool := Id.run do
 #guard closedOriginEvidence .builtin
 #guard closedOriginEvidence .preamble
 
+private def emptyListTupleEvidence (placement : SeedPlacement) : Bool := Id.run do
+  let tupleCall := Source.Expr.call (.name "tuple") [.list_ []]
+  let equalCall := Source.Expr.call (.name "___assertEqual") [tupleCall, .tuple []]
+  let source : Source.Module := ⟨[.expression equalCall]⟩
+  let .ok compiled := Run.compile source | return false
+  let stock := legacyTupleSeed placement
+  let before : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
+  let returned := run stock compiled (lists := before)
+  let masked := run (stock.bindGlobal "tuple" .none) compiled (lists := before)
+  return returned.completion == .ok () &&
+    returned.lists.objects == #[[.int 31], []] && returned.heap.next == 0 &&
+    returned.calls.map (fun event => (event.callee, event.observation.result, event.observation.caught)) ==
+      [("tuple", .ok (.returnedTuple []), none), ("___assertEqual", .ok .none, none)] &&
+    masked.completion == .error (.raised (.runtime .notCallable)) &&
+    masked.lists == returned.lists && masked.heap.next == 0 &&
+    masked.calls.map (fun event => (event.callee, event.observation.result, event.observation.caught)) ==
+      [("tuple", .error (.raised (.runtime .notCallable)), none)]
+
+#guard emptyListTupleEvidence .builtin
+#guard emptyListTupleEvidence .preamble
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

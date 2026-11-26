@@ -281,12 +281,28 @@ The opt-in `legacyTupleIdentitySeed` supplies the Boolean `___assertTrue`
 helper. The helper's receipt records `None` on success and
 `AssertionError(False)` on a false result. A failed callee or operand read
 preserves the reached heaps and prior receipts. In the unchanged
-`tuple-constructors.py`, lowering now reaches the list argument at line 6.
+`tuple-constructors.py`, lowering reaches the nonempty list argument at line 7.
 The exact four-statement prefix completes with the stock constructor and
 helper, including the positive identity on line 5. The tuple-chain regression
 checks the retained descriptor, exact helper receipts, rebound aliases,
 independent equal-content closed origins, and the canonical empty case.
 
+
+A checked `tuple([])` may be a direct module call or the first positional
+argument of a named module call. The shared constructor rule resolves the
+callee before allocating the empty list in the existing list heap. A
+noncallable mask keeps the reached list and reports `TypeError` before any
+later argument is evaluated. A missing callee leaves the list heap as it was.
+The stock descriptor returns the canonical empty tuple. Seeded execution
+retains the constructor receipt even if a later argument fails, then uses
+the existing ordered argument and outer-call path. Ordinary execution
+preserves its list heap across calls and retains any reached argument list
+when a present callee falls outside its explicit namespace profile.
+
+The five-statement prefix of `tuple-constructors.py` completes in both
+stock helper placements. Nonempty list conversion remains outside the
+checked source profile. The list heap currently records allocations and
+has no mutation rule for a snapshot comparison.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
