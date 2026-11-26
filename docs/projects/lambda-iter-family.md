@@ -764,3 +764,31 @@ round trip.
 · [Scope and admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Thms.lean)
 · [Swap](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Swap.lean)
 · [Ordered sum exits](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Checked straight-line re-admission
+
+`Reverse.Straight.compiled_success` closes the scoped readback and pointwise
+typing obligations for a numbered lowering whose saved-register lists are
+empty. Its finite source check runs the usual body elaborator and type checker
+on the attached, unversioned entry and blocks at their original types, using
+the compiler's preserved label order. Single and product lets are supported,
+and each body ends in a typed jump. A checked fresh lowering with no entry
+captures has empty saved lists by `empty_of_no_captures`.
+
+The constructor proof tracks each visible source register at its current
+typed version. Internal jumps add a unit saved record, and the generated
+decoder binds the original argument at its original type. External jumps
+keep the existing ordered exits and live-out payloads. The pointwise proof
+applies to any number of blocks and to internal back edges without a rank
+or termination premise.
+
+`Straight.admit` computes the scoped readback of the actual versioner and
+uses the derived checks to construct an ordinary live-out admission. The
+fixture exercises product and single lets, routing to the second declared
+exit or back to the same block. Both variants re-admit through the executable
+checker and use the existing weak-tree round trip. Case bodies and nonempty
+saved records retain the separate checker obligations of the general API.
+
+[Source checks](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Defs.lean)
+· [Admission theorem](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
+· [Exit and back-edge fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Straight/Examples.lean)
