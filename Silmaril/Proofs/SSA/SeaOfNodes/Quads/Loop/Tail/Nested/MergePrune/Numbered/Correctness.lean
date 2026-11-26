@@ -64,7 +64,7 @@ private theorem arm_run (fuel : Nat) (bank : Bank (regs := regs) m) :
   (projectResults_eval (merge := merge) m fuel bank (past := []) _ PUnit.unit).trans
     (congrArg (Option.map merge.project) (outerArm_run p m fuel bank))
 
-private theorem afterOuter_eval {args results : List (Ty Data)}
+theorem afterOuter_eval {args results : List (Ty Data)}
     {past suffix : List (List (Ty Data))}
     (current : Wires args past (dataPorts regs))
     (finish : Wires args (extend past (splitSigs merge)) (dataPorts merge.kept) →

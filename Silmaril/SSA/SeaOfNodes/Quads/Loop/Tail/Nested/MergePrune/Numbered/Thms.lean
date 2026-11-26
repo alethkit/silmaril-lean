@@ -10,10 +10,12 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Numbered
 
-open SeaOfNodes.Diamond (Model ValueSort sortValue)
+open SeaOfNodes.Diamond (Model Ty Val ValueSort dataPorts sortValue)
+open RVSDG (Locals Tuple Wires extend)
+open RVSDG.NestedTheta (Term)
 open Diamond.Prune (HeaderProjection)
 open Nested.Numbered (KeptResult nextBank sourceVisits)
-open Join (model)
+open Join (Opcode model)
 open Blocks (Bank)
 open Blocks.Prune (Mask)
 
@@ -24,6 +26,19 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size} {carry merge : Mask regs}
 variable (p : Program src entry) (m : Model.{u, v, w} Op)
 variable (projected : HeaderProjection (src p.header).body carry)
+
+/-- Run a continuation on the actual projected result of the selected γ arm. -/
+theorem afterOuter_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past (splitSigs merge)) (dataPorts merge.kept) →
+      Term (Opcode Op) args (extend past (splitSigs merge)) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (observe : Bank (regs := merge.kept) m → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (Nested.Numbered.afterOuterWith p (arm p merge) current finish).eval (model m) fuel input locals =
+      observe (merge.project (Nested.Numbered.branchBank p m (current.read input locals))) :=
+  Proofs.afterOuter_eval p m current finish fuel input locals observe agrees
 
 /-- The chosen numbered route sends exactly its projected incoming column. -/
 theorem merge_run (fuel : Nat) (old : Bank (regs := regs) m) :

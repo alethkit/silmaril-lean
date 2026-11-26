@@ -8,7 +8,7 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GVN.Elimination
 
 open Diamond (Dataflow Model Signature Ty Val ValueSort)
-open RVSDG (Locals Origin Tuple)
+open RVSDG (Locals Origin Tuple Wires extend)
 
 universe u v w
 
@@ -51,6 +51,16 @@ theorem routeSuffix_agrees (flow : Dataflow Op args past sigs)
     let result := routeSuffix flow route
     Routing.Agrees result.2 m entry (flow.eval m entry old) (result.1.eval m entry new) :=
   Silmaril.Proofs.SSA.SeaOfNodes.GVN.Elimination.routeSuffix_agrees m entry flow route old new agree
+
+/-- Reading an inlined pure packet agrees with running the closed table on
+the values of its supplied boundary wires. -/
+theorem plug_read {inner ports : List (Ty Data)} (flow : Dataflow Op inner [] sigs)
+    (outputs : Wires inner (extend [] sigs) ports) (inputs : Wires args past inner)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    let bound := plug flow outputs inputs
+    bound.2.read entry (bound.1.eval m entry locals) =
+      outputs.read (inputs.read entry locals) (flow.eval m (inputs.read entry locals) PUnit.unit) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.Elimination.plug_read m entry flow outputs inputs locals
 
 /-- Erasure preserves every routed read when the replacement in the
 producer's prefix reads the same value as the deleted binding. -/
