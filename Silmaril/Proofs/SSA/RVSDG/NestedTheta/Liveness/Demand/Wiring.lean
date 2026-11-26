@@ -81,6 +81,29 @@ theorem read_all (wires : Wires entry scope users) {left right : Tuple F entry}
     exact congrArg₂ Tuple.cons (agree source (List.mem_cons_self ..))
       (ih fun next h => agree next (List.mem_cons_of_mem _ h))
 
+/-- The γ transfer retains the selector and supplies each arm with agreement
+on its own live capture ports. -/
+theorem gamma_read_agrees {tagTy : Ty} {arity : Nat}
+    (selector : Origin entry scope tagTy) (captures : Wires entry scope users)
+    (armLive : Fin arity → List Address) {left right : Tuple F entry}
+    {localsL localsR : Locals F scope}
+    (agree : ScopeAgrees (selector.address ::
+      selectWires (fun _ i => (List.ofFn armLive).flatten.contains (.arg i)) captures)
+      left right localsL localsR) :
+    valueAt selector left localsL = valueAt selector right localsR ∧
+    ∀ i, ScopeAgrees (scope := []) (armLive i)
+      (captures.read left localsL) (captures.read right localsR) PUnit.unit PUnit.unit := by
+  refine ⟨agree selector (List.mem_cons_self ..), ?_⟩
+  intro i ty source live
+  cases source with
+  | output j _ => exact j.elim0
+  | arg p =>
+    have joined : Address.arg p.index ∈ (List.ofFn armLive).flatten :=
+      List.mem_flatten.2 ⟨armLive i, List.mem_ofFn.2 ⟨i, rfl⟩, live⟩
+    exact read_selected (fun _ j => (List.ofFn armLive).flatten.contains (.arg j))
+      captures (fun edge h => agree edge (List.mem_cons_of_mem _ h)) p
+      (List.contains_iff_mem.2 joined)
+
 private theorem locals_snoc_agree {head : Ports Ty}
     (left right : Locals F scope) (nextL nextR : Tuple F head)
     (keep : Nat → Nat → Prop)

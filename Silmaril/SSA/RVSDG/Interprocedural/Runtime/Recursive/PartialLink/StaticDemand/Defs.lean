@@ -19,7 +19,7 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {entry results : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
 
-/-- An admission for real straight-line RVSDG bindings. A static application
+/-- An admission for acyclic RVSDG bindings and γ arms. A static application
 names an entry port holding the callable and witnesses its captured values
 with typed wires from the caller's entry. The callee can itself have admitted
 calls. Reusing the same callee at different call sites permits different result
@@ -38,9 +38,14 @@ inductive Code (Op : Dialect.{u, v} (ValueSort V S) S) :
       (arguments : Wires entry past fn.args)
       (rest : Code Op entry (past ++ [fn.results]) sigs results) :
       Code Op entry past (fn.results :: sigs) results
+  | gamma {entry results captures outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
+      (extra : Nat) (armSigs : Fin (extra + 2) → List (Ports (Ty V S)))
+      (selector : Origin entry past (.control (extra + 2))) (wires : Wires entry past captures)
+      (arms : (i : Fin (extra + 2)) → Code Op captures [] (armSigs i) outs)
+      (rest : Code Op entry (past ++ [outs]) sigs results) : Code Op entry past (outs :: sigs) results
 
 /-- Erase the static call witnesses. The result uses the runtime's own
-primitive and apply instructions, with their original typed operands. -/
+primitive, apply and γ nodes, with their original typed operands. -/
 def Code.term : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
     Code Op entry past sigs results → NestedTheta.Term (Instruction Op) entry past sigs results
   | _, _, _, _, .ret wires => .ret wires
@@ -49,10 +54,13 @@ def Code.term : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (T
   | _, _, _, _, .apply (fn := fn) target _ _ arguments rest =>
     .bind ⟨_, .base (.simple (.apply fn)), .cons (.arg target) arguments, fun i => i.elim0⟩
       (fun i => i.elim0) rest.term
+  | _, _, _, _, .gamma extra armSigs selector wires arms rest =>
+    .bind ⟨_, .base (.gamma extra), .cons selector wires, armSigs⟩
+      (fun i => (arms i).term) rest.term
 
 /-- Check the static hypothesis against actual runtime values. Earlier results
-may supply arguments, so each nested static target must be resolved for
-every formal argument tuple of its callee. -/
+may supply arguments or γ captures. The witnesses must hold for every formal
+argument tuple and every γ capture tuple supplied by preceding locals. -/
 def Code.Resolved : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
     Code Op entry past sigs results → Tuple m.Val entry → Prop
   | _, _, _, _, .ret _, _ => True
@@ -61,6 +69,9 @@ def Code.Resolved : {entry results : Ports (Ty V S)} → {past sigs : List (Port
     let captured := captures.read input PUnit.unit
     input.get target = .closure captured body.term.toGraph ∧
       (∀ params, body.Resolved (prependContext params captured)) ∧ rest.Resolved input
+  | _, _, past, _, .gamma _ _ _ wires arms rest, input =>
+    (∀ (locals : Locals m.Val past) i, (arms i).Resolved (wires.read input locals)) ∧
+      rest.Resolved input
 
 def resultDemand (pc : Nat) (next : DemandPlan) : Demand :=
   fun p => next.live.contains (.output pc p)
@@ -73,7 +84,8 @@ def applyReads {context params : Ports (Ty V S)}
 
 /-- Backwards transfer on the shared schedule. Every primitive attempt reads
 all its operands. Each application passes its result demand to the same
-summary function of the statically resolved callee. -/
+summary function of the statically resolved callee. A γ uses the native
+transfer to join the live captures of its arms at the binding's output demand. -/
 def Code.plan (demand : Demand) : {entry results : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
     Code Op entry past sigs results → DemandPlan
   | _, _, past, _, .ret wires => (⟨[], []⟩ : DemandPlan).prepend past.length (selectWires demand.observes wires)
@@ -82,6 +94,12 @@ def Code.plan (demand : Demand) : {entry results : Ports (Ty V S)} → {past sig
     let next := rest.plan demand
     let live := (body.plan (resultDemand past.length next)).live
     next.prepend past.length (applyReads live captures arguments)
+  | _, _, past, _, .gamma (outs := outs) extra _ selector wires arms rest =>
+    let next := rest.plan demand
+    let kind : NestedTheta.Kind (Instruction Op) _ outs := .base (.gamma extra)
+    let reads := kind.demandReads past.length next.live (.cons selector wires)
+      (fun i requested => ((arms i).plan requested).live)
+    next.prepend past.length reads
 
 def Code.liveness (code : Code Op entry [] sigs results) (demand : Demand) : GenKill Nat Address :=
   NestedTheta.Liveness.problem (code.plan demand).reads
