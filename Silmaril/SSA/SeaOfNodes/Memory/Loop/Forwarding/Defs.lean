@@ -13,17 +13,21 @@ open RVSDG (Tuple)
 
 variable {args : List ValueSort} {cells : Nat}
 
-/-- Rewrite the native body at the checked input. The new body must still
-admit a `Loop.Graph`, which requires a Load and a Store. The Store evidence
-starts from an empty scan at each activation's table entry. -/
-def rewrite (graph : Graph args) (candidate : Memory.Forwarding.Candidate)
-    (certificate : Memory.Forwarding.Disjoint.Certificate args) (input : Tuple (Val cells) args) :
-    Option (Graph args) :=
-  match Memory.Forwarding.Disjoint.rewrite graph.body candidate certificate input with
+/-- Rewrite the native body under the certificate's input assumptions. The
+new body must still admit a `Loop.Graph`, which requires a Load and a Store. -/
+def rewriteWith (graph : Graph args) (candidate : Memory.Forwarding.Candidate)
+    (certificate : Memory.Forwarding.Disjoint.Certificate args) : Option (Graph args) :=
+  match Memory.Forwarding.Disjoint.rewriteWith graph.body candidate certificate with
   | none => none
   | some body =>
     if effects : accesses body = (true, true) then
       some ⟨body, effects, graph.stop⟩
     else none
+
+/-- Validate the assumptions at the invocation before returning the rewrite. -/
+def rewrite (graph : Graph args) (candidate : Memory.Forwarding.Candidate)
+    (certificate : Memory.Forwarding.Disjoint.Certificate args) (input : Tuple (Val cells) args) :
+    Option (Graph args) :=
+  if certificate.check input then rewriteWith graph candidate certificate else none
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding

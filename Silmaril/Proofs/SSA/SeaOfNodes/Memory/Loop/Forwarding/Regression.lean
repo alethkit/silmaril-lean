@@ -1,5 +1,7 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Static.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Thms
 
@@ -79,5 +81,41 @@ private def singleLoad : Graph args :=
 
 -- The native loop admission check requires at least one remaining Load.
 example : rewrite singleLoad ⟨1, 1⟩ ⟨savedPort, []⟩ (input savedCell) = none := rfl
+
+-- This equality checks the native graph and its reported writers without any valuation.
+private def optimized : Static.Result args := ⟨target, certificate⟩
+private theorem staticAccepted : Static.rewrite source candidate = some optimized := rfl
+
+-- Store 2 targets the head, while the selected Load targets scratch.
+example : Static.rewrite source ⟨2, 5⟩ = none := rfl
+
+private theorem separate : optimized.facts.Valid (input savedCell) :=
+  (optimized.facts.check_iff_valid (input savedCell)).mp rfl
+
+example : optimized.graph.ReturnsAfter (input savedCell) (initial 1) 2 0 exitHeap :=
+  (Static.rewrite_returnsAfter_iff staticAccepted (input savedCell) separate (initial 1) 2 0 exitHeap).mpr
+    ((source.returnsAfter_iff_evalAfter (input savedCell) (initial 1) 2 0 exitHeap).mpr (by cbv))
+
+-- Scratch may share the logging cell because that Store follows the removed Load.
+private theorem sharedLog : optimized.facts.Valid (input logCell) :=
+  (optimized.facts.check_iff_valid (input logCell)).mp rfl
+
+private def sharedLogExit : Heap 4 :=
+  ((((initial 0).write logCell 0).write headCell 2).write tailCell 0).write logCell 0
+
+example : optimized.graph.evalAfter (input logCell) (initial 0) 0 = some (0, sharedLogExit) :=
+  (Static.rewrite_evalAfter staticAccepted (input logCell) sharedLog (initial 0) 0).trans (by cbv)
+
+example : optimized.facts.check (input headCell) = false := rfl
+
+example : ¬ optimized.facts.Valid (input headCell) := by
+  intro valid
+  have checked := (optimized.facts.check_iff_valid (input headCell)).mpr valid
+  cases checked
+
+-- Aliasing the intervening head Store changes which word the original body reads.
+example : (source.body.denote (input headCell) (initial 1)).1 = 2 ∧
+    (optimized.graph.body.denote (input headCell) (initial 1)).1 = 1 := by
+  constructor <;> cbv
 
 end Silmaril.SSA.SeaOfNodes.Memory.Loop.Forwarding

@@ -13,18 +13,28 @@ variable {args : List ValueSort} {cells : Nat}
 variable {graph rewritten : Graph args} {candidate : Memory.Forwarding.Candidate}
 variable {certificate : Memory.Forwarding.Disjoint.Certificate args} {input : Tuple (Val cells) args}
 
-private theorem rewrite_result (success : rewrite graph candidate certificate input = some rewritten) :
-    Memory.Forwarding.Disjoint.rewrite graph.body candidate certificate input = some rewritten.body ∧
+private theorem rewriteWith_result (success : rewriteWith graph candidate certificate = some rewritten) :
+    Memory.Forwarding.Disjoint.rewriteWith graph.body candidate certificate = some rewritten.body ∧
       rewritten.stop = graph.stop := by
-  cases bodyResult : Memory.Forwarding.Disjoint.rewrite graph.body candidate certificate input with
-  | none => simp [rewrite, bodyResult] at success
+  cases bodyResult : Memory.Forwarding.Disjoint.rewriteWith graph.body candidate certificate with
+  | none => simp [rewriteWith, bodyResult] at success
   | some body =>
     by_cases admitted : accesses body = (true, true)
     · have result : Graph.mk body admitted graph.stop = rewritten := by
-        simpa [rewrite, bodyResult, admitted] using success
+        simpa [rewriteWith, bodyResult, admitted] using success
       subst rewritten
       exact ⟨rfl, rfl⟩
-    · simp [rewrite, bodyResult, admitted] at success
+    · simp [rewriteWith, bodyResult, admitted] at success
+
+private theorem rewrite_result (success : rewrite graph candidate certificate input = some rewritten) :
+    Memory.Forwarding.Disjoint.rewrite graph.body candidate certificate input = some rewritten.body ∧
+      rewritten.stop = graph.stop := by
+  by_cases checked : certificate.check input = true
+  · have accepted : rewriteWith graph candidate certificate = some rewritten := by
+      simpa [rewrite, checked] using success
+    obtain ⟨body, stop⟩ := rewriteWith_result accepted
+    exact ⟨by simpa [Memory.Forwarding.Disjoint.rewrite, checked] using body, stop⟩
+  · simp [rewrite, checked] at success
 
 theorem rewrite_body_denote (success : rewrite graph candidate certificate input = some rewritten)
     (heap : Heap cells) : rewritten.body.denote input heap = graph.body.denote input heap :=
