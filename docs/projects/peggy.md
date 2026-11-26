@@ -26,6 +26,9 @@ arXiv:1012.1802v3. The versioned PDF has SHA-256
 Locators below use PDF page numbers. [Paper](https://arxiv.org/pdf/1012.1802v3) ·
 [Journal](https://lmcs.episciences.org/1016)
 
+The [paper coverage and reproduction map](peggy-coverage.md) also tracks the
+SIMPLE pipeline, institution bridges, and open claims.
+
 ## Library boundary
 
 | Header | Interface |
@@ -174,6 +177,10 @@ SIMPLE. [Pipeline contract and example](peggy-simple-validation.md)
 
 ## Follow-up roadmap
 
+This is the original dependency plan. See the
+[coverage map's remaining work](peggy-coverage.md#remaining-work-in-priority-order)
+for the current priorities.
+
 1. **PEG invariants and rule schemas**. Extend the
    [guarded semantics](peg-semantics.md) with alpha and parameter transport,
    sound syntactic invariance, and reusable rule schemas with proofs of
@@ -254,16 +261,8 @@ an independently reviewed promotion of its format-independent core.
 
 ## Paper coverage
 
-| Source | Target and current status |
-| --- | --- |
-| §§1–3, Figs. 1–9 | Planned equality replay and admissible extraction for strength reduction, nested loops, loop motion, CFG restructuring, peeling and branch hoisting. General cross-level fusion, interchange and unrolling are research extensions. |
-| §4, Fig. 10 | Planned optimization pipeline, extension and monotonicity (4.1–4.3), uniqueness of reachable normal forms (4.4), and budgeted runs. |
-| §5, Figs. 11–12 | Typed structure, role-sensitive graph predicates, the literal-guard counterexample and the guarded denotation are checked. Parameter substitution, Def. 5.2 invariance and verified rule schemas are follow-ups. |
-| §6, Figs. 13–18 | Typed SIMPLE and the loop-free successful-return direction of Theorem 2. General loop lowering and a completion-token extension remain open. |
-| §7, Figs. 19–34 | Checked depth-zero admission, branch placement and sequencing. See the reversion table for the remaining obligations. |
-| §8, Figs. 35–37 | Planned parameterized Peggy, checked Java heap/exception/call profile, local linearization failure, Rete/worklist refinement and independently checked PB extraction. |
-| §9, Figs. 38–39 | Empirical reproduction. The paper reports 84% full saturation among compiled methods and 98% validation across 3,416 methods. Tests of the listed transforms and proofs of certificate soundness are separate deliverables. |
-| Appendix A | Planned coverage per rule family, classified as proved, guarded, conditional on a stated model contract, or refuted under the specified semantics. Include arithmetic, code patterns, array/field/effect rules, inlining, vectors, list and wrapper laws, outlining and specialized redirection. |
+See the [paper coverage and reproduction map](peggy-coverage.md) for the
+current theorem, implementation and experiment coverage by paper section.
 
 ## Check the core
 
