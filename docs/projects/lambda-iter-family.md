@@ -359,6 +359,33 @@ must-termination, fairness, or an infinite-path witness. The equality result
 concerns deterministic weak-tree denotations.
 [Silent divergence law](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
 
+### Ordered sequencing and feedback
+
+`TraceLE.bind_left` follows the same typed requests through refined
+producers and passes the same returned value to a common continuation.
+Together with `bind_right`, this gives monotonicity in both arguments.
+`out_resume_runs_iff` describes observation of the actual weak Elgot
+iterator's resumed body by a finite normalizer run. Recursive returns
+continue at the same feedback state in both trees. A final return or
+request is preserved, and replies are compared by induction on the
+remaining finite trace. This gives pointwise body monotonicity
+`TraceLE.iter` for the existing iterator.
+[Ordered weak ITree laws](../../Silmaril/Semantics/ITree/Trace/Thms.lean)
+
+`packedExecution_traceLE` lifts entry and block comparisons to the actual
+packed CFG executions at a common positional interface. Each block
+comparison uses the same incoming packet, and the conclusion applies the
+same outward tagging to the result. The primitive interpreters and
+ambient environments can differ. The captured back-edge fixture compares
+two interpretations that share the capture and seed requests and differ
+after tick reply `0`.
+[Packed CFG refinement](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/PackedTrace/Thms.lean)
+· [Capture and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Examples.lean)
+
+These laws use finite observations of deterministic weak trees. They give
+no arbitrary suprema, preservation of may-divergence, or completeness for
+syntactic rewrites.
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current

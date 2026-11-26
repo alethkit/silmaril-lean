@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Refinement.Trace.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.PackedTrace.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -311,5 +312,51 @@ example :
     simp only [captureProducer, partial_named, zeroSeedExit, vis_bind, pure_bind,
       hasTrace_vis_exchange_iff, ite_true, diverge_bind, hasTrace_diverge_iff, reduceCtorEq, not_false_eq_true]
   exact fun h => hpacked (h zeroSeedExit hspec)
+
+/-! ## Refinement of the actual packed feedback block -/
+
+private def partialTick : Primitive Event Opcode Runtime
+  | .tick, .atom arg => vis (.call .tick arg.2.down) fun reply =>
+      if reply = 0 then diverge else pure (atom reply)
+  | op, value => instr op value
+
+private theorem tick_refines (value : Value Runtime) :
+    TraceLE (partialTick .tick value) (instr .tick value) := by
+  cases value with
+  | atom arg =>
+    apply TraceLE.vis
+    intro reply
+    by_cases h : reply = 0
+    · simpa only [h, ite_true] using traceLE_diverge (pure (atom reply) : Tree Event (Value Runtime))
+    · simpa only [h, ite_false] using TraceLE.refl (pure (atom reply) : Tree Event (Value Runtime))
+  | _ => exact TraceLE.refl _
+
+-- The capture and seed entry are common. Only the back-edge block can
+-- acquire additional behavior after a tick reply.
+example : TraceLE (region partialTick ambient (packedExecutionRegion closed.property.1))
+    (region instr ambient (packedExecutionRegion closed.property.1)) := by
+  apply LambdaSSA.FiniteCFG.packedExecution_traceLE _ _ _ _ closed.property.1 closed.property.1
+  · exact TraceLE.refl _
+  · intro i input
+    have block : ∀ j : Fin 2, TraceLE
+        (region partialTick (extend ambient input) (closed.val.block j).erase)
+        (region instr (extend ambient input) (closed.val.block j).erase) := by
+      intro j
+      refine Fin.cases ?_ (Fin.cases ?_ (fun k => Fin.elim0 k)) j
+      · exact TraceLE.refl _
+      · change TraceLE (region partialTick (extend ambient input) (closed.val.block backIndex).erase)
+          (region instr (extend ambient input) (closed.val.block backIndex).erase)
+        rw [closed.property.2.block backIndex]
+        change TraceLE
+          (region partialTick (extend ambient input)
+            (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit)))))
+          (region instr (extend ambient input)
+            (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit)))))
+        simp only [region, LambdaSSA.Semantics.Interaction.term, pure_bind,
+          LambdaSSA.Semantics.extend_zero, LambdaSSA.Semantics.extend_succ]
+        cases input with
+        | pair arg _ => exact (tick_refines arg).bind_left _
+        | _ => exact TraceLE.refl _
+    exact block i
 
 end Silmaril.Isotope.Bridge.NamedFlat.Interaction.Examples
