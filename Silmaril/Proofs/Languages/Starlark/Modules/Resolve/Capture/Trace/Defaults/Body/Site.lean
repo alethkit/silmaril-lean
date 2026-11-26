@@ -60,7 +60,7 @@ theorem compile_suite {block : LexicalBlock} {source : Suite}
     exact compileBody_plainSeq _ _ _ program program program _ _
       (compileBody_plainAssign _ _ _ _ _ program (resolves operand)) ih
 
-private theorem collects (body : Suite) : BodyBinders body.source body.binders := by
+theorem collects (body : Suite) : BodyBinders body.source body.binders := by
   induction body with
   | ret => exact .ret _
   | assign name rhs _ ih => exact .seq (.assign name rhs) ih

@@ -642,39 +642,45 @@ outside the compositional body profile.
 ## Enclosing captures in defaulted bodies
 
 The multiple-callee trace admits an escaping wrapper with required
-positional parameters and a compositional child body. The independent
-lexical read and binder judgments select the child's free references.
-The child can capture any subset of the wrapper's parameters.
-`Defaults.Escape.Scoped.checked_site` identifies the emitted declaration
-and its ordered capture list at the final table index.
+positional parameters and a compositional child body. After defining
+the child, the wrapper rebinds its first parameter and executes an
+ordered sequence of integer assignments to other local names. The
+whole-block collector places the child binding and those locals in
+first-binder order, sharing one slot across repeated assignments.
+`Defaults.Escape.Scoped.checked_site` links that layout and the child's
+independently selected capture list to the emitted declarations.
 
-`activate_installs` derives the vector by visiting the declaration's
-free references in order and looking up their owned slots in the
-reached wrapper activation. `capture_order` proves that the installed
-bindings match that order and have no duplicates, so repeated source
-reads use the same child slot. Defaults still evaluate in the reached
-wrapper frame. The wrapper installs the child, rebinds its first
-parameter, and restores the caller. `returned_frame` relates the escaped
-closure's record, including both saved values and live cells, to the
-compositional child frame. The module theorem carries that record
-through aliases and later calls and gives exact operational and
-denotational agreement on publication and freezing or the first
-reached error with the retained heap and restored caller.
+`activate_installs` looks up parameter and local captures in the
+reached wrapper activation, including an owned cell that is still
+unbound. `capture_order` relates the installed vector to the declaration
+order and gives each binding one entry. The trailing assignments run
+through the straight-line body rules, so initialization or rebinding
+writes the same cells the child captures. `returned_frame` relates the
+escaped closure's saved defaults and live cells to the frame on a later
+call. The checked module theorem carries the closure through aliases
+and repeated calls and gives exact agreement on publication and
+reachable freezing or on the first error, retained heap, and restored
+caller.
 
-The two-capture fixture reads the second parameter first and reads it
-again after reading the first parameter. The first parameter holds a
-list at definition time and is rebound to an integer before escape.
-Two wrapper activations have different second-parameter values and
-disjoint capture cells. Lean checks the exact ordered addresses,
-deduplication, saved values, and residual cells on a failed override.
-The pinned Go control compares returned values, visible failure state,
-and publication freezing. The private capture vector and the failed
-child's local allocations are checked in Lean.
+A named default read runs before child installation and uses the
+reached value of its lexical binding. If a default reads a local whose
+first assignment is in the trailing body, it fails before child
+installation or the trailing writes. `failed_local_unbound` derives
+the still-unbound cell from the checked positional binding and preserves
+it in the residual heap when a default fails. The fixture saves one
+default from the first parameter, then reads the parameter and a
+different wrapper local as live captures. It checks two independent
+activations, rebinding, alias and override results, and freezing. In the
+failure variant, reading the same local as a default retains an earlier
+default allocation, stops before the later default, and skips
+publication. The pinned Go control checks visible success and failure
+observations. Lean also checks private capture addresses, the order of
+the local cells, and the failed definition's residual heap.
 
-Additional enclosing levels, capture of the child-name or module slots
-in this wrapper profile, wider bodies, untracked callable provenance,
-keywords and spreads, loads, and text parsing remain outside this
-integration.
+Pre-definition wrapper assignments, wider wrapper bodies, capture of
+the child-name or module slots in this profile, deeper nesting,
+untracked callable provenance, keywords and spreads, loads, and text
+parsing remain outside this integration.
 [Source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Defs.lean) · [Capture and frame theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Scoped/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/nested-default-body/check.go)
 
 ## Finite-manifest loader

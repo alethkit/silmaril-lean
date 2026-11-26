@@ -99,7 +99,7 @@ private theorem operands_total {block : LexicalBlock} {source : SourceExpr} {cod
 private theorem extends_keeps {state next : State} (floor : Nat) (kept : Extends state next) : Keeps floor state next :=
   ⟨kept.1, fun index cell _ found => kept.2 index cell found⟩
 
-private theorem keeps_trans {floor : Nat} {first middle last : State}
+theorem keeps_trans {floor : Nat} {first middle last : State}
     (head : Keeps floor first middle) (tail : Keeps floor middle last) : Keeps floor first last :=
   ⟨tail.1.trans head.1, fun index cell low found => tail.2 index cell low (head.2 index cell low found)⟩
 
@@ -113,7 +113,7 @@ private theorem extend_frame {block : LexicalBlock} {free : List FreeName} {floo
     obtain ⟨address, value, frozen, bound, slot, cell⟩ := frame.captured name member
     exact ⟨address, value, frozen, bound, kept.1 ▸ slot, kept.2 _ _ cell⟩
 
-private theorem written_frame {block : LexicalBlock} {free : List FreeName} {floor : Nat}
+theorem written_frame {block : LexicalBlock} {free : List FreeName} {floor : Nat}
     {state : State} {name : String} (member : name ∈ block.owned) (value : Value)
     (frame : Frame block free floor state) :
     Frame block free floor (state.write (fileSlot name) value) ∧ Keeps floor state (state.write (fileSlot name) value) := by

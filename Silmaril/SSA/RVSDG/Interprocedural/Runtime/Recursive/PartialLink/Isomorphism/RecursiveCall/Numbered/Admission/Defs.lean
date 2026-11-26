@@ -244,6 +244,49 @@ def lambda [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [Decidabl
 
 end ExactValueCheck
 
+/-- Optional exact evidence on the actual groups returned by linking. -/
+abbrev ExactGroupCheck (m : Machine.{u, v, w} Op) :=
+  {members : List (Function V S)} → (left right : Group m members) → Option (PLift (left = right))
+
+namespace ExactGroupCheck
+
+/-- A stored member definition includes its capture origins as well as its
+numbered body. Both are compared inside the original scopes. -/
+def definition [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
+    (left right : Lambda Op imports past fn) : Option (PLift (left = right)) := by
+  obtain ⟨contextL, capturesL, sigsL, bodyL⟩ := left
+  obtain ⟨contextR, capturesR, sigsR, bodyR⟩ := right
+  letI : DecidableEq (Ports (Ty V S)) := inferInstance
+  letI : DecidableEq (List (Ports (Ty V S))) := inferInstance
+  refine if context : contextL = contextR then ?_ else none
+  subst contextR
+  refine if sigs : sigsL = sigsR then ?_ else none
+  subst sigsR
+  letI := NestedTheta.Equality.decideGraph keys bodyL bodyR
+  exact if wiring : capturesL.addresses = capturesR.addresses then
+    if body : bodyL = bodyR then
+      some ⟨by rw [NestedTheta.Equality.addresses_injective _ _ wiring, body]⟩
+    else none
+  else none
+
+/-- Exact group comparison with an optional exact-value checker for outer
+captures. Every declared slot is checked, including slots absent from exports. -/
+def ofCaptures [DecidableEq (Ty V S)] (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
+    (captures : ExactValueCheck m) : ExactGroupCheck m := by
+  intro members left right
+  obtain ⟨contextL, valuesL, tableL⟩ := left
+  obtain ⟨contextR, valuesR, tableR⟩ := right
+  letI : DecidableEq (Ports (Ty V S)) := inferInstance
+  refine if context : contextL = contextR then ?_ else none
+  subst contextR
+  exact if slots : ∀ i, (definition keys (tableL i) (tableR i)).isSome = true then
+    (ExactValueCheck.tuple captures valuesL valuesR).map fun equal =>
+      ⟨by rw [equal.down, funext (fun i => ((definition keys (tableL i) (tableR i)).get (slots i)).down)]⟩
+  else none
+
+end ExactGroupCheck
+
 abbrev LambdaSummary (V S : Type u) (Key : Type v) (Capture : Type w) :=
   Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × List (Option (Nat ⊕ Capture)) × Multiset (LabelCode V S Key)
 

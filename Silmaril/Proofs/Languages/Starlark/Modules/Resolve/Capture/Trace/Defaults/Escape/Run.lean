@@ -12,6 +12,7 @@ namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defau
 open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve
+open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape
@@ -29,7 +30,7 @@ theorem frame_layout_with (wrapper : Spec) (admitted : WrapperNames wrapper) (ch
   have different : fileSlot wrapper.parameter ≠ fileSlot wrapper.childName := by
     intro same
     exact admitted.distinct (congrArg Binding.name same)
-  simp [activate, Spec.frame, Forwarding.Frame.declaration, requiredSignature,
+  simp [activate, Spec.frame, Spec.locals, Forwarding.Frame.declaration, requiredSignature,
     Signature.slots, Signature.named, State.allocateSlot, State.write, different,
     Array.getElem?_push, Array.getElem?_setIfInBounds, Array.size_push]
   constructor
@@ -55,7 +56,7 @@ private theorem operand_sound (program : Program) (available : List DeclarationI
     (source : Evaluates parameter state operand out) :
     EvalOperand program available state (operand.code parameter) out := by
   cases source with
-  | parameter => exact .atom trivial .read
+  | parameter | read => exact .atom trivial .read
   | integer => exact .atom trivial .scalar
   | list =>
     exact .list (.cons (.atom trivial .scalar) .empty)
@@ -90,6 +91,10 @@ private theorem operand_total (parameter : String) (state : State) (operand : Op
   | parameter =>
     refine ⟨_, .parameter, ?_⟩
     cases read : state.bindingValue (fileSlot parameter) <;>
+      simpa [State.read, read, finishState] using Bindings.Preserves.refl state
+  | read name =>
+    refine ⟨_, .read name, ?_⟩
+    cases read : state.bindingValue (fileSlot name) <;>
       simpa [State.read, read, finishState] using Bindings.Preserves.refl state
   | integer value => exact ⟨_, .integer value, Bindings.Preserves.refl _⟩
   | list value => exact ⟨_, .list value, Bindings.Preserves.push _ _⟩
@@ -167,6 +172,19 @@ theorem failed_child_unbound (wrapper : Spec) (admitted : Admitted wrapper) (chi
     obtain ⟨_, parameter, _, child⟩ := frame_layout wrapper admitted childId caller argument
     exact ⟨kept.cells _ _ parameter trivial, kept.cells _ _ child trivial, rfl, rfl⟩
 
+theorem failed_keeps {wrapper : Spec} {childId : Nat} {free : List FreeName} {updates : List (String × Int)}
+    {caller active next : State} {error : Silmaril.Languages.Starlark.Lists.Error}
+    (failed : ReturnsWith wrapper childId free updates caller active (.error error next)) :
+    next.slots = caller.slots ∧ next.bindings = caller.bindings ∧
+      ∀ (address : Nat) (value : Option Value) (frozen : Bool),
+        active.heap[address]? = some (⟨.binding value, frozen⟩ : Cell) →
+          next.heap[address]? = some (⟨.binding value, frozen⟩ : Cell) := by
+  cases failed with
+  | @failed _ final ran =>
+    obtain ⟨out, traced, kept, _⟩ := defaults_total wrapper.parameter active (wrapper.defaults.map Prod.snd)
+    rw [defaults_unique traced ran] at kept
+    exact ⟨rfl, rfl, fun _ _ _ cell => kept.cells _ _ cell trivial⟩
+
 private theorem reached_defaults (program : Program) (available : List DeclarationId) (wrapper : Spec)
     (childId : Nat) (declaration : Declaration) (found : program[childId]? = some declaration)
     (signature : declaration.signature = wrapper.child.parameters.signature wrapper.codes)
@@ -195,20 +213,86 @@ private theorem installs_in_same_slots {active final : State} {free : List FreeN
     | ownedGlobal proof => exact .cons (.ownedGlobal (slots ▸ proof)) ih
     | capturedGlobal proof => exact .cons (.capturedGlobal (slots ▸ proof)) ih
 
+/-- Each update executes as a step of the existing straight-line body.
+The child binding remains readable, and earlier caller cells are untouched. -/
+private theorem updates_run (wrapper : Spec) (updates : List (String × Int)) (block : LexicalBlock)
+    (known : wrapper.childName ∈ block.owned)
+    (writes : ∀ name ∈ updates.map Prod.fst, name ∈ block.owned ∧ name ≠ wrapper.childName)
+    (floor : Nat) (state : State) (frame : Defaults.Body.Frame block [] floor state)
+    (distinct : RootCall.DistinctOwned state) (value : Value)
+    (read : state.bindingValue (fileSlot wrapper.childName) = .ok value) :
+    Defaults.Body.Runs block state (wrapper.updateSuite updates) (wrapper.updateCode updates)
+        (.ok (.returned value) (applyUpdates updates state)) ∧
+      Defaults.Body.Keeps floor state (applyUpdates updates state) := by
+  induction updates generalizing state with
+  | nil =>
+    have observed : Defaults.Body.Evaluates block state (.scalar (.read wrapper.childName))
+        (Leaf.readOperand (fileSlot wrapper.childName)) (state.read (.bound (fileSlot wrapper.childName))) :=
+      .read (.owned known)
+    rw [State.read, read] at observed
+    exact ⟨.ret observed, rfl, fun _ _ _ cell => cell⟩
+  | cons update rest ih =>
+    obtain ⟨member, different⟩ := writes update.1 List.mem_cons_self
+    let valueWritten : Value := .scalar (.int update.2)
+    let next := state.write (fileSlot update.1) valueWritten
+    have slots : next.slots = state.slots := slots_write _ _ _
+    obtain ⟨childAddress, _, _, _, childAt, _⟩ := frame.owned wrapper.childName known
+    have other : state.slots (fileSlot update.1) ≠ some (.owned childAddress) :=
+      fun hit => different (congrArg Binding.name (distinct _ _ _ hit childAt))
+    have same : next.heap[childAddress]? = state.heap[childAddress]? :=
+      RootCall.write_other_cell state (fileSlot update.1) valueWritten childAddress other
+    have readNext : next.bindingValue (fileSlot wrapper.childName) = .ok value := by
+      simpa only [State.bindingValue, slots, childAt, Slot.address, same] using read
+    obtain ⟨nextFrame, firstKeeps⟩ := Defaults.Body.written_frame member valueWritten frame
+    have distinctNext : RootCall.DistinctOwned next := by simpa only [RootCall.DistinctOwned, slots] using distinct
+    obtain ⟨tail, preserves⟩ := ih (fun name hit => writes name (List.mem_cons_of_mem _ hit)) next
+      nextFrame distinctNext readNext
+    exact ⟨.assign (.int update.2) tail, Defaults.Body.keeps_trans firstKeeps preserves⟩
+
+private theorem updates_keep (updates : List (String × Int)) (state : State)
+    (captures : List Silmaril.Languages.Starlark.Lists.Capture)
+    (address : Nat) (closure : Silmaril.Languages.Starlark.Lists.Closure)
+    (stored : state.heap[address]? = some ⟨.function closure, false⟩)
+    (live : Defaults.Body.CaptureCells state captures) :
+    (applyUpdates updates state).heap[address]? = some ⟨.function closure, false⟩ ∧
+      Defaults.Body.CaptureCells (applyUpdates updates state) captures := by
+  induction updates generalizing state with
+  | nil => exact ⟨stored, live⟩
+  | cons update rest ih =>
+    exact ih _ (write_keeps_function _ _ _ _ _ _ stored) (Defaults.Body.capture_cells_written _ _ _ live)
+
+private theorem updates_other (updates : List (String × Int)) (state : State) (name : String)
+    (address : Nat) (owned : state.slots (fileSlot name) = some (.owned address))
+    (distinct : RootCall.DistinctOwned state) (different : name ∉ updates.map Prod.fst) :
+    (applyUpdates updates state).heap[address]? = state.heap[address]? := by
+  induction updates generalizing state with
+  | nil => rfl
+  | cons update rest ih =>
+    have other : state.slots (fileSlot update.1) ≠ some (.owned address) := by
+      intro found
+      exact different (List.mem_cons.mpr (.inl (congrArg Binding.name (distinct _ _ _ owned found))))
+    let next := state.write (fileSlot update.1) (.scalar (.int update.2))
+    have slots : next.slots = state.slots := slots_write _ _ _
+    have keptDistinct : RootCall.DistinctOwned next := by simpa only [RootCall.DistinctOwned, slots] using distinct
+    exact (ih next (slots ▸ owned) keptDistinct (fun hit => different (List.mem_cons_of_mem _ hit))).trans
+      (RootCall.write_other_cell _ _ _ _ other)
+
 /-- Execute the wrapper with its reached positional binding and installed
-capture vector. Its declaration fixes the slots; every capture survives the
-child-name write and remains live after the parameter write and restoration. -/
+capture vector. The trailing body initializes or rebinds its owned locals
+through the same cells recorded during child installation. -/
 theorem returns_with_total (program : Program) (available : List DeclarationId) (wrapper : Spec)
     (admitted : WrapperNames wrapper) (childId : Nat) (declaration : Declaration)
     (found : program[childId]? = some declaration)
     (signature : declaration.signature = wrapper.child.parameters.signature wrapper.codes)
-    (additional : List String) (caller : State) (assigned : List (Binding × Value))
+    (additional : List String) (updates : List (String × Int))
+    (fresh : ∀ name ∈ updates.map Prod.fst, name ∉ wrapper.parameter :: additional ∧ name ≠ wrapper.childName)
+    (caller : State) (assigned : List (Binding × Value))
     (captures : List Silmaril.Languages.Starlark.Lists.Capture)
-    (selected : Installs (activate caller (wrapper.frame childId additional).declaration [] assigned) declaration.free captures)
-    (cells : Defaults.Body.CaptureCells (activate caller (wrapper.frame childId additional).declaration [] assigned) captures) :
-    let active := activate caller (wrapper.frame childId additional).declaration [] assigned
-    ∃ out bodyOut, ReturnsWith wrapper childId declaration.free caller active out ∧
-      Exec program available active (wrapper.frame childId additional).code bodyOut ∧
+    (selected : Installs (activate caller (wrapper.frame childId additional updates).declaration [] assigned) declaration.free captures)
+    (cells : Defaults.Body.CaptureCells (activate caller (wrapper.frame childId additional updates).declaration [] assigned) captures) :
+    let active := activate caller (wrapper.frame childId additional updates).declaration [] assigned
+    ∃ out bodyOut, ReturnsWith wrapper childId declaration.free updates caller active out ∧
+      Exec program available active (wrapper.frame childId additional updates).code bodyOut ∧
       Leaf.returnTo caller bodyOut = out ∧
       (∀ value next, out = .ok value next → ∃ address values,
         value = .function address ∧ values.length = wrapper.child.parameters.optional.length ∧
@@ -218,16 +302,17 @@ theorem returns_with_total (program : Program) (available : List DeclarationId) 
           active.slots (fileSlot wrapper.parameter) = some (.owned parameter) →
           active.heap[parameter]? = some ⟨.binding before, frozen⟩ →
           next.heap[parameter]? = some ⟨.binding (some (.scalar (.int wrapper.rebound))), frozen⟩)) := by
-  let frame := wrapper.frame childId additional
+  let frame := wrapper.frame childId additional updates
   dsimp only
-  let active := activate caller (wrapper.frame childId additional).declaration [] assigned
+  let active := activate caller (wrapper.frame childId additional updates).declaration [] assigned
   obtain ⟨parameterAddress, parameterBefore, parameterFrozen, paramOwn, paramCell⟩ :=
-    Entry.activated_cell caller frame [] assigned wrapper.parameter (by simp [frame, Spec.frame, Forwarding.Frame.owned])
+    Entry.activated_cell caller frame [] assigned wrapper.parameter (by simp [frame, Spec.frame, Spec.locals, Forwarding.Frame.owned])
   obtain ⟨childAddress, childBefore, childFrozen, childOwn, childCell⟩ :=
-    Entry.activated_cell caller frame [] assigned wrapper.childName (by simp [frame, Spec.frame, Forwarding.Frame.owned])
+    Entry.activated_cell caller frame [] assigned wrapper.childName (by simp [frame, Spec.frame, Spec.locals, Forwarding.Frame.owned])
+  have activeDistinct : RootCall.DistinctOwned active := RootCall.activation_distinct caller frame.declaration [] assigned
   have distinct : parameterAddress ≠ childAddress := by
     intro equal
-    have owned := RootCall.activation_distinct caller frame.declaration [] assigned _ _ _ paramOwn (equal ▸ childOwn)
+    have owned := activeDistinct _ _ _ paramOwn (equal ▸ childOwn)
     exact admitted.distinct (congrArg Binding.name owned)
   have parameterFresh := Wrapper.activation_fresh caller frame.declaration [] assigned _ _ paramOwn
   have childFresh := Wrapper.activation_fresh caller frame.declaration [] assigned _ _ childOwn
@@ -264,13 +349,28 @@ theorem returns_with_total (program : Program) (available : List DeclarationId) 
     have assignCode : Exec program available installed (.assignExpr parameter (.atom (.scalar (.int wrapper.rebound))))
         (.ok .next rebound) :=
       .assignExpr (.evaluates (calls := fun _ _ _ => False) (fun _ _ _ h => h.elim) (.atom trivial .scalar))
-    have expression : ExecExpr program available rebound (Leaf.readOperand child)
-        (.ok (.function final.heap.size) rebound) := by
-      have read : ExecExpr program available rebound (Leaf.readOperand child) (rebound.read (.bound child)) :=
-        .evaluates (calls := fun _ _ _ => False) (fun _ _ _ h => h.elim) (.atom trivial .read)
-      simpa [State.read, reboundRead] using read
-    have body : Exec program available active frame.code (.ok (.returned (.function final.heap.size)) rebound) :=
-      .seq childCode (.seq assignCode (.returnExpr expression))
+    let block : LexicalBlock := ⟨frame.owned, [], []⟩
+    have grownFrame : Defaults.Body.Frame block [] caller.heap.size grown := by
+      refine ⟨?_, by simp⟩
+      intro name member
+      obtain ⟨address, before, frozen, slot, stored⟩ := Entry.activated_cell caller frame [] assigned name member
+      exact ⟨address, before, frozen, Wrapper.activation_fresh caller frame.declaration [] assigned _ _ slot,
+        grownKept.slots ▸ slot, grownKept.cells _ _ stored trivial⟩
+    have childKnown : wrapper.childName ∈ block.owned := by simp [block, frame, Spec.frame, Spec.locals, Forwarding.Frame.owned]
+    have parameterKnown : wrapper.parameter ∈ block.owned := by simp [block, frame, Spec.frame, Forwarding.Frame.owned]
+    have installedFrame := (Defaults.Body.written_frame childKnown (.function final.heap.size) grownFrame).1
+    have reboundFrame := (Defaults.Body.written_frame parameterKnown value installedFrame).1
+    have reboundSlots : rebound.slots = active.slots := (slots_write _ _ _).trans installedSlots
+    have reboundDistinct : RootCall.DistinctOwned rebound := by
+      simpa only [RootCall.DistinctOwned, reboundSlots] using activeDistinct
+    have localWrites (name : String) (member : name ∈ updates.map Prod.fst) :
+        name ∈ block.owned ∧ name ≠ wrapper.childName :=
+      ⟨List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_eraseDups.mpr member)), (fresh name member).2⟩
+    obtain ⟨tail, tailKeeps⟩ := updates_run wrapper updates block childKnown localWrites caller.heap.size
+      rebound reboundFrame reboundDistinct (.function final.heap.size) reboundRead
+    let done := applyUpdates updates rebound
+    have body : Exec program available active frame.code (.ok (.returned (.function final.heap.size)) done) :=
+      .seq childCode (.seq assignCode (Defaults.Body.runs_sound program available tail))
     refine ⟨_, _, .child ran installs, body, rfl, ?_⟩
     intro result next same
     cases same
@@ -282,14 +382,15 @@ theorem returns_with_total (program : Program) (available : List DeclarationId) 
     have untilInstall := Defaults.Body.capture_cells_preserved grownKept cells
     have afterInstall := Defaults.Body.capture_cells_written grown child (.function final.heap.size) untilInstall
     have afterRebind := Defaults.Body.capture_cells_written installed parameter value afterInstall
-    refine ⟨final.heap.size, values, rfl, length, recordAfter, ⟨rfl, ?_⟩, afterRebind, ?_⟩
+    obtain ⟨recordDone, cellsDone⟩ := updates_keep updates rebound captures final.heap.size _ recordAfter afterRebind
+    refine ⟨final.heap.size, values, rfl, length, recordDone, ⟨rfl, ?_⟩, cellsDone, ?_⟩
     · intro index stored existing kind
       have low := (Array.getElem?_eq_some_iff.mp existing).choose
       have inFrame := Wrapper.activation_preserves caller frame.declaration [] assigned index low
       have inGrown := grownKept.cells index stored (inFrame.trans existing) kind
       have afterChild := kept_write grown child (.function final.heap.size) _ childAt index (by omega)
       have afterRebound := kept_write installed parameter value _ paramAt index (by omega)
-      exact afterRebound.trans (afterChild.trans inGrown)
+      exact tailKeeps.2 index stored low (afterRebound.trans (afterChild.trans inGrown))
     · intro index before frozen owned stored
       have same := Option.some.inj (paramOwn.symm.trans owned)
       cases same
@@ -297,9 +398,13 @@ theorem returns_with_total (program : Program) (available : List DeclarationId) 
         (kept_write grown child (.function final.heap.size) _ childAt parameterAddress distinct).trans
           (grownKept.cells _ _ stored trivial)
       have within := (Array.getElem?_eq_some_iff.mp retained).choose
-      change rebound.heap[parameterAddress]? = some ⟨.binding (some value), frozen⟩
-      simp only [rebound, State.write, paramAt, retained]
-      exact Array.getElem?_setIfInBounds_self_of_lt within
+      have reboundValue : rebound.heap[parameterAddress]? = some ⟨.binding (some value), frozen⟩ := by
+        simp only [rebound, State.write, paramAt, retained]
+        exact Array.getElem?_setIfInBounds_self_of_lt within
+      have other : wrapper.parameter ∉ updates.map Prod.fst :=
+        fun member => (fresh wrapper.parameter member).1 List.mem_cons_self
+      exact (updates_other updates rebound wrapper.parameter parameterAddress
+        (reboundSlots ▸ paramOwn) reboundDistinct other).trans reboundValue
 
 theorem returns_total (program : Program) (available : List DeclarationId) (wrapper : Spec)
     (admitted : Admitted wrapper) (childId : Nat) (found : program[childId]? = some (wrapper.child.emitted wrapper.codes))
@@ -314,7 +419,7 @@ theorem returns_total (program : Program) (available : List DeclarationId) (wrap
         next.heap[caller.heap.size]? = some ⟨.binding (some (.scalar (.int wrapper.rebound))), false⟩ ∧
         Bindings.Preserves caller next) := by
   obtain ⟨out, bodyOut, source, ran, restored, result⟩ := returns_with_total program available wrapper
-    admitted.wrapperNames childId (wrapper.child.emitted wrapper.codes) found rfl [] caller
+    admitted.wrapperNames childId (wrapper.child.emitted wrapper.codes) found rfl [] [] (by simp) caller
     [(fileSlot wrapper.parameter, argument)] [] .nil (by simp [Defaults.Body.CaptureCells])
   refine ⟨out, bodyOut, ?_, ran, restored, ?_⟩
   · cases source with
@@ -328,9 +433,9 @@ theorem returns_total (program : Program) (available : List DeclarationId) (wrap
     exact ⟨address, values, returned, length, cell, rebound _ _ _ owned stored, kept⟩
 
 theorem returns_with_unique {wrapper : Spec} {childId : Nat} {free : List FreeName}
-    {caller active : State} {first second : Outcome Value}
-    (a : ReturnsWith wrapper childId free caller active first)
-    (b : ReturnsWith wrapper childId free caller active second) : first = second := by
+    {updates : List (String × Int)} {caller active : State} {first second : Outcome Value}
+    (a : ReturnsWith wrapper childId free updates caller active first)
+    (b : ReturnsWith wrapper childId free updates caller active second) : first = second := by
   cases a with
   | failed earlier =>
     cases b with

@@ -106,21 +106,22 @@ theorem Program.lookup_table (program : Program) (address : FuncAddr) :
   Proofs.lookup_table program address
 
 /-- Recover the V1 arity, source, stack, and shared-memory slot checks. -/
-theorem Program.function_checked {program : Program} {memory : MemAddr} {mode : MemoryMode}
-    (checked : program.checkV1 memory mode = true)
+theorem Program.function_checked {program : Program} {memory : MemAddr} {mode : MemoryMode} {calls : CallMode}
+    (checked : program.checkV1 memory mode calls = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
     fn.declaration.results.length ≤ 1 ∧ fn.code.all (fun op => fn.supports op mode) = true ∧
       fn.WellTyped fn.initial fn.code ∧ fn.declaration.module.memories[0]? = some memory :=
   Proofs.function_checked checked found
 
-/-- A checked call resolves to the declared callee at a strictly smaller rank. -/
-theorem Program.linked_target {program : Program} {memory : MemAddr} {mode : MemoryMode}
-    (checked : program.checkV1 memory mode = true)
+/-- Both profiles bind the direct index and the callee's declaration. The ranked
+profile additionally requires a strictly smaller rank. -/
+theorem Program.linked_target {program : Program} {memory : MemAddr} {mode : MemoryMode} {calls : CallMode}
+    (checked : program.checkV1 memory mode calls = true)
     {address : FuncAddr} {fn : Function} {target : CallTarget}
     (found : program.lookup address = some fn) (used : target ∈ fn.targets) :
     ∃ callee, program.lookup target.address = some callee ∧
       fn.declaration.module.funcs[target.index.toNat]? = some target.address ∧
-      callee.declaration = target.declaration ∧ callee.rank < fn.rank :=
+      callee.declaration = target.declaration ∧ calls.permits fn.rank callee.rank :=
   Proofs.linked_target checked found used
 
 /-- The base store starts at the original extent and allocation. -/

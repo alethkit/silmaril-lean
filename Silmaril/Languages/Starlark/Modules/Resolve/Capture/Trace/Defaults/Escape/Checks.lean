@@ -42,7 +42,8 @@ private theorem admitted (fails : Bool) : Bindings.WithDefaults.Profile (command
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
   have wrapperOK : body.Admitted globals := by
     change Admitted (maker fails)
-    cases fails <;> exact ⟨by decide, by decide, by decide, by unfold Visible; decide⟩
+    cases fails <;> refine ⟨by decide, by decide, by decide, by unfold Visible; decide, ?_⟩
+    all_goals intro name present; obtain ⟨target, present⟩ := present; simp [maker] at present
   have single (value : Int) : Initializer globals (.list [.scalar (.int value)]) :=
     .list (by intro _ h; simp at h; subst_vars; exact .int _)
   have readArg : ∀ argument ∈ [starlark%[saved_seed]], Trace.Operand globals argument := by

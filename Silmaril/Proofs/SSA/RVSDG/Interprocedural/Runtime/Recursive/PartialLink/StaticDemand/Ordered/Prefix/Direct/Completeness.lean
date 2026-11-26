@@ -15,7 +15,7 @@ variable {scope : Scope m} {actions : Actions m σ}
 variable {imports entry outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
 variable {inputsL inputsR : Tuple m.Val imports}
 variable {checked : scope.Checked actions} {routes : Routes inputsL inputsR scope}
-variable {source : Boundary imports entry scope.past}
+variable {source : ScopeBoundary imports entry scope.past past}
 
 private theorem collect_complete {n : Nat} {P : Fin n → Prop} (check : (i : Fin n) → Option (PLift (P i)))
     (ready : ∀ i, (check i).isSome = true) : (collectArms n check).isSome = true := by
@@ -26,8 +26,8 @@ private theorem collect_complete {n : Nat} {P : Fin n → Prop} (check : (i : Fi
     have tail := ih (fun i => check i.succ) (fun i => ready i.succ)
     simp [collectArms, Option.isSome_bind, head, tail]
 
-private theorem site_complete {i : Fin scope.table.members.length} {target : Port entry (scope.table.at i).fn.port}
-    {witnesses : Wires entry [] (scope.table.at i).captures}
+private theorem site_complete {i : Fin scope.table.members.length} {target : Origin entry past (scope.table.at i).fn.port}
+    {witnesses : Wires entry past (scope.table.at i).captures}
     (site : TrackedSite checked routes source i target witnesses) :
     (resolveSite checked routes source rfl i target witnesses).isSome = true := by
   obtain ⟨sources, route, projected, picked, same, left, right⟩ := site
@@ -47,7 +47,7 @@ theorem tracked_complete {code : Code Op entry past sigs outs true (some scope.t
     (synthesizeAt checked routes source code rfl).isSome = true := by
   induction tracked with
   | ret => rfl
-  | primitive _ ih => exact ih
+  | primitive _ ih => exact bind_complete ih (fun _ => rfl)
   | call site _ suffix =>
     exact bind_complete (site_complete site) (fun _ => bind_complete suffix (fun _ => rfl))
   | gamma _ _ arms suffix =>

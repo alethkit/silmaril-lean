@@ -9,29 +9,11 @@ namespace Silmaril.Proofs.Machine.MulticoreVM.Placed
 
 open Silmaril.Machine.MulticoreVM
 open Silmaril.Machine.MulticoreVM.Placed (Config TaggedWord threadWord coreWord tagFragment
-  Action threadSchedule Instruction Scheduled mapTaggedWord)
-open Silmaril.Semantics.ConcurrentTrace (mapWord)
+  Action threadSchedule Instruction Scheduled StoreView)
 
-universe u v
+universe u
 
 variable {CoreId ThreadId Core Thread Choice Event : Type u}
-variable {CoreId' ThreadId' Event' : Type v}
-
-theorem threadWord_mapTaggedWord (core : CoreId → CoreId') (thread : ThreadId → ThreadId')
-    (event : Event → Event') (word : TaggedWord CoreId ThreadId Event) :
-    threadWord (mapTaggedWord core thread event word) = mapWord thread event (threadWord word) := by
-  simp only [threadWord, mapTaggedWord, mapWord, List.map_map]
-  apply List.map_congr_left
-  intro letter _
-  cases letter <;> rfl
-
-theorem coreWord_mapTaggedWord (core : CoreId → CoreId') (thread : ThreadId → ThreadId')
-    (event : Event → Event') (word : TaggedWord CoreId ThreadId Event) :
-    coreWord (mapTaggedWord core thread event word) = mapWord core (Option.map event) (coreWord word) := by
-  simp only [coreWord, mapTaggedWord, mapWord, List.map_map]
-  apply List.map_congr_left
-  intro letter _
-  cases letter <;> rfl
 
 theorem resident_card_le_present [Finite CoreId] (cfg : Config CoreId ThreadId Core Thread) :
     Nat.card cfg.Resident ≤ Nat.card cfg.PresentCore := by
@@ -61,24 +43,23 @@ theorem coreWord_tagFragment (core : CoreId) (thread : ThreadId)
   intro letter _
   cases letter <;> rfl
 
-theorem scheduled_refines [DecidableEq CoreId]
+theorem scheduled_refinesBy [DecidableEq CoreId] {State : Type u}
     {instruction : Instruction CoreId ThreadId Core Thread Choice Event}
-    {step : Transition (ThreadId → Option Thread) ThreadId Choice Event}
-    (refines : instruction.Refines step)
+    {view : StoreView CoreId ThreadId Core Thread State} {step : Transition State ThreadId Choice Event}
+    (refines : instruction.RefinesBy view step)
     {schedule : List (Action CoreId ThreadId Choice)} {initial final : Config CoreId ThreadId Core Thread}
     {word : TaggedWord CoreId ThreadId Event} (run : Scheduled instruction schedule initial word final) :
-    Silmaril.Machine.MulticoreVM.Scheduled step (threadSchedule schedule) initial.threads
-      (threadWord word) final.threads := by
+    Silmaril.Machine.MulticoreVM.Scheduled step (threadSchedule schedule)
+      (view initial.cores initial.threads) (threadWord word) (view final.cores final.threads) := by
   induction run with
-  | nil cfg => exact .nil cfg.threads
+  | nil cfg => exact .nil (view cfg.cores cfg.threads)
   | cons first _ ih =>
     cases first with
     | execute resident instructionStep =>
       rw [show threadWord (_ ++ _) = threadWord _ ++ threadWord _ from List.map_append,
         threadWord_tagFragment]
       exact .cons (refines resident instructionStep) ih
-    | idle _ changes => exact changes.2.1.symm ▸ ih
-    | assign _ _ _ changes => exact changes.2.1.symm ▸ ih
-    | migrate _ _ _ changes => exact changes.2.1.symm ▸ ih
+    | idle _ changes | assign _ _ _ changes | migrate _ _ _ changes =>
+      exact changes.1.symm ▸ changes.2.1.symm ▸ ih
 
 end Silmaril.Proofs.Machine.MulticoreVM.Placed

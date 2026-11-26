@@ -10,7 +10,7 @@ namespace Silmaril.Machine.MulticoreVM.Placed
 
 open Silmaril.Semantics.ConcurrentTrace (Letter Word Trace ofWord)
 
-universe u v
+universe u
 
 variable {CoreId ThreadId Core Thread Choice Event : Type u}
 
@@ -48,18 +48,6 @@ abbrev TaggedWord (CoreId ThreadId Event : Type u) := List (TaggedLetter CoreId 
 abbrev TaggedOutcome (CoreId ThreadId Core Thread Event : Type u) :=
   Config CoreId ThreadId Core Thread × TaggedWord CoreId ThreadId Event
 
-/-- Relabel both executing tags, the payload, and every synchronization participant. -/
-def TaggedLetter.map {CoreId' ThreadId' Event' : Type v} (core : CoreId → CoreId')
-    (thread : ThreadId → ThreadId') (event : Event → Event') :
-    TaggedLetter CoreId ThreadId Event → TaggedLetter CoreId' ThreadId' Event'
-  | .event c t value => .event (core c) (thread t) (event value)
-  | .sync c t participants => .sync (core c) (thread t) (participants.map thread)
-
-def mapTaggedWord {CoreId' ThreadId' Event' : Type v} (core : CoreId → CoreId')
-    (thread : ThreadId → ThreadId') (event : Event → Event')
-    (word : TaggedWord CoreId ThreadId Event) : TaggedWord CoreId' ThreadId' Event' :=
-  word.map (TaggedLetter.map core thread event)
-
 /-- Attribute every letter in an instruction fragment to its executing core and thread. -/
 def tagFragment (core : CoreId) (thread : ThreadId) (fragment : Fragment ThreadId Event) :
     TaggedWord CoreId ThreadId Event :=
@@ -87,16 +75,6 @@ def coreWord (word : TaggedWord CoreId ThreadId Event) : Word CoreId (Option Eve
 /-- Observe the concurrent thread trace of a tagged chronological word. -/
 def threadTrace (word : TaggedWord CoreId ThreadId Event) : Trace ThreadId Event :=
   ofWord (threadWord word)
-
-/-- Project to the abstract named outcome by keeping the thread store and thread word. -/
-def forgetCore (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) :
-    Outcome (ThreadId → Option Thread) ThreadId Event :=
-  (outcome.1.threads, threadWord outcome.2)
-
-/-- The projected final thread store paired with the concurrent thread trace. -/
-def observeThreadQuotient (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) :
-    (ThreadId → Option Thread) × Trace ThreadId Event :=
-  (outcome.1.threads, threadTrace outcome.2)
 
 /-- A scheduled instruction names the executing pair and its auxiliary choice. Placement
 commands carry the cores and threads needed to check and apply the update. -/
@@ -137,6 +115,29 @@ def Instruction.Refines (instruction : Instruction CoreId ThreadId Core Thread C
   ∀ ⦃core thread choice initial fragment next⦄, initial.placement core = some thread →
     instruction core thread choice initial fragment next →
     step thread choice initial.threads fragment next.threads
+
+/-- A state observation may read both stores, which are preserved by placement commands. -/
+abbrev StoreView (CoreId ThreadId Core Thread State : Type u) :=
+  (CoreId → Option Core) → (ThreadId → Option Thread) → State
+
+/-- Project a tagged outcome to the chosen abstract state and the named thread word. -/
+def forgetCore {State : Type u} (view : StoreView CoreId ThreadId Core Thread State)
+    (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) : Outcome State ThreadId Event :=
+  (view outcome.1.cores outcome.1.threads, threadWord outcome.2)
+
+/-- Project a tagged outcome to the chosen abstract state and the concurrent thread trace. -/
+def observeThreadQuotient {State : Type u} (view : StoreView CoreId ThreadId Core Thread State)
+    (outcome : TaggedOutcome CoreId ThreadId Core Thread Event) : State × Trace ThreadId Event :=
+  (view outcome.1.cores outcome.1.threads, threadTrace outcome.2)
+
+/-- The instruction obligation for an abstract state read from the two stores. -/
+def Instruction.RefinesBy {State : Type u}
+    (instruction : Instruction CoreId ThreadId Core Thread Choice Event)
+    (view : StoreView CoreId ThreadId Core Thread State) (step : Transition State ThreadId Choice Event) :
+    Prop :=
+  ∀ ⦃core thread choice initial fragment next⦄, initial.placement core = some thread →
+    instruction core thread choice initial fragment next →
+    step thread choice (view initial.cores initial.threads) fragment (view next.cores next.threads)
 
 /-- Idle clears a configured core. Assign installs a waiting thread on a configured core,
 leaving any displaced thread allocated. Migrate moves a resident thread atomically to a

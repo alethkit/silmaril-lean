@@ -683,3 +683,43 @@ ordered live-out records are `(11, 7)` and `(7, 7)`. The fixture also
 reruns admission of the renamed reply-carrying graph at the same
 profile.
 [Checked relabelling fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOutExamples.lean)
+
+### Reverse lowering of open flat SSA to mutable RTL
+
+`NamedFlat.Entry.Reverse.lowerChecked` generates an ordinary named mutable CFG
+from the actual scoped table. It supports straight-line `let₁` and `let₂`
+prefixes ending in jumps, variables, unit, pairs, and primitive applications
+whose arguments are values. Labelled bodies use their incoming packet and
+their local binders. The open entry can use the supplied typed record. The
+caller supplies block labels, a packet register, and local binder names by
+depth. Each body starts at depth zero, so different blocks can update the
+same physical registers. A single incoming packet captures every source of
+an edge copy before the destination overwrites its registers.
+
+The source's external branch argument must be a pair of the old payload and
+the selected exit record. The lowerer emits a branch with the old payload.
+The checker attaches reads of the selected registers and checks exact scoped
+readback of every body and the entry, including the order of the exit fields.
+It also checks packet closure of the attached blocks. An inadmissible scope,
+used name collision that changes the readback, or incompatible projection
+causes rejection. The checker uses decidable equality on opcodes.
+
+`Lowered.packed_observe` identifies the source's packed weak tree with the
+actual mutable runner followed by the caller's live-out projection.
+`Lowered.packed_roundTrip` identifies that tree with the typed reversion
+accepted by `LiveOut.admit` at caller-supplied internal packet types. Both
+equalities use the same compatible typed instruction model, supplied entry
+record, ordered exits, and tagged payloads. Source typing and successful
+re-admission are separate premises. The compiler checks the reversion
+profile supplied by the caller. Case terminators and ambient reads in
+labelled blocks are outside this fragment.
+
+The acyclic swap fixture reuses both mutable registers across an internal
+jump. From the supplied values `(7, 9)`, the admitted round trip returns the
+old unit payload with the ordered live-outs `(9, 7)` at the second declared
+exit. A sequential copy in the actual named runner returns `(9, 9)` at the
+same exit. Reversing the projection fields fails the exact readback check.
+
+[Lowerer and certificate](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Defs.lean)
+· [Weak-tree agreement](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Thms.lean)
+· [Checked swap](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Swap.lean)

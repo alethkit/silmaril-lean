@@ -278,15 +278,19 @@ private theorem readGraph {delta : BitVec 32} {dst : Config Unit}
   (v1_growing_call_run_iff (root := address) (fn := observer) (index := ⟨0⟩) (args := [i32 delta])
     (caller := caller) graphChecked graphLayout initialExtent.2 rfl rfl).mp path
 
--- Exact readback sees both allocation outcomes from the same suspended caller.
-example : ∃ start success failure,
+-- Both call policies reflect both native allocations from the same pending
+-- grow under a suspended caller.
+example (calls : CallMode) : ∃ start success failure,
     RunsAt mode graph slot (graphInput 1) start ∧
     EdgeAt mode graph slot start success ∧ EdgeAt mode graph slot start failure ∧
     request 1 = render graphBase slot memory start ∧
     inGrower 1 graphGrown (values [i32 1]) = render graphBase slot memory success ∧
     inGrower 1 graphBase (values [i32 (-1)]) = render graphBase slot memory failure := by
-  obtain ⟨start, prefixRun, ready, eq⟩ := readGraph (reachGrow 1)
-  have reflect := fun {dst : Config Unit} => (v1_step_iff_at (dst := dst) graphChecked graphLayout rfl ready).mp
+  have checked : graph.checkV1 slot mode calls = true := by cases calls <;> rfl
+  have fromEntry := v1_call_run_iff_at (dst := request 1) (root := address) (fn := observer) (index := ⟨0⟩) (args := [i32 1])
+    (caller := caller) checked graphLayout rfl initialExtent rfl rfl
+  obtain ⟨start, prefixRun, ready, eq⟩ := fromEntry.mp (reachGrow 1)
+  have reflect := fun {dst : Config Unit} => (v1_step_iff_at (dst := dst) checked graphLayout rfl ready).mp
   obtain ⟨success, grows, _, grownEq⟩ := reflect (eq ▸ growSuccess)
   obtain ⟨failure, fails, _, failEq⟩ := reflect (eq ▸ growFailure 1)
   exact ⟨start, success, failure, prefixRun, grows, fails, eq, grownEq, failEq⟩

@@ -822,10 +822,9 @@ child ports can still carry ordinary inputs and results.
 
 The φ seed can describe member capture witnesses that project directly
 through its outer context. The checker rejects missing source descriptions,
-formal callees, and local outputs as origins for callees or capture
-witnesses, including callable values produced by a branch join. Inline
-closure descriptions use the explicit plan constructors with supplied
-resolution proofs. Invocation uses the same linked runner.
+formal callees, and computed origins for callees or capture witnesses.
+Inline closure descriptions use the explicit plan constructors with
+supplied resolution proofs. Invocation uses the same linked runner.
 [Direct resolution API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
 
 `synthesize_complete` proves success for a direct forwarding derivation
@@ -860,6 +859,24 @@ backedge rejects admission, even with the right target on initial entry.
 use supplied resolution proofs.
 [Feedback and checker API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
 [Linked θ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
+### Tracking callable results at a γ join
+
+`Code.callAt` accepts typed local result wires as well as entry
+arguments. At a γ, the checker tracks an output only when every arm's
+return wire projects through the boundary to the same typed linker
+origin. It checks the slot and each capture witness separately. Different
+same-signature slots and computed callable results fail inference.
+
+The linked proof uses `Code.Forwards` from the selected arm to supply
+the suffix's resolution at the actual returned values. This includes
+the arm's returned values after resuming a blocked primitive. The
+fixture forwards the same target and witness through distinct arm ports,
+calls through the joined results, and keeps an ordinary argument dead.
+It checks exact returns and resumption after blocks in both the arm and
+the suffix. Changing the target in an unselected arm rejects admission.
+[Join checker](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
+[Linked join fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
 ### Single-call admission
 

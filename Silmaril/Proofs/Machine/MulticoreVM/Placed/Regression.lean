@@ -1,16 +1,20 @@
 module
 
-public import Silmaril.Machine.MulticoreVM.Placed.Institution.Thms
+public import Silmaril.Machine.MulticoreVM.Institution.Placed.Thms
+public import Silmaril.Machine.MulticoreVM.Placed.Thms
 public import Silmaril.Machine.MulticoreVM.Toy.Thms
 public import Silmaril.Semantics.ConcurrentTrace.Thms
 
 namespace Silmaril.Machine.MulticoreVM.Placed
 
 open CategoryTheory
-open Institution (Sig)
+open Institution (Sig placedToConcurrent)
 open Silmaril.Semantics.ConcurrentTrace (Word ofWord ofWord_eq_iff swap swap_eq_iff)
 
 private abbrev Rig (n : Nat) := Config (Fin n) Toy.ThreadId Unit Toy.Core
+
+private abbrev threadStore {n : Nat} : StoreView (Fin n) Toy.ThreadId Unit Toy.Core Toy.Config :=
+  fun _ threads => threads
 
 private def instruction {n : Nat} :
     Instruction (Fin n) Toy.ThreadId Unit Toy.Core (Option Toy.ThreadId) Nat :=
@@ -78,14 +82,15 @@ example : coreWord oneWord = [.event 0 none, .event 0 (some 9)] ∧ oneIdle.plac
 
 example : (oneIdle.threads, ofWord ([.sync [0, 1], .event 1 9] : Word Toy.ThreadId Nat)) ∈
     observeQuotient '' namedOutcomes (run Toy.step 3) oneBoot.threads :=
-  observeThreadQuotient_image_subset_run (ofThreadStep_refines Toy.step) oneSchedule oneBoot
-    (Set.mem_image_of_mem observeThreadQuotient (show (oneIdle, oneWord) ∈
+  observeThreadQuotient_image_subset_run (view := threadStore) (ofThreadStep_refines Toy.step)
+    oneSchedule oneBoot
+    (Set.mem_image_of_mem (observeThreadQuotient threadStore) (show (oneIdle, oneWord) ∈
       taggedOutcomes instruction oneSchedule oneBoot from oneRun))
 
 -- The abstract scheduler can select the waiting child. The concrete schedule cannot.
 example : let child := (addedThreads, ofWord ([] : Word Toy.ThreadId Nat))
     child ∈ observeQuotient '' namedOutcomes (run Toy.step 1) oneSpawned.threads ∧
-    child ∉ observeThreadQuotient '' taggedOutcomes instruction [.execute 0 1 none] oneSpawned := by
+    child ∉ observeThreadQuotient threadStore '' taggedOutcomes instruction [.execute 0 1 none] oneSpawned := by
   have add : MulticoreVM.Scheduled Toy.step [⟨1, none⟩] oneSpawned.threads [] addedThreads :=
     .cons (fragment := []) rfl (.nil addedThreads)
   refine ⟨Set.mem_image_of_mem observeQuotient
@@ -105,11 +110,8 @@ private noncomputable def renameOne : oneSig ⟶ renamedSig where
   event := fun value => value == 9
 
 -- Typed renaming takes the original participant list through the institution and quotient.
-example : (institutionForgetCore ≫ institutionNamedQuotient).app renamedSig
-      (Sig.Hom.mapCore renameOne (toInstitutionCoreWord oneWord)) =
-    ofWord ([.sync [some 0, some 1], .event (some 1) true] : renamedSig.NamedWord) := by
-  rw [← toInstitutionCoreWord_mapTaggedWord renameOne, threadTrace_eq_institution]
-  rfl
+example : placedToConcurrent.app renamedSig (Sig.Hom.mapPlaced renameOne oneWord) =
+    ofWord ([.sync [some 0, some 1], .event (some 1) true] : renamedSig.NamedWord) := rfl
 
 private def pairThreads : Toy.Config := Toy.put (Toy.init 0 ⟨4, [.emit]⟩) 1 ⟨9, [.emit]⟩
 
