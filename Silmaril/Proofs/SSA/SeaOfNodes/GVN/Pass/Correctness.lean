@@ -21,7 +21,7 @@ variable {Data : Type u} {Op : Signature.{u,v} Data}
 variable {args : List (Ty Data)} {past sigs : List (List (Ty Data))}
 variable {out : ValueSort Data} {flow : Dataflow Op args past sigs}
 
-private theorem mem_candidates (ref : Producer flow out) :
+theorem mem_candidates (ref : Producer flow out) :
     ⟨out, ref⟩ ∈ candidates flow := by
   induction ref with
   | here => exact List.mem_cons_self
@@ -103,7 +103,7 @@ private theorem run_some (fuel : Nat) {first : Rewrite Op args past sigs}
 variable (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args)
 variable (locals : Locals (Val m.value) past)
 
-private theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result) :
+theorem step_sound {result : Rewrite Op args past sigs} (accepted : step? flow = some result) :
     Routing.Agrees result.route m entry (flow.eval m entry locals) (result.flow.eval m entry locals) := by
   obtain ⟨_, candidate, representative, wire, checked⟩ := step_elimination accepted
   exact Elimination.eliminate_sound candidate representative wire m entry locals checked

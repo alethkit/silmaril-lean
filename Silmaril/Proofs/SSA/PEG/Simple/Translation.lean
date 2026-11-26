@@ -21,7 +21,7 @@ abbrev NodeValues (nodes : List (Ty Data)) := Tuple (fun t => Option (m.Value t)
 
 variable (input : Tuple m.Value params)
 
-private theorem realizes_lift (code : Code P params nodes newNodes)
+theorem realizes_lift (code : Code P params nodes newNodes)
     {values : NodeValues m nodes} {ctx : Tuple (Port nodes) vars} {store : Tuple m.Value vars}
     (h : Realizes m values ctx store) :
     Realizes m (code.eval m input values) (code.liftRefs ctx) store := by
@@ -113,7 +113,7 @@ theorem args_correct {outs : List (Ty Data)} (a : Args P vars outs)
 
 end
 
-private theorem phi_correct (condition : Port nodes .bool)
+theorem phi_correct (condition : Port nodes .bool)
     (yes no : Tuple (Port nodes) outs) (values : NodeValues m nodes) (b : Bool)
     (test : values.get condition = some ⟨b⟩) (out : Tuple m.Value outs)
     (arm : Realizes m values (if b then yes else no) out) :
@@ -228,7 +228,7 @@ theorem stmt_correct {vars outs : List (Ty Data)} (s : Stmt P false vars outs)
         (fun chosenCtx chosenBase matchEntry => ihNo chosenCtx chosenBase matchEntry arm)
   | «while» impossible _ _ _ => nomatch impossible
 
-private theorem param_correct (slots : Tuple (Port params) outs) (base : NodeValues m nodes) :
+theorem param_correct (slots : Tuple (Port params) outs) (base : NodeValues m nodes) :
     let b := paramNodes (P := P) (nodes := nodes) slots
     Realizes m (b.code.eval m input base) b.refs (select input slots) := by
   dsimp only
@@ -245,7 +245,7 @@ private theorem param_correct (slots : Tuple (Port params) outs) (base : NodeVal
       rw [get_map]
       exact ih _ slot
 
-private theorem ports_get {out : Ty Data} (p : Port params out) : (ports params).get p = p := by
+theorem ports_get {out : Ty Data} (p : Port params out) : (ports params).get p = p := by
   induction p with
   | head => rfl
   | tail p ih =>

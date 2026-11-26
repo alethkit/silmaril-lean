@@ -34,7 +34,7 @@ private theorem read_backing_contract (data : Bytes) (offset count : Nat) :
   simp [readBytes, inside]
 
 example :
-    (∀ e ∈ completed actualEvents, ReplyMatchesSnapshot initial.bytes e) ∧
+    ReadsSnapshot updating initial.bytes handle (initial, 5) 0 [1, 1] ∧
       ReadResult initial.bytes 0 2 (.shortRead [13, 0]) ∧
       (machine updating).Exec Mach.seqPolicy (.idle (initial, 5)) actualEvents
         (.pending (changed, 7) nextRead) := by
@@ -42,13 +42,14 @@ example :
     (.pending (changed, 7) nextRead)).mpr (.inr ⟨nextRead, rfl, rfl⟩)
   have reads : ReadsSnapshot updating initial.bytes handle (initial, 5) 0 [1, 1] :=
     ⟨read_backing_contract initial.bytes 0 1, read_backing_contract initial.bytes 1 1, trivial⟩
-  have checked := observed_replies_of_snapshot updating initial.bytes handle (initial, 5) 0 [1, 1]
-    actualEvents (.pending (changed, 7) nextRead) run.1 run.2 reads
+  have agrees := observed_replies_iff_snapshot updating initial.bytes handle (initial, 5) 0 [1, 1]
+    actualEvents (.pending (changed, 7) nextRead) run.1 run.2
+  have checked := agrees.mpr reads
   obtain ⟨⟨reply, value, contract⟩, _, _⟩ := observed_fragment_contract updating initial.bytes handle
     (initial, 5) 0 1 [1] actualEvents (.pending (changed, 7) nextRead) run.1 run.2 checked
   change some (.shortRead [13, 0] : ReadReply) = some reply at value
   cases value
-  exact ⟨checked, contract, run.1⟩
+  exact ⟨agrees.mp checked, contract, run.1⟩
 
 example :
     (∀ e ∈ completed [.recv nextRead], ReplyMatchesSnapshot initial.bytes e) ∧
@@ -72,5 +73,26 @@ example :
   obtain ⟨buffer, status, _⟩ := reads.1
   change (ReadReply.error .invalidRange) = .shortRead buffer at status
   cases status
+
+-- The encoded reply matches the reference but did not come from this state.
+example :
+    (∀ e ∈ completed (encode [first]), ReplyMatchesSnapshot initial.bytes e) ∧
+      (completed (encode [first])).map Exchange.request = fragmentRequests handle 0 [1] ∧
+      ¬ (machine updating).Exec Mach.seqPolicy (.idle (changed, 7)) (encode [first])
+        (.idle (changed, 8)) := by
+  refine ⟨?_, rfl, ?_⟩
+  · intro exchange member
+    change exchange ∈ [first] at member
+    have equal : exchange = first := by simpa using member
+    subst exchange
+    exact ⟨by decide, by decide, read_backing_contract initial.bytes 0 1⟩
+  · intro execution
+    obtain ⟨_, valid, _⟩ := Completed.completed_exec_iff.mp execution
+    change Trace.Valid updating (changed, 7) [first] _ at valid
+    cases valid with
+    | cons executed _ =>
+      have replies := congrArg Prod.fst executed
+      change (ReadReply.ok [90]) = .ok [13] at replies
+      exact (by decide : (ReadReply.ok [90]) ≠ .ok [13]) replies
 
 end Silmaril.Containers.SqliteVfs.FragmentContract.Reference

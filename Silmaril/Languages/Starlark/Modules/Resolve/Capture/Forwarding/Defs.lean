@@ -95,6 +95,20 @@ inductive Emits (globals : List String) : List (List String) → Chain → List 
   | [] => program
   | frame :: child => (EmittedProgram program child).push frame.declaration
 
+/-- Link each wrapper's definition instruction to its child's emitted ID.
+The mixed leaf is the endpoint of the wrapper path. -/
+inductive Links (seed : Program) : Chain → List Frame → Prop where
+  | mixed (name : String) (parameters : List String) (body : MixedBody) (frame : Frame)
+      (block : LexicalBlock) : LeafCode block body frame.code →
+      Links seed (.mixed name parameters body) [frame]
+  | wrapper {name : String} {parameters : List String} {child : Chain}
+      {frame childFrame : Frame} {rest : List Frame} :
+      child.name ∈ frame.owned →
+      frame.code = .seq (.define (fileSlot child.name) (EmittedProgram seed rest).size)
+        (.returnExpr (.atom (.read (.bound (fileSlot child.name))))) →
+      Links seed child (childFrame :: rest) →
+      Links seed (.wrapper name parameters child) (frame :: childFrame :: rest)
+
 /-- Compiler capture entries use the same lexical name at each frame. -/
 abbrev reference (binding : Binding) : FreeName := ⟨binding, binding⟩
 

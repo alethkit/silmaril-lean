@@ -22,7 +22,7 @@ open Silmaril.Isotope.LambdaSSA.Semantics (Env extend)
 variable {args : List ValueSort} {past : List (List ValueSort)} {context labels : List Code}
 variable {cells version : Nat}
 
-private theorem instruction_deterministic : Semantics.InstrDeterministic (Instruction cells) := by
+theorem instruction_deterministic : Semantics.InstrDeterministic (Instruction cells) := by
   intro op arg initial a heapA b heapB first second
   cases first <;> cases second <;> exact ⟨rfl, rfl⟩
 
@@ -33,14 +33,14 @@ private theorem argument_match (input : Tuple (Val cells) args) {sort : ValueSor
   | head => cases input; rfl
   | tail p ih => cases input with | cons _ rest => exact ih rest
 
-private theorem entry_match (input : Tuple (Val cells) args) :
+theorem entry_match (input : Tuple (Val cells) args) :
     Matches (Routing.entry args) (inputEnv input) input PUnit.unit := by
   intro sort wire
   cases wire with
   | arg p => exact argument_match input p
   | output i _ => exact i.elim0
 
-private theorem weaken_match {route : Routing args past context} {env : Env (Atom cells)}
+theorem weaken_match {route : Routing args past context} {env : Env (Atom cells)}
     {input : Tuple (Val cells) args} {locals : Locals (Val cells) past}
     (matched : Matches route env input locals) (A : Code) (value : Value (Atom cells)) :
     Matches (Routing.weaken A route) (extend env value) input locals :=
@@ -66,7 +66,7 @@ private theorem afterLoad_match {route : Routing args past context} {env : Env (
     · intro j port
       exact matched (.output j port)
 
-private theorem schedule_typed (body : Memory.Body args past version)
+theorem schedule_typed (body : Memory.Body args past version)
     (route : Routing args past context) {tail : Region Opcode}
     (typed : tail.HasType (schedule body route).context labels) :
     (prepend (schedule body route).statements tail).HasType context labels := by
@@ -83,19 +83,20 @@ theorem body_hasType (body : Memory.Body args past version) (route : Routing arg
     ((schedule body route).emit label).HasType context labels :=
   schedule_typed body route (.br target (PhiView.packTerm_hasType (schedule body route).arguments))
 
-private theorem schedule_eval (body : Memory.Body args past version)
+theorem schedule_eval (body : Memory.Body args past version)
     {route : Routing args past context} {env : Env (Atom cells)}
     {input : Tuple (Val cells) args} {locals : Locals (Val cells) past}
     (matched : Matches route env input locals) (initial : Heap cells) {tail : Region Opcode}
     {label : Nat} {payload : Value (Atom cells)} {final : Heap cells}
     (runTail : ∀ finalEnv,
       finalEnv (schedule body route).result.val = encode (sort := .word) (body.denote input locals initial).1 →
+      (∀ {sort} (p : Port args sort), finalEnv ((schedule body route).inputRef p).val = encode (input.get p)) →
       Semantics.Region.Eval (Instruction cells) finalEnv tail (body.denote input locals initial).2
         label payload final) :
     Semantics.Region.Eval (Instruction cells) env (prepend (schedule body route).statements tail)
       initial label payload final := by
   induction body generalizing context env initial with
-  | ret memory source => exact runTail env (matched source)
+  | ret memory source => exact runTail env (matched source) (fun p => matched (.arg p))
   | load memory address rest ih =>
     refine .let₁ (.op (Semantics.Tm.Eval.var_of_eq (matched address)) (.load _ _)) ?_
     exact ih (afterLoad_match matched _) initial runTail
@@ -109,7 +110,7 @@ theorem body_eval (body : Memory.Body args past version) {route : Routing args p
     (matched : Matches route env input locals) (initial : Heap cells) (label : Nat) :
     Semantics.Region.Eval (Instruction cells) env ((schedule body route).emit label) initial label
       (packet (body.denote input locals initial).1) (body.denote input locals initial).2 :=
-  schedule_eval body matched initial (fun _ equal => .br (.pair (Semantics.Tm.Eval.var_of_eq equal) .unit))
+  schedule_eval body matched initial (fun _ equal _ => .br (.pair (Semantics.Tm.Eval.var_of_eq equal) .unit))
 
 variable (g : Memory.Diamond.Graph args)
 
@@ -146,7 +147,7 @@ theorem arm_eval (p : Projection) (guard : Bool) (input : Tuple (Val cells) args
     Semantics.Region.Eval (Instruction cells) (extend (entryEnv guard input) .unit) ((armSchedule g p).emit 2)
       initial 2 (packet ((g.arm p).denote input initial).1) ((g.arm p).denote input initial).2 := by
   refine schedule_eval (g.arm p) (arm_match guard input) initial ?_
-  intro env value
+  intro env value _
   apply (PhiView.latch_eq_transfer (Instruction cells) (phiView g) (incoming g p) _ _ _ _ _).mpr
   refine ⟨rfl, ?_, rfl⟩
   exact congrArg (fun word => Value.pair word .unit) value.symm

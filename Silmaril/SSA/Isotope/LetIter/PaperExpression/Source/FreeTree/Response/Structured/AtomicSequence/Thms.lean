@@ -1,14 +1,16 @@
 module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence.Defs
+public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.ProductSplit.Defs
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.AtomicSequence
 
-/-! # Original-bound reflection for visible atomic-reply sequences -/
+/-! # Original-bound reflection for atomic, product and sum replies -/
 
 public section
 
 open Silmaril.Isotope Silmaril.Elgot
 open Silmaril.Isotope.LetIter.LocallyNameless (Tm AbortEquiv)
+open Silmaril.Isotope.LetIter.PaperExpression (Wf)
 open Silmaril.Isotope.LetIter.PaperExpression.Source
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Structured.PureValues
 
@@ -67,12 +69,70 @@ theorem denote_next_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
       q.denote profile modelSlots (replySlots hs ty) vals :=
   Proofs.denote_next_eq profile modelSlots hs visible ty arg vals h
 
+/-- A product binder consumes one visible request and installs its two
+reply fields in their respective continuation slots. -/
+theorem denote_callPair {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .product (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) (next : Prog A (pairSlots a b slots)) :
+    (Program.callPair f visible ty arg next).denote profile modelSlots hs vars =
+      ITree.vis (.call f (arg.subst vars).encode) (fun reply =>
+        let p := cast (congrArg (Ty.denote (Atoms modelSlots)) ty) reply
+        next.denote profile modelSlots (pairReplySlots hs a b) (pairValuation p.1 p.2 vars)) :=
+  Proofs.denote_callPair profile modelSlots hs vars visible ty arg next
+
+/-- Test product continuations at any two sorted reply fields, retaining
+the old valuation. In the extended free model the two fields can be
+tested at distinct fresh generators, even when their sorts coincide. -/
+theorem denote_nextPair_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .product (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) {p q : Prog A (pairSlots a b slots)}
+    (vals : (i : Fin (n + 2)) → Atoms modelSlots (pairSlots a b slots i))
+    (h :
+      let retained : (i : Fin n) → Atoms modelSlots (slots i) := fun i => vals i.succ.succ
+      (Program.callPair f visible ty arg p).denote profile modelSlots hs retained =
+        (Program.callPair f visible ty arg q).denote profile modelSlots hs retained) :
+    p.denote profile modelSlots (pairReplySlots hs a b) vals =
+      q.denote profile modelSlots (pairReplySlots hs a b) vals :=
+  Proofs.denote_nextPair_eq profile modelSlots hs visible ty arg vals h
+
+/-- A sum response selects the continuation before any branch request and
+provides only the selected payload to it. -/
+theorem denote_callSum {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+    (arg : Val slots (instrSrc f)) (left : Prog A (Fin.cases a slots))
+    (right : Prog A (Fin.cases b slots)) :
+    (Program.callSum f visible ty arg left right).denote profile modelSlots hs vars =
+      ITree.vis (.call f (arg.subst vars).encode) (fun reply =>
+        match cast (congrArg (Ty.denote (Atoms modelSlots)) ty) reply with
+        | .inl value => left.denote profile modelSlots (replySlots hs rfl)
+            (Fin.cases (motive := fun i => Atoms modelSlots (Fin.cases (motive := fun _ => α) a slots i)) value vars)
+        | .inr value => right.denote profile modelSlots (replySlots hs rfl)
+            (Fin.cases (motive := fun i => Atoms modelSlots (Fin.cases (motive := fun _ => α) b slots i)) value vars)) :=
+  Proofs.denote_callSum profile modelSlots hs vars visible ty arg left right
+
+/-- Test both constructor shapes of a sum reply, each with independently
+chosen sorted payloads and retained values. -/
+theorem denote_nextSum_eq {f : Φ} (visible : ¬ IsPure (⊥ : ε) f)
+    {a b : α} (ty : (instrTrg f : Ty α) = .coprod (.base a) (.base b))
+    (arg : Val slots (instrSrc f))
+    {l l' : Prog A (Fin.cases a slots)} {r r' : Prog A (Fin.cases b slots)}
+    (h : ∀ vars : (i : Fin n) → Atoms modelSlots (slots i),
+      (Program.callSum f visible ty arg l r).denote profile modelSlots hs vars =
+        (Program.callSum f visible ty arg l' r').denote profile modelSlots hs vars) :
+    (∀ vals : (i : Fin (n + 1)) → Atoms modelSlots (Fin.cases (motive := fun _ => α) a slots i),
+      l.denote profile modelSlots (replySlots hs rfl) vals =
+        l'.denote profile modelSlots (replySlots hs rfl) vals) ∧
+    (∀ vals : (i : Fin (n + 1)) → Atoms modelSlots (Fin.cases (motive := fun _ => α) b slots i),
+      r.denote profile modelSlots (replySlots hs rfl) vals =
+        r'.denote profile modelSlots (replySlots hs rfl) vals) :=
+  Proofs.denote_nextSum_eq profile modelSlots hs visible ty arg h
+
 end Denotation
 
 variable (profile : Profile (α := α) Φ ε)
 
 /-- Equality in the free-value models at all sorted valuations separates
-these finite sequences. -/
+these finite request trees. -/
 theorem eq_of_denote_eq {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base (slots i))
     {p q : Prog A slots}
     (h : ∀ {m : Nat} (modelSlots : Fin m → α) (vars : (i : Fin n) → Atoms modelSlots (slots i)),
@@ -80,7 +140,7 @@ theorem eq_of_denote_eq {β : BoundCtx (Ty α) n} (hs : ∀ i, β.get i = .base 
   Proofs.eq_of_denote_eq profile hs h
 
 include profile in
-/-- Native equality of two compiled sequences determines the entire sequence. -/
+/-- Native equality of two compiled trees determines the entire tree. -/
 theorem eq_of_abortEquiv [DecidableEq α] {β : BoundCtx (Ty α) n}
     (hs : ∀ i, β.get i = .base (slots i)) {p q : Prog A slots}
     (h : AbortEquiv (⊥ : ε) (Ctx.nil : Ctx Empty (Ty α)) β p.native q.native A) : p = q :=
@@ -92,6 +152,45 @@ section Source
 
 variable {α Φ : Type u} [HasTy Φ (Ty α)] {ε : Type r} [HasEff Φ ε] [Preorder ε] [OrderBot ε]
   {A : Ty α} {n : Nat} {slots : Fin n → α}
+
+/-- Decomposing the evaluated pair with a unary let followed by
+destructuring preserves the original type and effect bound. -/
+theorem pairLet_bind {Γ : EffectCtx (Ty α) ε} {a b : Ty α} {e : ε}
+    {s k : Expr Φ} (hs : Wf Γ s (.product a b) e)
+    (hk : Wf ((b, ⊥) :: (a, ⊥) :: Γ) k A e) :
+    Eqv Γ A e (.let₂ s k) (.let₁ s (.let₂ (.var 0) k.wk2)) :=
+  Proofs.pairLet_bind hs hk
+
+/-- Substitute the constructor pair of fresh slots for the product variable
+of a canonical destructuring continuation. The typed result recovers the
+body at the same bound. -/
+theorem pairLet_specialize {Γ : EffectCtx (Ty α) ε} {a b : Ty α} {e : ε}
+    {k : Expr Φ} (hk : Wf ((b, ⊥) :: (a, ⊥) :: Γ) k A e) :
+    Eqv ((b, ⊥) :: (a, ⊥) :: Γ) A e
+      (ProductSplit.split 0 (.let₂ (.var 0) k.wk2)) k :=
+  Proofs.pairLet_specialize hk
+
+section SumReply
+
+variable {Γ : EffectCtx (Ty α) ε} {B C D : Ty α} {e : ε} {s l r l' r' : Expr Φ}
+
+/-- A case on an evaluated reply can be factored through one unary let
+using the original source bound. -/
+theorem sumReply_bind (hs : Wf Γ s (Ty.coprod B C) e)
+    (hl : Wf ((B, ⊥) :: Γ) l D e) (hr : Wf ((C, ⊥) :: Γ) r D e) :
+    Eqv Γ D e (.case s l r) (.let₁ s (.case (.var 0) l.wk1 r.wk1)) :=
+  Proofs.sumReply_bind hs hl hr
+
+/-- The two injection specializations characterize equality of canonical
+case continuations under the newest sum slot. -/
+theorem sumReply_eqv_iff (hl : Wf ((B, ⊥) :: Γ) l D e) (hr : Wf ((C, ⊥) :: Γ) r D e)
+    (hl' : Wf ((B, ⊥) :: Γ) l' D e) (hr' : Wf ((C, ⊥) :: Γ) r' D e) :
+    Eqv ((Ty.coprod B C, (⊥ : ε)) :: Γ) D e
+      (.case (.var 0) l.wk1 r.wk1) (.case (.var 0) l'.wk1 r'.wk1) ↔
+      Eqv ((B, ⊥) :: Γ) D e l l' ∧ Eqv ((C, ⊥) :: Γ) D e r r' :=
+  Proofs.sumReply_eqv_iff hl hr hl' hr'
+
+end SumReply
 
 /-- Rendering preserves source typing at the common original effect bound. -/
 theorem wf {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
@@ -108,7 +207,7 @@ variable {α Φ : Type u} [HasTy Φ (Ty α)] {ε : Type r} [HasEff Φ ε] [Parti
 
 include profile in
 /-- Normalize each written constructor argument and return at the original
-bound, retaining the ordering of the visible requests. -/
+bound, retaining the ordering and branching of the visible requests. -/
 theorem normalize (h : Written A e Γ a) :
     ∀ (slots : Fin Γ.length → α), Γ.Pure →
       (∀ i, (Γ.get i).1 = .base (slots i)) →
@@ -125,7 +224,7 @@ variable {α Φ : Type u} [HasTy Φ (Ty α)] [DecidableEq α]
   {slots : Fin Γ.length → α}
 
 include profile in
-/-- Native equality of compiled sequences reflects to source Eqv at the
+/-- Native equality of compiled trees reflects to source Eqv at the
 supplied effect bound. -/
 theorem endpoint_reflection (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) {e : ε}
     (p q : Program (Φ := Φ) (ε := ε) A slots) (hp : p.Within e) :
@@ -134,8 +233,9 @@ theorem endpoint_reflection (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (s
   Proofs.endpoint_reflection profile hΓ hs p q hp
 
 include profile in
-/-- Original-bound reflection for written finite call sequences with atomic
-replies and bottom-typed constructor arguments and returns. -/
+/-- Original-bound reflection for written finite request trees with atomic,
+two-atom product, or two-atom sum replies and bottom-typed constructor
+arguments and returns. -/
 theorem written_reflection
     (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (slots i)) {e : ε}
     {a b : Expr Φ} (ha : Written A e Γ a) (hb : Written A e Γ b)

@@ -1,8 +1,10 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Reverse.Thms
 import Silmaril.SSA.RVSDG.Isomorphism.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
+meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Reverse.Defs
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Tests
 
@@ -28,6 +30,7 @@ private inductive Op
   | leftHeader | leftBody | leftJoin
   | rightHeader | rightBody | rightJoin
   | nextHeader | nextBody | nextJoin
+  deriving DecidableEq
 
 local instance : HasTy Op Ty :=
   ⟨(fun | .rightHeader | .rightBody | .rightJoin | .nextBody | .nextJoin => pair | _ => number),
@@ -227,7 +230,7 @@ private theorem sourceRuns (coherent : Coherent) (n token : Nat) :
 
 -- Left and right both take feedback. The shared continuation reads
 -- their distinct tokens and selects two different typed external exits.
-example (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 1 leftResult 24 := by
+private theorem graphLeft (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 1 leftResult 24 := by
   apply (lowered.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) leftResult 1 24).mpr
   rw [sourceRuns coherent]
   change (Part.some _).bind _ = _
@@ -236,7 +239,7 @@ example (coherent : Coherent) : returns (ε := Bool) lowered.1 (0 : Nat) 1 leftR
   rw [leftReturns, Part.bind_some]
   exact afterLeft
 
-example (coherent : Coherent) : returns (ε := Bool) lowered.1 (2 : Nat) 1 rightResult 96 := by
+private theorem graphRight (coherent : Coherent) : returns (ε := Bool) lowered.1 (2 : Nat) 1 rightResult 96 := by
   apply (lowered.2.region_returns_iff coherent (PUnit.unit, (2 : Nat)) rightResult 1 96).mpr
   rw [sourceRuns coherent]
   change (Part.some _).bind _ = _
@@ -247,12 +250,96 @@ example (coherent : Coherent) : returns (ε := Bool) lowered.1 (2 : Nat) 1 right
 
 -- This selected arm keeps requesting feedback. There is no finite
 -- return from which either denotation could invoke the continuation.
-example (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 1 = Part.none := by
+private theorem graphAbsent (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 1 = Part.none := by
   apply (lowered.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 1).mpr
   rw [sourceRuns coherent]
   change (Part.some _).bind _ = _
   rw [Part.bind_some]
   change ((iter rightRound ((99 : Nat), (0 : Nat))).run 2).bind _ = _
   rw [rightNeverReturns, Part.bind_none]
+
+private theorem recoveredExact :
+    Reverse.recover (graph spec) = some ⟨(source spec).region, .diamond spec⟩ :=
+  Reverse.recover_generated spec (.instruction _) (.instruction _) (.instruction _)
+
+private def recovered : Reverse.Fibre (graph spec) :=
+  (Reverse.recover (graph spec)).get (by rw [recoveredExact]; rfl)
+
+example : recovered.1 = (source spec).region := by
+  simp [recovered, recoveredExact]
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (0 : Nat))).run 1 =
+      Part.some (leftResult, 24) :=
+  (Reverse.fibre_returns_iff recovered coherent (PUnit.unit, (0 : Nat)) leftResult 1 24).mp
+    (graphLeft coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (2 : Nat))).run 1 =
+      Part.some (rightResult, 96) :=
+  (Reverse.fibre_returns_iff recovered coherent (PUnit.unit, (2 : Nat)) rightResult 1 96).mp
+    (graphRight coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (99 : Nat))).run 1 = Part.none :=
+  (Reverse.fibre_undefined_iff recovered coherent (PUnit.unit, (99 : Nat)) 1).mp
+    (graphAbsent coherent)
+
+open OrderedTheta (carried)
+open OrderedRuntime.Structured (Threaded runtime)
+
+private abbrev Start := Threaded (carried number)
+private abbrev ExampleGraph := Graph Op number number pair number pair
+
+private def staleToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty} (wire : Origin Start past t) : Origin Start past t :=
+  if same : runtime = t then Eq.mp (congrArg (Origin Start past) same) (.arg (.tail .head))
+  else wire
+
+-- The continuation still receives the γ payload. Its token is the older
+-- graph argument, which has the same port sort as the live γ token.
+private def stale : ExampleGraph :=
+  let term : NestedTheta.Term (Wires.Op Op) Start [] (Signatures number pair number pair)
+      (Threaded (carried (Result number number pair))) := match (graph spec).toTerm with
+    | .bind gate gateChildren (.bind branch arms (.bind tail body rest)) =>
+      let inputs := tail.inputs.map (fun _ wire => staleToken wire)
+      .bind gate gateChildren (.bind branch arms (.bind {tail with inputs} body rest))
+  term.toGraph
+
+private theorem staleRead : Reverse.read stale = Reverse.read (graph spec) := by
+  unfold Reverse.read stale
+  rw [NestedTheta.Term.toTerm_toGraph]
+  generalize (graph spec).toTerm = term
+  cases term with
+  | bind gate gateChildren rest =>
+    cases rest with
+    | bind branch arms rest =>
+      cases rest with
+      | bind tail body rest =>
+        cases rest
+        cases tail
+        rfl
+
+private theorem staleParses : Reverse.candidate stale = some spec := by
+  unfold Reverse.candidate
+  rw [staleRead]
+  exact Reverse.candidate_generated spec (.instruction _) (.instruction _) (.instruction _)
+
+private theorem staleDifferent : graph spec ≠ stale := by
+  intro equal
+  have edges := congrArg (fun g : ExampleGraph =>
+    match g with
+    | .region nodes _ _ => (nodes 2).inputs.addresses) equal
+  change [Address.output 1 0, Address.output 1 1] = [Address.output 1 0, Address.arg 1] at edges
+  cases edges
+
+example : Reverse.recognize stale = none :=
+  Reverse.reject_wiring spec staleParses staleDifferent
+
+#eval show IO Unit from do
+  unless (Reverse.recover (graph spec)).isSome do
+    throw (IO.userError "could not recover both loop arms and the common continuation")
+  unless (Reverse.candidate stale).isSome && (Reverse.recover stale).isNone do
+    throw (IO.userError "diamond recovery accepted the stale continuation token or skipped parsing")
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.LoopDiamond.Tests

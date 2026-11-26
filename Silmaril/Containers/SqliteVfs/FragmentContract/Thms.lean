@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Containers.SqliteVfs.FragmentContract.Defs
 public import Silmaril.Containers.SqliteVfs.Completed.Defs
-public import Silmaril.Machine.SqliteVfs.ReadSplit.Fragments.Defs
+public import Silmaril.Machine.SqliteVfs.ReadSplit.Fragments.ReferenceSnapshot.Defs
 import Silmaril.Proofs.Containers.SqliteVfs.FragmentContract.Observation
 
 @[expose] public section
@@ -12,6 +12,19 @@ namespace Silmaril.Containers.SqliteVfs.FragmentContract
 open Silmaril.Machine.SqliteVfs
 open Silmaril.Machine.SqliteVfs.ReadSplit.Fragments
 open Silmaril.Containers.SqliteVfs.Completed (completed)
+open Silmaril.Machine.SqliteVfs.ReadSplit.Fragments.ReferenceSnapshot (ReadsSnapshot)
+
+/-- A valid observation of the exact ordered requests determines the
+contract on each actual handler call when every completed reply matches. -/
+theorem observed_snapshot_of_replies {State : Type} (handler : Handler State)
+    (snapshot : Bytes) (handle : Handle) (start : State) (offset : Nat)
+    (counts : List Nat) (events : List Event) (finish : Phase State)
+    (execution : (machine handler).Exec Mach.seqPolicy (.idle start) events finish)
+    (requests : (completed events).map Exchange.request = fragmentRequests handle offset counts)
+    (replies : ∀ e ∈ completed events, ReplyMatchesSnapshot snapshot e) :
+    ReadsSnapshot handler snapshot handle start offset counts :=
+  Silmaril.Proofs.Containers.SqliteVfs.FragmentContract.observed_snapshot_of_replies
+    handler snapshot handle start offset counts events finish execution requests replies
 
 /-- Completed typed responses agreeing with a reference snapshot justify the
 aggregate read result. The observation keeps the exact returned state and a

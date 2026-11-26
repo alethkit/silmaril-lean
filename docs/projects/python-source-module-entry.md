@@ -39,12 +39,29 @@ result of equality with `True`. The resulting value retains its Boolean
 type in ordinary and seeded execution. Other operands keep their existing
 value and failure semantics. The unselected operand performs no lookup.
 
-The scalar checker folds single tuple equality and membership comparisons
-over flat tuples of exact Boolean or signed integer literals. Equality uses
-the tuple lengths and corresponding scalar values. Membership tests tuple
-elements in order using the same scalar equality, including Boolean and
-integer equality at zero and one. The checked operand emits a Boolean
-through scalar equality and performs no runtime lookup or allocation.
+The scalar checker folds single equality and inequality comparisons over
+closed list and tuple expressions. Leaves are flat sequences of exact
+Boolean or signed integer literals. A concatenation must join sequences
+of the same kind and its certificate retains their element order. Both
+sides of the comparison require certificates, including when their
+kinds or lengths differ. Equality compares sequence kind, length and
+corresponding values, including Boolean and integer equality at zero and
+one. Tuple membership keeps the flat literal profile. The result is an
+exact Boolean with no runtime sequence value or allocation.
+
+A message-free assertion can compare `len(sequence)` for equality or
+inequality against a checked scalar operand. The sequence uses the closed
+list or tuple certificate above. Its elements and intermediate objects
+have no runtime uses outside the call. The plan retains the checked global
+read of `len` and the exact length. The ordinary namespace reports a missing
+`len` or an unsupported function receiver, or raises a defined error for
+a noncallable scalar. Seeded execution resolves the current module-first
+binding and uses the certified length only with the exact stock `len`
+descriptor. It records the call result before checking the right operand.
+This path uses the existing explicit seed that already supplies `len`.
+
+Run the CPython 3.13.5 controls and the fixed original inputs with
+`python3.13 -I scripts/check-python-sequence-length.py --upstream /path/to/pinned/rigorous`.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact

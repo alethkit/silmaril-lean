@@ -55,6 +55,18 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
     lowerOperand scope source = .ok ⟨operand, translated⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.operand_complete translated
 
+theorem checkClosedSequence_complete {source : Source.Expr} {value : ClosedSequence}
+    (checked : ClosedSequence.ValueOf source value) :
+    checkClosedSequence source = some ⟨value, checked⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.checkClosedSequence_complete checked
+
+theorem lower_closedSequenceComparison {scope : Source.Scope} {left right : Source.Expr}
+    {operator : Source.Comparison} {value : Bool}
+    (checked : closedSequenceComparison? left operator right = some value) :
+    lowerOperand scope (.comparison left [(operator, right)]) =
+      .ok ⟨.booleanResult value, .closedSequenceComparison checked⟩ :=
+  operand_complete (.closedSequenceComparison checked)
+
 theorem lower_checkedBooleanOp {scope : Source.Scope} {operator : Source.BooleanOperator}
     {operands : List Source.Expr} {value : Core.Module.Value}
     (checked : checkedBooleanOp? operator operands = some value) :
