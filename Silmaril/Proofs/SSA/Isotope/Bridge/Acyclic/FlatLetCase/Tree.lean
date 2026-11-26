@@ -43,7 +43,7 @@ theorem witness_nonempty {g : FiniteCFG Φ blocks exits n} (h : g.HasType β R D
 
 variable (raw : Primitive Events Φ α)
 
-private theorem tag_tree {L : LCtx τ} {A : τ} {i : Nat} (hi : At L i A)
+theorem tag_tree {L : LCtx τ} {A : τ} {i : Nat} (hi : At L i A)
     (a : Operand Φ γ A) (env : Env α) :
     term raw env (erase (FiniteExit.tag L i hi a).1) =
       (term raw env (erase a.1) >>= fun v => pure (Region.packedExitValue i v)) := by
@@ -59,7 +59,7 @@ private theorem tag_tree {L : LCtx τ} {A : τ} {i : Nat} (hi : At L i A)
       simp only [FiniteExit.tag, erase, term, Region.packedExitValue, ih hi, bind_assoc, pure_bind]
 
 /-- There is no dependence on indices outside the source term's bounded scope. -/
-private theorem operand_rename {a : LetCase.LocallyNameless.Tm Empty Φ n}
+theorem operand_rename {a : LetCase.LocallyNameless.Tm Empty Φ n}
     (ρ : Fin n → Fin m) {env env' : Env α}
     (agree : ∀ i, env' (ρ i).val = env i.val) :
     term raw env' (erase (a.rename ρ)) = term raw env (erase a) := by
