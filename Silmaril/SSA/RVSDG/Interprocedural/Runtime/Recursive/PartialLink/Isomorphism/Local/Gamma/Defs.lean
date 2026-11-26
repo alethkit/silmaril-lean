@@ -726,6 +726,84 @@ abbrev chooseTheta {context carry : Ports (Ty V S)} {past bodySigs : List (Ports
   bindGamma (chooserInputs selector) (chooserArms ports)
     (bindTheta (.cons (joinedOrigin fn) initial) body suffix)
 
+/-- The family captures stay in the leading context. The remaining carry
+stores the member index, actual callable, and ordinary loop arguments. -/
+abbrev FamilyArgs (fn : Function V S) (extra : Nat) (carry : Ports (Ty V S)) : Ports (Ty V S) :=
+  .control (extra + 2) :: fn.port :: carry
+
+abbrev familyValue {context carry : Ports (Ty V S)} {fn : Function V S}
+    (ports : Fin (extra + 2) → Port context fn.port) (captures : Tuple m.Val context)
+    (tag : Fin (extra + 2)) (input : Tuple m.Val carry) :
+    Tuple m.Val (context ++ FamilyArgs fn extra carry) :=
+  prependContext (.cons (.control tag) (.cons (captures.get (ports tag)) input)) captures
+
+/-- Both sides hold the same member index and their respective original
+capture at that index. Ordinary carried inputs are related independently. -/
+def FamilyPair {context carry : Ports (Ty V S)} {fn : Function V S}
+    (ports : Fin (extra + 2) → Port context fn.port) (capL capR : Tuple m.Val context)
+    (left right : Tuple m.Val (context ++ FamilyArgs fn extra carry)) : Prop :=
+  ∃ tag inputL inputR, TupleRelated m ids inputL inputR ∧
+    left = familyValue ports capL tag inputL ∧ right = familyValue ports capR tag inputR
+
+/-- Lift an ordinary entry port past the leading capture context. -/
+def parameterPort (context : Ports (Ty V S)) {params : Ports (Ty V S)} {t : Ty V S}
+    (port : Port params t) : Port (context ++ params) t :=
+  match context with
+  | [] => port
+  | _ :: rest => .tail (parameterPort rest port)
+
+abbrev familyApplicationInputs {context carry : Ports (Ty V S)} (fn : Function V S) {extra : Nat}
+    (arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args) :
+    Wires (context ++ FamilyArgs fn extra carry) [] (fn.port :: fn.args) :=
+  .cons (.arg (parameterPort context (.tail .head))) arguments
+
+abbrev familyWires {context params carry : Ports (Ty V S)} {past : List (Ports (Ty V S))} (fn : Function V S)
+    (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry) :
+    Wires (context ++ params) (past ++ [[fn.port]]) (context ++ FamilyArgs fn extra carry) :=
+  captureInputs (NestedTheta.identityPorts context)
+    (.cons (extendOrigin selector [fn.port]) (.cons (joinedOrigin (past := past) fn) initial))
+
+abbrev familyOutputs {context carry : Ports (Ty V S)} (fn : Function V S) {extra : Nat}
+    (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+    (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+    (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry) :
+    Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]]
+      (Theta.BodyResults (context ++ FamilyArgs fn extra carry)) :=
+  .cons feedback (familyWires (past := [fn.results]) fn select ordinary)
+
+abbrev familyTail {context carry : Ports (Ty V S)} (fn : Function V S)
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+    (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+    (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry) :
+    NestedTheta.Term (Instruction Op) (context ++ FamilyArgs fn extra carry) [fn.results] [[fn.port]]
+      (Theta.BodyResults (context ++ FamilyArgs fn extra carry)) :=
+  bindGamma (chooserInputs select) (chooserArms ports) (.ret (familyOutputs fn select feedback ordinary))
+
+/-- Each body activation calls its carried closure. The following γ selects
+the next callable from the fixed family captures. -/
+abbrev familyBody {context carry : Ports (Ty V S)} (fn : Function V S)
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args)
+    (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+    (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+    (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry) :
+    LoopBody Op (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] :=
+  bindApplication fn (familyApplicationInputs fn arguments) (familyTail fn ports select feedback ordinary)
+
+abbrev switchTheta {context params carry : Ports (Ty V S)} {past bodySigs : List (Ports (Ty V S))}
+    (fn : Function V S) (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry)
+    (body : LoopBody Op (context ++ FamilyArgs fn extra carry) bodySigs)
+    (suffix : NestedTheta.Term (Instruction Op) (context ++ params)
+      ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry]) sigs outs) :
+    NestedTheta.Term (Instruction Op) (context ++ params) past
+      ([fn.port] :: (context ++ FamilyArgs fn extra carry) :: sigs) outs :=
+  bindGamma (chooserInputs selector) (chooserArms ports)
+    (bindTheta (familyWires fn selector initial) body suffix)
+
 /-- A candidate is a pair of actual typed λ bodies with ordered captures.
 The ranked witness separately proves provenance and admissibility. -/
 structure CallTarget (m : Machine.{u, v, w} Op) (fn : Function V S) where
@@ -746,7 +824,7 @@ abbrev CallTarget.valueR {fn : Function V S} (target : CallTarget m fn) : m.Val 
 /-- An ordered region of primitive bindings, static calls, selected γ arms and θ bodies.
 Callees decrease rank. Child and suffix plans decrease structurally at the same rank.
 A θ activation routes the same static capture prefix into the next feedback activation.
-A chooser can forward one of finitely many statically admitted λs to a later application or a θ activation. -/
+A chooser can forward one of finitely many admitted λs to an application or a θ carry. -/
 inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     Nat → Renaming → {context params outs : Ports (Ty V S)} →
     {past sigsL sigsR : List (Ports (Ty V S))} → Tuple m.Val context → Tuple m.Val context →
@@ -886,6 +964,34 @@ inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     RankedPlan m ids rank map capturesL capturesR
       (Gamma.chooseTheta fn selector ports initial bodyL suffixL)
       (Gamma.chooseTheta fn selector ports initial bodyR suffixR)
+
+  /-- One application per θ activation, followed by a γ that can change the
+  next member. Each member has its own lower-ranked callee and address map. -/
+  | switchTheta {rank extra : Nat} {map : Renaming}
+      {context params carry outs : Ports (Ty V S)} {fn : Function V S}
+      {past tailL tailR : List (Ports (Ty V S))} {capturesL capturesR : Tuple m.Val context}
+      {suffixL : NestedTheta.Term (Instruction Op) (context ++ params)
+        ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry]) tailL outs}
+      {suffixR : NestedTheta.Term (Instruction Op) (context ++ params)
+        ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry]) tailR outs}
+      (selector : Origin (context ++ params) past (.control (extra + 2)))
+      (ports : Fin (extra + 2) → Port context fn.port)
+      (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry)
+      (arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args)
+      (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+      (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+      (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry)
+      (family : Fin (extra + 2) → CallTarget m fn) (ranks : Fin (extra + 2) → Nat)
+      (originL : ∀ i, capturesL.get (ports i) = (family i).valueL)
+      (originR : ∀ i, capturesR.get (ports i) = (family i).valueR)
+      (captured : ∀ i, TupleRelated m ids (family i).capturesL (family i).capturesR)
+      (decreases : ∀ i, ranks i < rank)
+      (callees : ∀ i, RankedPlan m ids (ranks i) ((map.child (past ++ [[fn.port]]).length 0).child 0 i.val)
+        (family i).capturesL (family i).capturesR (family i).left (family i).right)
+      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
+    RankedPlan m ids rank map capturesL capturesR
+      (Gamma.switchTheta fn selector ports initial (familyBody fn ports arguments select feedback ordinary) suffixL)
+      (Gamma.switchTheta fn selector ports initial (familyBody fn ports arguments select feedback ordinary) suffixR)
 
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :

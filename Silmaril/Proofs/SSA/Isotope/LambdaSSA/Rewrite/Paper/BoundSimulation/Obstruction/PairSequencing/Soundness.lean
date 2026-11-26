@@ -19,6 +19,10 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun one onState
   mergeFeedback one_codiagonal one_eq_of_runs run_simulation mapOut mapOut_congr)
 
+universe u v
+
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
+
 variable {observation : TermObservation}
 
 local notation "evalTerm" => evalTermWith observation
@@ -27,7 +31,7 @@ local notation "evalRegion" => evalRegionWith observation
 local notation "Same" => SameWith observation
 local notation "Realizes" => RealizesWith observation
 
-theorem observes_collapse {e p : Region Empty} (env : Env) :
+theorem observes_collapse {e p : Region Φ} (env : Env) :
     evalRegion (CfgEta.Codiagonal.nested e p) env =
       evalRegion (CfgEta.Codiagonal.flattened e p) env := by
   dsimp only [CfgEta.Codiagonal.nested, CfgEta.Codiagonal.flattened, CfgEta.singleCfg, evalRegionWith]
@@ -47,9 +51,10 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-theorem mapOut_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Empty}
+omit [HasTy Φ (Ty α)] in
+theorem mapOut_localMap {Γ : VCtx (Ty α)} {A D : Ty α} {a : Tm Φ}
     (ha : Tm.BranchValue (A :: Γ) a D) {env : Env} (he : EnvTy Γ env)
-    {L : LCtx (Ty Empty)} {x : Result} (ht : ResultTy (A :: L) x) :
+    {L : LCtx (Ty α)} {x : Result} (ht : ResultTy (A :: L) x) :
     mapOut (fun i v => evalRegion (CfgEta.Uniformity.localMap a i) (extend env v)) x =
       onState (fun v => (evalTerm a (extend env v)).getD .unit) x := by
   cases x with
@@ -64,8 +69,8 @@ theorem mapOut_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Empty}
       obtain ⟨w, hw, _⟩ := evalValue (observation := observation) ha (he.extend hv)
       simp only [mapOut, CfgEta.Uniformity.localMap, evalRegionWith, hw, onState, Option.getD_some]
 
-theorem observes_uniform {Γ L : List (Ty Empty)} {A D : Ty Empty}
-    {e p q : Region Empty} {a : Tm Empty}
+theorem observes_uniform {Γ L : List (Ty α)} {A D : Ty α}
+    {e p q : Region Φ} {a : Tm Φ}
     (he : ValueBranches Γ e (A :: L)) (hp : ValueBranches (A :: Γ) p (A :: L))
     (ha : Tm.BranchValue (A :: Γ) a D)
     (square : Same (A :: Γ)
@@ -103,7 +108,7 @@ theorem observes_uniform {Γ L : List (Ty Empty)} {A D : Ty Empty}
   exact run_simulation stable comm (good (evalRegion_typed he.hasType henv))
 
 
-theorem paper_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem paper_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.Eqv Γ r s L) : Same Γ r s := by
   induction h with
   | cfgEta h => exact cfgEta_same h
@@ -148,7 +153,7 @@ theorem paper_same {Γ L : List (Ty Empty)} {r s : Region Empty}
   | @substVars G r s L D θ h hθ ih =>
     intro env he
     let env' := fun i => (evalTerm (θ i) env).getD .unit
-    have ht (i : Nat) (A : Ty Empty) (hi : At G i A) :
+    have ht (i : Nat) (A : Ty α) (hi : At G i A) :
         evalTerm (θ i) env = some (env' i) ∧ ValTy (env' i) A := by
       obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) (hθ hi) he
       simpa [env', eq] using hv
@@ -174,7 +179,7 @@ theorem paper_same {Γ L : List (Ty Empty)} {r s : Region Empty}
   | uniform he hp hq ha square ih => exact observes_uniform he hp ha ih
 
 
-theorem unary_fusion_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem unary_fusion_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.UnaryReturn.Step Γ r s L) : Same Γ r s := by
   cases h with
   | @fuse A D a b ha hb =>
@@ -183,9 +188,9 @@ theorem unary_fusion_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     simp only [evalRegionWith, evalTermWith]
     cases evalTerm a env <;> rfl
 
-theorem extension_same {Seed : VCtx (Ty Empty) → Region Empty → Region Empty → LCtx (Ty Empty) → Prop}
+theorem extension_same {Seed : VCtx (Ty α) → Region Φ → Region Φ → LCtx (Ty α) → Prop}
     (seedSame : ∀ {Γ L r s}, Seed Γ r s L → Same Γ r s)
-    {Γ L : List (Ty Empty)} {r s : Region Empty}
+    {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.Extension.Eqv Seed Γ r s L) : Same Γ r s := by
   induction h with
   | paper h => exact paper_same h
@@ -207,7 +212,7 @@ theorem extension_same {Seed : VCtx (Ty Empty) → Region Empty → Region Empty
   | @substVars G r s L D θ h hθ ih =>
     intro env he
     let env' := fun i => (evalTerm (θ i) env).getD .unit
-    have ht (i : Nat) (A : Ty Empty) (hi : At G i A) :
+    have ht (i : Nat) (A : Ty α) (hi : At G i A) :
         evalTerm (θ i) env = some (env' i) ∧ ValTy (env' i) A := by
       obtain ⟨v, eq, hv⟩ := evalValue (observation := observation) (hθ hi) he
       simpa [env', eq] using hv
@@ -218,7 +223,7 @@ theorem extension_same {Seed : VCtx (Ty Empty) → Region Empty → Region Empty
     intro env he
     rw [evalRegion_renameLabels, evalRegion_renameLabels, ih env he]
 
-theorem extended_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem extended_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.Extension.Eqv Paper.UnaryReturn.Step Γ r s L) : Same Γ r s :=
   extension_same (fun h => unary_fusion_same h) h
 

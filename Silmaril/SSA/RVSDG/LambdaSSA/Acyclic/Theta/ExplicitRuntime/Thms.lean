@@ -94,6 +94,14 @@ theorem graph_observe (s : Loop Φ A B K E D) (a : TyDen A) (initial : σ) :
       Part.map (exitTuple (A := A)) ((iter (round (ε := ε) (m := StateT σ Part.{u}) s) a).run initial) :=
   Proofs.graph_observe s a initial
 
+/-- Interpret the actual flat loop by iterating its typed activation. -/
+theorem denote_rounds (s : Loop Φ A B K E D)
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u}))
+    (env : Env [A]) :
+    Region.denote (ε := ε) (m := StateT σ Part.{u}) (Theta.regionTyping s) env =
+      iter (round (ε := ε) (m := StateT σ Part.{u}) s) env.2 :=
+  Proofs.region_round_eq s coherent env
+
 /-- Equality of partial observations at the actual LambdaSSA boundary. -/
 theorem Related.region_observe (w : Related A B K E D r g)
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u}))
@@ -101,7 +109,7 @@ theorem Related.region_observe (w : Related A B K E D r g)
     observe (ε := ε) g env.2 initial =
       Part.map (exitTuple (A := A)) ((Region.denote (ε := ε) (m := StateT σ Part.{u}) w.typing env).run initial) := by
   cases w with
-  | loop s => rw [Proofs.region_round_eq s coherent env]; exact graph_observe s env.2 initial
+  | loop s => rw [denote_rounds s coherent env]; exact graph_observe s env.2 initial
 
 theorem exitTuple_injective :
     Function.Injective (exitTuple (A := A) (E := E) (D := D) (σ := σ)) :=

@@ -211,6 +211,30 @@ private def delimiterAt (first : Nat) (openers closers : List String) (stops : L
 
 private def membership := ["\\in", "∈"]
 private def definitionMark := ["==", "≜"]
+private def bindingHeads := ["CHOOSE", "\\A", "\\forall", "∀", "\\E", "\\exists", "∃", "\\AA", "\\EE"]
+
+-- Skip tokens that cannot supply a filter delimiter before trying the filter
+-- grammar. This avoids reparsing nested enumerations with contextual colons.
+private def canHaveFilterColon : ParseM Bool := do
+  let opens := ["{", "(", "["]
+  let closes := ["}", ")", "]", "]_"]
+  let mut offset := 0
+  let mut awaitingColon := 0
+  let mut previous : Token := default
+  repeat
+    let token ← peek offset
+    if token.kind == .eof || token.kind == .endModule || token.isOneOf closes || !(← inItem token) then
+      return false
+    if token.isOneOf opens then
+      let some close ← delimiterAt (offset + 1) opens closes | return false
+      offset := close
+    else if token.isOneOf bindingHeads && !previous.isOneOf ["."] then
+      awaitingColon := awaitingColon + 1
+    else if token.isOneOf [":"] && !previous.isOneOf ["!"] then
+      if awaitingColon == 0 then return true
+      awaitingColon := awaitingColon - 1
+    previous := token
+    offset := offset + 1
 
 -- Recognize SANY's synthetic DEFBREAK boundary without inserting tokens.
 private def startsDefinition (ahead : Nat := 0) : ParseM Bool := do
@@ -247,10 +271,6 @@ private def tupleNames : ParseM (List Ident) := do
 private def pattern : ParseM BoundPattern := do
   if ← sees ["<<", "⟨"] then return .tuple (← tupleNames)
   return .ident (← ident)
-
-private def patternExpr : BoundPattern → Expr
-  | .ident name => .ref (.operator (.ident name)) [] []
-  | .tuple names => .tuple (names.map fun name => .ref (.operator (.ident name)) [] [])
 
 private structure Pending where
   token : Token
@@ -340,8 +360,7 @@ private partial def operand (parent : Option Pending) : ParseM ParsedExpr := do
     if (← inItem next) && (next.infix.isSome || next.postfix.isSome) then
       failAt next "label changes operator grouping. Use parentheses" .precedence
     return .single (.labeled ⟨name, parameters⟩ body.finish)
-  else if token.isOneOf ["IF", "CASE", "LET", "CHOOSE", "\\A", "\\forall", "∀",
-      "\\E", "\\exists", "∃", "\\AA", "\\EE"] then
+  else if token.isOneOf ["IF", "CASE", "LET"] || token.isOneOf bindingHeads then
     return .single (← openExpression)
   else if ← accept ["("] then
     extend parent (.grouped (← delimited [")"] expression))
@@ -498,23 +517,23 @@ private partial def rigidBinders : ParseM RigidBinders := do
   if ← startsBound then return .bounded (← commaList bound)
   return .unbounded (← commaList ident)
 
+private partial def filterHead : ParseM (BoundPattern × Expr) := do
+  let binder ← pattern
+  let _ ← expectOne membership
+  let domain ← expression
+  expect ":"
+  return (binder, domain)
+
 private partial def brace : ParseM Expr := do
   if ← accept ["}"] then return .setEnum []
-  if ← startsBound then
-    let binder ← pattern
-    let member ← expectOne membership
-    let domain ← expression
-    if ← accept [":"] then return .setFilter binder domain (← delimited ["}"] expression)
-    let first := Expr.infix (.symbol member.text) (patternExpr binder) domain
-    return .setEnum (← delimited ["}"] (commaTail first expression))
-  let body ← operand none
+  if (← startsBound) && (← canHaveFilterColon) then
+    if let .ok ((binder, domain), next) := filterHead.run (← get) then
+      set next
+      return .setFilter binder domain (← delimited ["}"] expression)
+  let body ← expression
   if ← accept [":"] then
-    if let .single (.infix (.symbol "\\in") _ _) := body then
-      -- This JavaCC alternative rejects an ungrouped ASCII membership
-      -- expression as the result of a set map.
-      failHere "parenthesize a membership expression used as the result of a set map"
-    return .setMap body.finish (← delimited ["}"] (commaList bound))
-  return .setEnum (← delimited ["}"] (commaTail body.finish expression))
+    return .setMap body (← delimited ["}"] (commaList bound))
+  return .setEnum (← delimited ["}"] (commaTail body expression))
 
 private partial def fieldEntry (marker : List String) (nameParser : ParseM Ident) : ParseM Field := do
   let name ← nameParser

@@ -762,9 +762,32 @@ RHSs and leaf operands from scratch-free states. It compares the exact
 outcome, heap, frame and iterator stack. Saving and restoring private
 bindings preserves earlier name writes, including direct bindings on
 unallocated slots, and heap mutations made before a later failure.
-The source comparison shares normalized elaboration and finite
-declaration descent.
+The execution theorem inherits finite declaration descent.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean mixed target fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+For a collected lexical block, `Assignment.assignment_sound` proves
+that successful mixed assignment elaboration produces a pattern and RHS
+related by independent source rules. The target can nest tuple/list
+nodes with identifier and subscript leaves. The proved operand grammar
+covers name reads, integer and string literals, indexing and nullary
+calls. The RHS is either one such operand or a list comprehension with
+one identifier generator and a yield in that grammar. Its first
+iterable resolves in the enclosing block and its yield resolves with
+the generator name in scope. The exact ordered read lists include the
+receiver before its index and exclude reads of the fresh generator
+binding from the yield's capture inputs. The bounded RHS adds no
+declarations.
+
+`Assignment.exec_iff_lowered_of_elaboration` pairs the independent
+elaboration judgment with exact resolved operational and scratch
+denotation agreement, given runtime admission and a scratch-free
+initial state. The [lexical block theorem](starlark-modules.md#lexical-block-collection)
+discharges the collected-scope premise for its normalized module and
+function subset. The [capture theorem](starlark-modules.md#nested-function-captures)
+covers a mixed assignment and return through a finite chain of enclosing
+functions that define and return their child. Broader operand and RHS
+elaboration and independent source execution remain separate.
+[Source judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Defs.lean) · [Elaboration theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Thms.lean) · [Lexical and partial-write fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Assignment/Checks.lean)
 
 Mixed loop and comprehension targets and the broader comprehension
 grammar inside leaf receivers and indices remain open. Field leaves

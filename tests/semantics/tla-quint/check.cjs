@@ -97,3 +97,12 @@ for (const [name, { variables, states, initial, transitions }] of Object.entries
   console.log(name + ': Quint and TLC agree on ' + initial.length + ' initial state and ' +
     transitions.length + ' transitions over ' + states.length + ' states');
 }
+
+const { counterexample } = JSON.parse(readFileSync(join(process.argv[3], 'BadStrong.json'), 'utf8'));
+const phaseAt = ([index, { phase }]) => [index, phase];
+assert.deepEqual(counterexample.state.map(phaseAt), [[1, 0], [2, 1], [3, 2]],
+  'ServiceCycle: TLC counterexample prefix and cycle states');
+assert.deepEqual(counterexample.action.map(([from, , to]) => [phaseAt(from), phaseAt(to)]),
+  [[[1, 0], [2, 1]], [[2, 1], [3, 2]], [[3, 2], [2, 1]]],
+  'ServiceCycle: TLC counterexample edges, including the cycle back edge');
+console.log('ServiceCycle: TLC accepts both fairness policies on Good; Bad passes weak and violates strong');

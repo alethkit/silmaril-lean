@@ -21,7 +21,7 @@ open Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedLet (returnOnce returnOnce_
 open Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturns (fstTerm)
 open Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedCase (reindexHom)
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (productFstBranches productSndBranches)
-open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap sndMap)
+open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap sndMap inlMap inrMap)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 
@@ -91,6 +91,41 @@ theorem denoteSingleton_swapTerm (A B : τ) :
 theorem denoteSingleton_firstTerm (A B : τ) :
     denoteSingletonRegion J M (returnOnce_typed (fstTerm (Φ := Φ) A B)).hasType = J.map (fstMap M A B) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_firstTerm J M A B
+
+
+/-- Destructuring the input and returning a constructor has a value-map denotation. -/
+theorem exists_denoteSingleton_let₂_var_branch (A S D : τ) {a : Tm Φ}
+    (ha : Tm.BranchValue [S, A, product A S] a D) :
+    ∃ f : M.obj (product A S) ⟶ M.obj D,
+      denoteSingletonRegion J M (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl ha.hasType) :
+        HasType [product A S] (.let₂ (.var 0) (.br 0 a)) [D]) = J.map f :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.exists_denoteSingleton_let₂_var_branch
+    J M A S D ha
+
+/-- A constructor return after unpacking the input can apply the result tag by categorical postcomposition. -/
+theorem denoteSingleton_let₂_resultTag (A S D : τ) {a : Tm Φ}
+    (ha : Tm.BranchValue [S, A, product A S] a D) :
+    denoteSingletonRegion J M
+        (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inr (.inl ha.hasType))) :
+          HasType [product A S] (.let₂ (.var 0) (.br 0 (.inr (.inl a)))) [packedExitType [S, D]]) =
+      denoteSingletonRegion J M
+        (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl ha.hasType) :
+          HasType [product A S] (.let₂ (.var 0) (.br 0 a)) [D]) ≫
+        J.map (inlMap M D Silmaril.empty ≫ inrMap M S (coprod D Silmaril.empty)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_let₂_resultTag J M A S D ha
+
+/-- The guarded region projection evaluates to the exact packed source projection. -/
+theorem denoteSingleton_productFst (A S : τ) :
+    denoteSingletonRegion J M (productFstBranches (Φ := Φ) A S).hasType = J.map (fstMap M A S) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_productFst J M A S
+
+/-- Destructure the state pair and send its second coordinate to the repeat tag. -/
+theorem denoteSingleton_snd_repeatTag (A S D : τ) :
+    denoteSingletonRegion J M
+      (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) :
+        HasType (Φ := Φ) [product A S] (.let₂ (.var 0) (.br 0 (.inl (.var 0)))) [packedExitType [S, D]]) =
+      J.map (sndMap M A S ≫ inlMap M S (coprod D Silmaril.empty)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_snd_repeatTag J M A S D
 
 end Region
 

@@ -91,13 +91,13 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
       cases test.evalIn rows.project globals environment.heap.project environment.frame with
       | ok passes => cases passes <;> rfl
       | error failure => exact congrArg some (failMetadata_project .codeNames environment.heap stack failure)
-    | callTo destination callee arguments next =>
+    | invoke callee arguments continuation =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases evalCallIn globals environment.heap.project environment.frame callee arguments with
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
       | ok inputs =>
         obtain ⟨value, values⟩ := inputs
-        let caller : Call.Saved Continuation := ⟨_, environment.frame, ⟨destination, next⟩⟩
+        let caller : Call.Saved Continuation := ⟨_, environment.frame, continuation⟩
         have agrees := Dispatch.dispatch_project rows value values environment.heap caller stack
         simp only at *
         rw [← agrees]
@@ -108,12 +108,16 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
   | receiving heap caller stack result =>
     cases result with
     | ok value =>
-      cases destination : caller.continuation.destination with
-      | store slot =>
-        simpa only [advanceIn, coreAdvance, State.project, Option.map_some, destination] using
-          congrArg some (resumeStore_project ⟨heap, caller.frame⟩ slot value caller.continuation.body stack)
-      | discard =>
-        simp [advanceIn, coreAdvance, State.project, destination, Transition.project]
+      cases continuation : caller.continuation with
+      | none => simp [advanceIn, coreAdvance, State.project, continuation, Transition.project]
+      | some resume =>
+        obtain ⟨destination, body⟩ := resume
+        cases destination with
+        | store slot =>
+          simpa only [advanceIn, coreAdvance, State.project, Option.map_some, continuation] using
+            congrArg some (resumeStore_project ⟨heap, caller.frame⟩ slot value body stack)
+        | discard =>
+          simp [advanceIn, coreAdvance, State.project, continuation, Transition.project]
     | error failure => rfl
   | finished heap result => rfl
   | faulted heap stack failure => rfl

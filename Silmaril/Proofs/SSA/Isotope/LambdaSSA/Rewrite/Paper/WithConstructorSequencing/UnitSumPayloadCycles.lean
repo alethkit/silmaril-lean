@@ -168,7 +168,7 @@ private theorem run_tags {B A : Shape} {p q : A.Row → OutputCode B A}
     | inl j => simp only [run, h, ← same i, Option.map_some]
     | inr j => simpa only [run, ← same i, h, tag_after_input] using ih j
 
-private theorem run_same_tag {B A : Shape} {p q : A.Row → OutputCode B A}
+theorem run_same_tag {B A : Shape} {p q : A.Row → OutputCode B A}
     (same : ∀ i, (p i).tag = (q i).tag) {n : Nat} {i : A.Row} {o : StateCode B}
     (hq : run q n i = some o) :
     ∃ mode, run p n i = some ⟨o.tag, mode⟩ := by

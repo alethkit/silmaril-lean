@@ -107,6 +107,16 @@ theorem exportedCall_withImports_related (respects : PrimitivesRespect m ids)
 
 namespace Recursive
 
+/-- Packaging the full φ group preserves related captures and fixed
+member slots. The member definitions may renumber their local bodies. -/
+theorem phiMembers_related {context : Ports (Ty V S)} {members : List (Function V S)}
+    {left right : Tuple m.Val context} {tableL tableR : MemberTable Op context members}
+    (captures : TupleRelated m ids left right)
+    (definitions : ∀ i, (tableL i).Renumbered id (tableR i)) :
+    TupleRelated m ids (memberValues members (Colour.member left tableL))
+      (memberValues members (Colour.member right tableR)) :=
+  Isomorphism.Proofs.phiMembers_related captures definitions
+
 /-- Resolving corresponding member references reads related captures and
 selects typed-isomorphic bodies. -/
 theorem resolve_related {params results : Ports (Ty V S)}

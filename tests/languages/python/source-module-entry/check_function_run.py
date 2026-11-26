@@ -11,6 +11,21 @@ import tempfile
 
 
 FIXTURES = (
+    ("none_literal_preserved", """observed = None
+assert observed == None
+assert observed != False
+assert not observed
+kept = 4
+""", "normal", ".normal", None, 4),
+    ("none_literal_left_lookup", """observed = None
+observed = missing_first != missing_second
+kept = 4
+""", "NameError", '.raised (.nameError "missing_first")', None, None),
+    ("none_literal_arithmetic_profile", """observed = None
+kept = 7
+observed = observed + 1
+kept = 9
+""", "TypeError", ".scalarProfile", None, 7),
     ("adjacent_keyword_discard", """kept = 5
 def probe(value):
     assert False
@@ -415,7 +430,9 @@ if __name__ == "__main__":
             )
             name_error = re.fullmatch(r'\.raised \(\.nameError "([^"]+)"\)', lean)
             missing = name_error.group(1) if name_error else None
-            bound_none = name in {"implicit_none_binding", "negated_none"}
+            bound_none = name in {"implicit_none_binding", "negated_none",
+                                  "none_literal_preserved", "none_literal_left_lookup",
+                                  "none_literal_arithmetic_profile"}
             assert json.loads(result.stdout) == [completion, missing, observed, kept, bound_none], (name, result.stdout)
             assert result.stderr == "", (name, result.stderr)
             test = f"\n#guard observe pythonSource == some ({lean}, {optional(observed)}, {optional(kept)}, {json.dumps(bound_none)})\n"

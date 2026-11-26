@@ -94,6 +94,67 @@ theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace}
     Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
     Except.bind, Except.map, Except.mapError, invokeFlatCall, rejected, acceptObservation, ModuleFailure.ofCall]
 
+theorem factoryOperands_iff {values : List Value} {operands : List Core.Module.Functions.Operand} :
+    factoryOperands values = some operands ↔
+      ∃ integers : List Int, integers.length ≤ 3 ∧ values = integers.map .int ∧
+        operands = integers.map (fun value => .literal (.int value)) := by
+  have mapped (values : List Value) (operands : List Core.Module.Functions.Operand) :
+      values.mapM factoryOperand = some operands ↔
+        ∃ integers : List Int, values = integers.map .int ∧
+          operands = integers.map (fun value => .literal (.int value)) := by
+    induction values generalizing operands with
+    | nil =>
+      constructor
+      · intro equal
+        exact ⟨[], rfl, by simpa using equal.symm⟩
+      · rintro ⟨integers, empty, rfl⟩
+        cases integers <;> simp_all
+    | cons value values ih =>
+      constructor
+      · intro equal
+        cases value with
+        | int value =>
+          cases tail : values.mapM factoryOperand with
+          | none => simp [factoryOperand, tail] at equal
+          | some tailOperands =>
+            obtain ⟨integers, source, target⟩ := (ih tailOperands).mp tail
+            exact ⟨value :: integers, by simp [source], by
+              simpa [factoryOperand, tail, target] using equal.symm⟩
+        | _ => simp [factoryOperand] at equal
+      · rintro ⟨integers, source, rfl⟩
+        cases integers with
+        | nil => simp at source
+        | cons first rest =>
+          simp only [List.map_cons, List.cons.injEq] at source
+          obtain ⟨rfl, remaining⟩ := source
+          have tail := (ih _).mpr ⟨rest, remaining, rfl⟩
+          simp [factoryOperand, tail]
+  constructor
+  · intro accepted
+    by_cases length : values.length ≤ 3
+    · simp only [factoryOperands, length, ite_true, mapped] at accepted
+      obtain ⟨integers, source, target⟩ := accepted
+      exact ⟨integers, by simpa [source] using length, source, target⟩
+    · simp [factoryOperands, length] at accepted
+  · rintro ⟨integers, length, rfl, rfl⟩
+    have size : (integers.map Value.int).length ≤ 3 := by simpa using length
+    simp only [factoryOperands, size, ite_true, mapped]
+    exact ⟨integers, rfl, rfl⟩
+
+theorem run_factory_unrecorded {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name target : String} {closure : Function} {arguments : List Core.Module.Functions.Operand}
+    {values : List Value} {rest : List (Instruction scope)}
+    (resolved : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .ok (.function closure, values))
+    (unpublished : closure ∉ context.published) (unescaped : closure ∉ context.escaped) :
+    runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ := by
+  have denied (arity : Nat) : context.acceptsFactory closure arity = false := by
+    simp [CallContext.acceptsFactory, CallContext.acceptsCallFrom, unpublished, unescaped]
+  cases operands : factoryOperands values <;>
+    simp [runInstructionsIn, effect, resolved, invokeFlatCall, operands, denied,
+      acceptObservation, ModuleFailure.ofCall, Except.bind, Except.mapError]
+
 theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}
     {values : List Value} {rest : List (Instruction scope)}

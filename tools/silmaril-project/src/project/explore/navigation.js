@@ -7,7 +7,7 @@ const NAV_GROUPS = [
   { title: "Logic & models", routes: ["formal", "logics", "systems", "interpretations", "languages"],
     description: "Browse formal systems, their interpretations, and the Lean theorems about them.",
     featured: ["formal", "logics", "systems"] },
-  { title: "Programs & binaries", routes: ["corpus", "compiler", "c-artifacts", "elf", "wasm", "containers", "component-tests", "machines"],
+  { title: "Programs & binaries", routes: ["corpus", "compiler", "ir", "c-artifacts", "elf", "wasm", "containers", "component-tests", "machines"],
     description: "Inspect compiler fixtures, executable artifacts, and the evidence recorded for them.",
     featured: ["corpus", "compiler", "elf", "wasm"] },
   { title: "Project data", routes: ["artifacts", "formats", "values", "sql"],

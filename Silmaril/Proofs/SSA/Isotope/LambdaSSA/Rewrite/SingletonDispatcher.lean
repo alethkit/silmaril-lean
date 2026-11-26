@@ -93,7 +93,11 @@ private theorem finite_one (A : τ) :
 variable {C : Type u₂} [Category.{v₂} C] [SymmetricCategory V]
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
-  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (J : V ⥤ C)
+
+section Denotation
+
+variable [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J]
   [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M]
 
 theorem denoteSingleCfg {Γ : VCtx τ} {L : LCtx τ} {A : τ} {e p : Region Φ}
@@ -164,6 +168,10 @@ theorem denote_weakenCapture {Γ : VCtx τ} {L : LCtx τ} {A B : τ} {p : Region
   rw [MonoidalCategory.whisker_exchange, Category.assoc,
     ← MonoidalCategory.whiskerLeft_comp, ha, MonoidalCategory.whiskerLeft_id,
     Category.comp_id]
+
+end Denotation
+
+variable [DistributiveFreydCategory J]
 
 theorem route_inr {E A B : V} :
     J.map (E ◁ (coprod.inr : B ⟶ A ⨿ B)) ≫
