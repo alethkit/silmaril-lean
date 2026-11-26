@@ -27,7 +27,7 @@ open RVSDG.NestedTheta (MonadicModel)
 open Blocks (Bank)
 
 variable {regs : List (ValueSort Width)} {result : Width} {p : Program Op regs (.data result)}
-variable {outcome : Outcome p} {input : Bank (regs := regs) model} {value : Word result}
+variable {execution : Execution regs result} {outcome : Outcome p} {input : Bank (regs := regs) model} {value : Word result}
 
 private theorem env_singleton (env : Env [result]) : env = .cons (env.get .here) .nil := by
   cases env with
@@ -39,8 +39,8 @@ private theorem tuple_singleton (values : Tuple (Join.model model).Val [.value (
   | cons head tail => cases tail; rfl
 
 private theorem cf_return :
-    (∃ budget, outcome.runCF input budget = some value) ↔
-      ∃ fuel, outcome.cfTarget.2.run evalOp fuel (encodeValues input) = some (.cons value .nil) := by
+    (∃ budget, execution.runCF input budget = some value) ↔
+      ∃ fuel, execution.cfTarget.2.run evalOp fuel (encodeValues input) = some (.cons value .nil) := by
   constructor
   · rintro ⟨⟨fuel⟩, returned⟩
     obtain ⟨env, observed, projected⟩ := Option.map_eq_some_iff.mp returned
@@ -50,8 +50,8 @@ private theorem cf_return :
     exact ⟨⟨fuel⟩, Option.map_eq_some_iff.mpr ⟨.cons value .nil, observed, rfl⟩⟩
 
 private theorem numbered_return :
-    (∃ budget, outcome.runNumbered input budget = some value) ↔
-      outcome.numberedTarget.2.Returns (Join.model model) input (.cons value .nil) := by
+    (∃ budget, execution.runNumbered input budget = some value) ↔
+      execution.numberedTarget.2.Returns (Join.model model) input (.cons value .nil) := by
   constructor
   · rintro ⟨⟨fuel⟩, returned⟩
     obtain ⟨values, observed, projected⟩ := Option.map_eq_some_iff.mp returned
@@ -68,17 +68,17 @@ private theorem source_return :
 
 private theorem from_emitters
     (bounded : ∀ limit,
-      let budgets := outcome.budgets limit
+      let budgets := execution.budgets limit
       let native := runSource p input budgets.source
-      outcome.cfTarget.2.run evalOp budgets.cf.blocks (encodeValues input) =
+      execution.cfTarget.2.run evalOp budgets.cf.blocks (encodeValues input) =
         native.map (fun value => Env.cons value .nil) ∧
-      outcome.numberedTarget.2.run (Join.model model) budgets.theta.activations input =
+      execution.numberedTarget.2.run (Join.model model) budgets.theta.activations input =
         native.map (fun value => (Tuple.cons value .nil : Tuple (Join.model model).Val [.value (.data result)])))
     (returned : ∀ value : Word result,
       let native := ∃ fuel, p.source.runFrom model fuel 0 input = some value
-      ((∃ fuel, outcome.cfTarget.2.run evalOp fuel (encodeValues input) = some (.cons value .nil)) ↔ native) ∧
-        (outcome.numberedTarget.2.Returns (Join.model model) input (.cons value .nil) ↔ native)) :
-    Correct outcome input := by
+      ((∃ fuel, execution.cfTarget.2.run evalOp fuel (encodeValues input) = some (.cons value .nil)) ↔ native) ∧
+        (execution.numberedTarget.2.Returns (Join.model model) input (.cons value .nil) ↔ native)) :
+    execution.Correct p input := by
   constructor
   · intro limit
     obtain ⟨cf, numbered⟩ := bounded limit
@@ -86,15 +86,23 @@ private theorem from_emitters
     let readNumbered (values : Tuple (Join.model model).Val [.value (.data result)]) :
         Word result := values.get .head
     refine ⟨(congrArg (Option.map readCF) cf).trans ?_, (congrArg (Option.map readNumbered) numbered).trans ?_⟩
-    all_goals cases runSource p input (outcome.budgets limit).source <;> rfl
+    all_goals cases runSource p input (execution.budgets limit).source <;> rfl
   · intro value
     exact ⟨cf_return.trans ((returned value).1.trans source_return.symm),
       numbered_return.trans ((returned value).2.trans source_return.symm)⟩
+
+theorem original_correct : (emitOriginal p).execution.Correct p input :=
+  from_emitters
+    (fun limit => ⟨TwoBackedges.MLIR.CF.lower_run p input (3 * limit + 2),
+      TwoBackedges.Numbered.lower_run p model limit input⟩)
+    (fun value => ⟨TwoBackedges.MLIR.CF.returns_iff p input value,
+      TwoBackedges.Numbered.returns_iff p model input value⟩)
 
 theorem compile_correct [BankDecidableEq Word (dataPorts regs)]
     {facts : Tuple (Fact Word) (dataPorts regs)}
     (compiled : compile p facts = outcome) (compatible : outcome.Compatible facts input) :
     Correct outcome input := by
+  suffices view : outcome.execution.Correct p input from ⟨view.bounded, view.returns_iff⟩
   cases outcome with
   | specialized targets =>
     have accepted := (compile_specialized_iff targets).mp compiled
@@ -104,11 +112,7 @@ theorem compile_correct [BankDecidableEq Word (dataPorts regs)]
     exact from_emitters (twoLive_run input compiled) (twoLive_returns_iff input compiled)
   | neitherMarked targets =>
     obtain ⟨rfl, _, _⟩ := (compile_neitherMarked_iff targets).mp compiled
-    exact from_emitters
-      (fun limit => ⟨TwoBackedges.MLIR.CF.lower_run p input (3 * limit + 2),
-        TwoBackedges.Numbered.lower_run p model limit input⟩)
-      (fun value => ⟨TwoBackedges.MLIR.CF.returns_iff p input value,
-        TwoBackedges.Numbered.returns_iff p model input value⟩)
+    exact original_correct
 
 private theorem exhaustion_iff {Budget : Type} {run : Budget → Option (Word result)} :
     (∀ budget, run budget = none) ↔ ¬ ∃ value budget, run budget = some value := by
@@ -121,10 +125,10 @@ private theorem exhaustion_iff {Budget : Type} {run : Budget → Option (Word re
     | none => rfl
     | some value => exact (absent ⟨value, budget, observed⟩).elim
 
-theorem noReturn_iff (correct : Correct outcome input) :
+theorem noReturn_iff (correct : execution.Correct p input) :
     let absent := ¬ ∃ value budget, runSource p input budget = some value
-    ((∀ budget, outcome.runCF input budget = none) ↔ absent) ∧
-      ((∀ budget, outcome.runNumbered input budget = none) ↔ absent) := by
+    ((∀ budget, execution.runCF input budget = none) ↔ absent) ∧
+      ((∀ budget, execution.runNumbered input budget = none) ↔ absent) := by
   refine ⟨exhaustion_iff.trans ?_, exhaustion_iff.trans ?_⟩
   · exact not_congr (exists_congr fun value => (correct.returns_iff value).1)
   · exact not_congr (exists_congr fun value => (correct.returns_iff value).2)
@@ -147,8 +151,8 @@ theorem mem_sourcePart_iff :
     exact ⟨dom, Option.some.inj (selected.symm.trans seen)⟩
 
 private theorem cf_part_mem :
-    value ∈ outcome.cfPart input ↔ ∃ budget, outcome.runCF input budget = some value := by
-  rw [Outcome.cfPart, Part.mem_bind_iff, cf_return]
+    value ∈ execution.cfPart input ↔ ∃ budget, execution.runCF input budget = some value := by
+  rw [Execution.cfPart, Part.mem_bind_iff, cf_return]
   constructor
   · rintro ⟨observed, finite, readback⟩
     cases observed with
@@ -168,11 +172,11 @@ private theorem cf_part_mem :
     exact ⟨fuel, by rw [Silmaril.MLIR.CF.SwitchAssert.Cfg.embed_run, run]; rfl⟩
 
 private theorem numbered_part_mem :
-    value ∈ outcome.numberedPart input ↔ ∃ budget, outcome.runNumbered input budget = some value := by
+    value ∈ execution.numberedPart input ↔ ∃ budget, execution.runNumbered input budget = some value := by
   rw [numbered_return]
   let raw : Part (Tuple (Join.model model).Val [.value (.data result)]) :=
     RVSDG.NestedTheta.Partial.observe (MonadicModel.ofRuntime (Join.model model))
-      outcome.numberedTarget.2 input
+      execution.numberedTarget.2 input
   let readback (values : Tuple (Join.model model).Val [.value (.data result)]) :
       Word result := values.get .head
   change value ∈ raw.map readback ↔ _
@@ -190,8 +194,8 @@ private theorem numbered_part_mem :
     exact Part.eq_some_iff.mp
       ((RVSDG.NestedTheta.Partial.observe_ofRuntime_eq_some_iff_returns _ _ _ _).mpr returned)
 
-theorem part_eq (correct : Correct outcome input) :
-    outcome.cfPart input = sourcePart p input ∧ outcome.numberedPart input = sourcePart p input := by
+theorem part_eq (correct : execution.Correct p input) :
+    execution.cfPart input = sourcePart p input ∧ execution.numberedPart input = sourcePart p input := by
   refine ⟨Part.ext ?_, Part.ext ?_⟩
   · intro value
     exact cf_part_mem.trans ((correct.returns_iff value).1.trans mem_sourcePart_iff.symm)
