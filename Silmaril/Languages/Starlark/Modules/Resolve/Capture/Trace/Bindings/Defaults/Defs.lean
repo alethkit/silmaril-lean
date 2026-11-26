@@ -204,7 +204,7 @@ inductive CallsScoped (state : State) (spec : Defaults.Escape.Scoped.Spec) (chil
       CallsScoped state spec childId free values (.error error state)
   | entered {assigned : List (Binding × Value)} {out : Outcome Value} :
       Entry.Binds spec.parameters values (.ok assigned) →
-      Defaults.Escape.ReturnsWith spec.wrapper childId free state (activate state (spec.frame childId).declaration [] assigned) out →
+      Defaults.Escape.ReturnsWith spec.wrapper childId free spec.updates state (activate state (spec.frame childId).declaration [] assigned) out →
       CallsScoped state spec childId free values out
 
 inductive Step (resolved : ResolvedModule) (globals : List String) :

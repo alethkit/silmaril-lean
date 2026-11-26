@@ -80,7 +80,8 @@ theorem call_scoped {before rest : List Command} {globals : List String} {callee
       let codes := spec.wrapper.codes
       obtain ⟨out, _, returned, _, _, progress⟩ := Defaults.Escape.returns_with_total resolved.program
         (withoutDeclaration (List.range resolved.program.size) (root.childId + 1)) spec.wrapper root.names.wrapper
-        root.childId (root.plan.body.declaration codes) root.childCode rfl spec.additional state assigned captures installed cells
+        root.childId (root.plan.body.declaration codes) root.childCode rfl spec.additional spec.updates
+        root.names.localUpdates state assigned captures installed cells
       refine ⟨_, .scopedCall root site calleeCode related ran (.entered bound returned), ?_⟩
       intro next success
       cases out with
