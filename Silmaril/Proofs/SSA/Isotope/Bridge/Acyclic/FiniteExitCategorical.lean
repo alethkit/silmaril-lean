@@ -55,7 +55,7 @@ private theorem tag_denotes [DistributiveFreydCategory J]
 
 variable [RegionTypingCoherent (Φ := Φ) J M]
 
-private theorem denom_linkSingleton {Γ : VCtx τ} {L : LCtx τ} {A : τ}
+theorem denote_linkSingleton_proof {Γ : VCtx τ} {L : LCtx τ} {A : τ}
     {r s : Region Φ} (hr : Region.HasType Γ r [A]) (hs : Region.HasType (A :: Γ) s L)
     (hlink : Region.HasType Γ (r.linkExits [A] (fun _ => s)) L) :
     denoteRegion J M hlink = LetIter.ProofRelevant.Semantics.Categorical.bind J (denoteRegion J M hr)
@@ -116,8 +116,8 @@ theorem denote_encode_proof {L : LCtx τ} {n : Nat} {β : BoundCtx τ n}
       simp [Code.toSSA, Region.linkExits, Code.toSSA_renameLabels]
     change denoteRegion J M ((Code.join a b.encode).toSSA_hasType
       (L := [packedExitType L]) (exit := 0) rfl) = _
-    rw [same_region J M e _ hp, denom_linkSingleton J M ha hb hp,
-      denom_linkSingleton J M ha b.toSSA_hasType (FiniteExit.join a b).toSSA_hasType, ih]
+    rw [same_region J M e _ hp, denote_linkSingleton_proof J M ha hb hp,
+      denote_linkSingleton_proof J M ha b.toSSA_hasType (FiniteExit.join a b).toSSA_hasType, ih]
     simp only [LetIter.ProofRelevant.Semantics.Categorical.bind, Category.assoc]
 
 omit [RegionTypingCoherent (Φ := Φ) J M] in
@@ -183,7 +183,7 @@ theorem denote_decode_proof {n : Nat} {β : BoundCtx τ n} {L : LCtx τ} (hne : 
       unpackLabel M (A :: L) ≫ labelMap M (SSA.Ren.id (A :: L))) =
         denoteRegion J M body.toSSA_hasType at den
     rw [labelMap_id, Category.comp_id] at den
-    rw [denom_linkSingleton J M entry body.toSSA_hasType (decode hne c).toSSA_hasType, ← den]
+    rw [denote_linkSingleton_proof J M entry body.toSSA_hasType (decode hne c).toSSA_hasType, ← den]
     let f := denoteRegion J M entry
     have project : extend J f ≫ J.map (snd (ctxObj M β.toList) (labelObj M [T])) = f := by
       simp only [extend, PremonoidalCategory.leftTensor, PremonoidalCategory.id_whiskerRight,

@@ -13,10 +13,12 @@ universe u v u₁ u₂ v₁ v₂
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.FiniteExit
 
 open CategoryTheory CategoryTheory.Limits
+open scoped MonoidalCategory
+open LetIter.ProofRelevant.Semantics.Categorical (bind)
 open Region (packedExitType)
 open LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open LambdaSSA.Semantics.Categorical (RegionTypingCoherent denoteRegion packLabelExit unpackLabelExit
-  packLabelExit_unpackLabelExit unpackLabelExit_packLabelExit)
+  packLabelExit_unpackLabelExit unpackLabelExit_packLabelExit ctxObj singletonLabelPayload)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
@@ -27,6 +29,15 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   [FreydCategory.CentralUnit J] (M : TypeModel τ V) [InstructionModel J M Φ]
   [RegionTypingCoherent (Φ := Φ) J M]
+
+/-- A singleton local continuation consumes the entry payload after the entry
+has run. The base environment is retained for the continuation. -/
+theorem denote_linkSingleton {Γ : VCtx τ} {L : LCtx τ} {A : τ}
+    {r s : Region Φ} (hr : Region.HasType Γ r [A]) (hs : Region.HasType (A :: Γ) s L)
+    (hlink : Region.HasType Γ (r.linkExits [A] (fun _ => s)) L) :
+    denoteRegion J M hlink = bind J (denoteRegion J M hr)
+      (J.map (ctxObj M Γ ◁ singletonLabelPayload M A) ≫ denoteRegion J M hs) :=
+  denote_linkSingleton_proof J M hr hs hlink
 
 /-- The nested sum encoding postcomposes the actual native positional
 denotation with the label packing isomorphism. -/
