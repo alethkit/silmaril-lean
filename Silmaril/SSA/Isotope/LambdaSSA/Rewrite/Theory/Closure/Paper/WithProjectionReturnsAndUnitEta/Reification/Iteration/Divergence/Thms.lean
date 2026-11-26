@@ -40,6 +40,14 @@ local notation "fromZero" => (emptyIsInitial (Seed)).to
 set_option hygiene false in
 local notation "F" => Paper.WithProjectionReturnsAndUnitEta.projection (τ := τ) (Φ := Φ)
 
+/-- Changing the outward result of a guarded repeat-only step uses the
+descended iterator's naturality equation. -/
+theorem canonicalIterate_repeat_naturality {A T B : Comp} (next : A ⟶ A) (g : T ⟶ B) :
+    canonicalIterate (show A ⟶ T ⨿ A from next ≫ coprod.inr) ≫ g =
+      canonicalIterate (show A ⟶ B ⨿ A from next ≫ coprod.inr) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.JoinedRepeatDivergence.canonicalIterate_repeat_naturality
+    next g
+
 /-- Agreement at the empty exit is equivalent to agreement at every exit
 for the same repeat-only transition. -/
 theorem repeatDivergence_iff [Iteration Comp] [ElgotCategory Comp] {A X : Comp}
