@@ -45,6 +45,26 @@ theorem Site.moveAll_pullback (sites : List Site) {Γ : VCtx τ} {L : LCtx τ} {
       ValueBranches Γ q L ∧ Eqv Γ r q L :=
   EntryLetOperand.moveAll_pullback sites hr θ hm
 
+/-- An addressed move commutes with substitution of the initializer of a
+native constructor let. The beta comparison uses exact typing of the moved
+body, which may use the bound slot. -/
+theorem Site.move_letValue (site : Site) {Γ : VCtx τ} {L : LCtx τ} {T : τ}
+    {a : Tm Φ} {body moved : Region Φ} (ha : Tm.BranchValue Γ a T)
+    (hm : site.move body = some moved) (ht : HasType (T :: Γ) moved L) :
+    site.move (body.substVars (Tm.singleSubst a)) = some (moved.substVars (Tm.singleSubst a)) ∧
+      Paper.Eqv Γ (.let₁ a moved) (moved.substVars (Tm.singleSubst a)) L :=
+  EntryLetOperand.move_letValue site ha hm ht
+
+/-- With a guarded starting body, a move under an expanded constructor let
+gives a guarded move on its beta-contractum. The results agree in standard Paper. -/
+theorem Site.move_under_letValue (site : Site) {Γ : VCtx τ} {L : LCtx τ} {T : τ}
+    {a : Tm Φ} {body s : Region Φ} (ha : Tm.BranchValue Γ a T)
+    (hb : ValueBranches (T :: Γ) body L)
+    (hm : (Site.unaryBody site).move (.let₁ a body) = some s) :
+    ∃ q, site.move (body.substVars (Tm.singleSubst a)) = some q ∧
+      ValueBranches Γ q L ∧ Paper.Eqv Γ s q L :=
+  EntryLetOperand.move_under_letValue site ha hb hm
+
 variable {A D B : τ} {a : Tm Φ} {r s : Region Φ}
 
 local notation "Seed" => Step (τ := τ) (Φ := Φ)
@@ -87,6 +107,26 @@ theorem uniformity_of_target_moves (sites : List Site) (ha : Tm.BranchValue [A] 
       (projection Seed).map (ofRegion (.br (ℓ := 0) rfl ha)) ≫
         iterateChosen Seed (projectStep Seed (ofRegion hr ≫ (sumIso B D).hom)) :=
   EntryLetOperand.uniformity_of_target_moves sites ha hr f hs hm comm
+
+/-- Replay a native let expansion after the prefix and an addressed move
+inside that let. The final square can be stated with the expanded result. -/
+theorem repairTargetAfterLetValue (sites : List Site) (site : Site)
+    (ha : Tm.BranchValue [A] a D)
+    (hr : ValueBranches [D] r [Silmaril.coprod B D])
+    (f : Obj A ⟶ Obj B ⨿ Obj A)
+    {T : τ} {v : Tm Φ} {body : Region Φ}
+    (hv : Tm.BranchValue [A] v T) (hb : ValueBranches [T, A] body [Silmaril.coprod B D])
+    (hs : ValueBranches [A] s [Silmaril.coprod B D])
+    (prefixMoves : Site.moveAll sites (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) =
+      some (body.substVars (Tm.singleSubst v)))
+    (hm : (Site.unaryBody site).move (.let₁ v body) = some s)
+    (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
+      ofRegion hs ≫ (sumIso B D).hom) :
+    let h := ofRegion (.br (ℓ := 0) rfl ha)
+    ∃ g : Obj D ⟶ Obj B ⨿ Obj D,
+      projectStep Seed g = projectStep Seed (ofRegion hr ≫ (sumIso B D).hom) ∧
+      f ≫ coprod.map (𝟙 (Obj B)) h = h ≫ g :=
+  EntryLetOperand.repairTargetAfterLetValue sites site ha hr f hv hb hs prefixMoves hm comm
 
 private theorem Site.moveAll_singleton (site : Site) (r : Region Φ) :
     Site.moveAll [site] r = site.move r := by
