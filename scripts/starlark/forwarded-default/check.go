@@ -155,21 +155,21 @@ func checkAliasedCalls(opts *syntax.FileOptions) {
 }
 
 func liveProvenanceSource(arguments string) string {
-	return fmt.Sprintf(`values = [11, 22]
+	return fmt.Sprintf(`values = [0, 22]
 def factory(values, index):
     def first(saved=values):
         return saved[index]
     alias = first
     marker = [17]
     copy = alias
-    def replacement(required):
-        return required
+    def replacement(required, offset=1, saved=values):
+        return required[offset][saved[0]]
     first = replacement
     alias = 0
     first_value = copy()
     selected = first(%s)
     after = [99]
-    return selected[0]
+    return selected
 result = factory(values, 1)
 finished = [91]
 `, arguments)
@@ -177,16 +177,19 @@ finished = [91]
 
 func checkLiveProvenance(opts *syntax.FileOptions) {
 	globals, err := starlark.ExecFileOptions(opts, new(starlark.Thread),
-		"live-local-copies.star", liveProvenanceSource("[first_value]"), nil)
+		"live-local-copies.star", liveProvenanceSource("[[first_value]], offset=values[0]"), nil)
 	require(err == nil && globals["result"].String() == "22" && globals["finished"].String() == "[91]", globals)
-	fmt.Println("PASS a transitive, non-adjacent copy retains its default and captured index across rebinding")
+	fmt.Println("PASS mixed actuals use the rebound closure's named override and a saved default")
 
 	for _, test := range []struct {
 		arguments string
 		errorText string
 	}{
 		{"", "function replacement missing 1 argument (required)"},
-		{"[73], [0][1], [77]", "index 1 out of range"},
+		{"[73], other=[80], required=[81]", `unexpected keyword argument "other"`},
+		{"[73], required=[80], other=[81]", `multiple values for parameter "required"`},
+		{"[73], other=[80], offset=[0][1], later=[77]", "index 1 out of range"},
+		{"[73], [74], [75], [76], other=[80]", "3 positional arguments (4 given)"},
 	} {
 		_, compiled, err := starlark.SourceProgramOptions(opts, "rebound-local-error.star",
 			liveProvenanceSource(test.arguments), func(string) bool { return false })
@@ -195,7 +198,42 @@ func checkLiveProvenance(opts *syntax.FileOptions) {
 		require(err != nil && strings.Contains(err.Error(), test.errorText), err)
 		require(partial["factory"] != nil && partial["result"] == nil && partial["finished"] == nil, partial)
 	}
-	fmt.Println("PASS the rebound callee uses the replacement signature and a reached operand error skips binding")
+	_, _, err = starlark.SourceProgramOptions(opts, "repeated-keyword.star",
+		liveProvenanceSource("[73], offset=[0][1], offset=2"), func(string) bool { return false })
+	require(err != nil && strings.Contains(err.Error(), `keyword argument "offset" is repeated`), err)
+	_, err = starlark.ExecFileOptions(opts, new(starlark.Thread), "nullary-keyword.star", `def empty():
+    pass
+result = empty(other=1)
+`, nil)
+	require(err != nil && strings.Contains(err.Error(), "accepts no arguments (1 given)"), err)
+	fmt.Println("PASS operand error precedes binding, surplus positional arguments precede keywords, and repeated syntax is static")
+}
+
+func checkExplicitOperandOrder(opts *syntax.FileOptions) {
+	for _, test := range []struct {
+		operand string
+		order   string
+		error   string
+	}{
+		{"observe(2)", "1,2,3", `unexpected keyword argument "other"`},
+		{"observe(2)[1]", "1,2", "index 1 out of range"},
+	} {
+		var observed []string
+		thread := &starlark.Thread{
+			Print: func(_ *starlark.Thread, msg string) { observed = append(observed, msg) },
+		}
+		source := fmt.Sprintf(`def observe(value):
+    print(value)
+    return [value]
+def f(a, b=1):
+    print("body")
+value = f(observe(1), other=%s, b=observe(3))
+`, test.operand)
+		_, err := starlark.ExecFileOptions(opts, thread, "explicit-operand-order.star", source, nil)
+		require(err != nil && strings.Contains(err.Error(), test.error), err)
+		require(strings.Join(observed, ",") == test.order, observed)
+	}
+	fmt.Println("PASS Go evaluates explicit operands left to right once and skips the tail after an operand error")
 }
 
 func main() {
@@ -229,4 +267,5 @@ func main() {
 	checkRecursive(opts)
 	checkAliasedCalls(opts)
 	checkLiveProvenance(opts)
+	checkExplicitOperandOrder(opts)
 }

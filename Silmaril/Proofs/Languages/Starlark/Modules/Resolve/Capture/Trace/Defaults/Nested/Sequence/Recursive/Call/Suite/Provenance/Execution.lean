@@ -3,6 +3,7 @@ module
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.Invariant
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.Elaboration
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.Thms
 
 public section
 
@@ -17,7 +18,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall (DistinctOwned
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site Emissions)
-open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (BodyEntry runs_preserving_with)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (BodyEntry)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite (Runs)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
 open Silmaril.Languages.Starlark.Functions
@@ -174,7 +175,8 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
       obtain ⟨found, permitted, enter⟩ := ready call.callee entry tracked
       obtain ⟨address, defining, callee, ⟨record⟩⟩ := evaluated_local live tracked call.calleeOwned
       obtain ⟨result, ran, exec, _, kept⟩ :=
-        runs_preserving_with entry.site _ checked entry.id found available permitted enter callee record call.operands
+        Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.runs
+          entry.site _ checked entry.id found available permitted enter callee record call.operands call.keywords
       have reached := Body.frame_preserved frame kept
       cases result with
       | error error stopped =>

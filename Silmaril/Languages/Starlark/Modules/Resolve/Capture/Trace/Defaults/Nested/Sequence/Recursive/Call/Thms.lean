@@ -13,6 +13,7 @@ open Assignment (LexicalBlock)
 open Functions
 open Functions.Lowering.Resolve (resolveTracked)
 open Lists (State Outcome Capture)
+local notation "Value" => Lists.Value
 open Lists.Iteration (Flow finishState)
 
 local notation "NormalizedExpr" => Lowering.Resolve.SourceExpr
@@ -121,6 +122,38 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
        Lowering.denoteExpr resolved.program available (expression name codes) copied = out ∧ Body.Keeps copied.heap.size copied (finishState out)) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving
     site profile checked table id found available permitted step receipts cells owned legal frame related
+
+theorem runs_packed {parent block : LexicalBlock} (site : Site parent)
+    (bodyRuns : State → Outcome Flow → Prop)
+    (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
+    (enterBody : BodyEntry site program available id bodyRuns)
+    {name : String} {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+      (.ok (.function address) state))
+    (record : ClosureAt site id defining state address)
+    {arguments : List NormalizedExpr} {codes : List Lowering.Expr} {reads : List Binding}
+    (related : Arguments block arguments codes reads)
+    (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr))
+    (ordered : positional ++ keywords.map Prod.snd = codes)
+    (collect : List Value → Actual) (binds : BindingRule)
+    (expands : ∀ state values, values.length = codes.length →
+      Lowering.Expands ((Lowering.argumentShape positional keywords none none).collect values)
+        state (.ok (collect values) state))
+    (total : ∀ defaults actual, ∃ result, binds defaults actual result)
+    (prepare : ∀ {reached : State} (closure : ClosureAt site id defining reached address) values result,
+      binds closure.defaults (collect values) result →
+      prepareExpanded program available (collect values) (.function address) reached =
+        match result with
+        | .error error => .error error reached
+        | .ok assigned => .ok (.closure ⟨id, permitted, site.declaration.body⟩)
+            (activate reached site.declaration closure.captures assigned)) :
+    let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords none none
+    ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds state out ∧
+      ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
+      Body.Keeps state.heap.size state (finishState out) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_packed
+    site bodyRuns program id available permitted enterBody callee record related positional keywords ordered
+    collect binds expands total prepare
 
 /-- A reached local read dispatches through its live closure record. -/
 theorem runs_preserving_with {parent block : LexicalBlock} (site : Site parent)

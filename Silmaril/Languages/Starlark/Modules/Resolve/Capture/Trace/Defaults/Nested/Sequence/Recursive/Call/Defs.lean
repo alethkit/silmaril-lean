@@ -69,34 +69,42 @@ abbrev BodyEntry {parent : LexicalBlock} (site : Site parent) (program : Program
     ∃ out, bodyRuns active out ∧ Exec program (withoutDeclaration available id) active site.body.code out ∧
       Body.Keeps caller.heap.size caller (finishState (Leaf.returnTo caller out))
 
+abbrev BindingRule := List Value → Actual → Except Lists.Error (List (Binding × Value)) → Prop
+
 /-- The call first reads the local callee and then evaluates its
-positional operands. Binding consults the reached heap only after all
+explicit operands. Binding consults the reached heap only after all
 operands succeed. A failed bind has no activation premise. -/
-inductive RunsWith {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
+inductive RunsPacked {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock)
-    (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr) :
-    State → Outcome Value → Prop where
+    (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr)
+    (collect : List Value → Actual) (binds : BindingRule) : State → Outcome Value → Prop where
   | calleeError {state next : State} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.error error next) →
-      RunsWith site bodyRuns block id callee arguments codes state (.error error next)
+      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error next)
   | operandError {state next : State} {address : Nat} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.error error next) →
-      RunsWith site bodyRuns block id callee arguments codes state (.error error next)
+      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error next)
   | bindingError {state actualState defining : State} {address : Nat} {values : List Value} {error : Lists.Error} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
-      Binds (site.parameters.slots record.defaults) values (.error error) →
-      RunsWith site bodyRuns block id callee arguments codes state (.error error actualState)
+      binds record.defaults (collect values) (.error error) →
+      RunsPacked site bodyRuns block id callee arguments codes collect binds state (.error error actualState)
   | invoked {state actualState defining : State} {address : Nat} {values : List Value} {bodyOut : Outcome Flow}
       {assigned : List (Binding × Value)} :
       Body.Evaluates block state (.scalar (.read callee)) (Leaf.readOperand (fileSlot callee)) (.ok (.function address) state) →
       Evaluates block state arguments codes (.ok values actualState) →
       (record : ClosureAt site id defining actualState address) →
-      Binds (site.parameters.slots record.defaults) values (.ok assigned) →
+      binds record.defaults (collect values) (.ok assigned) →
       bodyRuns (activate actualState site.declaration record.captures assigned) bodyOut →
-      RunsWith site bodyRuns block id callee arguments codes state (Leaf.returnTo actualState bodyOut)
+      RunsPacked site bodyRuns block id callee arguments codes collect binds state (Leaf.returnTo actualState bodyOut)
+
+abbrev RunsWith {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
+    (block : LexicalBlock) (id : DeclarationId) (callee : String)
+    (arguments : List NormalizedExpr) (codes : List Lowering.Expr) :=
+  RunsPacked site bodyRuns block id callee arguments codes (fun values => ⟨values, []⟩)
+    (fun defaults actual => Binds (site.parameters.slots defaults) actual.positional)
 
 abbrev Runs {parent : LexicalBlock} (site : Site parent) :=
   RunsWith site (fun state out => Sequence.Runs site.block state site.source site.body.code out)
