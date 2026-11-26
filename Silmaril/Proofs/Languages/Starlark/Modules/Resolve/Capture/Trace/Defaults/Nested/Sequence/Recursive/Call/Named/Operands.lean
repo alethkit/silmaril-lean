@@ -184,17 +184,15 @@ private theorem optional_resolves {α : Type} {block : LexicalBlock}
   | some value =>
     simp [Option.mapM, Functor.map, StateT.map, Except.map, resolved]
 
-theorem resolves {block : LexicalBlock} {name : String}
+theorem resolves_at {block : LexicalBlock} {name : String}
     {positional : List SourceExpr} {posCodes : List Lowering.Expr} {posReads : List Binding}
-    (legal : name.toList.head? ≠ some '$') (owned : name ∈ block.owned)
+    (slot : Binding) (callee : Body.Operand block (.scalar (.read name)) (Leaf.readOperand slot) [slot])
     (related : Positional block positional posCodes posReads) (keywords : Operands block)
     (star : Option (Spread block) := none) (mapping : Option (Mapping block) := none) :
     resolveTracked block.context
       (.call (.scalar (.read name)) positional keywords.source (star.map Spread.source) (mapping.map Mapping.source)) =
-      .ok (expression name posCodes keywords.codes (star.map Spread.code) (mapping.map Mapping.code),
-        fileSlot name :: ((posReads ++ keywords.reads) ++ spreadReads star ++ mappingReads mapping)) := by
-  have callee : Body.Operand block (.scalar (.read name)) (Leaf.readOperand (fileSlot name)) [fileSlot name] :=
-    .read legal (.owned owned) (.owned owned)
+      .ok (expressionAt slot posCodes keywords.codes (star.map Spread.code) (mapping.map Mapping.code),
+        slot :: ((posReads ++ keywords.reads) ++ spreadReads star ++ mappingReads mapping)) := by
   have first : (positional.attach.mapM fun arg => resolveExpr block.context arg.val) =
       positional.mapM (resolveExpr block.context) := by
     calc
@@ -219,7 +217,7 @@ theorem resolves {block : LexicalBlock} {name : String}
   have mappingResolved := optional_resolves mapping Mapping.source Mapping.code Mapping.reads mapping_resolves
   rw [resolveTracked, resolveExpr.eq_def]
   simp [first, second, Body.resolves_at callee, resolves_positional related, resolves_named keywords.related,
-    starResolved, mappingResolved, expression, bind, StateT.bind, Except.bind, pure, StateT.pure,
+    starResolved, mappingResolved, expressionAt, bind, StateT.bind, Except.bind, pure, StateT.pure,
     Except.pure, Except.map, List.reverse_append, List.append_assoc, mappingReads]
 
 private theorem no_duplicate {names : List String} (distinct : names.Nodup) : firstDuplicate names = none := by
@@ -238,7 +236,7 @@ theorem rejects_duplicate (name : String) (positional : List Lowering.Expr)
     (keywords : List (String × Lowering.Expr)) (duplicate : String)
     (repeated : firstDuplicate (keywords.map Prod.fst) = some duplicate) :
     (expression name positional keywords).validateCalls = .error (.duplicateExplicitKeyword duplicate) := by
-  rw [expression, Lowering.Expr.validateCalls.eq_def]
+  rw [expression, expressionAt, Lowering.Expr.validateCalls.eq_def]
   simp [repeated, throw, bind, Except.bind]
   rfl
 

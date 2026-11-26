@@ -9,7 +9,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
 
-open Silmaril.Languages.Starlark (Binding)
+open Silmaril.Languages.Starlark (Binding Scope)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
@@ -54,8 +54,8 @@ private abbrev Correspondence (program : Program) (available : List DeclarationI
     ∃ out, Runs block state source code.code out ∧ Body.Frame block free floor (finishState out) ∧
       Body.Keeps floor state (finishState out) ∧ Exec program available state code.code out
 
-private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) (caller defining : State)
+private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) (caller defining : State)
     (captures : List Capture) (installed : Installs defining site.free captures)
     (live : Body.CaptureCells caller captures) (assigned : List (Binding × Value)) :
     Body.Frame site.block site.free caller.heap.size (activate caller site.declaration captures assigned) :=
@@ -210,8 +210,8 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
     runs_guarded checked available profile table guarded (fun _ _ no => nomatch no) selected state frame distinct (empty_live _)
   exact ⟨out, trace, lastFrame, kept, exec, (exec_iff_denoteBody _ _ _ _ _).mp exec⟩
 
-theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs) {seed final : Program} {emissions : Emissions}
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)

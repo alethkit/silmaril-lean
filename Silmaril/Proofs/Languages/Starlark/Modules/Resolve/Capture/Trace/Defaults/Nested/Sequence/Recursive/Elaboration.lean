@@ -8,7 +8,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive
 
-open Silmaril.Languages.Starlark (Binding)
+open Silmaril.Languages.Starlark (Binding Scope)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
@@ -20,22 +20,22 @@ open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists (State Capture Value)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow)
 
-theorem lexical_defaults {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) (named : KeywordLexical parent keywords) :
+theorem lexical_defaults {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords) :
     Lexical.Elaborates parent site.defaultSources site.defaultsInOrder := by
   cases keywords with
   | nil => exact site.lexical
   | cons first rest => exact Lexical.append site.lexical named
 
-private theorem source_names {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) :
+private theorem source_names {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) :
     site.sourceSignature.parameterNames = parameterNames site.parameters keywords varargs kwargs := by
   cases keywords <;> cases varargs <;> cases kwargs <;>
     simp [Site.sourceSignature, SourceSignature.parameterNames, parameterNames, Parameters.source,
       Parameters.names, List.map_map, Function.comp_def]
 
-private theorem parameter_binders {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) :
+private theorem parameter_binders {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) :
     Block.ParameterBinders site.sourceSignature (parameterNames site.parameters keywords varargs kwargs) := by
   have ordered (parameters : List SourceParameter) :
       Assignment.InOrder (fun p name => p.name = name) parameters (parameters.map SourceParameter.name) := by
@@ -45,8 +45,8 @@ private theorem parameter_binders {parent : LexicalBlock} {keywords : List Plain
   rw [← source_names site]
   exact .signature varargs kwargs (ordered _) (ordered _)
 
-theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) (named : KeywordLexical parent keywords)
+theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords)
     {seed middle : Program} (compiled : compileBody ⟨site.block.context, .local⟩ site.source seed =
       .ok (site.body, middle)) :
     compileBody ⟨parent.context, .local⟩ site.statement seed =
@@ -88,8 +88,8 @@ private theorem keyword_slots (keywords : List PlainKeywordParameter) :
     cases first <;> simp [PlainKeywordParameter.resolved, PlainKeywordParameter.source,
       PlainPositionalDefault.resolved, PlainPositionalDefault.parameter, ih]
 
-theorem site_slots {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) :
+theorem site_slots {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) :
     site.declaration.signature.slots ++ site.declaration.locals = site.block.owned.map fileSlot := by
   have length : (site.defaults.map PlainPositionalDefault.value).length = site.parameters.optional.length := by
     simpa using congrArg List.length (Lexical.translates site.lexical).1
@@ -112,8 +112,8 @@ private theorem keyword_default_pairs (keywords : List PlainKeywordParameter) :
     | required name => exact ih
     | defaulted item => exact congrArg ((fileSlot item.name, item.value) :: ·) ih
 
-theorem default_layout {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent keywords varargs kwargs) (named : KeywordLexical parent keywords) :
+theorem default_layout {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords) :
     site.declaration.signature.defaulted.map Prod.fst = site.defaultKeys ∧
       site.declaration.signature.defaulted.map Prod.snd = site.defaultsInOrder.map PlainPositionalDefault.value := by
   have ⟨same, _⟩ := Lexical.translates site.lexical

@@ -12,7 +12,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call
 
-open Silmaril.Languages.Starlark (Binding)
+open Silmaril.Languages.Starlark (Binding Scope)
 open Silmaril.Languages.Starlark.Modules (fileSlot)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
@@ -37,8 +37,8 @@ private theorem positioned {codes : List Lowering.Expr} {values : List Value} (s
   simpa only [List.append_nil] using Lowering.Expands.success (args := ⟨values, [], none, none⟩) (keys := [])
     (values := []) (next := state) rfl .empty
 
-private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    {site : Site parent formals varargs kwargs} {id : DeclarationId}
+private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    {site : Site parent formals varargs kwargs scope} {id : DeclarationId}
     {defining state next : State} {address : Nat} (record : ClosureAt site id defining state address)
     (kept : Body.Keeps state.heap.size state next) : ClosureAt site id defining next address :=
   { record with
@@ -75,13 +75,13 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
-theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
-    (site : Site parent formals varargs kwargs)
+theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)
-    {name : String} {state defining : State} {address : Nat}
-    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand (fileSlot name))
+    {name : String} (slot : Binding) {state defining : State} {address : Nat}
+    (callee : Body.Evaluates block state (.scalar (.read name)) (Leaf.readOperand slot)
       (.ok (.function address) state))
     (record : ClosureAt site id defining state address)
     (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr)) (star starStar : Option Lowering.Expr)
@@ -101,12 +101,12 @@ theorem runs_actual {parent block : LexicalBlock} {formals : List PlainKeywordPa
           prepareExpanded program available actual (.function address) reached =
             .ok (.closure ⟨id, permitted, site.declaration.body⟩)
               (activate packed site.declaration closure.captures assigned)) :
-    let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords star starStar
-    ∃ out, RunsActual site bodyRuns block id name actuals binds packs state out ∧
+    let code := Lowering.Expr.call (Leaf.readOperand slot) positional keywords star starStar
+    ∃ out, RunsActual site bodyRuns block id name slot actuals binds packs state out ∧
       ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
       Body.Keeps state.heap.size state (finishState out) := by
-  let code := Lowering.Expr.call (Leaf.readOperand (fileSlot name)) positional keywords star starStar
-  change ∃ out, RunsActual site bodyRuns block id name actuals binds packs state out ∧
+  let code := Lowering.Expr.call (Leaf.readOperand slot) positional keywords star starStar
+  change ∃ out, RunsActual site bodyRuns block id name slot actuals binds packs state out ∧
     ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
     Body.Keeps state.heap.size state (finishState out)
   let calls := Lowering.coreClosureRuns program available
@@ -196,7 +196,7 @@ theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordPa
     ∃ out, RunsPacked site bodyRuns block id name arguments codes collect binds packs state out ∧
       ExecExpr program available state code out ∧ Lowering.denoteExpr program available code state = out ∧
       Body.Keeps state.heap.size state (finishState out) := by
-  refine runs_actual site bodyRuns program id available permitted enterBody callee record positional keywords none none _
+  refine runs_actual site bodyRuns program id available permitted enterBody (fileSlot name) callee record positional keywords none none _
     (fun reached => ?_) binds packs total ?_
   · obtain ⟨out, ran, kept, length⟩ := arguments_total related reached
     have native := evaluates_many program available (Lowering.coreClosureRuns program available) ran
