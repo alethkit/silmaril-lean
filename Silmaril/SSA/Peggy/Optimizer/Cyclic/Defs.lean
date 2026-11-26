@@ -122,15 +122,34 @@ def extract (found : Match g site) : Graph P params results n 1 where
     Node.ofLabel old.label (old.args.map fun _ => found.redirect)
   roots := g.roots.map fun _ => found.redirect
 
-def selection (found : Match g site) (phase : Fin n → Nat) : Selection g found.extract :=
-  ⟨fun i => Ref.ofId g.sort (site.succAbove i), demandRank phase⟩
+def selectionWithRank (found : Match g site) (rank : DemandRank n 1) : Selection g found.extract :=
+  ⟨fun i => Ref.ofId g.sort (site.succAbove i), rank⟩
 
 /-- Generate both sides of the certificate from the same retained source row.
 Only the operand references are redirected. -/
-def rows (found : Match g site) (phase : Fin n → Nat) (i : Fin n) :
-    Selection.Row (found.selection phase) i :=
+def rowsWithRank (found : Match g site) (rank : DemandRank n 1) (i : Fin n) :
+    Selection.Row (found.selectionWithRank rank) i :=
   let old := g.node (site.succAbove i)
   ⟨old.inputs, old.label, old.args, old.args.map (fun _ => found.redirect), HEq.rfl, rfl⟩
+
+structure Replay (found : Match g site) (rank : DemandRank n 1) : Type where
+  boundary : (found.selectionWithRank rank).check found.classes = true
+  edges : Selection.checkRows (found.rowsWithRank rank) found.classes = true
+
+/-- Check the original compaction and saturation receipt with the
+target's caller-chosen demand rank. Source admission is independent. -/
+def replay (found : Match g site) (rank : DemandRank n 1) : Option (found.Replay rank) :=
+  if ok : (found.selectionWithRank rank).check found.classes = true ∧
+      Selection.checkRows (found.rowsWithRank rank) found.classes = true then
+    some ⟨ok.1, ok.2⟩
+  else none
+
+def selection (found : Match g site) (phase : Fin n → Nat) : Selection g found.extract :=
+  found.selectionWithRank (demandRank phase)
+
+def rows (found : Match g site) (phase : Fin n → Nat) (i : Fin n) :
+    Selection.Row (found.selection phase) i :=
+  found.rowsWithRank (demandRank phase) i
 
 end Match
 
@@ -146,10 +165,8 @@ def trySite (g : Graph P params results (n + 1) 1) (source : Admission g)
     (site : Fin (n + 1)) : Option (Result g) := do
   let found ← matchAt g site
   let target ← admit found.extract
-  if ok : (found.selection target.phase).check found.classes = true ∧
-      Selection.checkRows (found.rows target.phase) found.classes = true then
-    some ⟨source, site, found, target, ok.1, ok.2⟩
-  else none
+  let replay ← found.replay (demandRank target.phase)
+  return ⟨source, site, found, target, replay.boundary, replay.edges⟩
 
 /-- Scan at most one pass over the source addresses. Return the first
 candidate passing all the independent checks. -/

@@ -1,7 +1,10 @@
 module
 
 import Silmaril.SSA.Peggy.SimpleValidation.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Thms
+import Silmaril.SSA.PEG.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Defs
 meta import Silmaril.SSA.PEG.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
@@ -148,3 +151,161 @@ private def rejected : Option Rejection :=
 #eval rejected
 
 end Silmaril.SSA.Peggy.SimpleValidation.Tests
+
+namespace Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
+
+open PEG
+open PEG.Simple
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | one : Op [] .count
+  | sub : Op [.count, .count] .count
+  | aboveTwo : Op [.count] .bool
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .one, .nil => some ⟨1⟩
+    | .sub, .cons n (.cons k .nil) => some ⟨n.down - k.down⟩
+    | .aboveTwo, .cons n .nil => some ⟨decide (n.down > 2)⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private abbrev params : List (Ty Unit) := [.count]
+private def store (n : Nat) : Tuple model.Value params := .cons ⟨n⟩ .nil
+
+private def source : WhileProgram Op params .count where
+  guard := .op .aboveTwo (.cons (.var .head) .nil)
+  body :=
+    .seq (.assign (.op .one .nil))
+      (.seq (.assign (.op .sub (.cons (.var (.tail .head)) (.cons (.var .head) .nil))))
+        (.project (.cons .head .nil)))
+  retvar := .head
+
+private def frontend : Graph Op params [.count] 8 1 := source.translate .not
+
+private def sorts (i : Fin 9) : Ty Unit :=
+  if h : i.val < 8 then frontend.sort (i.castLT h) else .count
+
+private def liftRef {t : Ty Unit} (ref : Ref frontend.sort t) : Ref sorts t :=
+  ⟨ref.id.castSucc, by simpa [sorts, ref.id.isLt] using ref.typed⟩
+
+private inductive Variant where
+  | constant
+  | changing
+  | parameter
+  | ordinaryCycle
+  deriving DecidableEq
+
+-- Use the compiler output, with the subtraction now reading θ(1, θ)
+-- for its decrement. The original live feedback remains in the table.
+private def graph (variant : Variant) : Graph Op params [.count] 9 1 where
+  forest := frontend.forest
+  sort := sorts
+  roots := frontend.roots.map fun _ r => liftRef r
+  node i :=
+    if eq : i = 3 then
+      let counter : Ref sorts .count := if variant = .ordinaryCycle then ⟨3, rfl⟩ else ⟨6, rfl⟩
+      eq.symm ▸ (Node.ofLabel (.op .sub) (.cons counter (.cons ⟨8, rfl⟩ .nil)) :
+        Node Op params (Fin 1) sorts (sorts 3))
+    else if old : i.val < 8 then
+      let row := frontend.node (i.castLT old)
+      (show sorts i = frontend.sort (i.castLT old) by simp [sorts, old]).symm ▸
+        Node.ofLabel row.label (row.args.map fun _ r => liftRef r)
+    else
+      let seed : Ref sorts .count :=
+        match variant with
+        | .changing => ⟨6, rfl⟩
+        | .parameter => ⟨7, rfl⟩
+        | _ => ⟨4, rfl⟩
+      (show sorts i = .count by simp [sorts, old]).symm ▸
+        Node.ofLabel (.theta 0) (.cons seed (.cons ⟨8, rfl⟩ .nil))
+
+private def rows {n : Nat} (_ : Graph Op params [.count] n 1) : Nat := n
+
+private def run : Option (Nat × Nat × Nat × List Nat × List Nat × Nat) := do
+  let a ← (optimize (graph .constant)).toOption
+  let target := a.rewrite.matched.extract
+  let value ← a.reversion.runFuel model 3 (store 5)
+  return (a.rewrite.site.val, rows (graph .constant), rows target,
+    refNumbers (target.node 3).args, refNumbers (target.node 6).args, value.down)
+
+-- Remove row 8, redirect subtraction from [6, 8] to [6, 4], and
+-- retain the live θ with [7, 3]. Three iterations return 2.
+#guard refNumbers ((graph .constant).node 3).args == [6, 8]
+
+/-- info: some (8, 9, 8, [6, 4], [7, 3], 2) -/
+#guard_msgs in
+#eval run
+
+private def rejection (variant : Variant) : Option Rejection :=
+  match optimize (graph variant) with
+  | .error e => some e
+  | .ok _ => none
+
+-- A varying initializer fails matching. A parameter initializer replays
+-- but exposes an out-of-scope operand to the SIMPLE schedule.
+#guard rejection .ordinaryCycle == some .sourceRank
+#guard rejection .changing == some .noCheckedRewrite
+#guard rejection .parameter == some .reversion
+
+private theorem sourceReturns : source.source.Returns model (store 5) ⟨2⟩ := by
+  have step (n : Nat) : Exec model source.body.enableWhile (store n) (some (store (n - 1))) :=
+    source.body.runLoopFree_enableWhile (store n)
+  exact ⟨store 2, .whileStep (next := store 4) rfl (step 5)
+    (.whileStep (next := store 3) rfl (step 4)
+      (.whileStep (next := store 2) rfl (step 3) (.whileStop rfl))), rfl⟩
+
+-- A concrete replay receipt connects the augmented input to the compiler
+-- observation. The executable regression above discovers the receipt.
+private def matched : Optimizer.Cyclic.Match (graph .constant) (8 : Fin 9) :=
+  (Optimizer.Cyclic.matchAt (graph .constant) 8).get (by decide)
+
+private def inputRank : DemandRank 9 1 :=
+  [.phase (fun i => 3 - i.val), .counter 0,
+    .phase fun i => match i.val with | 4 => 0 | 8 => 1 | k => 10 - k]
+
+private theorem inputWF : WellFounded (graph .constant).Demand :=
+  (graph .constant).demandWellFounded_of_check inputRank (by decide)
+
+private def checked : matched.Replay source.rank :=
+  (matched.replay source.rank).get (by decide)
+
+private theorem table_eq {a b : RawGraph Op params [.count] 8 1}
+    (forest : a.forest = b.forest) (sort : a.sort = b.sort)
+    (rows : ∀ i, HEq (a.node i) (b.node i)) (roots : a.roots = b.roots) : a = b := by
+  cases a
+  cases b
+  rw [RawGraph.mk.injEq]
+  refine ⟨forest, sort, ?_, roots⟩
+  dsimp only at sort rows ⊢
+  cases sort
+  exact heq_of_eq (funext fun i => eq_of_heq (rows i))
+
+private theorem target_eq : matched.extract = frontend := by
+  apply Graph.eq_of_toRaw_eq
+  have row (i : Fin 8) :
+      matched.extract.sort i = frontend.sort i ∧
+        HEq (matched.extract.toRaw.node i) (frontend.toRaw.node i) := by
+    have positions : i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3 ∨ i = 4 ∨ i = 5 ∨ i = 6 ∨ i = 7 := by omega
+    rcases positions with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨rfl, HEq.rfl⟩
+  exact table_eq rfl (funext fun i => (row i).1) (fun i => (row i).2) rfl
+
+private theorem frontendObserve (g : Graph Op params [.count] 8 1) (h : g = frontend)
+    (wf : WellFounded g.Demand) (i : Index 1) :
+    g.observe model (g.denote model (store 5) wf) i = .cons (some ⟨2⟩) .nil := by
+  subst g
+  exact source.translate_returns .not model (store 5) (fun _ => rfl) sourceReturns i
+
+private theorem inputObserve (i : Index 1) : (graph .constant).observe model
+    ((graph .constant).denote model (store 5) inputWF) i = .cons (some ⟨2⟩) .nil :=
+  (checked.sound inputWF model (store 5) i).trans (frontendObserve _ target_eq _ i)
+
+example (a : Accepted (graph .constant)) (total : a.reversion.Total model)
+    (neg : ∀ b : Bool, model.run a.reversion.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (i : Index 1) : a.output.Returns model (store 5) ⟨2⟩ :=
+  (a.returns_iff_observe model (store 5) total neg i ⟨2⟩).mpr (inputObserve i)
+
+end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
