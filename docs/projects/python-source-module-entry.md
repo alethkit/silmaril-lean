@@ -135,25 +135,32 @@ Mixed addition in a positional operand accepts one checked closed integer
 and one signed finite decimal literal in either order. After live callee
 lookup, the runner first rounds the integer to binary64, ties to even.
 Integer conversion overflow raises `OverflowError`. The exact dyadic sum
-of the converted operands is then rounded once. Opposite signs cancel to
-positive zero, and sums on the subnormal grid retain their magnitude bits.
-The core addition rule also preserves the sum of two negative zeros.
-A nonfinite sum stops outside the finite profile. The addition path uses
-the same ordered argument preparation and seeded receipt delivery as the
-division path.
+of the converted operands is then rounded once.
+
+Float–float addition in a positional operand accepts two signed decimal
+literals whose checked conversions produce finite binary64 operands. The
+compiler preserves their source order. Both runners defer the exact dyadic
+sum until argument preparation and round it once to nearest, ties to even.
+Exact cancellation and opposite zero signs produce positive zero. The sum
+of two negative zeros is negative zero, and a sum on the subnormal grid
+retains its magnitude bits and sign. At the overflow midpoint or beyond,
+CPython produces an infinity. Both runners explicitly stop outside the
+finite profile at that operand. A decimal literal conversion that produces
+infinity fails checking. Both addition paths use the existing ordered call
+preparation and seeded receipt delivery.
 
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first six unchanged lines complete with `legacyNumericIsinstanceSeed`
+The first eight unchanged lines complete with `legacyNumericIsinstanceSeed`
 in both helper placements. It installs the stock `float` class in the
 builtin table and the Boolean assertion helper in the selected placement.
-The probes on lines 2, 4 and 6 record exact Boolean `True` before the
-outer helper's `None` receipt. The two mixed sums supply finite binary64
-`6.0`. Instance dispatch uses the live module-first descriptors. A saved
-class alias still works after rebinding `float`, and an `int` or `bool`
+The probes on lines 2, 4, 6 and 8 record exact Boolean `True` before the
+outer helper's `None` receipt. The two mixed sums and the float–float sum
+supply finite binary64 `6.0`. Instance dispatch uses the live module-first
+descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
 mask yields exact `False` before the assertion fails. The checked pairs use
 exact Boolean, integer and finite float values against stock `bool`,
 `int` and `float` classes. Class tuples, arbitrary subclasses, nonclass
@@ -163,9 +170,9 @@ Ordinary and empty-seeded runs stop at the missing equality helper on
 line 1. The fixed stock profiles reach the missing Boolean assertion
 helper on line 2. Supplying that helper and only the integer and Boolean
 classes leaves the `float` lookup on line 4 undefined. The first
-rejected compiler prefix is line 7, `___assertEqual(4.0 + 2.0, 6.0)`,
+rejected compiler prefix is line 10, `___assertEqual(4 - 2, 2)`,
 and the full file reports `expressionProfile`.
-Run the mixed addition differential with
+Run the binary64 addition differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
 Run the equality and positional addition differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.

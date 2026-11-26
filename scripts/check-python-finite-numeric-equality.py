@@ -54,6 +54,10 @@ def numeric_operand(value):
         return f".integer ({value})"
     return lean_value(value)
 
+def numeric_tag(value):
+    assert type(value) in (int, bool, float)
+    return f"float64:{bits(value)}" if type(value) is float else f"{type(value).__name__}:{value}"
+
 
 def assertion_error(left, right):
     if type(left) is int and type(right) is int:
@@ -203,17 +207,17 @@ def instance_case(source, expected, probes, *, failed_call=None, probe_name="isi
     for placement in ("builtin", "preamble"):
         calls = []
         tested = []
+        compared = []
 
         def assert_equal(left, right):
             assert left == right and type(left) is type(right)
+            compared.append((numeric_tag(left), numeric_tag(right)))
             calls.append(success_receipt(HELPER, None))
 
         def probe(value, classinfo):
-            assert type(value) in (int, bool, float)
             result = isinstance(value, classinfo)
             assert any(classinfo is kind for kind in (int, bool, float))
-            tagged = f"float64:{bits(value)}" if type(value) is float else f"{type(value).__name__}:{value}"
-            tested.append((tagged, classinfo.__name__, result))
+            tested.append((numeric_tag(value), classinfo.__name__, result))
             calls.append(receipt(probe_name, f".ok (.bool {str(result).lower()})"))
             return result
 
@@ -264,7 +268,8 @@ def instance_case(source, expected, probes, *, failed_call=None, probe_name="isi
         seed = "Compile.ModuleEntry.Functions.Run.Seeded.legacyNumericIsinstanceSeed" if numeric else "integerTypeSeed"
         guards.append(TRANSPORT["seeded"](f"({seed} .{placement})", completion, bindings,
                                           "[]", literal_list(calls)))
-        observed[placement] = {"status": status, "probes": tested, "bindings": bindings, "receipts": calls}
+        observed[placement] = {"status": status, "probes": tested, "compared": compared,
+                               "bindings": bindings, "receipts": calls}
         if unsupported_class:
             observed[placement]["lean_status"] = "unsupported"
     return (source, "\n".join(guards)), observed
@@ -299,16 +304,17 @@ def instance_controls(lines):
         fixtures.append(fixture)
         observations[label] = observed
 
-    prefix = "".join(lines)
+    prefix = "".join(lines[:6])
+    addition_prefix = "".join(lines[:8])
     fixed = (
         PROFILES[0],
         *((placement, f"(Compile.ModuleEntry.Functions.Run.Seeded.legacyTextSeed .{placement})")
           for placement in ("builtin", "preamble")),
     )
-    fixture, observed = observe(prefix, expect("NameError:___assertEqual", "NameError:___assertTrue"),
+    fixture, observed = observe(addition_prefix, expect("NameError:___assertEqual", "NameError:___assertTrue"),
                                 {"empty": HELPER}, profiles=fixed)
     fixtures.append(fixture)
-    observations["six-line prefix in fixed profiles"] = observed
+    observations["eight-line prefix in fixed profiles"] = observed
 
     mixed = "float64:4018000000000000"
     for label, source, status, probes, options in (
@@ -340,6 +346,26 @@ def instance_controls(lines):
         fixture, observed = instance_case(source, status, probes, numeric=True, **options)
         fixtures.append(fixture)
         observations[label] = observed
+
+    (source, guards), observed = instance_case(addition_prefix, "normal",
+                                               successful + [(mixed, "float", True)] * 3, numeric=True)
+    assert all(profile["compared"] == [("int:6", "int:6")] + [(mixed, mixed)] * 3
+               for profile in observed.values())
+    guards += """
+#guard (match compile pythonSource with
+  | .ok compiled => match compiled.instructions.drop 6 with
+    | [.nestedCall .discard "___assertEqual"
+         [.scalar (.floatAdd left right), .scalar (.literal (.float64 expected))],
+       .nestedCall .discard "___assertTrue" [.call "isinstance" [.floatAdd first second, .readGlobal "float"]]] =>
+      left.val.bits == 0x4010000000000000 && right.val.bits == 0x4000000000000000 &&
+        first.val.bits == left.val.bits && second.val.bits == right.val.bits &&
+        expected.val.bits == 0x4018000000000000 &&
+        (Core.Binary64.addFinite? left right).map (fun result => result.val.bits) == some expected.val.bits
+    | _ => false
+  | _ => false)
+"""
+    fixtures.append((source, guards))
+    observations["unchanged eight-line numeric prefix"] = observed
     return fixtures, observations
 
 
@@ -353,6 +379,8 @@ def controls(upstream):
         "___assertTrue(isinstance(4 + 2.0, float))\n",
         "___assertEqual(4.0 + 2, 6.0)\n",
         "___assertTrue(isinstance(4.0 + 2, float))\n",
+        "___assertEqual(4.0 + 2.0, 6.0)\n",
+        "___assertTrue(isinstance(4.0 + 2.0, float))\n",
     ]
     full = None
     if upstream is not None:
@@ -363,8 +391,8 @@ def controls(upstream):
         first_line = full.splitlines(keepends=True)[0]
         assert first_line == first
         first = first_line
-        assert full.splitlines(keepends=True)[:6] == instance_prefix
-        instance_prefix = full.splitlines(keepends=True)[:6]
+        assert full.splitlines(keepends=True)[:8] == instance_prefix
+        instance_prefix = full.splitlines(keepends=True)[:8]
     missing = "NameError:___assertEqual"
     through_literal = (
         "def relay(value):\n    return value\n"
@@ -423,13 +451,13 @@ def controls(upstream):
         lines = full.splitlines(keepends=True)
         fixtures.append((full, rejected))
         assert lines[2] == "___assertEqual(4 + 2.0, 6.0)\n"
-        assert lines[6] == "___assertEqual(4.0 + 2.0, 6.0)\n"
-        fixtures.append(("".join(lines[:6]), "#guard (compile pythonSource).isOk"))
-        fixtures.append(("".join(lines[:7]), rejected))
+        assert lines[8] == "\n" and lines[9] == "___assertEqual(4 - 2, 2)\n"
+        fixtures.append(("".join(lines[:9]), "#guard (compile pythonSource).isOk"))
+        fixtures.append(("".join(lines[:10]), rejected))
         observations["first prefix cutoffs"] = {
-            "first_rejected_compiler_prefix": 7,
-            "source": lines[6].rstrip("\n"),
-            "numeric_seed_completed_through": 6,
+            "first_rejected_compiler_prefix": 10,
+            "source": lines[9].rstrip("\n"),
+            "numeric_seed_completed_through": 8,
             "integer_seed_runtime_line": 4,
             "integer_seed_runtime_cutoff": "NameError:float",
         }

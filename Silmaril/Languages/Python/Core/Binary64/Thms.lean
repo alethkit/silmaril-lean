@@ -49,6 +49,17 @@ theorem intToFinite_nearestEven {integer : Int} {result : F64.Finite}
       NearestEven magnitude (integer.natAbs : ℚ) (magnitudeBits result.val.bits).toNat :=
   Proofs.Languages.Python.Core.Binary64.intToFinite_nearestEven converted
 
+theorem addFinite_none_iff {left right : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    addFinite? left right = none ↔ overflowThreshold ≤ |lhs + rhs| :=
+  Proofs.Languages.Python.Core.Binary64.addFinite_none_iff leftValue rightValue
+
+theorem addFinite_ok_iff {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    addFinite? left right = some result ↔ |lhs + rhs| < overflowThreshold ∧
+      result.val = F64.ofBits (roundSigned (sumNegative left right (lhs + rhs)) |lhs + rhs|) :=
+  Proofs.Languages.Python.Core.Binary64.addFinite_ok_iff leftValue rightValue
+
 theorem addFinite_nearestEven {left right result : F64.Finite} {lhs rhs : ℚ}
     (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
     (added : addFinite? left right = some result) :

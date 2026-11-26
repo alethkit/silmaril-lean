@@ -97,6 +97,17 @@ theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.mixedAdd_operand_agrees
     space globals heap frame integer floating
 
+theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (left right : Silmaril.Numeric.Ieee754.F64.Finite) :
+    (lowerCallOperand (.floatAdd left right)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatAdd left right).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatAdd_operand_agrees
+    space globals heap frame left right
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls :=
