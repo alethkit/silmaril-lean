@@ -22,6 +22,9 @@ CONSTRUCTORS_SHA = "f4c4456ed6ffc8dc95d34f46a18636a57196236e1ff7bafc5cc4b851532a
 IMMUTABLE_ALIAS_PIN = "tests/python/programs/original/lambda-py/python-reference/scope/immutable-alias.py"
 IMMUTABLE_ALIAS_SHA = "e5c11007f121cac93bfb3cbb9aa9ec74b48ac1e617400434a42b4668b7b9f7ef"
 
+LIVE_COMPARISON_PIN = "tests/python/programs/original/k-python/programs/testtuples11.py"
+LIVE_COMPARISON_SHA = "b1e88db0dfe2d8470404900de6cac22eb9067b7042ad2a1af0b941a9e3cd7aab"
+
 LEAN = SUITE["LEAN"] + """
 open Compile.ModuleEntry.Functions
 open Compile.ModuleEntry.Functions.Run.Seeded (legacyListSeed legacyTupleSeed)
@@ -34,6 +37,7 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
   let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled heap (lists := lists)
   let completion := match result.completion with
     | .ok () => "normal"
+    | .error (.raised (.runtime .tupleArgumentNotIterable)) => "TypeError"
     | .error (.raised error) => raised error
     | .error .unsupported => "unsupported"
     | .error _ => "unexpected completion"
@@ -46,12 +50,12 @@ private def tupleOutcome (source : Source.Module) (space : Namespace) (status : 
 
 private def tupleTrace (source : Source.Module) (space : Namespace) : Option
     (Except Core.Module.TupleDispatch.Failure Bool × List (Except Core.Module.TupleDispatch.Failure
-      Core.Module.TupleDispatch.Object) × Array (List Core.Module.Value)) := do
+      TupleChain.Compared) × Array (List Core.Module.Value)) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   let test ← compiled.instructions.findSome? fun
     | .assertTupleChain test => some test
     | _ => none
-  let trace := TupleChain.evaluate (fun _ => Compile.ModuleEntry.Functions.Run.Seeded.tupleBinding space) test
+  let trace := TupleChain.evaluate (Compile.ModuleEntry.Functions.Run.Seeded.tupleLookup space) test
   return (trace.result, trace.reached, trace.heap.objects)
 
 private def ordinaryTuple (source : Source.Module) : Option (String × String × String) := do
@@ -127,13 +131,13 @@ def replay_pin(checkout, source_path, lean_path):
     for placement in ("builtin", "preamble"):
         space = f"(legacyTupleSeed .{placement})"
         guards.append(outcome(space, "normal", f"{space}.moduleGlobals"))
-    objects = ", ".join(f".ok ⟨some {address}, [.int 5, .int 6]⟩" for address in (2, 5, 8, 9))
+    objects = ", ".join(f".ok (.object ⟨some {address}, [.int 5, .int 6]⟩)" for address in (2, 5, 8, 9))
     guards.extend((
         f"#guard tupleTrace pythonSource {STOCK} == some (.ok true, [{objects}], "
         "#[[.int 5], [.int 6], [.int 5, .int 6], [.int 5], [.int 6], [.int 5, .int 6], "
         "[.int 5], [.int 6], [.int 5, .int 6], [.int 5, .int 6]])",
         "#guard tupleTrace pythonSource Namespace.empty == some (.error .missingType, "
-        "[.ok ⟨some 2, [.int 5, .int 6]⟩, .error .missingType], #[[.int 5], [.int 6], [.int 5, .int 6]])",
+        "[.ok (.object ⟨some 2, [.int 5, .int 6]⟩), .error .missingType], #[[.int 5], [.int 6], [.int 5, .int 6]])",
     ))
     check(source, source_path, lean_path, *guards)
     return {"upstream": revision, "sha256": SHA, "operand_values": values,
@@ -181,22 +185,22 @@ def chain_controls(source_path, lean_path):
         ("early_false", "assert (1,).__add__(()) == (2,) == tuple.__add__((2,), ())",
          "Namespace.empty", {}, {}, "AssertionError:empty", "AssertionError:empty",
          "#guard tupleTrace pythonSource Namespace.empty == some "
-         "(.ok false, [.ok ⟨some 0, [.int 1]⟩, .ok ⟨some 1, [.int 2]⟩], #[[.int 1], [.int 2]])"),
+         "(.ok false, [.ok (.object ⟨some 0, [.int 1]⟩), .ok (.object ⟨some 1, [.int 2]⟩)], #[[.int 1], [.int 2]])"),
         ("late_false", "assert (1,).__add__(()) == ().__add__((1,)) == (2,) == tuple.__add__((2,), ())",
          "Namespace.empty", {}, {}, "AssertionError:empty", "AssertionError:empty",
          "#guard tupleTrace pythonSource Namespace.empty == some "
-         "(.ok false, [.ok ⟨some 0, [.int 1]⟩, .ok ⟨some 1, [.int 1]⟩, .ok ⟨some 2, [.int 2]⟩], "
+         "(.ok false, [.ok (.object ⟨some 0, [.int 1]⟩), .ok (.object ⟨some 1, [.int 1]⟩), .ok (.object ⟨some 2, [.int 2]⟩)], "
          "#[[.int 1], [.int 1], [.int 2]])"),
         ("bound_without_seed", "assert (True,).__add__(()) == (1,)", "Namespace.empty", {}, {},
          "normal", "normal", ""),
         ("operator_empty", "assert (1,).__add__(()) == () + (1,) == (1,) + ()", "Namespace.empty", {}, {},
          "normal", "normal", "#guard tupleTrace pythonSource Namespace.empty == some "
-         "(.ok true, [.ok ⟨some 0, [.int 1]⟩, .ok ⟨some 1, [.int 1]⟩, .ok ⟨some 2, [.int 1]⟩], "
+         "(.ok true, [.ok (.object ⟨some 0, [.int 1]⟩), .ok (.object ⟨some 1, [.int 1]⟩), .ok (.object ⟨some 2, [.int 1]⟩)], "
          "#[[.int 1], [.int 1], [.int 1]])"),
         ("masked_type", "assert (1,) == tuple.__add__((1,), ())", MASKED, {"tuple": tuple}, {"tuple": None},
          "AttributeError:__add__", "unsupported",
          f"#guard tupleTrace pythonSource {MASKED} == some (.error (.missingAttribute .add), "
-         "[.ok ⟨some 0, [.int 1]⟩, .error (.missingAttribute .add)], #[[.int 1]])"),
+         "[.ok (.object ⟨some 0, [.int 1]⟩), .error (.missingAttribute .add)], #[[.int 1]])"),
         ("different_descriptor", "assert (1,) == tuple.__add__((1,), ())",
          f'({STOCK}.bindGlobal "tuple" (.int 0))', {"tuple": tuple}, {"tuple": 0}, "TypeError", "unsupported", ""),
     )
@@ -259,8 +263,8 @@ def constructor_controls(source_path, lean_path):
           outcome(masked, "TypeError", '[("keep", .int 7), ("tuple", .int 0)]'),
           '#guard ordinaryTuple pythonSource == some ("NameError:tuple", "int:7", "absent")',
           f"#guard tupleTrace pythonSource {STOCK} == some (.ok true, "
-          "[.ok ⟨some 0, [.bool true, .int 1, .none]⟩, .ok ⟨some 1, [.int 1, .bool true, .none]⟩, "
-          ".ok ⟨some 2, [.int 1, .int 1, .none]⟩], "
+          "[.ok (.object ⟨some 0, [.bool true, .int 1, .none]⟩), .ok (.object ⟨some 1, [.int 1, .bool true, .none]⟩), "
+          ".ok (.object ⟨some 2, [.int 1, .int 1, .none]⟩)], "
           "#[[.bool true, .int 1, .none], [.int 1, .bool true, .none], [.int 1, .int 1, .none]])",
           "#guard tupleTrace pythonSource Namespace.empty == "
           "some (.error .missingType, [.error .missingType], #[])",
@@ -273,7 +277,7 @@ def constructor_controls(source_path, lean_path):
     assert execute(restore, {"tuple": tuple}, expected={"tuple": tuple, "saved": tuple}) == "normal"
     check(restore, source_path, lean_path, outcome(STOCK, "normal", bindings),
           f"#guard tupleTrace pythonSource {STOCK} == "
-          "some (.ok true, [.ok ⟨none, []⟩, .ok ⟨none, []⟩, .ok ⟨none, []⟩], #[])")
+          "some (.ok true, [.ok (.object ⟨none, []⟩), .ok (.object ⟨none, []⟩), .ok (.object ⟨none, []⟩)], #[])")
     masked = "keep = 7\ntuple = None\n" + assertion + "tail = 9\n"
     assert execute(masked, {"tuple": tuple}, expected={"keep": 7, "tuple": None}) == "TypeError"
     check(masked, source_path, lean_path,
@@ -284,7 +288,7 @@ def constructor_controls(source_path, lean_path):
     assert execute(skipped, {}, expected={}) == "AssertionError:empty"
     check(skipped, source_path, lean_path, outcome("Namespace.empty", "AssertionError:empty", "[]"),
           "#guard tupleTrace pythonSource Namespace.empty == some (.ok false, "
-          "[.ok ⟨some 0, [.int 0]⟩, .ok ⟨some 1, [.int 1]⟩], #[[.int 0], [.int 1]])")
+          "[.ok (.object ⟨some 0, [.int 0]⟩), .ok (.object ⟨some 1, [.int 1]⟩)], #[[.int 0], [.int 1]])")
     return {"exact_alias": True, "empty_singleton": True, "live_lookup": True}
 
 
@@ -419,6 +423,66 @@ def tuple_helper_controls(source_path, lean_path):
     return {"numeric_scalar_equality": True, "failure_payloads": True, "callee_and_operand_order": True}
 
 
+def replay_live_tuple_comparison(checkout, source_path, lean_path):
+    source = SUITE["pinned_source"](checkout, LIVE_COMPARISON_PIN, LIVE_COMPARISON_SHA)
+    bound = {"x": (5,)}
+    assert execute(source, {}, expected=bound) == "NameError:tuple"
+    assert execute(source, {"tuple": tuple}, expected=bound) == "normal"
+    guards = [
+        '#guard ordinaryTuple pythonSource == some ("NameError:tuple", "absent", "absent")',
+        outcome("Namespace.empty", "NameError:tuple", '[("x", .returnedTuple [.int 5])]'),
+    ]
+    for placement in ("builtin", "preamble"):
+        base = f'(initial "legacy_{placement}")'
+        stock = f"(legacyTupleSeed .{placement})"
+        binding = '[("x", .returnedTuple [.int 5])]'
+        guards.append(outcome(base, "NameError:tuple", f"({binding} ++ {base}.moduleGlobals)"))
+        guards.append(outcome(stock, "normal", f"({binding} ++ {stock}.moduleGlobals)"))
+    live = f'({STOCK}.bindGlobal "x" (.returnedTuple [.int 5]))'
+    guards.append(f"#guard tupleTrace pythonSource {live} == "
+                  "some (.ok true, [.ok (.contents [.int 5]), .ok (.contents [.int 5])], #[])")
+    check(source, source_path, lean_path, *guards)
+    return {"sha256": LIVE_COMPARISON_SHA, "ordinary_and_no_tuple": "NameError:tuple",
+            "stock_seeded": "normal"}
+
+
+def live_comparison_controls(source_path, lean_path):
+    x = (True, None, -7)
+    left = f'({STOCK}.bindGlobal "x" (.returnedTuple [.bool true, .none, .int (-7)]))'
+    for status, y, right in (
+        ("normal", (1, None, -7), "[.int 1, .none, .int (-7)]"),
+        ("AssertionError:empty", (1, None), "[.int 1, .none]"),
+    ):
+        init = {"x": x, "y": y}
+        space = f'({left}.bindGlobal "y" (.returnedTuple {right}))'
+        for source in ("assert x == tuple(y)", "assert tuple(x) == y"):
+            assert execute(source, {"tuple": tuple}, init, init) == status
+            check(source, source_path, lean_path, outcome(space, status, f"{space}.moduleGlobals"))
+
+    cases = (
+        ("assert missing_left == tuple(missing_argument)", "Namespace.empty", {}, {}, "NameError:missing_left"),
+        ("assert left == tuple(missing_argument)", '(Namespace.empty.bindGlobal "left" (.int 0))',
+         {}, {"left": 0}, "NameError:tuple"),
+        ("assert left == tuple(missing_argument)", f'({MASKED}.bindGlobal "left" (.int 0))',
+         {"tuple": tuple}, {"tuple": None, "left": 0}, "NameError:missing_argument"),
+        ("assert left == tuple(left)", f'({MASKED}.bindGlobal "left" (.int 0))',
+         {"tuple": tuple}, {"tuple": None, "left": 0}, "TypeError"),
+        ("assert left == tuple(left)", f'({STOCK}.bindGlobal "left" (.int 0))',
+         {"tuple": tuple}, {"left": 0}, "TypeError"),
+        ("assert left == tuple(right)", f'(({STOCK}.bindGlobal "right" (.returnedTuple [])).bindGlobal "left" (.int 0))',
+         {"tuple": tuple}, {"right": (), "left": 0}, "AssertionError:empty"),
+    )
+    for source, space, builtins, initial, status in cases:
+        assert execute(source, builtins, initial, initial) == status
+        check(source, source_path, lean_path, outcome(space, status, f"{space}.moduleGlobals"))
+
+    rebinding = "stock = tuple\ntuple = 0\ntuple = stock\nx = (5,)\nassert x == tuple(x)\n"
+    assert execute(rebinding, {"tuple": tuple}, expected={"stock": tuple, "tuple": tuple, "x": (5,)}) == "normal"
+    check(rebinding, source_path, lean_path, outcome(
+        STOCK, "normal", '[("x", .returnedTuple [.int 5]), ("tuple", .builtin .tuple), ("stock", .builtin .tuple)]'))
+    return {"module_first_lookup": True, "ordered_failures": True, "contents_only": True}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--upstream", type=Path, required=True)
@@ -432,5 +496,7 @@ if __name__ == "__main__":
                     "constructors": constructor_controls(source, lean),
                     "linked_empty_constructor": replay_empty_constructor(args.upstream, source, lean),
                     "immutable_alias": replay_immutable_alias(args.upstream, source, lean),
-                    "tuple_helper": tuple_helper_controls(source, lean)}
+                    "tuple_helper": tuple_helper_controls(source, lean),
+                    "live_comparison_pin": replay_live_tuple_comparison(args.upstream, source, lean),
+                    "live_comparisons": live_comparison_controls(source, lean)}
     print(json.dumps(evidence))

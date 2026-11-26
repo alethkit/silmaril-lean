@@ -351,13 +351,13 @@ theorem tupleBinding_shadow (space : Namespace) (value : Value)
 
 theorem checkTupleChain_corresponds {scope : Source.Scope} (space : Namespace)
     (session : Core.Module.Functions.Session) (test : TupleChainTest scope)
-    (binding : tupleBinding space = Run.tupleBinding session) :
+    (lookup : tupleLookup space = Run.tupleLookup session) :
     checkTupleChain space test = (Run.checkTupleChain session test).mapError (fun
       | .assertionError => .raised (.assertionError .empty)
       | .raised error => .raised (.runtime error)
       | _ => .unsupported) := by
-  simp only [checkTupleChain, binding, Run.checkTupleChain]
-  cases (TupleChain.evaluate (fun _ => Run.tupleBinding session) test).result with
+  simp only [checkTupleChain, lookup, Run.checkTupleChain]
+  cases (TupleChain.evaluate (Run.tupleLookup session) test).result with
   | ok value => cases value <;> rfl
   | error failure => cases failure <;> rfl
 

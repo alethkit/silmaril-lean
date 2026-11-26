@@ -225,6 +225,16 @@ assertion. The module binding path tracks addresses for nonempty displays
 with live item reads in the shared closure heap. Module name operands
 and identity-sensitive comparisons need a separate source rule.
 
+A reached module name can also supply a comparison operand or the sole
+positional operand of stock `tuple`. The constructor reads its callee before
+its argument. A missing operand takes precedence over dispatch of a present
+mask. A stock call on a known noniterable scalar raises TypeError. For exact
+flat tuples the chain carries the live scalar contents directly, with no
+projected object address or allocation. These assertions retain the ordinary
+and seeded tuple-chain receipt convention. `testtuples11.py` completes when
+stock `tuple` is supplied and reaches the defined missing-name error when it
+is absent.
+
 Run the unchanged pin and CPython 3.13.5 dispatch and sequencing controls
 with `python3.13 -I scripts/check-python-tuple-chain.py --upstream /path/to/pinned/rigorous`.
 

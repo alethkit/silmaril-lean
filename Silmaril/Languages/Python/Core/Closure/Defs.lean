@@ -145,6 +145,7 @@ inductive RuntimeError where
   | nameError (name : String)
   | positionalArity (expected actual : Nat)
   | notCallable
+  | tupleArgumentNotIterable
   | additionTypeError
   | multiplicationTypeError
   | assertionError

@@ -18,19 +18,19 @@ theorem construct_exact (heap reached : Heap) (object : Object)
     (argument : Heap → Except Failure Object × Heap)
     (prepared : argument heap = (.ok object, reached)) :
     construct heap (some .stockTuple) (some argument) = (.ok object, reached) := by
-  simp [construct, prepared]
+  simp [construct, constructWith, prepared, Except.bind]
 
 theorem construct_argument_failure (heap reached : Heap) (binding : TypeBinding) (error : Failure)
     (argument : Heap → Except Failure Object × Heap)
     (failed : argument heap = (.error error, reached)) :
     construct heap (some binding) (some argument) = (.error error, reached) := by
-  simp [construct, failed]
+  simp [construct, constructWith, failed, Except.bind]
 
 theorem construct_nonCallable (heap reached : Heap) (object : Object)
     (argument : Heap → Except Failure Object × Heap)
     (prepared : argument heap = (.ok object, reached)) :
     construct heap (some .nonCallable) (some argument) = (.error .notCallable, reached) := by
-  simp [construct, prepared]
+  simp [construct, constructWith, prepared, Except.bind]
 
 theorem concat_empty_left (heap : Heap) (left right : Object) (empty : left.contents = []) :
     concat heap left right = (right, heap) := by simp [concat, empty]

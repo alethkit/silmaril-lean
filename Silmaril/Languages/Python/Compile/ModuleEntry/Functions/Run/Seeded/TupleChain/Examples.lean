@@ -46,7 +46,7 @@ private def chainEvidence (space : Core.Module.SeededCall.Namespace) (middle : I
   let source : Source.Module := ⟨[.assign "keep" (.integer 7), chain middle, .assign "tail" (.integer 9)]⟩
   let .ok compiled := Run.compile source | return false
   let [_, .assertTupleChain test, _] := compiled.instructions | return false
-  let actual := TupleChain.evaluate (fun _ => tupleBinding space) test
+  let actual := TupleChain.evaluate (tupleLookup space) test
   let heap : Core.Closure.Heap := ⟨1, fun address => if address = 0 then some (.int 23) else none⟩
   let lists : Core.Module.ListHeap := ⟨#[[.int 31]]⟩
   let outcome := run space compiled heap (lists := lists)
