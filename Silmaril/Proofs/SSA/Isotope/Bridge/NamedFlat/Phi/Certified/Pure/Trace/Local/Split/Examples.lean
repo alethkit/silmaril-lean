@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Pure.Trace.Local.Split.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Pure.Trace.Local.Split.Admission.Thms
 
 /-! A visible loop swaps two live values on the split self-edge. -/
 
@@ -265,5 +265,52 @@ private theorem distinct_packed_swap :
     HasTrace (packedObservation distinctClosedRight instr (distinctPlan.renameStore originalStore)) swappedTrace := by
   rw [← distinct_packed_same, packedObservation_eq_sourceObservation]
   exact distinct_source_swap
+
+private def seedCaptures (i : Fin 2) : Option Reg := some ⟨i.val⟩
+private def seedTypes : BoundCtx (Ty SortName) 2 := .snoc (.snoc .nil num) num
+private def arrivals : CFG.Cyclic.Phi.GlobalSSA.Certificate Reg Key := [(header, [])]
+
+private def seedAdmission := (Certified.admit source [seedX, seedY] arrivals
+  seedCaptures seedTypes originalProfile exits).get (by decide)
+
+private def seedClosed := (close seedAdmission).get (by decide)
+
+-- Plain renaming cannot supply the version-zero copies of x and y now read
+-- by the generated lexical entry's packet construction.
+example : (NamedFlat.compile (CFG.Cyclic.Phi.lower target) [none]
+    (fun i : Fin 2 => (seedCaptures i).map plan.register)).isNone := by decide
+
+-- The forwarding block also needs a certified arrival claim for those reads.
+example : CFG.Cyclic.Phi.GlobalSSA.check target ([seedX, seedY].map plan.register)
+    [(plan.label header, [])] = false := by decide
+
+private def generated := (generate plan seedAdmission arrivals).get (by decide)
+
+example : generated.extra =
+    [(some (plan.register y), num), (some (plan.register x), num)] := by decide
+
+private theorem generated_packed_swap :
+    HasTrace (packedObservation generated.closed instr (plan.renameStore originalStore)) swappedTrace := by
+  rw [← generated.packed_eq seedClosed instr originalStore, packedObservation_eq_sourceObservation]
+  exact source_swap
+
+-- The distinct latch already causes both variables to occur in the old
+-- versioner's support. Splitting it reuses all old capture positions.
+private def distinctGenerated := (generate distinctPlan distinctAdmittedLeft
+  [(latch, [x, y]), (header, []), (init, [seedX, seedY])]).get (by decide)
+
+example : distinctGenerated.extra = [] := by decide
+
+example : (generate entryPlan seedAdmission arrivals).isSome := by decide
+
+-- An old, unused capture may carry a type that cannot type a newly live
+-- version-zero read. Generation keeps that interface and rejects it.
+private def incompatibleTypes : BoundCtx (Ty SortName) 4 :=
+  .ofFin (fun i => if i.val = 2 then .unit else num)
+
+private def incompatibleAdmission := (Certified.admit source [seedX, seedY] arrivals
+  captures incompatibleTypes originalProfile exits).get (by decide)
+
+example : (generate plan incompatibleAdmission arrivals).isNone := by decide
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.PureCapture.Local.Split.Examples
