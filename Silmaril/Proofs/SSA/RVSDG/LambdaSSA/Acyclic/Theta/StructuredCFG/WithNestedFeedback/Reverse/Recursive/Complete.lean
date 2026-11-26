@@ -150,7 +150,7 @@ private theorem scan_emitted (n : Normal Φ A X Z L E D ps) : scan n.toSyntax.co
       scan_select gate _ _ _ _ hp hq, emitted]
     rfl
 
-private theorem weight_append (p q : Layout τ Φ) : weight (p ++ q) = weight p + weight q := by
+theorem weight_append (p q : Layout τ Φ) : weight (p ++ q) = weight p + weight q := by
   induction p with
   | nil => simp [weight]
   | cons head tail ih =>
@@ -240,6 +240,22 @@ private theorem parse_emitted (n : Normal Φ A X Z L E D ps) (h : n.Supported)
       have tk : weight (emitted k) ≤ fuel := by omega
       simp [emitted, parse, cutEntry, split_snoc, hp left fuel lp,
         hq right fuel rq, hk tail fuel tk, expect, pack]
+
+omit [DecidableEq τ] in
+private theorem route_not_mem_emitted (n : Normal Φ A X Z L E D ps) (h e m d : τ) :
+    Entry.route h e m d ∉ emitted n := by
+  induction n with
+  | leaf p => cases p <;> simp [emitted, emitLeaf, loopEntry]
+  | seq p k ih => cases p <;> simp [emitted, emitLeaf, loopEntry, cutEntry, ih]
+  | fork gate p q k hp hq hk => simp [emitted, hk]
+
+omit [DecidableEq τ] in
+theorem scan_route_free (n : Normal Φ A X Z L E D ps) {labels : Layout τ Φ}
+    (scanned : scan n.toSyntax.code.1 = some labels) (h e m d : τ) :
+    Entry.route h e m d ∉ labels := by
+  rw [scan_emitted] at scanned
+  cases scanned
+  exact route_not_mem_emitted n h e m d
 
 theorem scan_parse_generated (n : Normal Φ A X Z L E D ps) (h : n.Supported) :
     ∃ labels, scan n.toSyntax.code.1 = some labels ∧

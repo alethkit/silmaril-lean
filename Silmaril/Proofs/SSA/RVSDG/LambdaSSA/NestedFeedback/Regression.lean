@@ -1030,17 +1030,20 @@ example (coherent : Coherent) :
 -- Retain the completed payload, but read the original token at the cut.
 private def staleRouteTerm {past rows : List (Ports (OrderedRuntime.Structured.Ty Ty))}
     (t : NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number .unit number) past rows
-      (Flat.Serial.WirePorts number .unit number)) :
+      (Flat.Serial.WirePorts number .unit number)) (skip : Nat := 0) :
     NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number .unit number) past rows
       (Flat.Serial.WirePorts number .unit number) :=
   match t with
   | .ret results => .ret results
   | .bind node children rest =>
     if Flat.Serial.Routed.Reverse.isRoute node.kind then
-      let inputs := node.inputs.map fun port origin =>
-        if h : runtime = port then h ▸ .arg (.tail .head) else origin
-      .bind {node with inputs} children rest
-    else .bind node children (staleRouteTerm rest)
+      match skip with
+      | 0 =>
+        let inputs := node.inputs.map fun port origin =>
+          if h : runtime = port then h ▸ .arg (.tail .head) else origin
+        .bind {node with inputs} children rest
+      | skip + 1 => .bind node children (staleRouteTerm rest skip)
+    else .bind node children (staleRouteTerm rest skip)
 
 private def staleRoute := (staleRouteTerm rebuiltRoute.toTerm).toGraph
 
@@ -1253,8 +1256,9 @@ private def mixedConsumer : Recursive.Normal Op number .unit number number .unit
   .fork forkGate (.leaf (.feedback program)) (.leaf (.localLoop tailLoop)) (.leaf (.localLoop routingConsumer))
 
 private def routedMixedParts :
-    Flat.Serial.Routed.Mixed.Components Op number .unit number number [Flat.Serial.WirePorts number .unit number] :=
-  ⟨number, .leaf (.localLoop routingProducer), _, mixedConsumer⟩
+    Flat.Serial.Routed.Mixed.Component Op number .unit number number .unit number
+      (Flat.Serial.Routed.Signatures number .unit number number) :=
+  .link (.mixed (.leaf (.localLoop routingProducer))) (.mixed mixedConsumer)
 
 private def routedMixedInput :=
   Translation.Source.routedMixed routedMixedParts
@@ -1322,9 +1326,10 @@ private def mixedProducer : Recursive.Normal Op number .unit number number .unit
   .fork forkGate (.leaf (.feedback program)) (.leaf (.localLoop tailLoop)) (.leaf (.localLoop routingProducer))
 
 private def mixedPipelineParts :
-    Flat.Serial.Routed.Mixed.Components Op number .unit number number
-      (StructuredCFG.Selection number number .unit number ++ [Flat.Serial.WirePorts number .unit number]) :=
-  ⟨number, mixedProducer, _, mixedConsumer⟩
+    Flat.Serial.Routed.Mixed.Component Op number .unit number number .unit number
+      ((StructuredCFG.Selection number number .unit number ++ [Flat.Serial.WirePorts number .unit number]) ++
+        Flat.Serial.Routed.Selection number .unit number) :=
+  .link (.mixed mixedProducer) (.mixed mixedConsumer)
 
 private def mixedPipeline :=
   Translation.Source.routedMixed mixedPipelineParts
@@ -1387,8 +1392,10 @@ example (coherent : Coherent) :
     ((mixedPipeline.compile_run_iff runnerActions coherent
       (PUnit.unit,(1 : Nat)) pipelineResult 0 122593).mpr (mixedPipelineReturn coherent))
 
-private def runPipeline (input : Nat) : Option (((PUnit ⊕ Nat) ⊕ Nat) × Nat) :=
-  (Translation.run runnerActions mixedPipelineGraph 2 input 0).map fun result =>
+private def runPipeline {rows : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    (g : Flat.Serial.Graph Op number .unit number number .unit number rows)
+    (input : Nat) : Option (((PUnit ⊕ Nat) ⊕ Nat) × Nat) :=
+  (Translation.run runnerActions g 2 input 0).map fun result =>
     (result.get .head, result.get (.tail .head))
 
 #eval show IO Unit from do
@@ -1397,12 +1404,72 @@ private def runPipeline (input : Nat) : Option (((PUnit ⊕ Nat) ⊕ Nat) × Nat
   unless (Flat.Serial.Routed.Mixed.candidate staleMixedPipeline).isSome &&
       (Translation.recover mixedPipeline.layout staleMixedPipeline).isNone do
     throw (IO.userError "the mixed route did not reject a stale producer token after parsing")
-  match runPipeline 1 with
+  match runPipeline mixedPipelineGraph 1 with
   | some (.inl (.inr 12259), 122593) => pure ()
   | _ => throw (IO.userError "the mixed consumer did not observe the producer's final token")
-  match runPipeline 0 with
+  match runPipeline mixedPipelineGraph 0 with
   | some (.inl (.inl _), 5) => pure ()
   | _ => throw (IO.userError "the mixed bypass did not return the producer's final token")
+
+-- The same routed component can produce a handoff or sit in a selected child.
+private def finalComponent :
+    Flat.Serial.Routed.Mixed.Component Op number .unit number number .unit number
+      [Flat.Serial.WirePorts number .unit number] :=
+  .mixed (.leaf (.localLoop routingConsumer))
+
+private def routedChain :=
+  Translation.Source.routedMixed (.link mixedPipelineParts finalComponent)
+    ⟨⟨⟨trivial, tailSupported, .instruction _⟩, trivial, tailSupported, .instruction _⟩, .instruction _⟩
+
+private def nestedChain :=
+  Translation.Source.routedMixed (.link (.mixed mixedProducer) (.link (.mixed mixedConsumer) finalComponent))
+    ⟨⟨trivial, tailSupported, .instruction _⟩, ⟨trivial, tailSupported, .instruction _⟩, .instruction _⟩
+
+private def chainGraph := Translation.compile routedChain
+private def staleChain := (staleRouteTerm chainGraph.toTerm 1).toGraph
+
+private abbrev chainExit : RoutedExit := .inr (.inl (122598 : Nat))
+
+private theorem chainReturn (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) routedChain.fragment.typing
+      (PUnit.unit,(1 : Nat))).run 0 = Part.some (chainExit, 1225983) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.linkBy mixedPipelineParts.source (.loop routingConsumer) Flat.Serial.Routed.routing).typing
+    (PUnit.unit,(1 : Nat))).run 0 = _
+  rw [Flat.denote_linkBy _ _ _ coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind, mixedPipelineReturn coherent, Part.bind_some]
+  change (Region.denote (ε := Bool) (m := Runtime) (Flat.Fragment.loop routingConsumer).typing
+    (PUnit.unit,(12259 : Nat))).run 122593 = _
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact routingConsumerReturnsAt 12259 122593 (by decide) (by decide)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) (translateThenRecover routedChain).typing
+      (PUnit.unit,(1 : Nat))).run 0 = Part.some (chainExit, 1225983) :=
+  ((translateThenRecover routedChain).run_iff runnerActions coherent
+    (PUnit.unit,(1 : Nat)) chainExit 0 1225983).mp
+    ((routedChain.compile_run_iff runnerActions coherent
+      (PUnit.unit,(1 : Nat)) chainExit 0 1225983).mpr (chainReturn coherent))
+
+#eval show IO Unit from do
+  let nested := Translation.compile nestedChain
+  let some recovered := Translation.recover mixedPipeline.layout mixedPipelineGraph
+    | throw (IO.userError "could not recover the first routed component for reuse")
+  let producer := (Flat.Serial.Routed.Mixed.Related.component recovered.2).val
+  let extended := (Flat.Serial.Routed.Mixed.Component.link producer finalComponent).graph
+  unless (Translation.recover routedChain.layout chainGraph).isSome &&
+      (Translation.recover nestedChain.layout nested).isSome do
+    throw (IO.userError "could not recover both routed compositions")
+  unless (Flat.Serial.Routed.Mixed.candidate staleChain).isSome &&
+      (Translation.recover routedChain.layout staleChain).isNone do
+    throw (IO.userError "the second routed handoff accepted a stale token")
+  for returned in [runPipeline chainGraph 1, runPipeline nested 1, runPipeline extended 1] do
+    match returned with
+    | some (.inl (.inr 122598), 1225983) => pure ()
+    | _ => throw (IO.userError "the second consumer did not observe the first handoff's state")
+  match runPipeline chainGraph 0 with
+  | some (.inl (.inl _), 5) => pure ()
+  | _ => throw (IO.userError "the routed chain did not preserve the bypass token")
 
 end Composition
 
