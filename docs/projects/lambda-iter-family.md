@@ -820,8 +820,35 @@ transfer whose destination saves that register and whose carried value
 agrees with the field. The original ordered-exit fixture now uses
 `admitWithCapture` and checks that the transfer carries the supplied sum at
 that slot. Its weak-tree round trip keeps the original input and both exits.
-Tables with multiple saved fields or different saved lists across
-destinations use the general checker.
+The singleton constructor is a specialization of the uniform-list result.
 
 [Capture admission and packet equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
 · [Original ordered-exit fixture](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### Checked re-admission with a uniform list of saved entry captures
+
+`Straight.admitWithCaptures` takes one ordered list of numbered entry
+slots. The actual versioner must save exactly that list at every destination,
+and the attached entry and block bodies must leave those registers
+unassigned. The original source-local typing checks still apply, including
+nested sum cases. The slot positions determine the types from the supplied
+entry context. The compiler's actual slot lists are deduplicated and
+exclude each destination's argument register, so neither fact needs a
+separate certificate.
+
+`Straight.compiled_success_captures` proves readback and pointwise typing
+at the synthesized profile. A jump pairs its original argument with the
+right-nested saved record. The proof follows the actual decoder through
+each field and temporary, then tracks the typed fields at their current
+versions through the body. `Straight.encode_captures` gives the corresponding
+tagged packet value from an explicit equality between the store and the
+input record at each selected slot.
+
+The two-capture regression uses a sum and an atom in saved-register order
+`[1, 0]`. It checks the actual jump packets, a transfer between the two
+internal blocks, the live-out at both ordered exits, and the packed round
+trip on the same input. Destination-varying layouts use the general
+checker.
+
+[Uniform admission and packet equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/Straight/Thms.lean)
+· [Two-capture regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)

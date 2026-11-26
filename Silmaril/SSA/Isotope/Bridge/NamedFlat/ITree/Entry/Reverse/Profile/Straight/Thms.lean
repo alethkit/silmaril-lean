@@ -3,8 +3,9 @@ module
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Straight.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Thms
 import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Straight.Table
+import Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Straight.Values
 
-/-! # Admission of reverse lowering with zero or one saved capture -/
+/-! # Admission of reverse lowering with uniform saved captures -/
 
 public section
 
@@ -36,6 +37,21 @@ theorem empty_of_no_captures (closed : n = 0) (saved : a.SavesCaptures) :
 
 variable [DecidableEq κ]
 
+/-- The source-local checks suffice for scoped readback and typing of the
+actual versioned table at the synthesized profile. Each block saves the
+same list of unchanged numbered entry slots, in the compiled order. The
+original entry and block checks use the unversioned packet types. -/
+theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
+    (slots : List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register)))
+    (kept : keepsEntryCaptures a slots = true) (checked : checks a R = true) :
+    ∃ table, NamedFlat.compile attached exits (fun i : Fin n => (⟨i.val⟩ : Register)) = some table ∧
+      let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
+      checkBody new context table.entry = true ∧
+        ∀ i, checkBody new (.snoc context (a.packetProfile R saved i)) (table.block i) = true :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success_captures
+    a R saved slots layout kept checked
+
 /-- Source-local checks suffice for successful scoped readback of the actual
 versioned program and all its typing checks. The profile is the one computed
 by the numbered reverse lowerer. Internal edges can revisit any block. -/
@@ -45,7 +61,7 @@ theorem compiled_success (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
       let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
       checkBody new context table.entry = true ∧
         ∀ i, checkBody new (.snoc context (a.packetProfile R saved i)) (table.block i) = true :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success a R saved empty checked
+  compiled_success_captures a R saved [] empty rfl checked
 
 /-- Source-local readback and typing for one common saved entry field.
 The compiled slots identify the field at every destination, and the attached
@@ -58,8 +74,7 @@ theorem compiled_success_capture (R : Fin blocks → Ty κ) (saved : a.SavesCapt
       let new := SSA.FiniteSum.append (a.packetProfile R saved) exitTypes
       checkBody new context table.entry = true ∧
         ∀ i, checkBody new (.snoc context (a.packetProfile R saved i)) (table.block i) = true :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success_capture
-    a R saved slot layout kept checked
+  compiled_success_captures a R saved [slot] layout (by simpa [keepsEntryCaptures] using kept) checked
 
 private def admitFromReadback (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
     (success : ∃ table, NamedFlat.compile attached exits (fun i : Fin n => (⟨i.val⟩ : Register)) = some table ∧
@@ -82,6 +97,24 @@ def admit (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
     (empty : ∀ i, a.savedRegisters i = []) (checked : checks a R = true) :
     LiveOut.Admission P (numberedInterface context exits external) fields a.source :=
   admitFromReadback a R saved (compiled_success a R saved empty checked)
+
+omit [DecidableEq κ] in
+/-- A layout of numbered slots witnesses the profile's capture bound. -/
+theorem savesCaptures_of_layout (slots : List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register))) : a.SavesCaptures := by
+  intro i reg mem
+  obtain ⟨j, _, rfl⟩ := List.mem_map.mp (layout i ▸ mem)
+  exact j.isLt
+
+/-- Admit the actual compiler result at the original entry and exit
+interface, using the same ordered capture layout at every destination. -/
+def admitWithCaptures (R : Fin blocks → Ty κ)
+    (slots : List (Fin n))
+    (layout : ∀ i, a.savedRegisters i = slots.map (fun j => (⟨j.val⟩ : Register)))
+    (kept : keepsEntryCaptures a slots = true) (checked : checks a R = true) :
+    LiveOut.Admission P (numberedInterface context exits external) fields a.source :=
+  let saved := savesCaptures_of_layout a slots layout
+  admitFromReadback a R saved (compiled_success_captures a R saved slots layout kept checked)
 
 /-- Admit a capture-carrying table at the original entry and exit interface. -/
 def admitWithCapture (R : Fin blocks → Ty κ) (saved : a.SavesCaptures)
@@ -110,6 +143,20 @@ theorem capture_at_version_zero (slot : Fin n) (x : Input) :
     (store_at _ (fun _ _ eq => Fin.ext (congrArg ULift.down eq)) context x slot)
 
 omit [DecidableEq κ] in
+/-- Encode the actual jump, retaining the caller's slot order and the tags
+of its supplied input fields. Agreement is required for each saved store
+slot at this transfer. -/
+theorem encode_captures {Events : Type u → Type u} (M : Model (κ := κ) Events P.Instr)
+    (slots : List (Fin n)) (x : Input) (transfer : CFG.Cyclic.Transfer Register K (Value (Sigma C)))
+    (route : CFG.Cyclic.Versioning.destinations attached transfer.1 =
+      some (slots.map (fun j => (⟨j.val⟩ : Register))))
+    (agrees : ∀ j ∈ slots, transfer.2.2 ⟨j.val⟩ = inputEnv context x j.val) :
+    CFG.Cyclic.Versioning.encode (treeModel M.raw) attached transfer =
+      (transfer.1, .pair transfer.2.1
+        (slots.foldr (fun j tail => .pair (inputEnv context x j.val) tail) .unit)) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.encode_captures a M slots x transfer route agrees
+
+omit [DecidableEq κ] in
 /-- For a transfer whose saved register still holds the entry field, the
 actual versioner's packet contains that tagged field after the argument. -/
 theorem encode_capture {Events : Type u → Type u} (M : Model (κ := κ) Events P.Instr)
@@ -117,8 +164,10 @@ theorem encode_capture {Events : Type u → Type u} (M : Model (κ := κ) Events
     (route : CFG.Cyclic.Versioning.destinations attached transfer.1 = some [⟨slot.val⟩])
     (agrees : transfer.2.2 ⟨slot.val⟩ = inputEnv context x slot.val) :
     CFG.Cyclic.Versioning.encode (treeModel M.raw) attached transfer =
-      (transfer.1, .pair transfer.2.1 (.pair (inputEnv context x slot.val) .unit)) := by
-  simp [CFG.Cyclic.Versioning.encode, Version.enc, route, Version.packVal, agrees, treeModel]
+      (transfer.1, .pair transfer.2.1 (.pair (inputEnv context x slot.val) .unit)) :=
+  encode_captures a M [slot] x transfer route (fun j mem => by
+    cases List.mem_singleton.mp mem
+    exact agrees)
 
 end Values
 
