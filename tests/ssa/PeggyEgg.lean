@@ -9,6 +9,7 @@ import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -27,6 +28,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -1136,6 +1138,77 @@ example (initial : Option (ULift Nat)) :
     ⟨6, twoSites⟩ scope (zero := Op.zero) rfl before Classes.discrete_valid
   exact ⟨after, valid, (observed clockZero).trans
     ((secondRedex.observe_eq wf before clockZero).trans (initially initial))⟩
+
+private def twoSiteInput : Output Op [] outputs 1 := ⟨6, twoSites⟩
+private def twoSiteRun := Dedup.Worklist.run Op.zero 2 twoSiteInput
+private def oneVisit := Dedup.Worklist.run Op.zero 1 twoSiteInput
+
+#guard twoSiteRun.report.sites == [4, 5]
+#guard twoSiteRun.report.stop == .fixed
+#guard twoSiteRun.state.1 == 7
+#guard oneVisit.report.sites == [4]
+#guard oneVisit.report.stop == .exhausted
+#guard Dedup.Worklist.enabledAt Op.zero oneVisit.state 5
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput oneVisit.report).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 5], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[5, 4], .fixed⟩).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4], .fixed⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[6], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 4], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput twoSiteRun.report).isNone
+
+private abbrev nestedSort (_ : Fin 4) : Ty Unit := .count
+private def nestedRef (i : Fin 4) : Ref nestedSort .count := ⟨i, rfl⟩
+private def nestedPair (a b : Fin 4) : Tuple (Ref nestedSort) [.count, .count] :=
+  .cons (nestedRef a) (.cons (nestedRef b) .nil)
+
+/-- Sampling the outer theta at zero generates a new sample of the inner
+theta. Both thetas use live self-feedback on the same loop clock. -/
+private def nested : Graph Op [] outputs 4 1 where
+  forest := ⟨fun _ => none⟩
+  sort := nestedSort
+  node i := match i with
+    | 0 => .ofLabel (.op .zero) .nil
+    | 1 => .ofLabel (.theta 0) (nestedPair 0 1)
+    | 2 => .ofLabel (.theta 0) (nestedPair 1 2)
+    | _ => .ofLabel (.eval 0) (nestedPair 2 0)
+  roots := .cons (nestedRef 3) (nestedPair 2 1)
+
+private def nestedInput : Output Op [] outputs 1 := ⟨4, ⟨nested, Classes.discrete⟩⟩
+private def nestedPrefix := Dedup.Worklist.run Op.zero 1 nestedInput
+private def nestedRun := Dedup.Worklist.run Op.zero 2 nestedInput
+
+#guard evalOperands nested == [[2, 0]]
+#guard Dedup.Worklist.next Op.zero nestedInput == some ⟨3, by decide⟩
+#guard (Dedup.Worklist.run Op.zero 0 nestedInput).report.stop == .exhausted
+#guard nestedPrefix.report.sites == [3]
+#guard nestedPrefix.report.stop == .exhausted
+#guard nestedPrefix.state.1 == 5
+#guard (Dedup.close Op.zero nestedInput [3]).1 == 5
+#guard Dedup.Worklist.enabledAt Op.zero (Dedup.close Op.zero nestedInput [3]) 4
+#guard nestedRun.report.sites == [3, 4]
+#guard nestedRun.report.stop == .fixed
+#guard nestedRun.state.1 == 6
+#guard evalOperands nestedRun.state.2.graph == [[2, 0], [1, 0], [0, 0]]
+#guard refNumbers nestedRun.state.2.graph.roots == [3, 2, 1]
+#guard (Dedup.Worklist.run Op.zero 0 nestedRun.state).report.stop == .fixed
+#guard (Dedup.Worklist.check Op.zero 2 nestedInput nestedRun.report).isSome
+
+private theorem nestedWF : WellFounded nested.Demand :=
+  nested.demandWellFounded_of_check
+    [.phase (fun i => if i = 3 then 1 else 0), .counter 0,
+      .phase (fun i => if i = 2 then 2 else if i = 1 then 1 else 0)]
+    (by decide)
+
+example (initial : Option (ULift Nat)) :
+    ∃ after : WellFounded nestedRun.state.2.graph.Demand,
+      nestedRun.state.2.classes.Valid (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) ∧
+      ∀ idx, nestedRun.state.2.graph.observe (arithmetic initial)
+        (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) idx =
+        nested.observe (arithmetic initial) (nested.denote (arithmetic initial) .nil nestedWF) idx := by
+  have preserved : Dedup.Preserves (arithmetic initial) .nil nestedInput nestedRun.state :=
+    Dedup.Worklist.check_sound (Dedup.Worklist.run_checked (zero := Op.zero) 2 nestedInput) rfl
+  exact preserved nestedWF Classes.discrete_valid
 
 /-- The roots anchor a redex and two exact RHS copies to distinct addresses. -/
 private def anchored : Graph Op [] outputs 7 1 :=
