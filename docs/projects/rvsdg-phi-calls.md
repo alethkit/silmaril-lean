@@ -550,8 +550,8 @@ governs the callable slot, which the erased term still passes to `apply`. For
 nested calls it requires the callee's own static targets to be resolved for
 every formal argument tuple. The admission erases to the runtime's normal
 numbered term. A γ checks the static targets of its arms for the capture
-tuples wired from preceding locals. Linked θ, dynamic target selection, and
-recursive calls are outside this admission.
+tuples wired from preceding locals. Dynamic target selection and recursive
+calls are outside this admission.
 
 `Code.linked_runs_agree` starts from actual successful linkage at a common
 store and relates the runner's demanded returns and exact stores, or its exact
@@ -579,9 +579,37 @@ can block even though its computed data result is dead. The fixture also
 resumes a saved stack from a first-call block and checks the later call.
 [Compositional regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Regression.lean)
 
+### θ feedback through static calls
+
+Enable θ with the final `loops` index of `StaticDemand.Code`. The native
+feedback solver computes the least carried mask for the body summary. It
+seeds the exit demand and continuation decision, and closes the mask through
+the body's typed feedback result wires. At every restart, the proof relates
+the carried values at those live ports. The resolution check may rely on
+entry values that the body forwards directly through the same carried port,
+including its linked callable and capture witnesses.
+
+`Code.linked_prefixes_agree` compares actual runner observations at every
+finite fuel. A return preserves demanded ports and the exact store. A block
+preserves the exact typed attempt and store, and admits any desired observation
+depth after supplying a common hypothetical result and store to the saved
+stacks. Those stacks can continue through a restart or through the enclosing
+suffix. Both runs are suspended at the same budgets, including when neither
+has a finite endpoint. The `finite_return` and `finite_block` theorems
+transport finite partial evaluation derivations through the same prefix
+certificate using the runner's adequacy lemmas.
+
+The θ fixture uses a seed that becomes live only through feedback. The first
+probe advances the store to `22`, then the seed feeds a new request that blocks
+after restart. Resuming at store `40` exits through an effectful suffix and
+returns demanded value `50` and store `45`. Resuming at store `50` restarts
+and reaches the same typed block at that store.
+[Linked θ regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/ThetaRegression.lean)
+
 ```sh
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Regression
 lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.GammaRegression
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.ThetaRegression
 ```
 
 ### Single-call admission
