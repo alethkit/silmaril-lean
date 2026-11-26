@@ -1095,6 +1095,51 @@ checks the completed outer-false child separately for inner bypass.
 [Inversion API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Inversion/Thms.lean) ·
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Inversion/Regression.lean)
 
+### Recover activations from a flat coloured log
+
+`Outer.Numbered.Petri.Trace.Log.Thms` exposes `Log.scan` for the checked
+shared-outer *From Quads to Graphs* §3.1 profile. Supply the typed input
+bank and the chronological list of original numbered θ markings, one
+marking after each firing. The initial pending marking is implicit.
+The scanner checks the entry phase, including a fully marked preheader
+when θ enters, then finds each actual restart or commit. Every adjacent
+pair is checked against the original hierarchical firing rules. Success
+requires a completed root return at the end of the supplied log.
+
+`Complete.legal` certifies the supplied list itself. Each recovered
+slice records its body markings and the consuming root step at their
+original positions in the log. `Slice.firstOuter_eq` applies the
+recorded-cut law to the first readable bank. `Slice.boundary` checks
+the actual restart or exit marking, and `Complete.observations_agree`
+compares every selected occurrence and full bank with the original CF/Φ
+rows and latch successors. The comparison uses separate source, CF, θ
+and coloured witnesses. The scan is a sound check for this complete-log
+profile. Acceptance of all legal schedules, including θ entry before
+independent preheader work finishes, remains open.
+[Log API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Thms.lean) ·
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/Shared/Outer/Numbered/Petri/Trace/Log/Regression.lean)
+
+Build the import below with `lake build --wfail +<module>`. Paste it
+into `QuadSharedPetriLog.lean` and run
+`lake env lean -DautoImplicit=false -DwarningAsError=true QuadSharedPetriLog.lean`.
+
+```lean
+module
+
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Trace.Log.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.Shared.Outer.Numbered.Petri.Log.Example
+
+#eval (summary (flat false), summary (flat true) == summary (flat false), schedulesDiffer, truncated, malformed)
+```
+
+Each row prints the predecessor block and slot, the outer result
+register, the restart bit and the latch result register. The two
+schedules produce different flat logs with the same three
+observations and return word `152`. The last two booleans check
+refusal when the final commit is missing and when the initial pending
+marking is repeated as a purported firing.
+
 ## Complete the emitted loop by coloured firing
 
 The `Backends/Petri/Thms` import adds completion laws for the numbered
