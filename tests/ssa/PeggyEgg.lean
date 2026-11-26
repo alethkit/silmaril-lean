@@ -6,6 +6,7 @@ import Silmaril.SSA.PEG.Rules.Thms
 import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -15,6 +16,7 @@ meta import Silmaril.SSA.Peggy.Bridge.Figure11.Defs
 meta import Silmaril.SSA.Peggy.Acyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -812,3 +814,126 @@ example : streams .bottom (4, clock 1) = none := by
   exact (selfStep .bottom).trans (init.trans bad)
 
 end Silmaril.SSA.Peggy.Optimizer.Cyclic.Tests
+
+namespace Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Tests
+
+open PEG
+open RVSDG (Tuple)
+
+private inductive Op : List (Ty Unit) → Ty Unit → Type where
+  | zero : Op [] .count
+  | one : Op [] .count
+  | initial : Op [] .count
+  | succ : Op [.count] .count
+  deriving DecidableEq
+
+private abbrev outputs : List (Ty Unit) := [.count, .count, .count]
+private abbrev countSort (_ : Fin 5) : Ty Unit := .count
+private def ref (i : Fin 5) : Ref countSort .count := ⟨i, rfl⟩
+private def pair (a b : Fin 5) : Tuple (Ref countSort) [.count, .count] :=
+  .cons (ref a) (.cons (ref b) .nil)
+
+/-- A live θ/successor cycle. Its base sample is the only eval row. -/
+private def graph (literal : Op [] .count) : Graph Op [] outputs 5 1 where
+  forest := ⟨fun _ => none⟩
+  sort := countSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair 1 2)
+    | 1 => .ofLabel (.op .initial) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (ref 0) .nil)
+    | 3 => .ofLabel (.op literal) .nil
+    | _ => .ofLabel (.eval 0) (pair 0 3)
+  roots := .cons (ref 4) (pair 0 4)
+
+private def source : State Op [] outputs 5 1 := ⟨graph .zero, Classes.discrete⟩
+private def matched : ZeroSample source.graph 4 .zero :=
+  (ZeroSample.matchAt (g := source.graph) 4 .zero).get (by decide)
+
+private def useFresh : Step matched.step.apply :=
+  ⟨⟨_, _, .op .succ, .cons matched.row.fresh .nil⟩, [], 0⟩
+
+private def plan : Plan source := .next matched.step (.next useFresh .stop)
+
+private def evalOperands {n : Nat} (g : Graph Op [] outputs n 1) : List (List Nat) :=
+  (List.finRange n).filterMap fun i =>
+    match g.node i with
+    | ⟨_, .eval _, args⟩ => some (refNumbers args)
+    | _ => none
+
+#guard (ZeroSample.matchAt (g := graph .one) 4 .zero).isNone
+#guard evalOperands source.graph == [[0, 3]]
+#guard (plan.run 0).1 == 5
+#guard (plan.run 1).1 == 6
+#guard (plan.run 2).1 == 7
+#guard (plan.run 8).1 == 7
+#guard (plan.run 1).2.classes ⟨4, by decide⟩ == (plan.run 1).2.classes ⟨5, by decide⟩
+#guard (plan.run 2).2.classes ⟨4, by decide⟩ == (plan.run 2).2.classes ⟨5, by decide⟩
+#guard evalOperands (plan.run 1).2.graph == [[0, 3], [1, 3]]
+#guard refNumbers ((plan.run 2).2.graph.node ⟨6, by decide⟩).args == [5]
+#guard refNumbers (plan.run 2).2.graph.roots == [4, 0, 4]
+
+-- A step can append the row with no merge budget as well.
+private def appendOnly : Step source := { matched.step with fuel := 0 }
+
+#guard appendOnly.apply.classes 4 != appendOnly.apply.classes 5
+
+private theorem wf : WellFounded source.graph.Demand :=
+  source.graph.demandWellFounded_of_check
+    [.phase (fun i => if i = 4 then 1 else 0), .counter 0,
+      .phase (fun i => if i = 2 then 2 else if i = 0 then 1 else 0)]
+    (by decide)
+
+private def arithmetic (initial : Option (ULift Nat)) : Interpretation.{0,0,0} Op where
+  carrier _ := Unit
+  run
+    | .zero, .nil => some ⟨0⟩
+    | .one, .nil => some ⟨1⟩
+    | .initial, .nil => initial
+    | .succ, .cons k .nil => some ⟨k.down + 1⟩
+
+private theorem traceSound (initial : Option (ULift Nat)) (fuel : Nat) :
+    let target := (plan.run fuel).2
+    let after := plan.demandWellFounded fuel wf
+    target.classes.Valid (target.graph.denote (arithmetic initial) .nil after) ∧
+    ∀ idx, target.graph.observe (arithmetic initial) (target.graph.denote (arithmetic initial) .nil after) idx =
+      source.graph.observe (arithmetic initial) (source.graph.denote (arithmetic initial) .nil wf) idx := by
+  apply Plan.sound fuel plan wf Classes.discrete_valid
+  cases fuel with
+  | zero => trivial
+  | succ fuel =>
+    refine ⟨matched.holds (m := arithmetic initial) rfl, ?_⟩
+    cases fuel with
+    | zero => trivial
+    | succ fuel =>
+      refine ⟨?_, ?_⟩
+      · rintro _ _ _ member
+        cases member
+      · cases fuel <;> trivial
+
+private def clockZero : Index 1 := fun _ => 0
+
+private theorem initially (initial : Option (ULift Nat)) :
+    source.graph.observe (arithmetic initial) (source.graph.denote (arithmetic initial) .nil wf) clockZero =
+      .cons initial (.cons initial (.cons initial .nil)) := by
+  let streams := source.graph.denote (arithmetic initial) .nil wf
+  have solves := source.graph.denote_solves (arithmetic initial) .nil wf
+  have base : streams (1, clockZero) = initial := solves (1, clockZero)
+  have theta : streams (0, clockZero) = initial := (solves (0, clockZero)).trans base
+  have literal : Rules.readRef streams (ref 3) clockZero = some ⟨0⟩ := solves (3, clockZero)
+  have sample := Rules.eval_zero solves (r := ref 4) (source := ref 0) (count := ref 3)
+    (loop := 0) HEq.rfl literal
+  have reset : clockZero.set 0 0 = clockZero := by funext i; simp [Index.set, clockZero]
+  change streams (4, clockZero) = streams (0, clockZero.set 0 0) at sample
+  rw [reset, theta] at sample
+  change (show Tuple (fun t => Option ((arithmetic initial).Value t)) outputs from
+    .cons (streams (4, clockZero)) (.cons (streams (0, clockZero))
+      (.cons (streams (4, clockZero)) .nil))) = _
+  rw [sample, theta]
+
+example (initial : Option (ULift Nat)) :
+    let target := (plan.run 2).2.graph
+    target.observe (arithmetic initial) (target.denote (arithmetic initial) .nil
+      (plan.demandWellFounded 2 wf)) clockZero = .cons initial (.cons initial (.cons initial .nil)) :=
+  ((traceSound initial 2).2 clockZero).trans (initially initial)
+
+end Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Tests
