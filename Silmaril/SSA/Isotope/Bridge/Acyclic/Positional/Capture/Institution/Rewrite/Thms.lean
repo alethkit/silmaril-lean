@@ -36,6 +36,28 @@ theorem syntactic_sat_iff (pe : ε) (e : GrammarEquation P) :
       (grammarCase e) ↔ Derivable pe e :=
   syntactic_sat_iff_proof pe e
 
+section EmptyDenotation
+
+open Isotope.LetCase.LocallyNameless (Derivation Tm)
+open Isotope.LetCase.Semantics.Categorical (denote)
+
+variable {V C : Type 1} [Category.{0} V] [Category.{0} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C] {J : V ⥤ C}
+  [DistributiveFreydCategory J] [FreydCategory.CentralUnit J]
+
+/-- Sequence an empty result once before eliminating it, even when its
+producer has effects. -/
+theorem denote_emptySequencing (M : TypeModel τ V) (I : InstructionModel J M P.Instr)
+    {t : Tm Empty P.Instr n} (a : Derivation P.Instr Γ₀ β t (empty : τ)) (A : τ) :
+    letI := I
+    denote J M (.let₁ a (.abort (C := A) (.bv (ι := 0)))) = denote J M (.abort (C := A) a) :=
+  denote_abortSequence_proof M I a A
+
+end EmptyDenotation
+
 namespace EmptySequencing
 
 local notation "T" => Ty Empty
