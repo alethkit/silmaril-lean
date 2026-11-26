@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Mathlib.Data.Fin.Embedding
@@ -11,6 +12,7 @@ meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
 
@@ -765,3 +767,91 @@ private def rejectsMissingCapture : Option Bool := do
 #eval rejectsMissingCapture
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Tests
+
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | guard : Op [.count] .bool
+  | not : Op [.bool] .bool
+  | twoOrMore : Op [.count] .bool
+  | pred : Op [.count] .count
+  | positivePred : Op [.count] .count
+  | copy : Op [.count] .count
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .guard, .cons n .nil => some ⟨n.down != 0⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+    | .twoOrMore, .cons n .nil => some ⟨2 ≤ n.down⟩
+    | .pred, .cons n .nil => some ⟨n.down - 1⟩
+    | .positivePred, .cons n .nil => if n.down = 0 then none else some ⟨n.down - 1⟩
+    | .copy, .cons n .nil => some n
+
+private def sort : Fin 11 → Ty Unit
+  | 0 | 1 | 2 | 3 | 5 | 6 | 7 => .count
+  | 4 | 8 | 9 => .bool
+  | _ => .count
+
+-- The live feedback is φ (old ≥ 2) (positivePred shared) (copy shared).
+-- The two differently wired arms share one computation, pred old.
+private def raw : RawGraph Op [.count] [.count] 11 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node
+    | 0 => ⟨_, .eval 0, [3, 10]⟩
+    | 1 => ⟨_, .op .pred, [3]⟩
+    | 2 => ⟨_, .param .head, []⟩
+    | 3 => ⟨_, .theta 0, [2, 7]⟩
+    | 4 => ⟨_, .op .twoOrMore, [3]⟩
+    | 5 => ⟨_, .op .positivePred, [1]⟩
+    | 6 => ⟨_, .op .copy, [1]⟩
+    | 7 => ⟨_, .phi, [4, 5, 6]⟩
+    | 8 => ⟨_, .op .guard, [3]⟩
+    | 9 => ⟨_, .op .not, [8]⟩
+    | 10 => ⟨_, .pass 0, [9]⟩
+  roots := [0]
+
+private def graph : Graph Op [.count] [.count] 11 1 := raw.check.get (by decide)
+
+private def input (n : Nat) : Tuple model.Value [.count] := .cons ⟨n⟩ .nil
+
+private def checked := extract graph 7 1
+
+private def run (fuel n : Nat) : Option Nat := do
+  let cert ← checked
+  (cert.region.runFuel model fuel (input n)).map ULift.down
+
+-- Inspect the emitted update: the shared primitive is before the branch,
+-- with one arm-local operation on each side and a final projection.
+private def hasSharedBranch {vars outs : List (Ty Unit)} : Stmt Op false vars outs → Bool
+  | .seq (.assign (.op .twoOrMore _))
+      (.seq (.assign (.op .pred _))
+        (.seq (.branch (.var _)
+          (.seq (.assign (.op .positivePred _)) (.project _))
+          (.seq (.assign (.op .copy _)) (.project _))) (.project _))) => true
+  | _ => false
+
+set_option interpreter.prefer_native false
+
+/-- info: (true, true, true) -/
+#guard_msgs in
+#eval ((Figure19.check graph .inward 12).isSome, (Automatic.extract graph).isNone,
+  (checked.map fun cert => hasSharedBranch cert.region.update.lower).getD false)
+
+/-- info: (some 0, none, some 0) -/
+#guard_msgs in
+#eval (run 3 5, run 2 5, run 0 0)
+
+-- At old = 1 that instruction would fail before the branch, although the
+-- original selected arm returns zero. Keep Figure 19 and rank unchanged.
+example : model.run Op.positivePred (.cons ⟨0⟩ .nil) = none := rfl
+
+/-- info: (true, some 0) -/
+#guard_msgs in
+#eval ((extract graph 7 5).isNone, run 1 1)
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Tests

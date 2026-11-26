@@ -262,6 +262,53 @@ proof remain open.
 [Structured compiler bridge](../../Silmaril/SSA/PEG/Figure19/Structured/Thms.lean) ·
 [Regressions](../../tests/ssa/PEG.lean)
 
+### Checked placement of a shared branch inside a loop
+
+`Region.Placement.extract` takes a one-loop PEG and two row IDs, a
+feedback-root φ and a proposed shared primitive. It discovers the carried
+vector from the designated eval and checks the original same-key pass,
+parameter initializers and return slot. It derives the placement
+context from the forest depth and the installed θ rows. The checker
+validates the inward root derivation and checks the φ at the loop depth
+under exactly those θ assumptions. The strict path transports that
+derivation from an arm to the shared row.
+
+`StrictPath.depth_le` proves that a strict dependency on one of those
+θ rows forces the shared primitive to be typed at that loop's depth or
+deeper, even with Type-Reduce. The derivation at the loop depth supplies
+the matching upper bound on the minimum depth.
+`StrictPath.defined_of_phi` independently proves that a defined φ
+implies definedness of a common strict dependency at the same index.
+The path checker follows ordered primitive operands and stops at control
+or recurrence nodes. Each arm needs its own path to the proposed shared
+row. This suffices even with pure partial primitives.
+
+| Paper section | Checked placement boundary |
+| --- | --- |
+| §7.3 | One parentless loop, one parameter initializer per θ slot, an eval of one current carried value, and the same loop key on the pass. Update slices read θ slots as the old store. The guard and exit boundary reuse the single-loop certificate. |
+| §7.4 | One φ directly in the feedback vector becomes one SIMPLE branch. Its guard and shared primitive are scheduled over the old store before the branch. Each arm has its own primitive schedule and returns its result plus the inherited store. Extra φ, eval, pass, or unbound θ dependencies in the scheduled slices cause rejection. |
+| §7.5 | Primitive bindings use ordered, already available operands and fresh temporaries. The join binds the φ once, and the final projection commits the whole update vector simultaneously. |
+| §7.6–7.7 | Loop and branch fusion remain open. |
+| §7.8 | A strict path from each arm certifies this shared row's unconditional demand relative to a defined φ. General MustEval, discovery of shared-row candidates, and the paper's progress and precision requirements remain open. |
+| §7.9 | The shared row stays in the continuing update, after the while guard. LICM, EvalCond and loop peeling remain open. |
+
+`Accepted.returns_iff_observe` relates the emitted SIMPLE return to the
+original graph. It uses a validated whole-graph demand rank,
+the existing finite first-pass and eval-prefix construction, the
+negation opcode law, and successful evaluation of the guard and full
+lazy update on every defined old store. The sharing theorem itself does
+not require this store-totality premise. The new fixture is a manually
+wired, live feedback φ with a shared decrement, outside #3893's
+projected two-loop layout and rejected by the former primitive-only
+single-loop scheduler. It returns zero from five in three steps.
+Proposing the partial true-arm instruction for the same placement is
+rejected even though the graph has an inward derivation and the false
+arm can return successfully. General Figure 19 extraction and nested
+placement remain open.
+[Placement checker and theorem](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Placement/Thms.lean) ·
+[Regression](../../tests/ssa/PEGCanonicalWhile.lean) ·
+[Paper §§7.3–7.9](https://arxiv.org/pdf/1012.1802v3#page=43)
+
 Section 8.3's displayed cycle constraints exclude cycles without a θ
 node. A θ whose initializer selects itself still passes that test,
 although Definition 5.1(1) requires a feedback edge on the cycle.
@@ -325,11 +372,10 @@ writers is rejected with `Rejection.reversion`.
 ## Remaining work in priority order
 
 1. **Close the cyclic path from structured frontend through reversion.**
-   Relate the Figure 19 typing rules to the repaired guard. Implement checked placement and
-   extraction for nested loops, branches and shared state. Carry first-exit
-   and prefix obligations through selection and reversion. The exact scalar
-   and pair extractors, the checked single-loop region, and the inferred
-   two-level compiler layout serve as regression cases.
+   Relate the Figure 19 typing rules to the repaired guard. Extend checked
+   placement from one shared branch in a parentless loop to multiple branches
+   and nested regions. Carry first-exit and prefix obligations through selection
+   and reversion. General extraction, fusion, MustEval, and LICM remain open.
 2. **Formalize the general saturation and cost interfaces.** Model
    node-generating analyses and prove (4.1)–(4.4) with their hypotheses.
    Relate worklist execution and constrained selection to that model. Port

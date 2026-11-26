@@ -81,13 +81,14 @@ all θ slots to the old tuple, and a binding adds a new origin without
 changing any existing origin. -/
 def slice {roots : Tuple (Ref g.sort) outs} {results : List (ValuePort Data)} :
     {vars : List (Ty Data)} → {scope : Tuple (Ref g.sort) vars} →
-    Schedule g roots scope → {past : List (List (ValuePort Data))} → Scope carried vars past →
+    Schedule g false roots scope → {past : List (List (ValuePort Data))} → Scope carried vars past →
       (∀ {past'}, Wires (valuePorts carried) past' (valuePorts outs) → Code P carried past' results) →
       Code P carried past results
   | _, _, .done reads, _, layout, finish => finish (wires layout reads.slots)
   | _, _, .bind _ op _ _ _ reads tail, _, layout, finish =>
     let rest := slice tail layout.push finish
     ⟨_ :: rest.1, .bind (primitive op (wires layout reads.slots)) (fun j => j.elim0) rest.2⟩
+  | _, _, .branch enabled _ _ _ _ _ _ _ _ _ _ _, _, _, _ => nomatch enabled
 
 def continueArm (cert : Certificate g allowInvariant) :
     Code P carried [] (valuePorts carried) :=

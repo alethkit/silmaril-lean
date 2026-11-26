@@ -41,7 +41,7 @@ private def mapCode {outs : List (ValuePort Data)} (code : Code P carried past o
   ⟨code.1, mapTerm (opcode f) code.2⟩
 
 private theorem slice_map {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) vars}
-    {results : List (ValuePort Data)} (code : Schedule g roots scope) (layout : Scope carried vars past)
+    {results : List (ValuePort Data)} (code : Schedule g false roots scope) (layout : Scope carried vars past)
     (left : ∀ {past'}, Wires (valuePorts carried) past' (valuePorts outs) → Code P carried past' results)
     (right : ∀ {past'}, Wires (valuePorts carried) past' (valuePorts outs) → Code Q carried past' results)
     (aligned : ∀ past' (w : Wires (valuePorts carried) past' (valuePorts outs)), right w = mapCode f (left w)) :
@@ -50,8 +50,9 @@ private theorem slice_map {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref 
   | done reads => exact aligned _ (wires layout reads.slots)
   | bind i op refs fresh row reads tail ih =>
     simp only [schedule, slice, mapCode]
-    rw [ih layout.push]
+    rw [ih layout.push left right aligned]
     rfl
+  | branch enabled => nomatch enabled
 
 private theorem continue_map (cert : Certificate g allowInvariant) :
     continueArm (certificate f cert) = mapCode f (continueArm cert) :=

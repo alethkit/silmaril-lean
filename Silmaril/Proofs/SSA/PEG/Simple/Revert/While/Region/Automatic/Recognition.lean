@@ -107,13 +107,8 @@ private theorem check_isSome_rank [DecidableEq Data] [∀ ins out, DecidableEq (
     (validA : a.check g = true) (validB : b.check g = true) :
     (Region.check g d ⟨guard, body, a⟩).isSome = (Region.check g d ⟨guard, body, b⟩).isSome := by
   unfold Region.check Region.checkWith
-  split <;> try rfl
-  split <;> try rfl
-  split <;> try rfl
-  split <;> try rfl
-  split <;> try rfl
-  split <;> try rfl
-  dsimp only
+  cases checkBoundary g d false <;> try rfl
+  simp only [dite_eq_left validA, dite_eq_left validB]
   cases Schedule.check g d.guardRoots guard d.theta <;>
     cases Schedule.check g d.next body d.theta <;> rfl
 
