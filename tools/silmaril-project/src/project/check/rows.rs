@@ -96,6 +96,10 @@ struct RecordRows {
     comorphisms: Vec<Comorphism>,
     morphisms: Vec<Morphism>,
     corridors: Vec<Corridor>,
+    ir_families: Vec<IrFamily>,
+    ir_syntax_kinds: Vec<IrSyntaxKind>,
+    ir_subsets: Vec<IrSubset>,
+    ir_models: Vec<IrModel>,
     logic_facts: Vec<LogicFact>,
     logic_audit: Vec<LogicAudit>,
     hets_logics: Vec<HetsLogic>,
@@ -277,6 +281,38 @@ fn record_rows(
             Record::ConsequenceInterpretation(x) => {
                 let sid = obj(o, &x.name, &x.sid_override);
                 rows.system_interpretations.push(ConsequenceInterpretation {
+                    sid,
+                    origin: org,
+                    ..x.clone()
+                });
+            }
+            Record::IrFamily(x) => {
+                let sid = obj(o, &x.name, &x.sid_override);
+                rows.ir_families.push(IrFamily {
+                    sid,
+                    origin: org,
+                    ..x.clone()
+                });
+            }
+            Record::IrSyntaxKind(x) => {
+                let sid = obj(o, &x.name, &x.sid_override);
+                rows.ir_syntax_kinds.push(IrSyntaxKind {
+                    sid,
+                    origin: org,
+                    ..x.clone()
+                });
+            }
+            Record::IrSubset(x) => {
+                let sid = obj(o, &x.name, &x.sid_override);
+                rows.ir_subsets.push(IrSubset {
+                    sid,
+                    origin: org,
+                    ..x.clone()
+                });
+            }
+            Record::IrModel(x) => {
+                let sid = obj(o, &x.name, &x.sid_override);
+                rows.ir_models.push(IrModel {
                     sid,
                     origin: org,
                     ..x.clone()
@@ -640,6 +676,10 @@ pub(super) fn run(
     db.push(&recs.comorphisms);
     db.push(&recs.morphisms);
     db.push(&recs.corridors);
+    db.push(&recs.ir_families);
+    db.push(&recs.ir_syntax_kinds);
+    db.push(&recs.ir_subsets);
+    db.push(&recs.ir_models);
     db.push(&edge_kind_rows());
     db.push(&recs.logic_facts);
     db.push(&recs.logic_audit);
