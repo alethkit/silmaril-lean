@@ -26,7 +26,7 @@ translation goes from `T` to `S` by inverse image. Model categories are
 discrete. Satisfaction means inclusion in the sentence's allowed set.
 [Institution definitions](../../Silmaril/Logic/TrackA/Interaction/Defs.lean)
 
-The satisfaction condition follows Goguen and Burstall (1992), §2.1,
+The satisfaction condition follows Goguen and Burstall (1992), *Institutions: Abstract Model Theory for Specification and Programming*, §2.1,
 Definition 1, printed pp. 101–102. The room functors use the category-of-models
 variant of §2.5, Definition 12, printed pp. 109–110. The linked PDF has SHA-256
 `f6715ca333dd03dc153a65907c1c974fa151690bb94eafffc065c363265b634d`.
