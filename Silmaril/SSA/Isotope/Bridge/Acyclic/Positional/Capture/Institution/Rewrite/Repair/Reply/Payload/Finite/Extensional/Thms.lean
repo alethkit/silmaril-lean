@@ -48,6 +48,13 @@ theorem derive_normal (H : Sorts) (L : List Sorts) {n : Nat} (p q : Source (H ::
 theorem Path.traceTree_injective (L : List Sorts) : Function.Injective (@Path.traceTree L) :=
   path_trace_inj_proof L
 
+/-- At any retained assignment, the open packed program agrees with the
+finite tree's observations in the same native bit context and exit list. -/
+theorem tree_programOutcomes_eq (H : Sorts) (L : List Sorts) {n : Nat}
+    (t : Tree (H :: L) n) (env : Assignment n) :
+    programOutcomes H L (.tree t) env = t.normal.outcomes env :=
+  tree_programOutcomes_proof H L t env
+
 theorem programOutcomes_eq (H : Sorts) (L : List Sorts) {n : Nat}
     (p : Source (H :: L) n) (env : Assignment n) :
     programOutcomes H L p env = (p.normal env).traceTree.outcomesWith Exits.Exit.packed :=

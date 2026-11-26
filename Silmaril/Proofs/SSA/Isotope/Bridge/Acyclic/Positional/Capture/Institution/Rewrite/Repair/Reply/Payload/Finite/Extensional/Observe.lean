@@ -107,18 +107,23 @@ private theorem packed_normal_run (H : Sorts) (L : List Sorts) {n : Nat} (p : No
       .base ρ x.1 (labelAt_get (H :: L) x.1) x.2
   exact p.run _ ρ env (CommonRequest.bitSlots_matches n env) finish ret
 
+theorem tree_programOutcomes_proof (H : Sorts) (L : List Sorts) {n : Nat}
+    (t : Tree (H :: L) n) (env : Assignment n) :
+    programOutcomes H L (.tree t) env = t.normal.outcomes env := by
+  have normalize : Derivable false (equation H L (.tree t) (.tree t.normal.render)) :=
+    .let₁ (t.replay (CommonRequest.bitSlots n))
+      (.refl ((program H L (.tree t)).body.render .base).encode.toLetCase.2.toHasType)
+  have sat := Kleisli.sat_of_repaired model model_respectsPure _ (Repaired.ofNative normalize)
+  exact (programOutcomes_eq_of_sat_proof H L (.tree t) (.tree t.normal.render) sat env).trans
+    (packed_normal_run H L t.normal env)
+
 theorem programOutcomes_proof (H : Sorts) (L : List Sorts) {n : Nat}
     (p : Source (H :: L) n) (env : Assignment n) :
     programOutcomes H L p env = (p.normal env).traceTree.outcomesWith Exits.Exit.packed := by
   cases p with
   | tree t =>
-    have normalize : Derivable false (equation H L (.tree t) (.tree t.normal.render)) :=
-      .let₁ (t.replay (CommonRequest.bitSlots n))
-        (.refl ((program H L (.tree t)).body.render .base).encode.toLetCase.2.toHasType)
-    have sat := Kleisli.sat_of_repaired model model_respectsPure _ (Repaired.ofNative normalize)
-    exact (programOutcomes_eq_of_sat_proof H L (.tree t) (.tree t.normal.render) sat env).trans
-      ((packed_normal_run H L t.normal env).trans
-        (congrArg (Reply.Normal.outcomesWith Exits.Exit.packed) (trace_specialize t.normal env).symm))
+    exact (tree_programOutcomes_proof H L t env).trans
+      (congrArg (Reply.Normal.outcomesWith Exits.Exit.packed) (trace_specialize t.normal env).symm)
   | common test t =>
     exact (CommonRequest.programOutcomes_eq H L test t env).trans
       (congrArg (Reply.Normal.outcomesWith Exits.Exit.packed) (trace_common t.normal test env).symm)

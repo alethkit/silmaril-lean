@@ -10,6 +10,7 @@ public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution
 namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithComputedProductProducers.Intrinsic.CaseTree.ReplyAgreement
 
 open Silmaril
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Kleisli (value)
 open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
 
 local instance : HasTy signature.Instr (Ty Empty) := signature.hasTy
@@ -43,6 +44,12 @@ def DirectProgram.selected {L : List (Ty Empty)} (p : DirectProgram L) :
 def replyContext : Nat → Ty Empty
   | 0 => unit
   | n + 1 => product (replyContext n) Bit
+
+/-- The concrete point of the native retained product for an assignment.
+The newest logical slot is the rightmost component. -/
+def replyInput : (n : Nat) → Finite.Assignment n → value (replyContext n)
+  | 0, _ => PUnit.unit
+  | n + 1, env => (replyInput n env.tail, bit (env 0))
 
 /-- A case arm can still read a slot through its retained input. -/
 def retainSlot {X A : Ty Empty} (slot : Term signature.Instr X Bit) :

@@ -396,10 +396,39 @@ private theorem readTree_observe {L : List (Ty Empty)} {n : Nat}
         (fun b => ihtl (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
         (fun b => ihtr (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
 
+theorem replyInput_surjective (n : Nat) : Function.Surjective (replyInput n) := by
+  induction n with
+  | zero =>
+    rintro ⟨⟩
+    exact ⟨Fin.elim0, rfl⟩
+  | succ n ih =>
+    rintro ⟨x, b⟩
+    obtain ⟨env, rfl⟩ := ih x
+    rcases b with ⟨⟩ | ⟨⟩
+    · exact ⟨env.push false, rfl⟩
+    · exact ⟨env.push true, rfl⟩
+
+private theorem readReply_input (n : Nat) (env : Reply.Payload.Finite.Assignment n) (i : Fin n) :
+    ((readReply n i).targetArrow J M).of (replyInput n env) =
+      (pure (Reply.Payload.bit (env i)) : Trace (value Bit)) := by
+  induction n with
+  | zero => exact i.elim0
+  | succ n ih =>
+    refine Fin.cases rfl (fun j => ?_) i
+    exact (retainSlot_of (A := Bit) (readReply n j) (replyInput n env.tail) (Reply.Payload.bit (env 0))).trans
+      (ih env.tail j)
+
+theorem readTree_packed_assignment {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n)
+    (env : Reply.Payload.Finite.Assignment n) :
+    ((PJ J M (fun _ _ => ⟨rfl, rfl⟩) (pack p.selected.elaborate.property)).of (replyInput n env)).outcomes =
+      p.witnessed.normal.outcomes env := by
+  rw [p.selected.denote_packArrow J M (fun _ _ => ⟨rfl, rfl⟩)]
+  exact readTree_observe p (readReply n) (replyInput n env) env (readReply_input n env)
+
 theorem readTree_packed_outcomes (H : Ty Empty) (L : List (Ty Empty)) (p : ReadTree (H :: L) 0) :
     ((PJ J M (fun _ _ => ⟨rfl, rfl⟩) (pack p.selected.elaborate.property)).of PUnit.unit).outcomes =
       Reply.Payload.Finite.programOutcomes H L p.witnessed := by
-  rw [p.selected.denote_packArrow J M (fun _ _ => ⟨rfl, rfl⟩), Reply.Payload.Finite.programOutcomes_eq]
-  exact readTree_observe p (readReply 0) PUnit.unit Fin.elim0 (fun i => i.elim0)
+  rw [Reply.Payload.Finite.programOutcomes_eq]
+  exact readTree_packed_assignment p Fin.elim0
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement
