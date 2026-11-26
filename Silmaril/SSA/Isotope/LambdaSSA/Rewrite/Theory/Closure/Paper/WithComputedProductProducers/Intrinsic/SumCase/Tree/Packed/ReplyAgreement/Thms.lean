@@ -45,6 +45,21 @@ theorem DirectProgram.denote_agrees (H : Ty Empty) (L : List (Ty Empty)) (p : Di
         (boundEnv Kleisli.value (β := .nil) PUnit.unit) :=
   Tagged.outcomes_injective (p.packedOutcomes_eq H L)
 
+/-- Every concrete point of the retained product comes from an assignment. -/
+theorem replyInput_surjective (n : Nat) : Function.Surjective (replyInput n) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement.replyInput_surjective n
+
+/-- The actual packed arrow at any retained assignment has the witnessed
+outcomes at that assignment. The selected tree and arrow are independent of
+the assignment. -/
+theorem ReadTree.packedOutcomes_at_assignment {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n)
+    (env : Reply.Payload.Finite.Assignment n) :
+    letI := Kleisli.instructions model
+    let := modelCoherent
+    ((denoteArrow J M (fun _ _ => ⟨rfl, rfl⟩) (packArrow p.selected.elaborate.property)).of (replyInput n env)).outcomes =
+      p.witnessed.normal.outcomes env :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement.readTree_packed_assignment p env
+
 /-- The selected fold and the actual witnessed finite tree have equal
 packed observations. A retained-bit test selects its next request and keeps
 the untested replies in scope. Returns can compute expressions or quoted
