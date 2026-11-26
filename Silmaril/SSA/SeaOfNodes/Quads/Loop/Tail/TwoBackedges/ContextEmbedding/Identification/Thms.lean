@@ -66,6 +66,12 @@ theorem source_run (map : BankMap old new) (p : Program Op old out)
     (program map p).source.runFrom model fuel 0 input = p.source.runFrom model fuel 0 (pull map input) :=
   Proofs.source_run map p safe fuel input
 
+/-- A successful intersection contains only constants and unconstrained coordinates. -/
+theorem pushFacts_nonbottom (map : BankMap old new) (facts : EntryFacts old) (output : EntryFacts new)
+    (pushed : pushFacts map facts = some output) {t : SeaOfNodes.Diamond.Ty Width}
+    (port : Port (dataPorts new) t) : output.get port ≠ .bottom :=
+  Proofs.pushFacts_nonbottom map facts output pushed port
+
 theorem pushFacts_covers (map : BankMap old new) (facts : EntryFacts old) (combined : EntryFacts new)
     (ok : pushFacts map facts = some combined) (input : Bank (regs := new) model) :
     TupleCovers combined input ↔ TupleCovers facts (pull map input) :=
