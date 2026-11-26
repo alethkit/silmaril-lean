@@ -98,6 +98,42 @@ theorem schedule {roots : Tuple (Ref g.sort) outs} {scope : Tuple (Ref g.sort) v
       cases p with
       | head => exact step.trans h
       | tail p => exact entry _ p
+  | branch vertex flag yes no _ wired test available trueArm falseArm tail ihYes ihNo ihTail =>
+    have step := row solves idx (Ref.ofId g.sort vertex)
+    let rhs (node : Node P carried (Fin 1) g.sort (g.sort vertex)) :=
+      node.label.interpret m env idx fun slot j _ => read values j (node.arg slot)
+    change read values idx (Ref.ofId g.sort vertex) = rhs (g.node vertex) at step
+    rw [wired] at step
+    change read values idx (Ref.ofId g.sort vertex) = (read values idx flag).elim none
+      (fun b => if b.down then read values idx yes else read values idx no) at step
+    have flagValue : read values idx flag = some (store.get test) := available ▸ entry _ test
+    rw [flagValue] at step
+    simp only [Schedule.lower, Stmt.runLoopFree, Expr.eval, Expr.evalLift, Option.bind_some] at ran
+    split at ran
+    · rename_i chosen
+      rw [Option.elim, ite_eq_left chosen] at step
+      cases h : trueArm.lower.runLoopFree m store with
+      | none => simp [h] at ran
+      | some mid =>
+        simp only [h, Option.bind_some] at ran
+        have arm := ihYes entry h
+        apply ihTail (store := mid) _ ran
+        intro t p
+        cases p with
+        | head => exact step.trans (arm _ .head)
+        | tail p => exact arm _ (.tail p)
+    · rename_i chosen
+      rw [Option.elim, ite_eq_right chosen] at step
+      cases h : falseArm.lower.runLoopFree m store with
+      | none => simp [h] at ran
+      | some mid =>
+        simp only [h, Option.bind_some] at ran
+        have arm := ihNo entry h
+        apply ihTail (store := mid) _ ran
+        intro t p
+        cases p with
+        | head => exact step.trans (arm _ .head)
+        | tail p => exact arm _ (.tail p)
 
 variable {allowInvariant : Bool}
 variable (cert : Certificate g allowInvariant)
