@@ -103,8 +103,9 @@ comparison use the library's binary64 semantics. Text comparison follows
 Unicode code-point order, and truth of a literal dictionary requires a
 checked text key and literal value at every entry. Boolean selection
 retains the selected value's tag. The checker validates every operand and
-comparison link, including skipped ones. Emission adds no instructions,
-runtime allocations or receipts. Run the four pinned inputs and the
+comparison link, including skipped ones. Bitwise inversion requires an
+integer because CPython 3.13.5 warns on Boolean inversion. Emission adds no
+instructions, runtime allocations or receipts. Run the four pinned inputs and the
 CPython 3.13.5 controls with
 `python3.13 -I scripts/check-python-closed-guards.py --upstream /path/to/pinned/rigorous`.
 

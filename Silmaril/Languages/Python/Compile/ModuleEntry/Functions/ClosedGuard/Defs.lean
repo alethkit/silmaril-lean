@@ -51,7 +51,7 @@ def unary? (operator : UnaryOperator) (value : Value) : Option Value :=
   | .negative, .float value => (F64.Finite.neg? value).map .float
   | .positive, .scalar value => value.asInt?.map fun int => .scalar (.int int)
   | .negative, .scalar value => value.asInt?.map fun int => .scalar (.int (-int))
-  | .invert, .scalar value => value.asInt?.map fun int => .scalar (.int (Int.not int))
+  | .invert, .scalar (.int value) => some (.scalar (.int (Int.not value)))
   | _, _ => none
 
 def binary? (operator : BinaryOperator) (left right : Value) : Option Value :=

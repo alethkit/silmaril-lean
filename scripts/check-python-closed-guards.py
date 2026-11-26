@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import warnings
 
 TESTS = Path(__file__).resolve().parents[1] / "tests/languages/python"
 SUITE = runpy.run_path(str(TESTS / "source-module-entry/check_seeded_run.py"))
@@ -211,6 +212,13 @@ tail = keep
 
     source = "if probe(1) and probe(0) and probe(2): raise missing('unreached')\n"
     assert cpython(source, {"probe": probe}) == ("normal", {}) and events == [1, 0]
+    check(source, paths, rejected)
+
+    source = "if ~True: pass\nelse: raise missing('boolean inversion')\n"
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter("always")
+        assert cpython(source) == ("normal", {})
+    assert [warning.category for warning in emitted] == [DeprecationWarning]
     check(source, paths, rejected)
 
     malformed = ast.parse("if True and False: raise Missing\n")
