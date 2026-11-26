@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Provenance.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi.OrderedExits.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
@@ -15,9 +16,8 @@ open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Phi (Graph br)
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed
 open Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible (Atom Denote
   PacketType PrimitiveSignature)
-open LambdaSSA (Region)
-open LambdaSSA.Semantics (Env extend)
-open LambdaSSA.Semantics.Interaction (BlockInput Transfer region term splitTransfer)
+open LambdaSSA (Flat)
+open LambdaSSA.Semantics (Env)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues typeModel)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open NamedFlat.Entry.Reverse (Lowered Registers lowerCheckedWith numberedInterface)
@@ -43,16 +43,16 @@ attribute [local instance] typeModel
 
 private def model : LambdaSSA.Semantics.Interaction.Typed.Ordered.Model (κ := SortName) Events sig.Instr where
   raw _ v := match v with
-    | .unit => vis (.ask key) (fun _ => pure .unit)
+    | .unit => vis (Event.ask key) (fun _ => pure .unit)
     | _ => diverge
   instructions := {
-    denote := fun _ _ => vis (.ask key) (fun _ => pure PUnit.unit)
+    denote := fun _ _ => vis (Event.ask key) (fun _ => pure PUnit.unit)
     denotePure := fun _ h _ => by contradiction
     denote_pure := fun _ h _ => by contradiction }
   compatible _ input := by
     cases input
-    change vis (.ask key) (fun _ => pure Value.unit) =
-      ((vis (.ask key) (fun _ => pure PUnit.unit) : Tree Events PUnit.{2}) >>= fun _ => pure Value.unit)
+    change vis (Event.ask key) (fun _ => pure Value.unit) =
+      ((vis (Event.ask key) (fun _ => pure PUnit.unit) : Tree Events PUnit.{2}) >>= fun _ => pure Value.unit)
     rw [vis_bind]
     simp only [pure_bind]
 
@@ -159,123 +159,68 @@ private theorem everyPacket (packet : Denote packetType) : packet = packetAtEntr
   rcases packet with ⟨⟨⟨⟩, ⟨⟩⟩, ⟨⟨⟩, ⟨⟩⟩⟩
   rfl
 
-private def localPacket (returns : Bool) :
-    BlockInput Runtime (CFG.Cyclic.Versioning.compile
-      (CFG.Cyclic.Phi.OrderedExits.lower (admission returns).source)).blocks.length → BlockInput Atom 1 :=
-  fun state => (0, valueCodec atomCodec state.2)
-
-private theorem sourceEntry (returns : Bool) :
-    (admission returns).code.entry.erase = .br 0
-      (.pair (.pair (.var 0) .unit) (.pair (.var 0) .unit)) := by
-  cases returns <;> rfl
-
-private theorem publicEntry (returns : Bool) :
-    (packed returns 0).target.entry.erase = .br 0 (.var 0) := by
-  cases returns <;> rfl
-
-private theorem entry_agrees (returns : Bool) :
-    Sum.map (resultCodec atomCodec) (localPacket returns) <$>
-      transfer model.raw (NamedFlat.Entry.inputEnv context record) _
-        (admission returns).code.entry =
-    transfer signature.primitive (recordAt 0 packetAtEntry) _ (packed returns 0).target.entry := by
-  unfold transfer
-  rw [sourceEntry, publicEntry]
-  simp only [region, LambdaSSA.Semantics.Interaction.term, pure_bind, map_pure]
-  cases returns <;> rfl
-
-private def rowSyntax (returns : Bool) : Region Unit :=
-  .let₂ (.var 0) (.let₂ (.var 0) (.let₂ (.var 3)
-    (.let₁ (.op () (.var 1)) (if returns then .br 2 (.pair (.var 0) .unit)
-      else .br 0 (.pair (.pair (.var 0) .unit) (.pair (.var 4) .unit))))))
-
-private theorem sourceRow (returns : Bool)
-    (i : Fin (CFG.Cyclic.Versioning.compile
-      (CFG.Cyclic.Phi.OrderedExits.lower (admission returns).source)).blocks.length) :
-    ((admission returns).code.block i).erase = rowSyntax returns := by
-  rcases i with ⟨i, hi⟩
-  have bound : i < 1 := Nat.lt_of_lt_of_eq hi (tableSize returns)
-  have isZero : i = 0 := by omega
-  subst i
-  cases returns <;> rfl
+private def seed : Val (Fin 1) :=
+  .pair (.pair (.var 0) .unit) (.pair (.var 0) .unit)
 
 private def publicBlock (returns : Bool) : Fin ((program returns).compile 0).blocks.length :=
   ⟨0, by change 0 < 1; decide⟩
 
-private theorem publicRow (returns : Bool) :
-    ((packed returns 0).target.block (publicBlock returns)).erase = rowSyntax returns := by
-  cases returns <;> rfl
+private def publicSlot (returns : Bool) : Fin (packed returns 0).count :=
+  ⟨0, by change 0 < 1; decide⟩
 
-private noncomputable def decodedRow {α : Type 1}
-    (instr : LambdaSSA.Semantics.Interaction.Primitive Events Unit α) (returns : Bool) :
-    Value α → Tree Events (Transfer α)
-  | .pair (.pair arg _) (.pair saved _) =>
-    instr () arg >>= fun reply =>
-      pure (if returns then (2, .pair reply .unit)
-        else (0, .pair (.pair reply .unit) (.pair saved .unit)))
-  | _ => diverge
+-- Compile the actual public row in the packet-only scope. Its erasure is
+-- checked against both the actual φ reverse readback and the public table.
+private def packetRow (returns : Bool) : Flat Unit 3 1 :=
+  let graph := (program returns).compile 0
+  let block := graph.blocks[publicBlock returns].2
+  (NamedFlat.body (NamedFlat.labelIndex graph.blocks (program returns).exits)
+    (NamedFlat.blockNames block.param) block.body).get (by cases returns <;> decide)
 
-private theorem row_decoded {α : Type 1}
-    (instr : LambdaSSA.Semantics.Interaction.Primitive Events Unit α)
-    (env : Env α) (returns : Bool) (value : Value α) :
-    region instr (extend env value) (rowSyntax returns) = decodedRow instr returns value := by
+private def provenance (returns : Bool) : Provenance (admission returns).code (packed returns 0).target where
+  count := tableSize returns
+  exitCount := rfl
+  start := ⟨0, by rw [tableSize returns]; decide⟩
+  seed := seed
+  slot := publicSlot returns
+  sourceEntry := by cases returns <;> rfl
+  publicEntry :=
+    packedEntry_erase_entry (packed returns 0) (publicSlot returns) ⟨0, by change 0 < 3; decide⟩
+      (by cases returns <;> rfl) (by cases returns <;> rfl)
+  row _ := by
+    cases returns
+    · exact packetRow false
+    · exact packetRow true
+  sourceRow i := by
+    rcases i with ⟨i, hi⟩
+    have bound : i < 1 := Nat.lt_of_lt_of_eq hi (tableSize returns)
+    have isZero : i = 0 := by omega
+    subst i
+    cases returns <;> rfl
+  publicRow i := by
+    rcases i with ⟨i, hi⟩
+    have bound : i < 1 := Nat.lt_of_lt_of_eq hi (tableSize returns)
+    have isZero : i = 0 := by omega
+    subst i
+    cases returns <;> rfl
+
+private theorem primitive_agrees : PrimitivesAgree model.raw signature.primitive atomCodec := by
+  intro op value
+  cases op
   cases value
-  case pair args saved =>
-    cases saved
-    case pair old tail =>
-      cases args <;> cases returns <;>
-        simp only [rowSyntax, Bool.false_eq_true, ite_false, ite_true, region,
-          LambdaSSA.Semantics.Interaction.term, extend, pure_bind, decodedRow]
-    all_goals
-      simp only [rowSyntax, region, LambdaSSA.Semantics.Interaction.term, extend, pure_bind, decodedRow]
+  case unit =>
+    change valueCodec atomCodec <$> (vis (Event.ask key) fun _ => pure .unit) =
+      vis (Event.ask key) (fun _ => pure .unit)
+    simp only [map_eq_pure_bind, vis_bind, pure_bind, valueCodec]
   all_goals
-    simp only [rowSyntax, region, LambdaSSA.Semantics.Interaction.term, extend, pure_bind, decodedRow]
-
-private theorem row_codec (returns : Bool) (leftEnv : Env Runtime) (rightEnv : Env Atom)
-    (value : Value Runtime) :
-    Sum.map (resultCodec atomCodec) (fun p : BlockInput Runtime 1 => (0, valueCodec atomCodec p.2)) <$>
-      (splitTransfer 1 <$> region model.raw (extend leftEnv value) (rowSyntax returns)) =
-    splitTransfer 1 <$> region signature.primitive (extend rightEnv (valueCodec atomCodec value))
-      (rowSyntax returns) := by
-  rw [row_decoded, row_decoded]
-  cases value
-  case pair args saved =>
-    cases saved
-    case pair old tail =>
-      cases args
-      case pair argument rest =>
-        cases argument
-        all_goals simp only [valueCodec, decodedRow]
-        case unit =>
-          change _ <$> (_ <$> ((vis (.ask key) (fun _ => pure Value.unit) : Tree Events (Value Runtime)) >>= _)) =
-            _ <$> ((vis (.ask key) (fun _ => pure Value.unit) : Tree Events (Value Atom)) >>= _)
-          simp only [map_eq_pure_bind, vis_bind, pure_bind]
-          cases returns <;> rfl
-        all_goals
-          change _ <$> (_ <$> ((diverge : Tree Events (Value Runtime)) >>= _)) =
-            _ <$> ((diverge : Tree Events (Value Atom)) >>= _)
-          simp only [map_eq_pure_bind, diverge_bind]
-      all_goals simp only [decodedRow, valueCodec, map_eq_pure_bind, diverge_bind]
-    all_goals cases args <;> simp only [decodedRow, valueCodec, map_eq_pure_bind, diverge_bind]
-  all_goals simp only [decodedRow, valueCodec, map_eq_pure_bind, diverge_bind]
-
-private theorem row_agrees (returns : Bool)
-    (pending : BlockInput Runtime (CFG.Cyclic.Versioning.compile
-      (CFG.Cyclic.Phi.OrderedExits.lower (admission returns).source)).blocks.length) :
-    Sum.map (resultCodec atomCodec) (localPacket returns) <$>
-      blockStep model.raw (admission returns).code (NamedFlat.Entry.inputEnv context record) pending =
-    blockStep signature.primitive (packed returns 0).target (recordAt 0 packetAtEntry)
-      (localPacket returns pending) := by
-  rcases pending with ⟨block, value⟩
-  unfold blockStep transfer
-  change _ <$> (splitTransfer _ <$> region model.raw _ ((admission returns).code.block block).erase) =
-    splitTransfer 1 <$> region signature.primitive _ ((packed returns 0).target.block (publicBlock returns)).erase
-  rw [sourceRow, publicRow]
-  cases returns <;> exact row_codec _ _ _ value
+    change valueCodec atomCodec <$> (diverge : Tree Events (Value Runtime)) = diverge
+    simp only [map_eq_pure_bind, diverge_bind]
 
 private def alignment (returns : Bool) :
     Alignment (admission returns).code (packed returns 0).target model.raw signature.primitive
       (NamedFlat.Entry.inputEnv context record) (recordAt 0 packetAtEntry) atomCodec :=
-  ⟨localPacket returns, entry_agrees returns, row_agrees returns⟩
+  (provenance returns).alignment primitive_agrees <|
+    (packedEntry_capture_packet (packed returns 0) (publicSlot returns) (by cases returns <;> rfl)
+      packetAtEntry _ (agrees returns 0 packetAtEntry)).trans (by cases returns <;> rfl)
 
 private def covered (returns : Bool) (input : Fin 1) (packet : Denote (inputs input)) :
     PublicMatch (admission returns) model record packet (resultCodec atomCodec) (packed returns input)
