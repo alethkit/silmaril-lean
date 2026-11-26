@@ -210,28 +210,36 @@ private def scalar : Option NumType := some (.int .i32)
 private def tailRegion : Source Nat := .hosts ⟨[], nextSite⟩ []
 private def arm : Source Nat := .ifThen scalar ⟨0⟩ .root (.hosts ⟨[.get ⟨0⟩], first⟩ []) (.plain [])
 private def body : Source Nat := .blockThen scalar arm tailRegion
-private def allocation : Store Nat :=
-  { funcs := [.host hostType 11, .host nextType 19, .wasm entryFn.declaration.type mod (entry.v1FuncFor body)],
+private def allocationFor (region : Source Nat) : Store Nat :=
+  { funcs := [.host hostType 11, .host nextType 19, .wasm entryFn.declaration.type mod (entry.v1FuncFor region)],
     memories := [initial] }
-private def stored (bytes : ByteArray) := storeWithBytes allocation slot initial bytes
+private def storedFor (region : Source Nat) (bytes : ByteArray) := storeWithBytes (allocationFor region) slot initial bytes
+private abbrev allocation := allocationFor body
+private abbrev stored := storedFor body
 private def innerLabel : OpenLabel Nat := ⟨[], scalar, .plain []⟩
 private def outerLabel : OpenLabel Nat := ⟨savedPrefix, scalar, tailRegion⟩
 private def labels := [innerLabel, outerLabel]
 
-private def behavior : HostSemantics Nat := fun id store operands answer =>
-  (id = first.target ∧ store = stored initial.data ∧ operands = rootArgs ∧
-    ((∃ choice : Bool, answer = .returned (stored (firstBytes choice)) (.values [firstValue choice])) ∨
-      answer = .returned (stored (firstBytes true)) .trap)) ∨
-  ∃ choice : Bool, id = nextSite.target ∧ store = stored (firstBytes choice) ∧
+private def behaviorFor (region : Source Nat) : HostSemantics Nat := fun id store operands answer =>
+  (id = first.target ∧ store = storedFor region initial.data ∧ operands = rootArgs ∧
+    ((∃ choice : Bool, answer = .returned (storedFor region (firstBytes choice)) (.values [firstValue choice])) ∨
+      answer = .returned (storedFor region (firstBytes true)) .trap)) ∨
+  ∃ choice : Bool, id = nextSite.target ∧ store = storedFor region (firstBytes choice) ∧
     operands = savedPrefix ++ [firstValue choice] ∧
     (answer = .returned store (.values [i32 (word choice)]) ∨ answer = .diverged)
+
+private abbrev behavior := behaviorFor body
 
 private theorem siteOf {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites body) :
     site = first ∨ site = nextSite := by
   change site ∈ [first, first, nextSite] at used
   simpa using used
 
-private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body where
+private theorem admittedFor (region : Source Nat)
+    (sites : ∀ site ∈ entry.sourceSites region, site = first ∨ site = nextSite)
+    (typed : entry.checkSource (Prefix.stackTypes entryFn.initial) entryFn.declaration.results entryFn.entryLabels region = true)
+    (guard : Source.Allowed .fixed graph slot .ranked entryFn region) :
+    entry.Checked .fixed graph slot .ranked (allocationFor region) caller rootArgs region where
   resolved := rfl
   allocated := rfl
   parameters := rfl
@@ -239,22 +247,29 @@ private theorem admitted : entry.Checked .fixed graph slot .ranked allocation ca
   slot := rfl
   linkedHosts := by
     intro site used
-    rcases siteOf used with rfl | rfl <;> exact ⟨rfl, rfl, by decide⟩
-  typedBody := rfl
-  guardedBody := by
-    refine ⟨trivial, ?_, trivial, trivial⟩
-    intro _ member
-    cases member
+    rcases sites site used with rfl | rfl <;> exact ⟨rfl, rfl, by decide⟩
+  typedBody := typed
+  guardedBody := guard
   supportedTail := rfl
   linkedTail := by intro _ used; cases used
 
-private theorem storeLayout : Layout graph allocation slot initial where
+private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body :=
+  admittedFor body (fun _ => siteOf) rfl (by
+    refine ⟨trivial, ?_, trivial, trivial⟩
+    intro _ member
+    cases member)
+
+private theorem layoutFor (region : Source Nat) : Layout graph (allocationFor region) slot initial where
   memory := rfl
   functions := by intro _ _ found; simp [graph, Program.lookup] at found
 
-private theorem embedding : entry.Contract behavior .fixed slot initial allocation body := by
+private abbrev storeLayout := layoutFor body
+
+private theorem embeddingFor (region : Source Nat)
+    (sites : ∀ site ∈ entry.sourceSites region, site = first ∨ site = nextSite) :
+    entry.Contract (behaviorFor region) .fixed slot initial (allocationFor region) region := by
   intro site used bytes _ operands _ after result outcome
-  have signature : site.signature.results = [.int .i32] := by rcases siteOf used with rfl | rfl <;> rfl
+  have signature : site.signature.results = [.int .i32] := by rcases sites site used with rfl | rfl <;> rfl
   rcases outcome with ⟨_, store, _, ⟨choice, equal⟩ | trap⟩ | ⟨choice, _, store, _, equal | impossible⟩
   · cases equal
     rw [store, signature]
@@ -270,6 +285,9 @@ private theorem embedding : entry.Contract behavior .fixed slot initial allocati
     · exact ⟨rfl, firstBytes false, firstBytes false, rfl, rfl, rfl⟩
     · exact ⟨rfl, firstBytes true, firstBytes true, rfl, rfl, rfl⟩
   · cases impossible
+
+private theorem embedding : entry.Contract behavior .fixed slot initial allocation body :=
+  embeddingFor body (fun _ => siteOf)
 
 private abbrev TailRuns := entry.Runs behavior .fixed graph slot allocation initial initial.data caller rootArgs
 private abbrev renderPhase := entry.render allocation slot initial initial.data caller rootArgs
@@ -370,6 +388,119 @@ example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.
 -- A host-free suffix that would lose the typed reentry stack is also rejected.
 example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
     (.blockThen scalar (.plain [.ranked (.numeric (.get ⟨0⟩))]) tailRegion) = false := rfl
+
+namespace Forward
+
+private def target : ForwardBranch := ⟨⟨1⟩, [.int .i32]⟩
+private def skippedHost : Source Nat := .hosts ⟨[], first⟩ []
+private def writer : HostSegment Nat := ⟨[.get ⟨0⟩, .get ⟨0⟩], first⟩
+private def regionWith (segment : HostSegment Nat) (branch : ForwardBranch) : Source Nat :=
+  .blockThen scalar (.blockThen scalar (.hosts segment [] (some branch)) skippedHost) tailRegion
+private def region : Source Nat := regionWith writer target
+private def store := storedFor region
+private def inner : OpenLabel Nat := ⟨[], scalar, skippedHost⟩
+
+private theorem linked {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites region) :
+    site = first ∨ site = nextSite := by
+  change site ∈ [first, first, nextSite] at used
+  simpa using used
+
+private theorem admittedBranch : entry.Checked .fixed graph slot .ranked (allocationFor region) caller rootArgs region :=
+  admittedFor region (fun _ => linked) rfl ⟨trivial, trivial, trivial⟩
+
+private theorem contracted : entry.Contract (behaviorFor region) .fixed slot initial (allocationFor region) region :=
+  embeddingFor region (fun _ => linked)
+
+private abbrev BranchRuns :=
+  entry.Runs (behaviorFor region) .fixed graph slot (allocationFor region) initial initial.data caller rootArgs
+private abbrev renderBranch := entry.render (allocationFor region) slot initial initial.data caller rootArgs
+private def launchBranch : Config Nat := ⟨store initial.data, caller, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+
+private theorem readyBranch {phase : Phase} (run : BranchRuns (.call region) phase) :
+    entry.Ready .fixed graph slot .ranked initial phase region := by
+  induction run with
+  | refl => rfl
+  | tail _ move ih => exact move.ready rfl admittedBranch (layoutFor region) rfl contracted ih
+
+private theorem nativeBranch {phase : Phase} (run : BranchRuns (.call region) phase) :
+    Steps (behaviorFor region) launchBranch (renderBranch phase) :=
+  (Sequence.v1_call_run_iff rfl admittedBranch (layoutFor region) trivial rfl contracted).mpr
+    ⟨phase, run, readyBranch run, rfl⟩
+
+private theorem firstCall :
+    BranchRuns (.call region) (.pending initial.data rootArgs rootArgs first [] [inner, outerLabel] (some target)) := by
+  have entered : BranchRuns (.call region)
+      (.block initial.data [] scalar (.hosts writer [] (some target)) skippedHost [outerLabel]) :=
+    ((Relation.ReflTransGen.single .resolve).tail .enter).tail .openBlock
+  exact (((entered.tail .openBlock).tail (.numeric (.get rfl))).tail (.numeric (.get rfl))).tail (.hostResolve rfl)
+
+private def lowered (choice : Bool) : Phase :=
+  .branching (firstBytes choice) (rootArgs ++ [firstValue choice]) { target with depth := ⟨0⟩ }
+    (entry.tailCode inner) [outerLabel]
+
+private theorem cross (choice : Bool) : BranchRuns (.call region) (lowered choice) := by
+  have returned : behaviorFor region first.target (store initial.data) rootArgs
+      (.returned (store (firstBytes choice)) (.values [firstValue choice])) :=
+    .inl ⟨rfl, rfl, rfl, .inl ⟨choice, rfl⟩⟩
+  have branch : BranchRuns (.call region)
+      (.branching (firstBytes choice) (rootArgs ++ [firstValue choice]) target [] [inner, outerLabel]) :=
+    firstCall.tail (.returned returned rfl)
+  exact branch.tail (.branchOuter (by decide))
+
+private theorem lands (choice : Bool) : BranchRuns (.call region) (nextPending choice) := by
+  have resumes : BranchRuns (.call region)
+      (.computing (firstBytes choice) (savedPrefix ++ [firstValue choice]) [] nextSite []) :=
+    (cross choice).tail (.branchExit (extra := rootArgs) (payload := [firstValue choice]) rfl)
+  exact resumes.tail (.hostResolve (saved := []) rfl)
+
+-- Native intermediate prefix. The intermediate host is still in the code
+-- after lowering and is discarded by the next label exit.
+example (choice : Bool) : Steps (behaviorFor region) launchBranch
+    ⟨store (firstBytes choice), caller, [.frame 1 inside [.label 1 []
+      (values savedPrefix ++ [.label 1 []
+        (values (rootArgs ++ [firstValue choice]) ++ [.source (.br ⟨0⟩), .source (.call first.index)])]
+        ++ [.source (.call nextSite.index)])]]⟩ :=
+  nativeBranch (cross choice)
+
+private theorem nativeExit (choice : Bool) : Step (behaviorFor region) (renderBranch (lowered choice))
+    (renderBranch (.computing (firstBytes choice) (savedPrefix ++ [firstValue choice]) [] nextSite [])) :=
+  .frame (.label (.context (.pure _ _ (.labelBranch 1 [] rootArgs [firstValue choice]
+    [.source (.call first.index)] rfl)) savedPrefix [.source (.call nextSite.index)]) 1 []) 1 caller
+
+-- Read the native target exit back into the checked phase relation.
+example (choice : Bool) :=
+  (Sequence.v1_step_iff rfl admittedBranch (layoutFor region) trivial rfl contracted (readyBranch (cross choice))).mp
+    (nativeExit choice)
+
+-- After the target exit, only the saved i64 and the branch's i32 payload
+-- are passed to the target host at the store returned by the writer.
+example (choice : Bool) : Steps (behaviorFor region) launchBranch
+    ⟨store (firstBytes choice), caller, [.frame 1 inside
+      [.label 1 [] (values (savedPrefix ++ [firstValue choice]) ++ [.invoke nextSite.address])]]⟩ :=
+  nativeBranch (lands choice)
+
+example (choice : Bool) : Steps (behaviorFor region) launchBranch
+    ⟨store (firstBytes choice), caller, values [i32 (word choice)]⟩ := by
+  have returned : behaviorFor region nextSite.target (store (firstBytes choice)) (savedPrefix ++ [firstValue choice])
+      (.returned (store (firstBytes choice)) (.values [i32 (word choice)])) :=
+    .inr ⟨choice, rfl, rfl, rfl, .inl rfl⟩
+  have deliver := (lands choice).tail (.returned returned rfl)
+  exact nativeBranch ((deliver.tail (.graph (.frame (.pure (.labelDone 1 [] [i32 (word choice)])) 1 caller)))
+    |>.tail (.graph (.pure (.frameDone 1 inside [i32 (word choice)] rfl))))
+
+-- Depth two names the implicit function label. Depth three is out of scope.
+example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
+    (regionWith writer { target with depth := ⟨2⟩ }) = false := rfl
+
+example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
+    (regionWith writer { target with depth := ⟨3⟩ }) = false := rfl
+
+-- The explicit target expects i32. A writer with an i64 result cannot
+-- supply the actual branch suffix, even with a correct target annotation.
+example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
+    (regionWith { writer with site := { first with signature := ⟨hostType.params, [.int .i64]⟩ } } target) = false := rfl
+
+end Forward
 
 end EnclosingTail
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.HostEntry.SequenceExamples
