@@ -602,6 +602,45 @@ wrapper bodies, nested chains of defaulted declarations, and captures
 in a defaulted child body need separate source rules.
 [Profile and source rules](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Defs.lean) · [Frame and body theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Thms.lean) · [Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Bindings/Defaults/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Escape/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/escaping-defaults/check.go)
 
+#### Compositional bodies for defaulted calls
+
+The multiple-callee schedule can also admit a module definition with
+a sequence of lexical name assignments followed by a return. The
+independent body judgment relates each source operand to its scoped
+read and records the reads in source order. The local binder judgment
+collects the whole body before any read is resolved. Capture selection
+is derived from those reads. The supported operands are name reads,
+integers, subscript reads, and singleton list displays over admitted
+operands. All assignment targets use owned slots.
+
+`Defaults.Body.body_agrees` derives a complete reached body from that
+static relation and the activation invariant. Owned names, including
+unbound locals, have fresh binding cells. A selected capture denotes
+a live caller cell below the activation's allocation boundary. Each
+assignment evaluates its RHS before writing, and any reached error
+stops the sequence. The final frame and retained cells agree exactly
+with independent operational execution and the body denotation.
+
+Module entry derives the capture addresses and saved-default binding
+for root definitions. An alias keeps both records. The source module
+trace restores the caller and agrees on publication and freezing or
+the first error and residual heap. The fixtures read a module binding
+initialized after function definition and compare omitted with explicit
+arguments. Calling before that binding initializes retains a prior
+local list allocation and assignment, skips subsequent body and
+module commands, and leaves the call destination unbound. The pinned
+Go control observes its partial globals and error. The Lean control
+also checks the residual heap and restored frame.
+
+The generic body theorem accepts live enclosing captures through its
+frame premise. The checked module integration derives this premise
+for captures of module bindings. Linking a nested defaulted definition
+with this broader body to the nearest enclosing function remains open.
+Control flow, wider body operands and assignment targets, untracked
+callable provenance, keywords and spreads, loads, and text parsing
+remain outside this source profile.
+[Body rules and frame invariant](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Body/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/defaulted-body/check.go)
+
 ## Finite-manifest loader
 
 `Loader.load` takes a known module ID and an optional session. A session
@@ -666,7 +705,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Checks \
   +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Defaults.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Escape.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Body.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -678,12 +718,13 @@ multi_callee="$(pwd)/scripts/starlark/multi-callee/check.go"
 defaults="$(pwd)/scripts/starlark/positional-defaults/check.go"
 default_trace="$(pwd)/scripts/starlark/default-call-trace/check.go"
 escaping_defaults="$(pwd)/scripts/starlark/escaping-defaults/check.go"
+defaulted_body="$(pwd)/scripts/starlark/defaulted-body/check.go"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
   go run "$fixtures/scope/check.go" && go run "$mixed_leaf" && go run "$multi_callee" &&
-  go run "$defaults" && go run "$default_trace" && go run "$escaping_defaults")
+  go run "$defaults" && go run "$default_trace" && go run "$escaping_defaults" && go run "$defaulted_body")
 ```
 
 [default-parameters]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
