@@ -3,7 +3,6 @@ module
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Product.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Tensor.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Representatives
-import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Descent.Product
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Descent.Literal
 
 public section
@@ -22,8 +21,8 @@ open Silmaril.Isotope.Institution.Observational (Model)
 open Silmaril.Isotope.Morphism.SSAIter (envOfBound envOfBound_agrees)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Category
   (ops outcomes_of_regionAt branch_outcomes literal_outcomes)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (PureValue)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent (vars let₂_pure)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (PureValue let₂_pure)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent (vars)
 
 universe u v w x
 

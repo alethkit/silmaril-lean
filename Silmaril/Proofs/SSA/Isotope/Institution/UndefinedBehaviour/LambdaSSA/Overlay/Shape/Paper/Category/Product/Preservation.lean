@@ -8,7 +8,6 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Categ
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Product.Whisker
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Representatives
-import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Descent.Product
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Continuation.ValueRules
 
 public section
@@ -28,8 +27,7 @@ open LambdaSSA.Region (ValueBranches)
 open LambdaSSA.Semantics (extend)
 open Silmaril.Isotope.Morphism.SSAIter (envOfBound envOfBound_agrees)
 open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Category (ops outcomes_of_regionAt branch_outcomes)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (PureValue branchValue_pure_typed)
-open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Paper.Descent (let₂_pure)
+open Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Continuation (PureValue branchValue_pure_typed let₂_pure)
 
 universe u v w x
 
