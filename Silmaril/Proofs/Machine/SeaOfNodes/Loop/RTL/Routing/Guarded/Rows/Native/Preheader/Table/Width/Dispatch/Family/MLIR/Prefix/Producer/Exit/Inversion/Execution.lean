@@ -8,7 +8,7 @@ namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Prehe
 
 open Silmaril.Machine.Lir (Memory Word)
 open Silmaril.Machine.RTL (Frame Opcode packValues)
-open Silmaril.Machine.RTL.SSA (StepsNWithin toLambdaSSA)
+open Silmaril.Machine.RTL.SSA (Prog StepsNWithin toLambdaSSA run_returned)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg model)
 open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
 open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
@@ -123,5 +123,54 @@ theorem reflect (compiled : Compiled mapping source origins) (input : WordTuple 
   obtain ⟨slots, _, _, _, _, _, path, _, _, bound⟩ := from_entry compiled input mem fuel value observed
   obtain ⟨rtl, cf, region⟩ := Exit.returns compiled input mem path env entry
   exact ⟨slots, path, bound, rtl, cf, region⟩
+
+private theorem visitFuel_eq (sigs : List (List PortTy)) (slots : List (Fin (tests + 1))) :
+    visitFuel sigs slots = rtlCost sigs.length slots + (sigs.length + 2) := by
+  induction slots with
+  | nil => simp [visitFuel, rtlCost]
+  | cons slot slots ih =>
+    simp only [visitFuel, rtlCost, List.map_cons, List.sum_cons] at ih ⊢
+    rw [ih]
+    omega
+
+theorem from_rtl (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final) :
+    let bank := source.primary.initial model (mapping.pull input)
+    ∃ slots value before finish after,
+      returned = [value] ∧ final = initial ∧
+      source.ReturnsAlong (mapping.pull input) slots bank value ∧
+      rtlFuel entrySigs sigs slots ≤ fuel ∧
+      compiled.rtl.start 0 (words input) initial =
+        some ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], initial⟩ ∧
+      StepsNWithin compiled.rtl [] (entrySigs.length + 1)
+        ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], initial⟩ ⟨⟨0, 1, 0⟩, before, [], initial⟩ ∧
+      Realized compiled.setup input initial slots bank before finish after ∧
+      Taken compiled input initial finish after value ∧
+      compiled.rtl.runMain (rtlFuel entrySigs sigs slots) 0 (words input) initial = .returned returned final ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨slots, value, path, bound, shape, memory⟩ :=
+    (Family.rtl_runMain_fuel_iff mapping source compiled.accepted input initial final returned fuel).mp observed
+  subst returned
+  subst final
+  obtain ⟨before, finish, after, started, entered, feedback, exit, rtl, cf⟩ :=
+    Exit.from_return_path compiled input initial path
+  have exactFuel : rtlFuel entrySigs sigs slots =
+      entrySigs.length + 1 + (rtlCost sigs.length slots + (sigs.length + 2)) :=
+    congrArg ((entrySigs.length + 1) + ·) (visitFuel_eq sigs slots)
+  exact ⟨slots, value, before, finish, after, rfl, rfl, path, bound, started, entered, feedback, exit,
+    exactFuel.symm ▸ rtl, cf⟩
+
+theorem region_of_rtl (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final)
+    (env : Silmaril.Isotope.LambdaSSA.Semantics.Env Word) (entry : env 0 = packValues (words input)) :
+    Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
+      (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) initial 0 (packValues returned) final := by
+  obtain ⟨started, _, _, _⟩ := Family.entry_packet mapping source compiled.accepted input initial
+  have machine := observed
+  rw [Prog.runMain, started] at machine
+  exact (Phi.region_return_iff mapping source compiled.accepted input env entry initial final returned).mpr
+    ⟨_, started, run_returned machine⟩
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Proofs

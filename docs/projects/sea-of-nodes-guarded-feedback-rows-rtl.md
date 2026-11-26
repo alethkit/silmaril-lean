@@ -1128,6 +1128,56 @@ at eight CF blocks and sixteen RTL instructions. Both regressions start
 from the emitted CF result.
 [Checked regression][table-regression]
 
+### Recover the CF run from an observed RTL return
+
+`Producer.Exit.Inversion.from_rtl` starts with a successful return of
+the actual emitted RTL at an arbitrary instruction budget. The RTL
+fuel inversion supplies the finite native path. The checked entry
+and each actual dispatch cut then give the ordered successor
+occurrences, full explicit-Φ packets and the first taken exit.
+The certificate records the singleton returned word and identifies
+the entire final memory with the initial memory.
+[Inversion API][cf-exit-inversion]
+
+The theorem gives an RTL replay at the consumed instruction budget
+`rtlFuel entry header slots` and a CF return at `cfCost slots + 2 + 1`
+blocks. The original RTL budget can include spare instructions.
+`region_of_rtl` gives λSSA exit zero when environment index zero
+contains the packed typed captures.
+[Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final) :
+    ∃ slots : List (Fin (tests + 1)), ∃ value : Word,
+      returned = [value] ∧ final = initial ∧ Family.rtlFuel entry header slots ≤ fuel ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨slots, value, _, _, _, shape, memory, _, bound, _, _, _, _, _, cf⟩ :=
+    Family.MLIR.Prefix.Producer.Exit.Inversion.from_rtl compiled input initial final fuel returned observed
+  exact ⟨slots, value, shape, memory, bound, cf⟩
+```
+
+The resized RTL regressions start with two spare instructions. The
+immediate run consumes seven and yields the three-block CF return of
+`8`. The mixed run consumes sixteen, recovers slots `[0, 1]`, and yields
+the eight-block CF return of `6`.
+[Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
   +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \

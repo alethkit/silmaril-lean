@@ -61,4 +61,33 @@ theorem reflect (compiled : Compiled mapping source origins) (input : WordTuple 
         (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) mem 0 (packValues [value]) mem :=
   Proofs.reflect compiled input mem fuel value observed env entry
 
+/-- Recover the actual entry path, ordered Φ packets and first exit from an RTL
+return. Both runners use the costs of the recovered path in their own units. -/
+theorem from_rtl (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final) :
+    let bank := source.primary.initial model (mapping.pull input)
+    ∃ slots value before finish after,
+      returned = [value] ∧ final = initial ∧
+      source.ReturnsAlong (mapping.pull input) slots bank value ∧
+      rtlFuel entrySigs sigs slots ≤ fuel ∧
+      compiled.rtl.start 0 (words input) initial =
+        some ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], initial⟩ ∧
+      StepsNWithin compiled.rtl [] (entrySigs.length + 1)
+        ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty input, [], initial⟩ ⟨⟨0, 1, 0⟩, before, [], initial⟩ ∧
+      Realized compiled.setup input initial slots bank before finish after ∧
+      Taken compiled input initial finish after value ∧
+      compiled.rtl.runMain (rtlFuel entrySigs sigs slots) 0 (words input) initial = .returned returned final ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
+  Proofs.from_rtl compiled input initial final fuel returned observed
+
+/-- Reflect an actual machine return to exit zero under the packed capture binding. -/
+theorem region_of_rtl (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final)
+    (env : Silmaril.Isotope.LambdaSSA.Semantics.Env Word) (entry : env 0 = packValues (words input)) :
+    Eval (Opcode.step (sigs := [⟨new, 1⟩]) compiled.rtl.oracle) env
+      (toLambdaSSA [⟨new, 1⟩] (lowerFunc (mapCaptures mapping source))) initial 0 (packValues returned) final :=
+  Proofs.region_of_rtl compiled input initial final fuel returned observed env entry
+
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion

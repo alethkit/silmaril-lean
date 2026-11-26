@@ -1047,6 +1047,46 @@ example : compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned 
   subst slots
   exact ⟨rtl, region⟩
 
+private theorem compiledRTL_eq : compiledPrefix.rtl = prefixRTL :=
+  (Family.lowerChecked_sound widenCaptures prefixSource compiledPrefix.accepted).2.1
+
+-- The checked RTL run has two spare instructions. Recovery derives the
+-- occurrences from that run and certifies the complete positional Φ prefix.
+example : ∃ before finish after,
+    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before finish after ∧
+    Taken compiledPrefix prefixInput mem finish after 6 ∧
+    compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem ∧
+    prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 18 0 (words prefixInput) mem = .returned [6] mem := by
+    rw [compiledRTL_eq]
+    cbv
+  obtain ⟨slots, value, before, finish, after, shape, _, route, _, _, _, feedback, exit, rtl, cf⟩ :=
+    Exit.Inversion.from_rtl compiledPrefix prefixInput mem mem 18 [6] observed
+  have word : value = 6 := (List.cons.inj shape).1.symm
+  subst value
+  have same : slots = [0, 1] := returnSlots_unique route twoThenExit
+  subst slots
+  exact ⟨before, finish, after, feedback, exit, rtl, cf⟩
+
+-- Spare RTL fuel also leaves the zero-feedback route and exact exit unchanged.
+example : prefixSetup.cf.run evalOp 3 (cfInput 8 2) = some (.cons 8 .nil) ∧
+    compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv immediateInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [8]) mem := by
+  have observed : compiledPrefix.rtl.runMain 9 0 (words immediateInput) mem = .returned [8] mem := by
+    rw [compiledRTL_eq]
+    cbv
+  obtain ⟨slots, value, _, _, _, shape, _, route, _, _, _, _, _, rtl, cf⟩ :=
+    Exit.Inversion.from_rtl compiledPrefix immediateInput mem mem 9 [8] observed
+  have word : value = 8 := (List.cons.inj shape).1.symm
+  subst value
+  have immediate : prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) []
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 :=
+    .exit (by cbv)
+  have same : slots = [] := returnSlots_unique route immediate
+  subst slots
+  exact ⟨cf, rtl, Exit.Inversion.region_of_rtl compiledPrefix immediateInput mem mem 9 [8] observed _ rfl⟩
+
 private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
   let s ← runningState? (prefixRTL.runMain fuel 0 (words prefixInput) mem)
   let values ← s.frame.readAll (paramRegs 4 3)
