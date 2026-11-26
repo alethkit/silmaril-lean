@@ -593,6 +593,36 @@ return at state two.
 [Packed iterator][ssa-ub-shaped-capture-iteration] [Native comparisons][ssa-ub-paper-capture-iteration]
 [Regression][ssa-ub-shaped-capture-regression]
 
+### Certified finite deterministic iteration
+
+The finite checker compares two overlay steps in the same shaped model.
+Its carrier enumerates supported captures and pairs of loop payload and
+machine state. The caller supplies executable tables and a certificate
+that each row equals the complete observation of the corresponding
+typed step. A repeat names another coded invocation under the same
+capture. Returns and faults carry an exact final state. The result
+payload and final-state decoders are injective, so comparison of the
+codes reflects comparison of ordinary singleton observations.
+
+The evaluator scans at most as many rows as there are invocation codes
+along the deterministic path. If that scan sees only repeats, the path has
+revisited a code and repeats forever. The proof constructs the infinite
+feedback path and excludes any reachable terminal row or fresh UB.
+This gives an ordinary divergence observation, which is also the
+result of an in-step divergence row. A reached UB row instead yields
+fresh top. Exact classification gives a Boolean decision for the
+existing shaped observation order at every coded start, with more
+permissive behaviour on the right. Each certified row must have exactly
+one ordinary outcome or be fresh top. Empty and nondeterministic step
+behaviours are outside this table presentation.
+
+The certified regression reaches literal UB after a state-changing
+repeat, follows a two-state cycle with no reachable UB, and checks an
+ordinary fault and an in-step divergence. Replacing the UB continuation
+with an ordinary return passes refinement toward the UB variant. The
+reverse comparison fails.
+[Checker and exactness][ssa-ub-finite-iteration] [Certified regression][ssa-ub-finite-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -633,6 +663,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Refinement.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Capture.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -717,3 +748,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-shaped-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Thms.lean
 [ssa-ub-paper-capture-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Capture/Thms.lean
 [ssa-ub-shaped-capture-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Capture/Regression.lean
+[ssa-ub-finite-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Thms.lean
+[ssa-ub-finite-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Regression.lean
