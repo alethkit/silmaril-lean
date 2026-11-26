@@ -21,60 +21,61 @@ open Loader (Manifest Session)
 
 local notation "Expr" => Lowering.Resolve.SourceExpr
 
-@[expose] def block (alias : String) (globals : List String) : LexicalBlock :=
-  ⟨[alias], [], globals⟩
+@[expose] def block (aliases : List String) (globals : List String) : LexicalBlock :=
+  ⟨aliases, [], globals⟩
 
 /-- Loads bind file-local names. Ordinary module assignments write globals. -/
-@[expose] def readSlot (alias name : String) : Binding :=
-  if name = alias then fileSlot name else globalSlot name
+@[expose] def readSlot (aliases : List String) (name : String) : Binding :=
+  if name ∈ aliases then fileSlot name else globalSlot name
 
-structure Invocation (alias : String) (globals : List String) where
+structure Invocation (aliases : List String) (globals : List String) where
   callee : String
-  declared : callee = alias ∨ callee ∈ globals
+  declared : callee ∈ aliases ∨ callee ∈ globals
   legal : callee.toList.head? ≠ some '$'
   destination : String
   destinationGlobal : destination ∈ globals
   arguments : List Expr
   codes : List Lowering.Expr
   reads : List Binding
-  operands : Arguments (block alias globals) arguments codes reads
-  keywords : Operands (block alias globals)
-  star : Option (Spread (block alias globals)) := none
-  mapping : Option (Mapping (block alias globals)) := none
+  operands : Arguments (block aliases globals) arguments codes reads
+  keywords : Operands (block aliases globals)
+  star : Option (Spread (block aliases globals)) := none
+  mapping : Option (Mapping (block aliases globals)) := none
 
-@[expose] def Invocation.source {alias globals} (call : Invocation alias globals) : Expr :=
+@[expose] def Invocation.source {aliases globals} (call : Invocation aliases globals) : Expr :=
   .call (.scalar (.read call.callee)) call.arguments call.keywords.source
     (call.star.map Spread.source) (call.mapping.map Mapping.source)
 
-@[expose] def Invocation.code {alias globals} (call : Invocation alias globals) : Lowering.Expr :=
-  expressionAt (readSlot alias call.callee) call.codes call.keywords.codes
+@[expose] def Invocation.code {aliases globals} (call : Invocation aliases globals) : Lowering.Expr :=
+  expressionAt (readSlot aliases call.callee) call.codes call.keywords.codes
     (call.star.map Spread.code) (call.mapping.map Mapping.code)
 
 /-- An importer declaration returns a checked call through the immutable
 file-local import. Its only capture is that binding's address. -/
-structure WrapperDeclaration (alias : String) (globals : List String) where
+structure WrapperDeclaration (alias : String) (aliases globals : List String) where
   name : String
   target : name ∈ globals
+  visible : alias ∈ aliases
   legalAlias : alias.toList.head? ≠ some '$'
   arguments : List Expr
   codes : List Lowering.Expr
   reads : List Binding
-  operands : Arguments ⟨[], [alias], globals⟩ arguments codes reads
-  keywords : Operands ⟨[], [alias], globals⟩
-  star : Option (Spread ⟨[], [alias], globals⟩) := none
-  mapping : Option (Mapping ⟨[], [alias], globals⟩) := none
-  selects : Selects ⟨[], [alias], globals⟩
+  operands : Arguments ⟨[], aliases ++ [], globals⟩ arguments codes reads
+  keywords : Operands ⟨[], aliases ++ [], globals⟩
+  star : Option (Spread ⟨[], aliases ++ [], globals⟩) := none
+  mapping : Option (Mapping ⟨[], aliases ++ [], globals⟩) := none
+  selects : Selects ⟨[], aliases ++ [], globals⟩
     (fileSlot alias :: (reads ++ keywords.reads ++ spreadReads star ++ mappingReads mapping))
     [⟨fileSlot alias, fileSlot alias⟩]
 
-@[expose] def WrapperDeclaration.expression {alias globals} (relay : WrapperDeclaration alias globals) : Expr :=
+@[expose] def WrapperDeclaration.expression {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Expr :=
   .call (.scalar (.read alias)) relay.arguments relay.keywords.source
     (relay.star.map Spread.source) (relay.mapping.map Mapping.source)
 
-@[expose] def WrapperDeclaration.code {alias globals} (relay : WrapperDeclaration alias globals) : Lowering.Expr :=
+@[expose] def WrapperDeclaration.code {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Lowering.Expr :=
   expressionAt (fileSlot alias) relay.codes relay.keywords.codes (relay.star.map Spread.code) (relay.mapping.map Mapping.code)
 
-@[expose] def WrapperDeclaration.site {alias globals} (relay : WrapperDeclaration alias globals) : Site (block alias globals) [] none none .global where
+@[expose] def WrapperDeclaration.site {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) : Site (block aliases globals) [] none none .global where
   name := relay.name
   target := relay.target
   parameters := ⟨[], []⟩
@@ -91,7 +92,7 @@ structure WrapperDeclaration (alias : String) (globals : List String) where
   lexical := .nil
 
 /-- An independent return rule for a call through the captured import. -/
-@[expose] def WrapperDeclaration.Returns {alias globals} (relay : WrapperDeclaration alias globals) (callee : Callable)
+@[expose] def WrapperDeclaration.Returns {alias aliases globals} (relay : WrapperDeclaration alias aliases globals) (callee : Callable)
     (active : State) (out : Outcome Flow) : Prop :=
   ∃ result, RunsAt callee.site callee.BodyRuns relay.site.block callee.id alias (fileSlot alias)
       relay.arguments relay.codes relay.keywords.source relay.keywords.codes relay.star relay.mapping active result ∧
@@ -101,13 +102,13 @@ structure WrapperDeclaration (alias : String) (globals : List String) where
 will invoke. Runtime provenance separately follows the actual capture cell. -/
 inductive Callee where
   | regular (callee : Callable)
-  | wrapper {alias : String} {globals : List String}
-      (declaration : WrapperDeclaration alias globals) (id : DeclarationId) (imported : Callee)
+  | wrapper {alias : String} {aliases globals : List String}
+      (declaration : WrapperDeclaration alias aliases globals) (id : DeclarationId) (imported : Callee)
 
 @[expose] def Callee.layout : Callee → Callable
   | .regular callee => callee
-  | .wrapper (alias := alias) (globals := globals) declaration id _ =>
-    ⟨block alias globals, .global, [], none, none, declaration.site, id, none⟩
+  | .wrapper (aliases := aliases) (globals := globals) declaration id _ =>
+    ⟨block aliases globals, .global, [], none, none, declaration.site, id, none⟩
 
 @[expose] def Callee.BodyRuns : Callee → State → Outcome Flow → Prop
   | .regular callee => callee.BodyRuns
@@ -132,7 +133,7 @@ inductive Callee.At (origin final : Program) (state : State) : Callee → Nat �
   | regular {callee : Callable} {defining : State} {address : Nat} :
       callee.Linked origin → ClosureAt callee.site callee.id defining state address →
       At origin final state (.regular callee) address
-  | wrapper {alias : String} {globals : List String} {declaration : WrapperDeclaration alias globals}
+  | wrapper {alias : String} {aliases globals : List String} {declaration : WrapperDeclaration alias aliases globals}
       {id : Nat} {imported : Callee} {defining : State} {address cell target : Nat} {frozen : Bool} :
       final[id]? = some declaration.site.declaration →
       imported.layout.id < id →
@@ -144,70 +145,101 @@ inductive Callee.At (origin final : Program) (state : State) : Callee → Nat �
 
 /-- A checked name copy propagates the original callable. Other assignments
 forget the destination's previous provenance. -/
-inductive Copy (alias : String) : Expr → Lowering.Expr → Type where
-  | forget {source code} : Copy alias source code
-  | name (name : String) : Copy alias (.scalar (.read name)) (Leaf.readOperand (readSlot alias name))
+inductive Copy (aliases : List String) : Expr → Lowering.Expr → Type where
+  | forget {source code} : Copy aliases source code
+  | name (name : String) : Copy aliases (.scalar (.read name)) (Leaf.readOperand (readSlot aliases name))
 
-@[expose] def Copy.track {alias source code} (copy : Copy alias source code) (env : Tracked) : Option (Callee) :=
+@[expose] def Copy.track {aliases source code} (copy : Copy aliases source code) (env : Tracked) : Option (Callee) :=
   match copy with
   | .forget => none
   | .name read => env read
 
-inductive Step (alias : String) (globals : List String) where
+inductive Step (aliases globals : List String) where
   | assign (destination : String) (declared : destination ∈ globals) {source : Expr}
       {code : Lowering.Expr} {reads : List Binding} :
-      Body.Operand (block alias globals) source code reads → Copy alias source code → Step alias globals
-  | invoke (call : Invocation alias globals)
-  | define (declaration : WrapperDeclaration alias globals)
+      Body.Operand (block aliases globals) source code reads → Copy aliases source code → Step aliases globals
+  | invoke (call : Invocation aliases globals)
+  | define {alias : String} (declaration : WrapperDeclaration alias aliases globals)
 
-@[expose] def Step.destination {alias globals} : Step alias globals → String
+@[expose] def Step.destination {aliases globals} : Step aliases globals → String
   | .assign name .. => name
   | .invoke call => call.destination
   | .define declaration => declaration.name
 
-@[expose] def Step.source {alias globals} : Step alias globals → Command
+@[expose] def Step.source {aliases globals} : Step aliases globals → Command
   | .assign name _ (source := source) _ _ => .assign name source
   | .invoke call => .assign call.destination call.source
   | .define declaration => .define declaration.name declaration.site.sourceSignature declaration.site.source
 
-@[expose] def Step.code {alias globals} (program : Program) : Step alias globals → Modules.Command
+@[expose] def Step.code {aliases globals} (program : Program) : Step aliases globals → Modules.Command
   | .assign name _ (code := code) _ _ => .exec (.assignExpr name code)
   | .invoke call => .exec (.assignExpr call.destination call.code)
   | .define declaration => .exec (.define declaration.name program.size)
 
-@[expose] def Step.emit {alias globals} (program : Program) : Step alias globals → Program
+@[expose] def Step.emit {aliases globals} (program : Program) : Step aliases globals → Program
   | .define declaration => program.push declaration.site.declaration
   | _ => program
 
-@[expose] def Step.advance {alias globals} (imported : Callee) (program : Program) (env : Tracked) :
-    Step alias globals → Tracked
+@[expose] def Step.advance {aliases globals} (program : Program) (env : Tracked) :
+    Step aliases globals → Tracked
   | .assign destination _ _ copy => track env destination (copy.track env)
   | .invoke call =>
     track env call.destination ((env call.callee).bind (fun callee => callee.returned.map Callee.regular))
-  | .define declaration => track env declaration.name (some (.wrapper declaration program.size imported))
+  | .define (alias := alias) declaration =>
+    track env declaration.name ((env alias).map (Callee.wrapper declaration program.size))
 
-@[expose] def compileSuite {alias globals} (program : Program) :
-    List (Step alias globals) → List Modules.Command × Program
+@[expose] def compileSuite {aliases globals} (program : Program) :
+    List (Step aliases globals) → List Modules.Command × Program
   | [] => ([], program)
   | head :: tail =>
     let compiled := compileSuite (head.emit program) tail
     (head.code program :: compiled.1, compiled.2)
 
-@[expose] def trackSuite {alias globals} (imported : Callee) (program : Program) (env : Tracked) :
-    List (Step alias globals) → Tracked
+@[expose] def trackSuite {aliases globals} (program : Program) (env : Tracked) :
+    List (Step aliases globals) → Tracked
   | [] => env
-  | head :: tail => trackSuite imported (head.emit program) (head.advance imported program env) tail
+  | head :: tail => trackSuite (head.emit program) (head.advance program env) tail
 
 /-- Source-order provenance enables each call and describes the destination
 after its successful return. Declaration IDs follow the current table. -/
-@[expose] def ReadyFor {alias : String} {globals : List String} (imported : Callee) (program : Program)
-    (env : Tracked) : List (Step alias globals) → Prop
+@[expose] def ReadyFor {aliases : List String} {globals : List String} (program : Program)
+    (env : Tracked) : List (Step aliases globals) → Prop
   | [] => True
   | first :: rest =>
-    let tail := ReadyFor imported (first.emit program) (first.advance imported program env) rest
+    let tail := ReadyFor (first.emit program) (first.advance program env) rest
     match first with
     | .invoke call => ∃ callee, env call.callee = some callee ∧ tail
-    | _ => tail
+    | .define (alias := alias) _ => ∃ callee, env alias = some callee ∧ callee.layout.id < program.size ∧ tail
+    | .assign .. => tail
+
+/-- One leading load with one public callable bound under a file-local name. -/
+structure ImportSite where
+  label : String
+  name : String
+  alias : String
+  publicName : Modules.isPublic name = true
+
+@[expose] def ImportSite.item (site : ImportSite) : Modules.Import :=
+  ⟨site.name, site.alias⟩
+
+@[expose] def ImportSite.source (site : ImportSite) : Command :=
+  .load site.label [site.item]
+
+@[expose] def ImportSite.code (site : ImportSite) : Modules.Command :=
+  .load site.label [site.item]
+
+/-- All load aliases are in lexical scope throughout the normalized suite. -/
+structure OrderedConsumer where
+  imports : List ImportSite
+  globals : List String
+  body : List (Step (imports.map ImportSite.alias) globals)
+  declared : body.map Step.destination = globals
+
+@[expose] def OrderedConsumer.commands (plan : OrderedConsumer) : List Command :=
+  plan.imports.map ImportSite.source ++ plan.body.map Step.source
+
+@[expose] def OrderedConsumer.code (plan : OrderedConsumer) (program : Program) : List Modules.Command :=
+  plan.imports.map ImportSite.code ++ (compileSuite program plan.body).1
 
 /-- The consumer declares one renamed public import and a finite suite.
 The globals are collected from the suite's definition and assignment targets. -/
@@ -217,7 +249,7 @@ structure Consumer where
   alias : String
   publicName : Modules.isPublic name = true
   globals : List String
-  body : List (Step alias globals)
+  body : List (Step [alias] globals)
   declared : body.map Step.destination = globals
   separate : alias ∉ globals
 
@@ -241,7 +273,7 @@ requester-relative label. Both use the final linked table. -/
 /-- The source profile tracks either a producer export or a name outside the
 producer's declared globals. The consumer supplies no declaration or address. -/
 @[expose] def Covered (exports : Environment) (producer : List Command) (plan : Consumer) (program : Program) : Prop :=
-  (∃ callee, exports plan.name = some callee ∧ ReadyFor (.regular callee) program (initial plan.alias (.regular callee)) plan.body) ∨
+  (∃ callee, exports plan.name = some callee ∧ ReadyFor program (initial plan.alias (.regular callee)) plan.body) ∨
     plan.name ∉ Trace.names producer
 
 @[expose] def reachedSession {α : Type} : Loader.Result α → Session
@@ -276,9 +308,9 @@ inductive BindsAlias (plan : Consumer) (published : Modules.Published) (state : 
       BindsAlias plan published state (.ok () (state.write (fileSlot plan.alias) value))
 
 /-- The reached importer owns its import and declared globals in one frame. -/
-@[expose] def Frame (alias : String) (globals : List String) (state : State) : Prop :=
+@[expose] def Frame (aliases globals : List String) (state : State) : Prop :=
   RootCall.DistinctOwned state ∧
-    ∀ binding ∈ fileSlot alias :: globals.map globalSlot,
+    ∀ binding ∈ aliases.map fileSlot ++ globals.map globalSlot,
       ∃ address value frozen, state.slots binding = some (.owned address) ∧
         state.heap[address]? = some ⟨.binding value, frozen⟩
 
@@ -300,38 +332,38 @@ structure KeepsClosureCells (before after : State) : Prop where
 
 /-- A tracked slot contains the actual function value and its recursive
 provenance, even if its defining module frame is inactive. -/
-@[expose] def Live (alias : String) (producer final : Program) (env : Tracked) (state : State) : Prop :=
+@[expose] def Live (aliases : List String) (producer final : Program) (env : Tracked) (state : State) : Prop :=
   ∀ name callee, env name = some callee →
     ∃ (slot address : Nat) (frozen : Bool),
-      state.slots (readSlot alias name) = some (.owned slot) ∧
+      state.slots (readSlot aliases name) = some (.owned slot) ∧
       state.heap[slot]? = some ⟨.binding (some (.function address)), frozen⟩ ∧ callee.At producer final state address
 
 /-- Each importer statement uses the independent operand, definition and call rules. -/
-inductive Executes {alias : String} {globals : List String} (imported : Callee)
-    (program : Program) (state : State) : Step alias globals → Modules.Result Unit → Prop where
-  | assign {name declared source code reads} {operand : Body.Operand (block alias globals) source code reads}
-      {copy : Copy alias source code} {out : Outcome Lists.Value} :
-      Body.Evaluates (block alias globals) state source code out →
-      Executes imported program state (.assign name declared operand copy) (afterWrite name out)
-  | define {declaration : WrapperDeclaration alias globals} {out : Outcome Flow} :
-      Lexical.DefinesFor (block alias globals) (globalSlot declaration.name) program.size declaration.site.free [] [] state out →
-      Executes imported program state (.define declaration) (Modules.afterCode out)
-  | invoke {call : Invocation alias globals} (callee : Callee) {out : Outcome Lists.Value} :
-      RunsAt callee.layout.site callee.BodyRuns (block alias globals) callee.layout.id call.callee (readSlot alias call.callee)
+inductive Executes {aliases globals : List String}
+    (program : Program) (state : State) : Step aliases globals → Modules.Result Unit → Prop where
+  | assign {name declared source code reads} {operand : Body.Operand (block aliases globals) source code reads}
+      {copy : Copy aliases source code} {out : Outcome Lists.Value} :
+      Body.Evaluates (block aliases globals) state source code out →
+      Executes program state (.assign name declared operand copy) (afterWrite name out)
+  | define {alias : String} {declaration : WrapperDeclaration alias aliases globals} {out : Outcome Flow} :
+      Lexical.DefinesFor (block aliases globals) (globalSlot declaration.name) program.size declaration.site.free [] [] state out →
+      Executes program state (.define declaration) (Modules.afterCode out)
+  | invoke {call : Invocation aliases globals} (callee : Callee) {out : Outcome Lists.Value} :
+      RunsAt callee.layout.site callee.BodyRuns (block aliases globals) callee.layout.id call.callee (readSlot aliases call.callee)
         call.arguments call.codes call.keywords.source call.keywords.codes call.star call.mapping state out →
-      Executes imported program state (.invoke call) (afterWrite call.destination out)
+      Executes program state (.invoke call) (afterWrite call.destination out)
 
 /-- Stop at the first reached failure, keeping its exact residual heap. -/
-inductive SuiteRuns {alias : String} {globals : List String} (imported : Callee) :
-    Program → State → List (Step alias globals) → Modules.Result Unit → Prop where
-  | done (program : Program) (state : State) : SuiteRuns imported program state [] (.ok () state)
+inductive SuiteRuns {aliases globals : List String} :
+    Program → State → List (Step aliases globals) → Modules.Result Unit → Prop where
+  | done (program : Program) (state : State) : SuiteRuns program state [] (.ok () state)
   | next {program state middle head rest out} :
-      Executes imported program state head (.ok () middle) →
-      SuiteRuns imported (head.emit program) middle rest out →
-      SuiteRuns imported program state (head :: rest) out
+      Executes program state head (.ok () middle) →
+      SuiteRuns (head.emit program) middle rest out →
+      SuiteRuns program state (head :: rest) out
   | failed {program state stopped head rest error} :
-      Executes imported program state head (.error error stopped) →
-      SuiteRuns imported program state (head :: rest) (.error error stopped)
+      Executes program state head (.error error stopped) →
+      SuiteRuns program state (head :: rest) (.error error stopped)
 
 inductive Runs (commands : List Command) (producer consumer : ResolvedModule)
     (plan : Consumer) (exports : Environment) (caller : Session) :
@@ -353,7 +385,7 @@ inductive Runs (commands : List Command) (producer consumer : ResolvedModule)
         (.ok published reached) →
       BindsAlias plan published reached.runtime (.ok () bound) →
       exports plan.name = some callee →
-      SuiteRuns (.regular callee) producer.program bound plan.body out →
+      SuiteRuns producer.program bound plan.body out →
       Runs commands producer consumer plan exports caller (observed 1 consumer.source caller.runtime reached.cache out)
 
 abbrev Agrees (commands : List Command) (producer consumer : ResolvedModule)

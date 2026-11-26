@@ -224,7 +224,7 @@ private def importName : ImportCase → String
 
 private def importerGlobals : List String := ["starter", "made", "held", "marker", "result", "late"]
 
-private def importsMapping (test : ImportCase) : Mapping (block "loaded" importerGlobals) :=
+private def importsMapping (test : ImportCase) : Mapping (block ["loaded"] importerGlobals) :=
   match test with
   | .bodyError =>
     ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
@@ -233,7 +233,7 @@ private def importsMapping (test : ImportCase) : Mapping (block "loaded" importe
     ⟨[(.string "extra", starlark%[9])], [(.atom (.string "extra"), int 9)], [],
       .entry (.string "extra") (.plain (.int 9)) .empty⟩
 
-private def factoryCall : Imports.Invocation "loaded" importerGlobals where
+private def factoryCall : Imports.Invocation ["loaded"] importerGlobals where
   callee := "starter"
   declared := .inr (by decide)
   legal := by decide
@@ -245,7 +245,7 @@ private def factoryCall : Imports.Invocation "loaded" importerGlobals where
   operands := .cons (.list (.int 41)) .nil
   keywords := .empty
 
-private def childCall (test : ImportCase) : Imports.Invocation "loaded" importerGlobals where
+private def childCall (test : ImportCase) : Imports.Invocation ["loaded"] importerGlobals where
   callee := "held"
   declared := .inr (by decide)
   legal := by decide
@@ -280,7 +280,7 @@ private def consumer (test : ImportCase) : Consumer where
   separate := by decide
 
 private theorem covered (test : ImportCase) (program : Program) : Covered exports (commands false) (consumer test) program := by
-  have ready : ReadyFor (.regular root.callable) program (initial "loaded" (.regular root.callable)) (consumer test).body := by
+  have ready : ReadyFor program (initial "loaded" (.regular root.callable)) (consumer test).body := by
     exact ⟨.regular root.callable, rfl, ⟨.regular (.nested returned), rfl, trivial⟩⟩
   cases test
   · exact .inl ⟨root.callable, rfl, ready⟩
@@ -497,9 +497,10 @@ private def relayMapping (second bad : Bool) : Mapping ⟨[], ["loaded"], declar
     ⟨[(.string "extra", starlark%[9])], [(.atom (.string "extra"), int 9)], [],
       .entry (.string "extra") (.plain (.int 9)) .empty⟩
 
-private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "loaded" declarationGlobals where
+private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "loaded" ["loaded"] declarationGlobals where
   name := if second then "second" else "first"
   target := by cases second <;> decide
+  visible := by decide
   legalAlias := by decide
   arguments := []
   codes := []
@@ -511,7 +512,7 @@ private def relayDeclaration (second bad : Bool) : Imports.WrapperDeclaration "l
   mapping := some (relayMapping second bad)
   selects := by cases second <;> cases bad <;> exact .enclosing (.enclosing (by decide) (by decide)) .nil
 
-private def callDeclaration (second : Bool) : Imports.Invocation "loaded" declarationGlobals where
+private def callDeclaration (second : Bool) : Imports.Invocation ["loaded"] declarationGlobals where
   callee := if second then "second" else "copied"
   declared := .inr (by cases second <;> decide)
   legal := by cases second <;> decide
@@ -541,10 +542,11 @@ private def declarationSuite (bad : Bool) : Consumer where
   declared := rfl
   separate := by decide
 
-private theorem declarationCovered (bad : Bool) (program : Program) :
+private theorem declarationCovered (bad : Bool) (program : Program) (positive : 0 < program.size) :
     Covered exports (commands false) (declarationSuite bad) program :=
   .inl ⟨.nested returned, rfl,
-    ⟨.wrapper (relayDeclaration false bad) program.size (.regular (.nested returned)), rfl,
+    ⟨.regular (.nested returned), rfl, positive, .regular (.nested returned), rfl, by change 0 < (program.push _).size; simp,
+      .wrapper (relayDeclaration false bad) program.size (.regular (.nested returned)), rfl,
       ⟨.wrapper (relayDeclaration true bad) (program.push (relayDeclaration false bad).site.declaration).size (.regular (.nested returned)), rfl, trivial⟩⟩⟩
 
 example (bad : Bool) {producer importer : ResolvedModule}
@@ -553,7 +555,7 @@ example (bad : Bool) {producer importer : ResolvedModule}
     (caller : Lists.State) :
     Agrees (commands false) producer importer (declarationSuite bad) exports ⟨caller, []⟩ :=
   cold_agrees (commands := commands false) (plan false) prod (declarationSuite bad) imp
-    (declarationCovered bad producer.program) caller
+    (declarationCovered bad producer.program (by rw [(plan_code (commands := commands false) (plan false) prod).2]; decide)) caller
 
 private def runDeclarationSuite (consumer : Consumer) (warm : Bool) : Option (Loader.Result Modules.Published × Lists.State) := do
   let producer ← (resolve (commands false)).toOption
@@ -619,9 +621,10 @@ private def relaySuiteFailure (warm : Bool) : Bool :=
 
 private def factoryWrapperGlobals : List String := ["make", "held", "result"]
 
-private def factoryWrapper : Imports.WrapperDeclaration "loaded" factoryWrapperGlobals where
+private def factoryWrapper : Imports.WrapperDeclaration "loaded" ["loaded"] factoryWrapperGlobals where
   name := "make"
   target := by decide
+  visible := by decide
   legalAlias := by decide
   arguments := [starlark%[[41]]]
   codes := [boxed 41]
@@ -652,7 +655,8 @@ example {producer importer : ResolvedModule} (prod : resolve (commands false) #[
     (caller : Lists.State) :
     Agrees (commands false) producer importer factoryWrapperConsumer exports ⟨caller, []⟩ :=
   cold_agrees (commands := commands false) (plan false) prod factoryWrapperConsumer imp
-    (.inl ⟨root.callable, rfl, ⟨.wrapper factoryWrapper producer.program.size (.regular root.callable), rfl,
+    (.inl ⟨root.callable, rfl, ⟨.regular root.callable, rfl,
+      by rw [(plan_code (commands := commands false) (plan false) prod).2]; decide, .wrapper factoryWrapper producer.program.size (.regular root.callable), rfl,
       ⟨.regular (.nested returned), rfl, trivial⟩⟩⟩) caller
 
 #guard
@@ -675,9 +679,10 @@ example {producer importer : ResolvedModule} (prod : resolve (commands false) #[
 
 private def middleGlobals : List String := ["relay", "before", "reexport"]
 
-private def middleWrapper : Imports.WrapperDeclaration "loaded" middleGlobals where
+private def middleWrapper : Imports.WrapperDeclaration "loaded" ["loaded"] middleGlobals where
   name := "relay"
   target := by decide
+  visible := by decide
   legalAlias := by decide
   arguments := [starlark%[17]]
   codes := [int 17]
@@ -704,13 +709,13 @@ private def middleConsumer : Consumer where
 
 private def lastGlobals : List String := ["held", "first", "marker", "answer", "after"]
 
-private def lastMapping (bad : Bool) : Mapping (block "transferred" lastGlobals) :=
+private def lastMapping (bad : Bool) : Mapping (block ["transferred"] lastGlobals) :=
   if bad then ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
     .entry (.string "key") (.plain (.int 8)) .empty⟩
   else ⟨[(.string "key", starlark%[[72]])], [(.atom (.string "key"), boxed 72)], [],
     .entry (.string "key") (.plain (.list (.int 72))) .empty⟩
 
-private def lastCall (second bad : Bool) : Imports.Invocation "transferred" lastGlobals where
+private def lastCall (second bad : Bool) : Imports.Invocation ["transferred"] lastGlobals where
   callee := "held"
   declared := .inr (by decide)
   legal := by decide
@@ -791,7 +796,7 @@ private def checkedChain (bad : Bool) {producer middle last : ResolvedModule}
     simp
   exact checkedThree middleConsumer (lastConsumer bad) producerChecked middleChecked lastChecked
     (.found (.regular (.nested returned)) rfl (by change 0 < producer.program.size; omega)
-      ⟨.wrapper middleWrapper producer.program.size (.regular (.nested returned)), rfl, trivial⟩)
+      ⟨.regular (.nested returned), rfl, by change 0 < producer.program.size; omega, .wrapper middleWrapper producer.program.size (.regular (.nested returned)), rfl, trivial⟩)
     (.found (.regular (.nested returned)) rfl (by change 0 < middle.program.size; omega)
       ⟨.regular (.nested returned), rfl, ⟨.regular (.nested returned), rfl, trivial⟩⟩) rfl rfl
 
@@ -886,7 +891,7 @@ private def chainError (preload : Option Nat) : Bool :=
 #guard chainError (some 1)
 
 
-private def exportedWrapper (bad : Bool) : Imports.WrapperDeclaration "loaded" middleGlobals :=
+private def exportedWrapper (bad : Bool) : Imports.WrapperDeclaration "loaded" ["loaded"] middleGlobals :=
   { middleWrapper with
     mapping := if bad then some ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
       .entry (.string "key") (.plain (.int 8)) .empty⟩ else none
@@ -895,7 +900,7 @@ private def exportedWrapper (bad : Bool) : Imports.WrapperDeclaration "loaded" m
 private def middleWithWrapper (bad : Bool) : Consumer :=
   { middleConsumer with
     body := [.define (exportedWrapper bad),
-      .invoke { callee := "loaded", declared := .inl rfl, legal := by decide
+      .invoke { callee := "loaded", declared := .inl (by decide), legal := by decide
                 destination := "before", destinationGlobal := by decide
                 arguments := [starlark%[17]], codes := [int 17], reads := [], operands := .cons (.int 17) .nil
                 keywords := .empty },
@@ -904,9 +909,10 @@ private def middleWithWrapper (bad : Bool) : Consumer :=
 
 private def finalWrapperGlobals : List String := ["held", "marker", "outer", "answer", "after"]
 
-private def outerWrapper : Imports.WrapperDeclaration "wrapped" finalWrapperGlobals where
+private def outerWrapper : Imports.WrapperDeclaration "wrapped" ["wrapped"] finalWrapperGlobals where
   name := "outer"
   target := by decide
+  visible := by decide
   legalAlias := by decide
   arguments := []
   codes := []
@@ -947,11 +953,12 @@ private def checkedWrapperChain (bad nested : Bool) {producer middle last : Reso
     simp
   refine checkedThree (middleWithWrapper bad) (finalWrapperConsumer nested) producerChecked middleChecked lastChecked
     (.found (.regular (.nested returned)) rfl (by change 0 < producer.program.size; omega)
-      ⟨.regular (.nested returned), rfl, trivial⟩)
+      ⟨.regular (.nested returned), rfl, by change 0 < producer.program.size; omega, .regular (.nested returned), rfl, trivial⟩)
     (.found imported rfl (by change producer.program.size < middle.program.size; omega) ?_) rfl rfl
   cases nested
-  · exact ⟨imported, rfl, trivial⟩
-  · exact ⟨.wrapper outerWrapper middle.program.size imported, rfl, trivial⟩
+  · exact ⟨imported, rfl, by change producer.program.size < middle.program.size; omega, imported, rfl, trivial⟩
+  · exact ⟨imported, rfl, by change producer.program.size < middle.program.size; omega,
+      .wrapper outerWrapper middle.program.size imported, rfl, trivial⟩
 
 example (bad nested : Bool) {producer middle last : ResolvedModule}
     (prod : resolve (commands false) #[] = .ok producer)
@@ -1016,5 +1023,208 @@ private def wrapperChainFails (nested : Bool) (preload : Option Nat) : Bool :=
 #guard wrapperChainFails true none
 #guard wrapperChainFails true (some 0)
 #guard wrapperChainFails true (some 1)
+
+open Imports (ImportSite OrderedConsumer)
+
+private def leftLoad : ImportSite := ⟨"left.star", "relay", "left", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+
+private def rightLoad (missing : Bool) : ImportSite :=
+  ⟨"right.star", if missing then "absent" else "relay", "right", by cases missing <;> simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+
+private def skippedLoad : ImportSite := ⟨"skip.star", "relay", "skipped", by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]⟩
+
+private def diamondLoads (missing : Bool) : List ImportSite :=
+  [leftLoad, rightLoad missing] ++ if missing then [skippedLoad] else []
+
+private def diamondGlobals : List String := ["wrapRight", "leftResult", "rightResult", "after"]
+
+private def diamondWrapper (missing : Bool) :
+    Imports.WrapperDeclaration "right" ((diamondLoads missing).map ImportSite.alias) diamondGlobals where
+  name := "wrapRight"
+  target := by decide
+  visible := by cases missing <;> decide
+  legalAlias := by decide
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := .empty
+  selects := .enclosing (.enclosing (by change ¬ "right" ∈ ([] : List String); simp) (by cases missing <;> decide)) .nil
+
+private def diamondConsumer (missing : Bool) : OrderedConsumer where
+  imports := diamondLoads missing
+  globals := diamondGlobals
+  body :=
+    [.define (diamondWrapper missing),
+     .invoke { callee := "left", declared := .inl (by cases missing <;> decide), legal := by decide
+               destination := "leftResult", destinationGlobal := by decide
+               arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
+     .invoke { callee := "wrapRight", declared := .inr (by decide), legal := by decide
+               destination := "rightResult", destinationGlobal := by decide
+               arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
+     .assign "after" (by decide) (.list (.int 199)) .forget]
+  declared := rfl
+
+private def diamondManifest (producer left right top : ResolvedModule) : Loader.Manifest :=
+  #[⟨producer.source, []⟩, ⟨left.source, [("prodé.star", 0)]⟩,
+    ⟨right.source, [("prodé.star", 0)]⟩, ⟨right.source, [("prodé.star", 0)]⟩,
+    ⟨top.source, [("left.star", 1), ("right.star", 2), ("skip.star", 3)]⟩]
+
+private def diamondEnv (left right : Callee) : Imports.Tracked :=
+  Imports.track (Imports.initial "left" left) "right" (some right)
+
+private def diamondExports (missing : Bool) (origin second last : Program) :
+    Loader.ModuleId → Imports.Tracked
+  | 0 => Imports.Chain.rootExports exports
+  | 1 => Imports.Chain.exportsOf middleConsumer origin (.regular (.nested returned))
+  | 2 | 3 => Imports.Chain.exportsOf middleConsumer second (.regular (.nested returned))
+  | _ => if missing then fun _ => none else fun name =>
+    if name ∈ diamondGlobals then
+      Imports.trackSuite last
+        (diamondEnv (.wrapper middleWrapper origin.size (.regular (.nested returned)))
+          (.wrapper middleWrapper second.size (.regular (.nested returned)))) (diamondConsumer false).body name
+    else none
+
+private def checkedDiamond (missing : Bool) {producer left right top : ResolvedModule}
+    (rootChecked : resolve (commands false) #[] = .ok producer)
+    (leftChecked : resolve middleConsumer.commands producer.program = .ok left)
+    (rightChecked : resolve middleConsumer.commands left.program = .ok right)
+    (topChecked : resolve (diamondConsumer missing).commands right.program = .ok top) :
+    Imports.Chain.Graph producer.program (diamondManifest producer left right top) := by
+  have rootSize : producer.program.size = 2 := by
+    rw [(plan_code (commands := commands false) (plan false) rootChecked).2]; rfl
+  have leftSize : left.program.size = producer.program.size + 1 := by
+    rw [(Imports.consumer_layout middleConsumer leftChecked).1]
+    change (producer.program.push middleWrapper.site.declaration).size = _
+    simp
+  have rightSize : right.program.size = left.program.size + 1 := by
+    rw [(Imports.consumer_layout middleConsumer rightChecked).1]
+    change (left.program.push middleWrapper.site.declaration).size = _
+    simp
+  have throughLeft := Imports.consumer_preserves middleConsumer leftChecked
+  have throughRight := Imports.consumer_preserves middleConsumer rightChecked
+  have throughTop := Imports.ordered_preserves (diamondConsumer missing) topChecked
+  let linked := diamondExports missing producer.program left.program right.program
+  let original := Callee.regular (.nested returned)
+  let leftWrapper := Callee.wrapper middleWrapper producer.program.size original
+  let rightWrapper := Callee.wrapper middleWrapper left.program.size original
+  have branchReady (program : Program) (rank : 0 < program.size) :
+      Imports.Chain.Demand middleConsumer program (Imports.Chain.rootExports exports) producer.source
+        (Imports.Chain.exportsOf middleConsumer program original) :=
+    .found original rfl rank ⟨original, rfl, rank, .wrapper middleWrapper program.size original, rfl, trivial⟩
+  refine ⟨(diamondConsumer missing).commands, right.program, top, topChecked,
+    fun index decl saved => throughTop _ _ (throughRight _ _ (throughLeft index decl saved)), linked, ?_⟩
+  intro id bound
+  have range : id = 0 ∨ id = 1 ∨ id = 2 ∨ id = 3 ∨ id = 4 := by
+    change id < 5 at bound
+    omega
+  rcases range with rfl | rfl | rfl | rfl | rfl
+  · exact .root (commands := commands false) (plan false) rfl rootChecked (fun _ _ seen => seen) rfl
+  · exact .importer middleConsumer (show 0 < 1 by decide) leftChecked (fun _ _ seen => seen)
+      (fun _ _ seen => throughTop _ _ (throughRight _ _ seen)) rfl rfl (branchReady _ (by omega))
+  · exact .importer middleConsumer (show 0 < 2 by decide) rightChecked throughLeft
+      throughTop rfl rfl (branchReady _ (by omega))
+  · exact .importer middleConsumer (show 0 < 3 by decide) rightChecked throughLeft
+      throughTop rfl rfl (branchReady _ (by omega))
+  · have prefixOrigin : Defaults.Nested.Sequence.PreservesDeclarations producer.program right.program :=
+      fun _ _ seen => throughRight _ _ (throughLeft _ _ seen)
+    cases missing with
+    | false =>
+      refine .ordered (finalEnv := some (diamondEnv leftWrapper rightWrapper)) (diamondConsumer false) topChecked
+        prefixOrigin (fun _ _ seen => seen) rfl ?_ ?_
+      · exact .found (dependency := 1) (callee := leftWrapper) (by decide) rfl rfl
+          (.found (dependency := 2) (callee := rightWrapper) (by decide) rfl rfl (.done _))
+      · exact ⟨⟨rightWrapper, rfl, by change left.program.size < right.program.size; omega,
+          leftWrapper, rfl, .wrapper (diamondWrapper false) right.program.size rightWrapper, rfl, trivial⟩, rfl⟩
+    | true =>
+      refine .ordered (finalEnv := none) (diamondConsumer true) topChecked prefixOrigin (fun _ _ seen => seen) rfl ?_ rfl
+      exact .found (dependency := 1) (callee := leftWrapper) (by decide) rfl rfl
+        (.missing (dependency := 2) (by decide) rfl (by
+          change "absent" ∉ right.source.globals
+          rw [(Imports.consumer_layout middleConsumer rightChecked).2.2.1]
+          decide))
+
+example (missing : Bool) {producer left right top : ResolvedModule}
+    (rootChecked : resolve (commands false) #[] = .ok producer)
+    (leftChecked : resolve middleConsumer.commands producer.program = .ok left)
+    (rightChecked : resolve middleConsumer.commands left.program = .ok right)
+    (topChecked : resolve (diamondConsumer missing).commands right.program = .ok top)
+    (caller : Lists.State) (history : List Nat) (bounded : ∀ id ∈ history, id < 5) :
+    let graph := checkedDiamond missing rootChecked leftChecked rightChecked topChecked
+    ∃ entered out, Imports.Chain.Requests graph history ⟨caller, []⟩ entered ∧
+      Imports.Chain.TraceRun (diamondManifest producer left right top) 4 entered out ∧
+      Loader.load top.program (diamondManifest producer left right top) 4 entered = out ∧
+      Imports.Chain.Reached producer.program top.program (diamondManifest producer left right top)
+        graph.exports 4 entered out := by
+  intro graph
+  obtain ⟨entered, historyRun, valid⟩ := Imports.Chain.requests graph history bounded ⟨caller, []⟩
+    (fun _ _ impossible => nomatch impossible)
+  obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 4 (by change 4 < 5; decide) entered valid
+  exact ⟨entered, out, historyRun, source, meaning, reached⟩
+
+private def runDiamond (missing : Bool) (preload : Bool) :
+    Option (Loader.Result Modules.Published × Lists.State × Lists.State) := do
+  let producer ← (resolve (commands false)).toOption
+  let left ← (resolve middleConsumer.commands producer.program).toOption
+  let right ← (resolve middleConsumer.commands left.program).toOption
+  let top ← (resolve (diamondConsumer missing).commands right.program).toOption
+  let manifest := diamondManifest producer left right top
+  let cold : Loader.Session := {runtime := {iterators := [123]}}
+  let reached ← if preload then
+      match Loader.load top.program manifest 1 cold with
+      | .ok _ reached => some reached
+      | .error .. => none
+    else some cold
+  some (Loader.load top.program manifest 4 reached, enter top.source reached.runtime, reached.runtime)
+
+private def capturedImport (heap : Lists.Heap) (wrapper target : Lists.Value) (index : Nat) : Bool :=
+  match wrapper with
+  | .function address =>
+    match heap[address]? with
+    | some ⟨.function record, true⟩ =>
+      record.declaration == index &&
+        (match record.captures with
+         | [capture] => heap[capture.address]? == some ⟨.binding (some target), true⟩
+         | _ => false)
+    | _ => false
+  | _ => false
+
+private def diamondOK (warm : Bool) : Bool :=
+  match runDiamond false warm with
+  | some (.ok result final, _, caller) =>
+    match final.cache.lookup 0, final.cache.lookup 1, final.cache.lookup 2 with
+    | some producer, some left, some right =>
+      match producer.exports.lookup "escaped", producer.exports.lookup "late", left.exports.lookup "relay",
+          right.exports.lookup "relay", result.exports.lookup "wrapRight" with
+      | some escaped, some late, some left, some right, some wrapper =>
+        left != right && capturedImport final.runtime.heap left escaped 2 &&
+        capturedImport final.runtime.heap right escaped 3 && capturedImport final.runtime.heap wrapper right 4 &&
+        result.exports.lookup "leftResult" == some late && result.exports.lookup "rightResult" == some late &&
+        result.exports.lookup "left" == none && result.exports.lookup "right" == none &&
+        final.cache.map Prod.fst == [4, 2, 1, 0] && final.runtime.iterators == caller.iterators
+      | _, _, _, _, _ => false
+    | _, _, _ => false
+  | _ => false
+
+private def diamondError (warm : Bool) : Bool :=
+  match runDiamond true warm with
+  | some (.error (.initialization 4 (.missingExport "right.star" "absent")) final, frame, caller) =>
+    match final.cache.lookup 1, frame.slots (fileSlot "left"), frame.slots (fileSlot "right"),
+        frame.slots (fileSlot "skipped"), frame.slots (globalSlot "wrapRight"), frame.slots (globalSlot "after") with
+    | some left, some leftCell, some rightCell, some skipped, some wrapper, some after =>
+      match left.exports.lookup "relay" with
+      | some relay =>
+        final.runtime.heap[leftCell.address]? == some ⟨.binding (some relay), false⟩ &&
+        [rightCell, skipped, wrapper, after].all (fun slot =>
+          final.runtime.heap[slot.address]? == some ⟨.binding none, false⟩) &&
+        final.cache.map Prod.fst == [2, 1, 0] && final.runtime.iterators == caller.iterators
+      | none => false
+    | _, _, _, _, _, _ => false
+  | _ => false
+
+#guard diamondOK false
+#guard diamondOK true
+#guard diamondError false
+#guard diamondError true
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published

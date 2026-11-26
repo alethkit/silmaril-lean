@@ -1342,39 +1342,45 @@ profile.
 ### Composing checked imports
 
 A topologically numbered graph may contain checked load-free roots and
-consumers with one leading renamed import. Each consumer supplies its
+consumers with an ordered list of leading loads. Each consumer supplies its
 normalized suite and checked link into the common declaration table.
-The import edge consumes the dependency's actual publication and cache
-entry, then derives the reached file-local binding and runs the finite
-suite. The edge theorem is independent of the graph induction, so a
-larger scheduler can reuse it for an individual dependency.
+The prefix induction reads each dependency's actual publication and binds its
+exported function address to a fresh file-local alias cell. The suite inherits
+the reached importer frame and live provenance for all aliases. The single-load
+edge theorem remains available.
 
 The graph theorem follows strictly earlier dependencies. It preserves
 earlier cache entries, the original closure records and their capture
-addresses, and the caller's slots, bindings and iterator context.
-Its source trace agrees with the loader on exact publication and heap,
-or on the first reached error and residual session. Requests from an
-empty cache establish the same invariant for later mixed cold and
-cached loads.
+addresses, and the caller's slots, bindings and iterator context. A missing
+label, reached dependency failure or missing export skips all later loads and
+the suite. The independent source trace agrees with the loader on exact
+publication and heap, or on the first reached error and residual session.
+Requests from an empty cache establish the same invariant for later mixed
+cold and cached loads.
 
-The chain transports regular closures, factory results, and exported
-consumer wrappers. For a wrapper, recursive provenance starts from the
-actual published function address and follows its captured file-local
-cell to the imported closure in the same heap. Each wrapper's declaration
-index is strictly greater than the captured callee's index. Removing the
-active wrapper therefore leaves the lower declaration range required by
-the next activation. Module validation gives distinct write destinations.
-Each importer initializes a blank binding, preserving already-initialized
-capture values as well as function records across cache reuse.
+The graph transports regular closures, factory results, and exported
+consumer wrappers. Recursive wrapper provenance follows the actual published
+function address through its captured file-local cell to the imported closure
+in the same heap. Each wrapper's declaration index is strictly greater than
+its captured callee's index. Removing the active wrapper leaves the lower
+declaration range required by the next activation. Validation makes load
+aliases and global destinations distinct. The importer fills blank cells,
+preserving initialized captures and function records across cache reuse.
 
-The three-module controls call a published middle wrapper directly and
-through a second wrapper. They check defining globals, saved defaults,
-and a reached error that retains earlier effects and restores the caller
-in cold, root-preloaded and middle-preloaded sessions. The graph allows
-shared dependencies across requests. Each importing module has one
-leading dependency, and its new wrappers are nullary. Multiple dependency
-order, general callable-parameter provenance, broader bodies, and arbitrary
-incoming caches remain open.
+The three-module controls exercise direct and nested calls through a published
+wrapper. A diamond control shares one producer between two separately linked
+wrappers. It runs from an empty cache and after an actual request for the left
+branch. A missing export on the right retains both dependency publications and
+the earlier alias binding while leaving later load and body cells blank.
+The pinned Go check also exercises a right-branch initialization failure.
+
+The checked prefix admits one renamed public callable per load statement.
+An optional reached missing-export case requires the name to be absent from the
+dependency's declared globals. The ordinary loader supports multi-item loads
+with all export lookups before binding. Proof coverage for those grouped
+commands, arbitrary incoming caches, broader bodies and callable wrapper
+parameters remains open. The checked wrapper profile is nullary.
+
 [Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
 
 ## Finite-manifest loader

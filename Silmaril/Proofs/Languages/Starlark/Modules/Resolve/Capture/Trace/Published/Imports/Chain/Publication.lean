@@ -46,22 +46,30 @@ theorem publish_keeps (source : Modules.Source) (caller state : State) :
   obtain ⟨flag, stored, _⟩ := frozen.cell address cell found
   exact ⟨flag, stored⟩
 
-theorem publication_from_suite {plan : Consumer} {seed origin final : Program} {imported : Callee}
-    {source : Modules.Source} (names : source.globals = plan.globals) (caller : State) {state : State}
-    (live : Live plan.alias origin final (trackSuite imported seed (initial plan.alias imported) plan.body) state) :
-    Publication (exportsOf plan seed imported) origin final source (Modules.publish source state).1
+theorem publication_for_env {aliases globals : List String} {origin final : Program} {env : Tracked}
+    {source : Modules.Source} (names : source.globals = globals)
+    (separate : ∀ name ∈ globals, name ∉ aliases) (caller : State) {state : State}
+    (live : Live aliases origin final env state) :
+    Publication (fun name => if name ∈ globals then env name else none) origin final source (Modules.publish source state).1
       (Modules.restoreThread caller (Modules.publish source state).2) := by
   refine ⟨fun _ _ seen => exports_declared seen, fun name callee tracked publicName => ?_⟩
-  unfold exportsOf at tracked
+  change (if name ∈ globals then env name else none) = some callee at tracked
   split at tracked
   · rename_i member
     obtain ⟨address, loaded, record⟩ := read_live live tracked
-    have outside : name ≠ plan.alias := fun same => plan.separate (same ▸ member)
     have global : state.bindingValue (globalSlot name) = .ok (.function address) := by
-      simpa [readSlot, outside] using loaded
+      simpa [readSlot, separate name member] using loaded
     exact ⟨address, published_function (names.symm ▸ member) publicName global,
       transport_callable record (closure_cells_of_contents (publish_keeps source caller state))⟩
   · cases tracked
+
+theorem publication_from_suite {plan : Consumer} {seed origin final : Program} {imported : Callee}
+    {source : Modules.Source} (names : source.globals = plan.globals) (caller : State) {state : State}
+    (live : Live [plan.alias] origin final (trackSuite seed (initial plan.alias imported) plan.body) state) :
+    Publication (exportsOf plan seed imported) origin final source (Modules.publish source state).1
+      (Modules.restoreThread caller (Modules.publish source state).2) :=
+  publication_for_env names (fun name member => by
+    simpa using (fun (same : name = plan.alias) => plan.separate (same ▸ member))) caller live
 
 theorem enter_keeps (source : Modules.Source) (state : State) : KeepsContents state (Modules.enter source state) :=
   fun address cell stored => ⟨cell.frozen,

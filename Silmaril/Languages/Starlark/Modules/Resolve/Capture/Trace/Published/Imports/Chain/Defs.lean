@@ -13,7 +13,7 @@ open Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 
 /-- The suite publishes any tracked callable in a declared global. -/
 @[expose] def exportsOf (plan : Consumer) (seed : Program) (imported : Callee) : Tracked :=
-  let tracked := trackSuite imported seed (initial plan.alias imported) plan.body
+  let tracked := trackSuite seed (initial plan.alias imported) plan.body
   fun name => if name ∈ plan.globals then tracked name else none
 
 @[expose] def rootExports (env : Environment) : Tracked :=
@@ -26,8 +26,38 @@ inductive Demand (plan : Consumer) (seed : Program)
   | missing : plan.name ∉ dependencySource.globals → Demand plan seed dependencyExports dependencySource (fun _ => none)
   | found (callee : Callee) : dependencyExports plan.name = some callee →
       callee.layout.id < seed.size →
-      ReadyFor callee seed (initial plan.alias callee) plan.body →
+      ReadyFor seed (initial plan.alias callee) plan.body →
       Demand plan seed dependencyExports dependencySource (exportsOf plan seed callee)
+
+/-- The checked prefix resolves each reached label to an earlier module.
+An absent export needs no certificate for the unreachable suffix. -/
+inductive ImportPlan (manifest : Manifest) (exports : ModuleId → Tracked)
+    (id : ModuleId) (bound : id < manifest.size) :
+    List ImportSite → Tracked → Option Tracked → Prop where
+  | done (env : Tracked) : ImportPlan manifest exports id bound [] env (some env)
+  | unresolved {site : ImportSite} {tail : List ImportSite} {env : Tracked} :
+      Loader.resolve manifest id site.label = none →
+      ImportPlan manifest exports id bound (site :: tail) env none
+  | missing {site : ImportSite} {tail : List ImportSite} {env : Tracked} {dependency : ModuleId}
+      (earlier : dependency < id) :
+      Loader.resolve manifest id site.label = some dependency →
+      site.name ∉ (manifest[dependency]'(Nat.lt_trans earlier bound)).source.globals →
+      ImportPlan manifest exports id bound (site :: tail) env none
+  | found {site : ImportSite} {tail : List ImportSite} {env : Tracked} {dependency : ModuleId}
+      {callee : Callee} {final : Option Tracked} (earlier : dependency < id) :
+      Loader.resolve manifest id site.label = some dependency →
+      exports dependency site.name = some callee →
+      ImportPlan manifest exports id bound tail (track env site.alias (some callee)) final →
+      ImportPlan manifest exports id bound (site :: tail) env final
+
+/-- Successful prefixes enable the ordinary suite. With a statically
+absent export, there is no reachable body and no tracked publication. -/
+@[expose] def OrderedReady (plan : OrderedConsumer) (seed : Program) (final : Option Tracked)
+    (published : Tracked) : Prop :=
+  match final with
+  | none => published = fun _ => none
+  | some env => ReadyFor seed env plan.body ∧
+    published = fun name => if name ∈ plan.globals then trackSuite seed env plan.body name else none
 
 /-- Cached publications keep the original function address and defining
 environment. Exact frozen flags are part of the operational result. -/
@@ -61,7 +91,7 @@ inductive Edge (plan : Consumer) (seed : Program) (id : ModuleId) (source : Modu
   | suite {published : Modules.Published} {reached : Session} {bound : State}
       (callee : Callee) {out : Modules.Result Unit} :
       BindsAlias plan published reached.runtime (.ok () bound) →
-      SuiteRuns callee seed bound plan.body out →
+      SuiteRuns seed bound plan.body out →
       Edge plan seed id source caller (.ok published reached) (observed id source caller reached.cache out)
 
 /-- Each reached load restores its caller, preserves earlier cells and
@@ -81,8 +111,8 @@ open Defaults.Nested.Sequence (PreservesDeclarations)
 
 local notation "Normalized" => Modules.Resolve.Command
 
-/-- Each module has either a checked load-free body or one leading import
-of a lower-numbered module, followed by the checked suite. -/
+/-- Each module has a checked load-free body or a leading prefix
+of imports from lower-numbered modules, followed by the checked suite. -/
 inductive Node (origin final : Program) (manifest : Manifest) (exports : ModuleId → Tracked)
     (id : ModuleId) (bound : id < manifest.size) : Prop where
   | root {commands : List Normalized} {seed emitted : Program} {code : List Modules.Command}
@@ -103,6 +133,15 @@ inductive Node (origin final : Program) (manifest : Manifest) (exports : ModuleI
       Demand plan seed (exports dependency) (manifest[dependency]'(Nat.lt_trans earlier bound)).source (exports id) →
       Node origin final manifest exports id bound
 
+  | ordered {seed : Program} (plan : OrderedConsumer) {resolved : ResolvedModule} {finalEnv : Option Tracked} :
+      resolve plan.commands seed = .ok resolved →
+      PreservesDeclarations origin seed →
+      PreservesDeclarations resolved.program final →
+      manifest[id].source = resolved.source →
+      ImportPlan manifest exports id bound plan.imports (fun _ => none) finalEnv →
+      OrderedReady plan seed finalEnv (exports id) →
+      Node origin final manifest exports id bound
+
 /-- The checked final table and each node's source certificate are fixed
 for an entire session. The environment contains static callable descriptions. -/
 structure Graph (origin : Program) (manifest : Manifest) where
@@ -114,6 +153,7 @@ structure Graph (origin : Program) (manifest : Manifest) where
   exports : ModuleId → Tracked
   nodes : ∀ id (bound : id < manifest.size), Node origin linked.program manifest exports id bound
 
+mutual
 /-- Independent source traces use the actual cached value or the reached
 source execution of the dependency, with no heap-address premise. -/
 inductive TraceRun (manifest : Manifest) :
@@ -134,6 +174,50 @@ inductive TraceRun (manifest : Manifest) :
       TraceRun manifest dependency {state with runtime := Modules.enter source state.runtime} loaded →
       Edge plan seed id source state.runtime loaded out →
       TraceRun manifest id state out
+
+  | orderedError {id : ModuleId} {state : Session} {source : Modules.Source}
+      {plan : OrderedConsumer} {error : Loader.Error} {reached : Session} {bound : id < manifest.size} :
+      manifest[id].source = source →
+      state.cache.lookup id = none →
+      ImportTrace manifest id plan.imports {state with runtime := Modules.enter source state.runtime}
+        (.error error reached) →
+      TraceRun manifest id state (.error error {reached with runtime := Modules.restoreThread state.runtime reached.runtime})
+  | orderedSuite {id : ModuleId} {state : Session} {source : Modules.Source}
+      {plan : OrderedConsumer} {seed : Program} {reached : Session} {out : Modules.Result Unit}
+      {bound : id < manifest.size} :
+      manifest[id].source = source →
+      state.cache.lookup id = none →
+      ImportTrace manifest id plan.imports {state with runtime := Modules.enter source state.runtime} (.ok () reached) →
+      SuiteRuns seed reached.runtime plan.body out →
+      TraceRun manifest id state (observed id source state.runtime reached.cache out)
+
+/-- The source rules evaluate dependencies in order and bind only the
+values returned by their actual publication. -/
+inductive ImportTrace (manifest : Manifest) :
+    ModuleId → List ImportSite → Session → Loader.Result Unit → Prop where
+  | done {id : ModuleId} (state : Session) : ImportTrace manifest id [] state (.ok () state)
+  | unresolved {id : ModuleId} {site : ImportSite} {tail : List ImportSite} {state : Session} :
+      Loader.resolve manifest id site.label = none →
+      ImportTrace manifest id (site :: tail) state (.error (.missingLabel id site.label) state)
+  | dependencyError {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
+      {state reached : Session} {error : Loader.Error} :
+      Loader.resolve manifest id site.label = some dependency →
+      TraceRun manifest dependency state (.error error reached) →
+      ImportTrace manifest id (site :: tail) state (.error error reached)
+  | missing {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
+      {state reached : Session} {published : Modules.Published} :
+      Loader.resolve manifest id site.label = some dependency →
+      TraceRun manifest dependency state (.ok published reached) →
+      published.exports.lookup site.name = none →
+      ImportTrace manifest id (site :: tail) state (.error (.initialization id (.missingExport site.label site.name)) reached)
+  | next {id dependency : ModuleId} {site : ImportSite} {tail : List ImportSite}
+      {state reached : Session} {published : Modules.Published} {value : Lists.Value} {out : Loader.Result Unit} :
+      Loader.resolve manifest id site.label = some dependency →
+      TraceRun manifest dependency state (.ok published reached) →
+      published.exports.lookup site.name = some value →
+      ImportTrace manifest id tail {reached with runtime := reached.runtime.write (Modules.fileSlot site.alias) value} out →
+      ImportTrace manifest id (site :: tail) state out
+end
 
 /-- A sequence of actual top-level requests. A failed request still
 provides its residual session to the next caller. -/

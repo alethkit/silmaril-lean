@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Defs
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Edge
+import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Ordered
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Publication
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Producer
 import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Invariant
@@ -104,6 +105,12 @@ theorem agrees_active {origin : Program} {manifest : Manifest} (graph : Graph or
         obtain ⟨out, edge, executed, final⟩ := edge_agrees graph.checked plan checked prefixTable extension
           bound (Nat.lt_trans earlier bound) entry label demand permitted caller hit native reached
         exact ⟨out, .edge entry hit label trace edge, executed, final⟩
+      | ordered plan checked prefixTable extension entry imports ready =>
+        apply ordered_agrees graph.checked plan checked prefixTable extension bound entry imports ready permitted caller hit cache
+        intro dependency earlier session valid
+        exact ih dependency earlier (Nat.lt_trans earlier bound) (id :: active)
+          (fun ancestor member => (List.mem_cons.mp member).elim (fun same => same ▸ earlier)
+            (fun rest => Nat.lt_trans earlier (ordered _ rest))) session valid
 
 theorem agrees {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (id : ModuleId) (bound : id < manifest.size) (caller : Session)

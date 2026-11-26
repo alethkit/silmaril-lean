@@ -36,7 +36,7 @@ theorem edge_agrees {origin seed finalSeed : Program} {manifest : Manifest} {exp
     wholeChecked plan checked originPrefix extension bound dependencyBound entry label demand permitted caller cold
     nativeDependency reachedDependency
 
-/-- Independent source execution and loader denotation agree for a checked topological graph with one dependency per importing module. -/
+/-- Independent source execution and loader denotation agree for a checked topological graph with ordered leading dependency lists. -/
 theorem agrees {origin : Program} {manifest : Manifest} (graph : Graph origin manifest)
     (id : ModuleId) (bound : id < manifest.size) (caller : Session)
     (cache : Cache origin graph.linked.program manifest graph.exports caller) :
