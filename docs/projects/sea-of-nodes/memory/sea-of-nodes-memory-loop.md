@@ -90,3 +90,32 @@ These laws compare observations of generated CFGs over the existing
 native models.
 [Native institution](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Thms.lean) ·
 [MLIR equation theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/MLIR/Institution/Thms.lean)
+
+### Compare emitted backend observations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Thms
+```
+
+At a shared typed entry valuation and initial heap,
+`lambda_observation_iff_mlir` identifies the λSSA return at label zero
+with the CF observation of its packed word and whole final heap.
+`mlir_observation_eq_map_theta` re-encodes the numbered θ result by
+reading its word and heap wires into the scalar CF result tuple.
+`mlir_observation_iff_run` connects that partial CF observation to
+finite execution of the emitted CFG.
+[Backend comparison](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Thms.lean)
+
+`lambda_no_return_iff_mlir` and `theta_no_return_iff_mlir` match
+absence of finite returns. The corresponding satisfaction laws
+compare equations over all initial heaps at the chosen valuation.
+The regression checks the three-cell result after two backedges
+and the absence of a result in all three backends on a fixed backedge.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Regression.lean)
+
+The CF evaluator runs scalar bindings with a total bitvector
+interpretation. The LLVM scalar profile rejects `llvm.load`.
+The MLIR result in these laws uses the initialized cells carried
+as SSA values above.
+[CF evaluator](../../../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean) ·
+[LLVM admission example](../../../../Silmaril/SSA/MLIR/LLVM/Examples/Thms.lean)
