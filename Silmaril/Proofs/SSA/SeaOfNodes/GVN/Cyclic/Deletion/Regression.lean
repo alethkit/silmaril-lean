@@ -3,6 +3,7 @@ module
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Builder.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.HeaderUse.Thms
+import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Iteration.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.Pass.Thms
 import Silmaril.SSA.SeaOfNodes.GVN.Cyclic.FixedPoint.Thms
 
@@ -254,5 +255,81 @@ private def preheaderEntry : Loop.Graph Primitive inputs carried [[wordPort]] si
   result := loop.result
 
 theorem rejects_phi_entry_from_a_preheader_producer : Builder.build? preheaderEntry = none := rfl
+
+private abbrev twoDuplicateSigs : List (List (Ty Unit)) :=
+  [[wordPort], [wordPort], [wordPort], [guardPort], [wordPort]]
+
+/-- Each duplicate increment has one use. The first feeds the guard and
+the second feeds the exit computation. The original increment feeds both
+feedback positions, keeping it live throughout the two rewrites. -/
+private def twoDuplicates : Loop.Graph Primitive inputs carried [] twoDuplicateSigs word where
+  preheader := .nil
+  header := .cons .inc (.cons (.arg (.tail .head)) .nil)
+    (.cons .inc (.cons (.arg (.tail (.tail .head))) .nil)
+      (.cons .inc (.cons (.arg (.tail (.tail .head))) .nil)
+        (.cons .test (.cons (.output (1 : Fin 3) .head) .nil)
+          (.cons .observe (.cons (.output (3 : Fin 4) .head) (.cons (.output (2 : Fin 4) .head) .nil))
+            .nil))))
+  phiInputs
+    | .entry => .cons (.arg .head) (.cons (.arg .head) .nil)
+    | .backedge => .cons (.output (0 : Fin 5) .head) (.cons (.output (0 : Fin 5) .head) .nil)
+  predicate := .output (3 : Fin 5) .head
+  result := .output (4 : Fin 5) .head
+
+private def afterFirst : DeletedLoop Primitive inputs carried [] word :=
+  ⟨sigs, {
+    preheader := .nil
+    header := .cons .inc (.cons (.arg (.tail .head)) .nil)
+      (.cons .inc (.cons (.arg (.tail (.tail .head))) .nil)
+        (.cons .test (.cons (.output (0 : Fin 2) .head) .nil)
+          (.cons .observe (.cons (.output (2 : Fin 3) .head) (.cons (.output (1 : Fin 3) .head) .nil))
+            .nil)))
+    phiInputs
+      | .entry => .cons (.arg .head) (.cons (.arg .head) .nil)
+      | .backedge => .cons (.output (0 : Fin 4) .head) (.cons (.output (0 : Fin 4) .head) .nil)
+    predicate := .output (2 : Fin 4) .head
+    result := .output (3 : Fin 4) .head }⟩
+
+private def afterSecond : DeletedLoop Primitive inputs carried [] word :=
+  { shortened with graph := { shortened.graph with phiInputs := fun edge => match edge with
+    | .entry => shortened.graph.phiInputs .entry
+    | .backedge => .cons (.output (0 : Fin 3) .head) (.cons (.output (0 : Fin 3) .head) .nil) } }
+
+private theorem firstDeletion : Builder.optimize? twoDuplicates = some afterFirst := rfl
+private theorem secondDeletion : Builder.optimize? afterFirst.graph = some afterSecond := rfl
+private theorem finalStep : Builder.optimize? afterSecond.graph = none := rfl
+
+private def repeated := Iteration.normalize twoDuplicates
+
+private theorem repeatedResult : repeated = ⟨afterSecond, 2⟩ := by
+  change Iteration.run 5 twoDuplicates = _
+  simp only [Iteration.run, firstDeletion, secondDeletion, finalStep]
+
+theorem two_fresh_steps_remove_two_bindings :
+    (Builder.optimize? twoDuplicates).map (·.headerSigs.length) = some 4 ∧
+      ((Builder.optimize? twoDuplicates).bind
+        (fun first => (Builder.optimize? first.graph).map (·.headerSigs.length))) = some 3 ∧
+      repeated.deletions = 2 ∧ repeated.rewrite.headerSigs.length = 3 := by
+  rw [firstDeletion, Option.bind_some, secondDeletion, repeatedResult]
+  exact ⟨rfl, rfl, rfl, rfl⟩
+
+theorem repeated_search_remains_buildable_and_stops :
+    (Builder.build? repeated.rewrite.graph).isSome = true ∧
+      Builder.optimize? repeated.rewrite.graph = none := by
+  rw [repeatedResult]
+  exact ⟨rfl, finalStep⟩
+
+theorem repeated_rewrite_preserves_observations :
+    repeated.rewrite.graph.evalBackedges model 1 input = none ∧
+      repeated.rewrite.graph.evalBackedges model 2 input = some (4 : Nat) ∧
+      (repeated.rewrite.graph.Returns model input (4 : Nat) ↔ twoDuplicates.Returns model input (4 : Nat)) :=
+  ⟨(Iteration.normalize_evalBackedges (m := model) twoDuplicates input 1).trans rfl,
+    (Iteration.normalize_evalBackedges (m := model) twoDuplicates input 2).trans rfl,
+    Iteration.normalize_returns (m := model) twoDuplicates input (4 : Nat)⟩
+
+theorem iteration_stops_on_outside_profile :
+    (Iteration.normalize preheaderEntry).deletions = 0 ∧
+      (Iteration.normalize preheaderEntry).rewrite = ⟨sigs, preheaderEntry⟩ :=
+  ⟨rfl, rfl⟩
 
 end Silmaril.Proofs.SSA.SeaOfNodes.GVN.Cyclic.Deletion.Regression

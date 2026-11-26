@@ -276,15 +276,58 @@ block determines the internal index. External returns use their first
 position in the exit list. Total numbering uses a sentinel for unlisted
 names, which successful elaboration excludes from all written branches.
 
+`Interaction.flat_rename_tree` preserves the tree of an erased flat body
+when the environments agree at each renamed in-scope position. It lifts
+agreement through local binders. The capture decoder uses this lemma with
+the actual product-field renaming. In feedback, the closed block's sole
+original slot is its incoming tagged packet. The closure's block erasure
+equation and agreement on that slot identify the block trees.
+[Scoped erased-tree transport](../../Silmaril/SSA/Isotope/LambdaSSA/Semantics/ITree/Scoped/Thms.lean)
+
+`Capture.graph_tree` accepts an arbitrary producer tree. The typed capture
+expression must have the tree of that producer followed by `packEnv n` of
+the environment chosen by its reply. The theorem preserves the producer's
+requests and continues with the original graph after each returned reply.
+`packed_run_tree` also requires the accepted elaboration carried by
+`compileTyped`, pointwise agreement with the named version-zero store for
+every reply, and `HasType .nil R E` and `Closes` for the closed graph.
+`Capture.close` checks the producer expression at the exact type
+`packedInputType β.toList`. The packed result uses the original external
+index and tagged payload to form the dispatcher's single exit value.
+[Effectful capture and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Thms.lean)
+
 The fixture checks `Interaction.Typed.Compatible` for typed `Nat` replies
-and the exact capture packet. It compiles and closes a loop with a visible
-capture read, seed operation, and tick on the back edge. The checked packed
-tree feeds the capture reply into the seed request and each tick reply into
-the next tick's operand. The packed endpoint additionally uses the existing
-`packedExecution_tree` theorem and the closure equation checked for this
-fixture. General effectful capture closure would need an environment
-transport theorem for the erased trees.
+and the exact capture packet. The general corollary applies to its actual
+capture-closed table. The resulting packed tree feeds the capture reply
+into the seed request and each tick reply into the next tick's operand.
 [Typed capture and repeated back-edge requests](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Examples/Thms.lean)
+
+### Refinement through a common capture producer
+
+`packed_run_tree_refines_of_mono` transports a pointwise relation on named
+runs to the accepted packed dispatcher. It uses the same effectful producer
+on both sides, the exact capture packet equation, and version-zero agreement
+at every returned capture value. The relation must be preserved by the
+return map that applies `treeExitNumber` and `packedTreeOutput`. The packed
+relation must also be preserved by binding pointwise related continuations
+to the common producer. When the other continuation also has an accepted
+packed dispatcher, its `packed_run_tree` equation rewrites the specification
+side to that dispatcher.
+[Conditional refinement transport](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Thms.lean)
+
+The audited weak-tree API provides equality and `HasVisiblePrefix`, which
+records attainable event counts. It has no preorder here comparing requests,
+replies and returns with the required bind law. The observational
+institution's `Refines` compares sets of returns, faults and divergence over
+its models. Literal membership inclusion at each `Tree.observe` depth also
+fails as a bind order. A continuation with silent divergence is included
+vacuously in a returning one. After the same visible request, the two
+depth-two nodes have unequal child observations. An observer used for
+packed refinement needs to compare those children by its relation and prove
+composition under bind.
+[Visible-prefix API](../../Silmaril/Semantics/ITree/VisiblePrefix/Defs.lean)
+· [Region observational refinement](../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Defs.lean)
+· [Checked bind counterexample](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Capture/Refinement/Examples/Thms.lean)
 
 ### Edge arguments for a normalized φ port
 
@@ -316,6 +359,6 @@ lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
 ```
 
 ```sh
-lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Thms \
+lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms \
   Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Examples.Thms
 ```

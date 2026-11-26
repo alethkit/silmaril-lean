@@ -42,3 +42,27 @@ typed regression takes the backedge and keeps swapping unequal values. The
 stuck classifier fails before the first internal successor. Both source
 runners return `Part.none`, and only the repeating classifier gives a source
 path or packed divergence. [Infinite bridge](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Infinite/Thms.lean) · [Named atomic divergence](https://github.com/hiloopai/silmaril-lean/pull/3443)
+
+## Global SSA admission
+
+The optional certificate gives a finite set of names available on arrival at
+each named block, before its φ destinations are defined. The entry starts
+with the declared inputs. The checker reads each ordinary operand before
+its instruction's definitions and checks each case arm with its own payload
+binder. A φ operand is read at the selected predecessor's terminator. Each
+internal route must justify its successor's arrival claims. [Checker](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/WellFormed/Defs.lean)
+
+A passing certificate proves unique static definitions, including declared
+inputs and binders in unreachable blocks. Every read on every syntactic
+entry path has an earlier definition or a declared input. This covers
+same-block order and dominance across blocks. The certificate must cover
+every reachable target. It can omit unreachable blocks, and weak arrival
+claims can cause rejection. The regressions admit a loop-carried operand and
+reject a sibling branch's payload on the wrong φ edge, a same-block forward
+read, and a duplicate static definition. [Soundness](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/WellFormed/Thms.lean) · [Regressions](../../Silmaril/Proofs/SSA/LambdaRTL/CFG/Cyclic/Phi/WellFormed/Examples.lean)
+
+`GlobalSSA.compile` adds that source guarantee to the result of
+`Phi.compile`. The original compiler and its entry, transfer, and run
+theorems still require only the structural φ admission and their stated
+model assumptions. Primitive and value typing, typed Isotope admission,
+and capture agreement are separate obligations. [Source semantics](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Thms.lean) · [Typed admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean)

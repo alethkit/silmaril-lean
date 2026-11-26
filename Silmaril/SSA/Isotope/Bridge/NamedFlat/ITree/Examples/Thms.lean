@@ -1,9 +1,7 @@
 module
 
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Thms
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Thms
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Capture.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Semantics.ITree.Typed.Defs
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.FlatDispatcher.Execution.ITree.Thms
 
 /-! # Typed requests at the captured entry and the back edge -/
 
@@ -143,16 +141,23 @@ example (capture argument : Nat) :
     back backIndex rfl (store capture) (env capture) (packet argument), back_requests, vis_bind]
   simp only [pure_bind]
 
--- Reading the exact capture packet exposes a request. Its reply becomes the
--- seed request's operand, and the seed reply becomes the first edge packet.
-private theorem closed_entry_requests : region instr ambient closed.val.entry.erase =
-    vis (.capture) (fun captured =>
+private def captureProducer : Tree Event Atom :=
+  vis .capture (fun reply => pure (ULift.up reply))
+
+private theorem capture_packet :
+    LambdaSSA.Semantics.Interaction.term instr ambient (Morphism.CaseSSA.erase packetRead) =
+      (captureProducer >>= fun reply => pure (Capture.packEnv 1 (env reply.down))) := by
+  change (LambdaSSA.Semantics.Interaction.term instr ambient (.op .capture .unit)) = _
+  simp only [LambdaSSA.Semantics.Interaction.term, instr, pure_bind, captureProducer, vis_bind,
+    Capture.packEnv, env]
+
+-- The producer's reply becomes the seed operand and the seed reply becomes
+-- the first edge packet.
+example : region instr ambient closed.val.entry.erase =
+    vis .capture (fun captured =>
       vis (.call .seed captured) (fun reply => pure (0, packet reply))) := by
-  change region instr ambient
-    (.let₁ (.op .capture .unit) (.let₂ (.var 0)
-      (.let₁ (.op .seed (.var 0)) (.br 0 (.pair (.var 0) .unit))))) = _
-  simp only [region, LambdaSSA.Semantics.Interaction.term, pure_bind, vis_bind, packet, instr, atom,
-    LambdaSSA.Semantics.extend_zero]
+  rw [Capture.entry_tree instr closed.property.2 capture_packet]
+  simp only [captureProducer, vis_bind, pure_bind, entry_requests]
 
 example (capture : Nat) :
     (CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store capture) >>=
@@ -160,56 +165,25 @@ example (capture : Nat) :
   compile_run_tree instr source [exitLabel] names admitted.property.1
     (store capture) (env capture) (fun _ => rfl)
 
-private theorem block_environment (i : Fin 2) (v : Value Runtime) (capture : Nat) :
-    region instr (extend ambient v) (admitted.val.block i).erase =
-      region instr (extend (env capture) v) (admitted.val.block i).erase := by
-  refine Fin.cases ?_ (fun j => Fin.cases ?_ (fun k => k.elim0) j) i
-  · change region instr (extend ambient v) (.let₂ (.var 0) (.br 1 (.pair (.var 1) .unit))) =
-      region instr (extend (env capture) v) (.let₂ (.var 0) (.br 1 (.pair (.var 1) .unit)))
-    cases v <;> rfl
-  · change region instr (extend ambient v)
-        (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit)))) =
-      region instr (extend (env capture) v)
-        (.let₂ (.var 0) (.let₁ (.op .tick (.var 1)) (.br 0 (.pair (.var 0) .unit))))
-    cases v <;> rfl
-
 private noncomputable def openStep (capture : Nat) (p : BlockInput Runtime 2) :
     Tree Event (Transfer Runtime ⊕ BlockInput Runtime 2) :=
   region instr (extend (env capture) p.2) (admitted.val.block p.1).erase >>=
     fun out => pure (splitTransfer 2 out)
 
-private noncomputable def closedStep (p : BlockInput Runtime 2) :
-    Tree Event (Transfer Runtime ⊕ BlockInput Runtime 2) :=
-  region instr (extend ambient p.2) (closed.val.block p.1).erase >>=
-    fun out => pure (splitTransfer 2 out)
-
 private theorem closed_tree :
     region instr ambient closed.val.erase =
       vis .capture (fun capture => region instr (env capture) admitted.val.erase) := by
-  have sameSteps (capture : Nat) : closedStep = openStep capture := by
-    funext p
-    unfold closedStep openStep
-    rw [closed.property.2.block p.1, block_environment]
-  change (region instr ambient closed.val.entry.erase >>= fun out =>
-      Sum.elim pure (iter closedStep) (splitTransfer 2 out)) =
-    vis .capture (fun capture => region instr (env capture) admitted.val.entry.erase >>= fun out =>
-      Sum.elim pure (iter (openStep capture)) (splitTransfer 2 out))
-  rw [closed_entry_requests, vis_bind]
-  congr 1
-  funext capture
-  rw [entry_requests, sameSteps capture]
+  rw [Capture.graph_tree instr closed.property.2 capture_packet]
+  simp only [captureProducer, vis_bind, pure_bind]
 
--- The checked packing theorem observes exactly the named runner after the
--- capture reply, with the dispatcher's exit encoding applied to its return.
+-- The general theorem preserves the named runner after each capture reply
+-- and applies the dispatcher's encoding only to the eventual return.
 example : region instr ambient (packedExecutionRegion closed.property.1) =
     vis .capture (fun capture => CFG.Cyclic.runSSA (M := ModelTree Event) (treeModel instr) generated (store capture) >>=
       fun p => pure (packedTreeOutput (treeExitNumber [exitLabel] p))) := by
-  rw [packedExecution_tree, closed_tree, vis_bind]
-  congr 1
-  funext capture
-  rw [← compile_run_tree instr source [exitLabel] names admitted.property.1
-    (store capture) (env capture) (fun _ => rfl), bind_assoc]
-  simp only [pure_bind]
+  simpa only [captureProducer, vis_bind, pure_bind] using
+    (packed_run_tree instr source [exitLabel] names (fun reply : Atom => store reply.down)
+      admitted.property.1 (fun _ _ => rfl) closed.property.1 closed.property.2 capture_packet)
 
 private theorem tick_loop (capture argument : Nat) :
     iter (openStep capture) (0, packet argument) =

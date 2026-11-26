@@ -137,6 +137,15 @@ and deversioning inverse maps on these classes, including admitted handwritten
 tables. The satisfaction theorems transport equations between classes in each
 common model, with signatures held fixed.
 
+[Named cyclic equation institutions](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Institution/Thms.lean)
+use primitive alphabets as signatures and functions as renamings. The model
+category at each signature is discrete on the pair-lawful models. Reduct
+precomposes the primitive interpretation and preserves the packet operations.
+Both signature actions preserve identity and composition and satisfy the
+change-of-signature law on equations. `comparisonIso` is a natural isomorphism
+of room functors over this signature category. Its sentence translations
+commute with renamings on observational classes, with identity on models.
+
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
 `Region.alphaEq_ofDB_toDB`, `Region.evalSSA_eq_of_alphaEq`, `Region.close_toLN`
@@ -436,6 +445,31 @@ The continuation cannot jump back to its own label.
   the reduced algebra therefore gives the same coherent SSA model as
   expanding first and applying the witnessed SSA pullback.
   [Object-level expansion square](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/TypeChange/Thms.lean)
+- The validated LetCase institution keeps the original exact equations,
+  with equality arrows between models carrying a chosen presentation.
+  Expansion and validation are inverse model functors onto the entire
+  discrete coherent SSA room. Forgetting the chosen presentation has
+  the same object image as the original SSA reduct. The algebra arrows
+  it carries are exactly the transports along equalities of validated
+  models. Reification and compilation are natural over the type-changing
+  signature category and preserve satisfaction. Compiling a reified
+  equation gives the original LetCase equation. Reifying a compiled SSA
+  equation can change the structured code while preserving truth in every
+  coherent model. Its fixed points are exactly the reified sentences.
+  Equational consequence agrees on the validated class.
+  [Validated institutional retraction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Thms.lean)
+- The retraction becomes an institution isomorphism when each sentence
+  is taken up to agreement on satisfaction in every model of its room.
+  Signature maps respect this relation by evaluating each mapped sentence
+  in the target model's reduct. Compilation and reification are inverse
+  on the quotient classes, and their discrete model functors are the same
+  inverse pair as before. The checked straight-line let and its reified
+  join have distinct exact code and the same semantic class, including
+  after the composite signature change. Completeness of a syntactic
+  rewrite theory still requires deriving equivalence from this model-wise
+  agreement.
+  [Semantic quotient isomorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Expansion/Institution/Quotient/Thms.lean) ·
+  [Let-to-join regression](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

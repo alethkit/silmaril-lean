@@ -145,3 +145,34 @@ equation theorems compose with the corresponding backend satisfaction
 laws at the same two-cell valuation.
 [Backend API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Backends/Thms.lean) ·
 [Equation regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Regression.lean)
+
+## Finite initialized heaps in typed MLIR CF
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Finite.Thms
+```
+
+`Finite.Profile.ofCells n` supplies a checked profile for every finite
+cell count, including zero. Each `Fin n` address fits in a positive-width
+signless integer, and the heap is threaded as `n` scalar `i64` SSA values
+in cell-index order. Each native load or store emits a scan of those
+slots with `arith.constant`, `arith.cmpi eq`, and `arith.select`, using
+the dynamic typed address from the native graph. This encoding models
+in-bounds addresses into a fixed, initialized heap through SSA values.
+[Indexed lowering](../../../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Finite/Defs.lean)
+
+`Finite.lower_run` describes the existing `Cfg.run` result for every
+budget. Entry selects the native predecessor occurrence, the chosen
+arm forwards its word and all cells to the shared suffix, and the
+suffix returns the final tuple. The path takes three block ticks.
+`Finite.returns_iff` preserves and reflects that word and the whole
+`Fin n → Word` heap. At a checked profile and typed entry valuation,
+`Finite.equation_satisfaction` equates native truth with equality of
+both CFG observations for every guard and initial heap. These APIs
+are available alongside the fixed two-cell APIs above.
+[Indexed theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Finite/Thms.lean)
+
+The indexed regression executes the same swap equation at two and three
+cells. At the three-cell countermodel, both CFGs return zero and their
+final heaps in cell order are `[1, 2, 0]` and `[2, 0, 1]`.
+[Indexed regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Finite/Regression.lean)

@@ -40,6 +40,19 @@ private theorem wires_rel {F G : Ty Data → Type w} {rel : ∀ t, F t → G t �
       | output i p => exact hlocals i p
     | tail p => exact ih p
 
+theorem readWires_cover (wires : Wires args past ports)
+    {facts : Tuple (Fact m.value) args} {entry : Tuple (Val m.value) args}
+    {abstract : Locals (Fact m.value) past} {locals : Locals (Val m.value) past}
+    (hargs : TupleCovers facts entry) (hlocals : LocalsCover abstract locals) :
+    TupleCovers (wires.read facts abstract) (wires.read entry locals) :=
+  wires_rel (rel := fun t => @Flat.Covers (Val m.value t)) wires hargs hlocals
+
+theorem readWires_mono (wires : Wires args past ports)
+    {lhsArgs rhsArgs : Tuple (Fact m.value) args} {lhs rhs : Locals (Fact m.value) past}
+    (hargs : TupleLE lhsArgs rhsArgs) (hlocals : LocalsLE lhs rhs) :
+    TupleLE (wires.read lhsArgs lhs) (wires.read rhsArgs rhs) :=
+  wires_rel (rel := fun _ x y => x ≤ y) wires hargs hlocals
+
 private theorem snoc_rel {F G : Ty Data → Type w} {rel : ∀ t, F t → G t → Prop}
     {lhs : Locals F past} {rhs : Locals G past} {x : Tuple F ports} {y : Tuple G ports}
     (h : LocalsRel rel lhs rhs) (hnew : TupleRel rel x y) :
