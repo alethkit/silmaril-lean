@@ -110,6 +110,32 @@ inductive Schedule (g : Graph P params [result] n 0) :
       (noArm : Schedule g no live (no.id :: needed))
       (next : Schedule g root (i :: live) needed) : Schedule g root live needed
 
+theorem nilArgs (args : Tuple (Ref sort) []) : args = .nil := by
+  cases args
+  rfl
+
+theorem phiArgs (args : Tuple (Ref sort) [.bool, t, t]) :
+    args = .cons (args.get .head)
+      (.cons (args.get (.tail .head)) (.cons (args.get (.tail (.tail .head))) .nil)) := by
+  cases args with | cons _ tail =>
+  cases tail with | cons _ tail =>
+  cases tail with | cons _ tail =>
+  cases tail
+  rfl
+
+def Schedule.checkBinding {g : Graph P params [result] n 0} {root : Ref g.sort t} {live needed : List (Fin n)}
+    (i : Fin n) (h : i ∈ needed) (node : Node P params (Fin 0) g.sort (g.sort i))
+    (row : g.node i = node) (next : Option (Schedule g root (i :: live) needed)) :
+    Option (Schedule g root live needed) :=
+  match node, row with
+  | ⟨_, .param slot, args⟩, row =>
+    next.map (.param i h slot (row.trans (congrArg (Node.ofLabel (.param slot)) (nilArgs args))))
+  | ⟨_, .op instr, refs⟩, row =>
+    match Reads.check (live := live) refs with
+    | none => none
+    | some reads => next.map (.op i h instr refs row reads)
+  | _, _ => none
+
 def Plan.check (g : Graph P params [result] n 0) :
     (plan : Plan n) → {t : Ty Data} → (root : Ref g.sort t) → (live needed : List (Fin n)) →
     Option (Schedule g root live needed)
@@ -121,25 +147,22 @@ def Plan.check (g : Graph P params [result] n 0) :
     if h : i ∈ needed then
       return .reveal i h (← next.check g root live (strictInputs g i ++ needed))
     else none
-  | .bind i next, _, root, live, needed => do
+  | .bind i next, _, root, live, needed =>
     if h : i ∈ needed then
-      match row : g.node i with
-      | ⟨_, .param slot, .nil⟩ =>
-        return .param i h slot row (← next.check g root (i :: live) needed)
-      | ⟨_, .op instr, refs⟩ =>
-        match Reads.check (live := live) refs with
-        | none => none
-        | some reads => return .op i h instr refs row reads (← next.check g root (i :: live) needed)
-      | _ => none
+      Schedule.checkBinding i h (g.node i) rfl (next.check g root (i :: live) needed)
     else none
   | .branch i yesPlan noPlan next, _, root, live, needed => do
     if h : i ∈ needed then
       match row : g.node i with
-      | ⟨_, .phi, .cons guard (.cons yes (.cons no .nil))⟩ =>
+      | ⟨_, .phi, args⟩ =>
+        let guard := args.get .head
+        let yes := args.get (.tail .head)
+        let no := args.get (.tail (.tail .head))
+        have wired := row.trans (congrArg (Node.ofLabel .phi) (phiArgs args))
         match findSlot guard.id live with
         | none => none
         | some test =>
-          return .branch i h guard yes no row test
+          return .branch i h guard yes no wired test
             (← yesPlan.check g yes live (yes.id :: needed))
             (← noPlan.check g no live (no.id :: needed))
             (← next.check g root (i :: live) needed)
