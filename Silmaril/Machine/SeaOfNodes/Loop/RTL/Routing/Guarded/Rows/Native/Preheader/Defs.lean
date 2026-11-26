@@ -12,17 +12,21 @@ open Silmaril.Machine.Lir (Word)
 open Silmaril.Machine.RTL (Frame)
 open Silmaril.Machine.RTL.SSA (Block Func Prog)
 open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg WordOp emitOpWith model word)
-open Silmaril.SSA.RVSDG (Address Wires)
+open Silmaril.SSA.RVSDG (Address Wires extend)
 open Silmaril.SSA.SeaOfNodes.Diamond (Dataflow)
 open Silmaril.SSA.SeaOfNodes.Loop (Graph)
 open Silmaril.SSA.SeaOfNodes.Loop.LambdaSSA
 
 abbrev EntrySigs : List (List PortTy) := [[wordPort]]
 
-abbrev Source (arity : Nat) (sigs : List (List PortTy)) :=
-  Graph WordOp (wordSorts arity) (wordSorts arity) EntrySigs sigs word
+abbrev SourceWithEntry (arity : Nat) (entrySigs sigs : List (List PortTy)) :=
+  Graph WordOp (wordSorts arity) (wordSorts arity) entrySigs sigs word
 
-abbrev EntryColumn (arity : Nat) := Wires (wordPorts arity) EntrySigs (wordPorts arity)
+abbrev EntryColumnWith (arity : Nat) (sigs : List (List PortTy)) :=
+  Wires (wordPorts arity) (extend [] sigs) (wordPorts arity)
+
+abbrev Source (arity : Nat) := SourceWithEntry arity EntrySigs
+abbrev EntryColumn (arity : Nat) := EntryColumnWith arity EntrySigs
 
 structure Initializer (arity : Nat) where
   operation : FeedbackOp
@@ -42,7 +46,7 @@ def decodeInitializer {arity : Nat} : Dataflow WordOp (wordPorts arity) [] Entry
 
 /-- Supply a typed entry column to the existing recognizer. The checked
 preheader retains the original entry column separately. -/
-def bodyGraph {arity : Nat} {sigs : List (List PortTy)} (g : Source arity sigs)
+def bodyGraph {arity : Nat} {entrySigs sigs : List (List PortTy)} (g : SourceWithEntry arity entrySigs sigs)
     (entry : ArgumentColumn arity arity) : BankGraph arity sigs where
   preheader := .nil
   header := g.header
@@ -70,9 +74,9 @@ structure Plan (arity : Nat) where
 
 variable {arity : Nat} (p : Plan arity)
 
-def withEntry {sigs : List (List PortTy)} (body : BankGraph arity sigs)
-    (flow : Dataflow WordOp (wordPorts arity) [] EntrySigs) (entry : EntryColumn arity) :
-    Source arity sigs where
+def withEntry {entrySigs sigs : List (List PortTy)} (body : BankGraph arity sigs)
+    (flow : Dataflow WordOp (wordPorts arity) [] entrySigs) (entry : EntryColumnWith arity entrySigs) :
+    SourceWithEntry arity entrySigs sigs where
   preheader := flow
   header := body.header
   phiInputs

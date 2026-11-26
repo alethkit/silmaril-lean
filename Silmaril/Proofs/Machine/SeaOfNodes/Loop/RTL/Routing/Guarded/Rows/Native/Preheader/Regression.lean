@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
 
@@ -65,6 +65,8 @@ private def plan : Plan 3 where
 private theorem recognized : recognize source = some plan := by cbv
 private def targets : Checked.Phi.Targets := (plan.rtl, Generic.lower source)
 private theorem accepted : lowerChecked source = some targets := by cbv
+
+example : Table.lowerChecked source = some targets := by cbv
 
 example : (targets.1.block? 0 0).map (·.ops) =
     some [.binary .sub (.arg 6) (.arg 0) (.arg 2)] := by cbv
