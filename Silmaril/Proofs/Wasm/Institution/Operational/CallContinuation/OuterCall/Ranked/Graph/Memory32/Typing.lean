@@ -48,6 +48,18 @@ theorem store_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)}
   obtain ⟨saved, address, rfl, tail⟩ := split_i32 remaining
   exact ⟨saved, address, word, by simp [List.append_assoc], tail⟩
 
+theorem block_typed {fn : Function} {saved : List Value} {result : Option NumType}
+    {body rest : List Op} {fallthrough : List NumType}
+    (checked : fn.checkRegion (Prefix.stackTypes saved) fallthrough (.block result body :: rest) = true) :
+    fn.checkRegion [] result.toList body = true ∧
+      ∀ delivered : List Value, delivered.map Value.type = result.toList →
+        fn.checkRegion (Prefix.stackTypes (saved ++ delivered)) fallthrough rest = true := by
+  change (fn.checkRegion [] result.toList body &&
+    fn.checkRegion (result.toList.reverse ++ Prefix.stackTypes saved) fallthrough rest) = true at checked
+  obtain ⟨checkBody, checkTail⟩ := Bool.and_eq_true_iff.mp checked
+  refine ⟨checkBody, fun delivered typed => ?_⟩
+  simpa [Prefix.stackTypes, List.reverse_append, typed] using checkTail
+
 theorem if_typed {fn : Function} {stack : List Value} {result : Option NumType}
     {left right rest : List Op} {fallthrough : List NumType}
     (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.if_ result left right :: rest) = true) :
