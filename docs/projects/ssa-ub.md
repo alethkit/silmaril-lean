@@ -74,12 +74,48 @@ axioms and distinguishes the two terms. Its `true` is greatest and
 The flag includes both branches and describes UB occurrence in syntax.
 [Model][case-model] [Checked counterexample][case-regression]
 
+## Ordered LetIter bridge
+
+LetIter's exact typing judgments have free and bound contexts and a result
+type. They carry no usage quantities or effect bound. The literal-unit
+round trip holds at each such sort, including the iteration body at
+`β.snoc A` with result `B ⊕ A`. The chosen UB effect is preserved on
+the native instruction. Readback is inverse on canonical terms, where
+each fresh instruction has a literal unit operand. `refinement_iff` and
+`quotientIso` compare the explicit and interpreted orders on those terms.
+The latter is generated over the full native syntax by the relabelled
+old sentences and a UB upper bound for each typed native term.
+[Typed round trip][iter-ub] [Ordered bridge][iter-ub-refinement]
+
+With inherited sentences from `iterTheory`, `preserves_native` embeds
+the explicit order into the full native refinement rules. The checked
+regression separates native fixpoint unrolling from the interpreted
+axioms. Its two-point model ignores the iteration body when reading a
+loop and reads the scrutinee when reading a case. The unrolling moves
+the UB body into a scrutinee, so the native equation can give a
+comparison the matched axioms do not entail. This model only witnesses
+the algebraic separation. [Checked fixpoint example][iter-ub-regression]
+
+Quantitative LetIter uses a separate typing judgment. At bound `b`,
+`op (ub A) unit` typechecks exactly when `Γ.Discardable` and
+`ubEffect ≤ b`. In the iteration rule, the ambient context `Γl`
+already has `Γl.linearity = ⊤`. The body context `Γl.snoc A` is
+discardable exactly when the incoming state's type admits discarding
+(`Quantity.affine ≤ quantity A`). A linear state blocks literal-unit
+UB in that body even at the top effect bound. The stable rewrite
+presentation in `topRules` keeps formed endpoints under native
+weakening and pure substitution. The comparison to literal UB holds
+exactly for formed left endpoints in discardable contexts.
+`typeIterLiteralBody` adds the ordinary iteration guard `iterable b`,
+and `iter_body_refines_literal` uses native iteration congruence at the
+original context split. [Quantitative typing and refinement][iter-ub-quant]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
-| LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The ordered monad applies to `iterPSig`. A native spelling round trip would extend the LetCase constructor proof with the iteration binder. For the quantitative calculus the unit operand requires `Γ.Discardable`; a literal UB at a linear context needs a new typing rule or a resource-consuming encoding and a proof of the directed effect and iteration laws. [Ordered theory][let-theory] [Quantitative typing][quant-typing] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
+| LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
 | LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. A top **region** needs a constructor or a terminating encoding at every label context, including an empty one, plus a typed ordered presentation and compatible label substitution and feedback. The observational isomorphism does not give these typing or top laws. [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
@@ -99,6 +135,7 @@ provide that UB order or its sequencing laws. [Effect system][effects]
 ```sh
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Refinement.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -119,6 +156,10 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.
 [case-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Refinement/Regression.lean
 [case]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetCase/Thms.lean
 [let-theory]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Isotope.lean
+[iter-ub]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetIter/Thms.lean
+[iter-ub-refinement]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetIter/Refinement/Thms.lean
+[iter-ub-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetIter/Regression.lean
+[iter-ub-quant]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LetIter/Quantitative/Thms.lean
 [quant-typing]: ../../Silmaril/Raw/SSA/Isotope/Refinement/Typing.lean
 [quant]: ../../Silmaril/SSA/Isotope/Refinement/Thms.lean
 [iter-beh]: ../../Silmaril/Raw/SSA/Isotope/LetIter/Semantics/Behaviour.lean
