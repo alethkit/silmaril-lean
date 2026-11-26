@@ -66,9 +66,8 @@ witness executes a representative of the class. `mem_ofVM_iff_run` proves
 that the interpretation agrees exactly with observing the union of all
 finite lengths of the existing monadic runner. [Multicore VM executions][vm]
 
-The core-word profile has its own behavioral models and signature morphisms.
-A VM interpretation with actual core tags needs a source of core-tagged
-chronological observations. The current abstract VM emits thread-only words.
+The abstract VM emits thread-only words. For a VM with physical core tags,
+use the chronological profiles from the placement adapter below.
 
 The Lean examples rename thread IDs from `Fin 2` to `Nat`, core IDs from
 `Bool` to `Nat` and payloads from `Bool` to `Option Bool`. They check the
@@ -76,10 +75,61 @@ renamed synchronization participants, a positive and a negative test across
 a core-word reduct, and the named and quotient observations of the abstract
 VM's register executor. [Lean examples][examples]
 
+## Natural observation projections
+
+Import `Silmaril.Machine.MulticoreVM.Institution.Projection.Thms` to use a
+natural family `π : F ⟶ G` of projections between observation functors
+`F G : Sig ⥤ Type u`. For every signature map `f : A ⟶ B`, naturality gives
+`π_B (F(f)(x)) = G(f)(π_A(x))`. [Projection API][projection]
+
+`roomProjection π` maps this square into rooms using the existing institution
+functor. Its components inherit the satisfaction condition, and
+`roomProjection_id` and `roomProjection_comp` give its categorical laws.
+`sentence_natural` proves that the two forward translations agree on every
+formula. `reduct_natural` proves that the two backward paths of inverse-image
+reducts agree. `image_natural` proves the two forward paths of direct images
+agree on behavior sets. `image_ofVM` and `ofVM_natural` apply the direct-image
+laws to observations of the same actual VM schedules. For example,
+`namedToConcurrent` makes `concurrentModel` the direct image of `namedModel`.
+
+For a rich behavior set `M` in the target signature, the mixed square has one
+general inclusion, written below with `fF := F.map f` and `fG := G.map f`.
+
+```text
+π_A '' (fF ⁻¹' M) ⊆ fG ⁻¹' (π_B '' M)
+```
+
+`image_reduct_eq_iff` proves equality for every `M` exactly when the square
+has the weak pullback witness property. For any visible source observation
+`a` and rich target observation `b` with `π_B b = fG a`, there must be a rich
+source observation `x` with `π_A x = a` and `fF x = b`. The regression shows
+strict inclusion when a visible word has a target witness on a core outside
+the core renaming's image. [Projection regressions][projection-tests]
+
+## Physical core placement
+
+Import `Silmaril.Machine.MulticoreVM.Institution.Placed.Thms` for the adapter
+to the placed machine. `placedWords` retains the executing core and thread of
+each letter, including the sync actor and participant list. `coreLocalWords`
+is the chronological core projection with `none` for syncs and `some` for
+payloads. Use `classic placedWords` or `classic coreLocalWords` to instantiate
+the same institution. [Placed API][placed]
+
+`ofPlaced instruction initial` gives the full behavior set. Take the direct
+image along `placedToNamed.app A` for the chronological thread behavior or
+`placedToCore.app A` for the chronological core behavior. The thread quotient
+is available through `placedToNamed ≫ namedToConcurrent`. The core view uses
+the original chronological word because a thread-independent swap need not
+preserve the order seen on a core. `placed_named_subset` proves the named
+projection is included in the abstract VM's behavior when the instruction
+satisfies `Placed.Instruction.Refines`. That simulation supplies inclusion
+from actual placed runs. Equality with the abstract behavior would also
+require execution witnesses in the other direction.
+
 ## Scoped checks
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Institution.Thms +Silmaril.Proofs.Machine.MulticoreVM.Institution.Regression'
+make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Institution.Thms +Silmaril.Proofs.Machine.MulticoreVM.Institution.Regression +Silmaril.Proofs.Machine.MulticoreVM.Institution.ProjectionRegression'
 ```
 
 [defs]: ../../Silmaril/Machine/MulticoreVM/Institution/Defs.lean
@@ -88,3 +138,6 @@ make check CHECK_TARGETS='+Silmaril.Machine.MulticoreVM.Institution.Thms +Silmar
 [traces]: concurrent-traces.md
 [vm]: multicore-vm.md
 [gb]: https://doi.org/10.1145/147508.147524
+[projection]: ../../Silmaril/Machine/MulticoreVM/Institution/Projection/Thms.lean
+[projection-tests]: ../../Silmaril/Proofs/Machine/MulticoreVM/Institution/ProjectionRegression.lean
+[placed]: ../../Silmaril/Machine/MulticoreVM/Institution/Placed/Thms.lean
