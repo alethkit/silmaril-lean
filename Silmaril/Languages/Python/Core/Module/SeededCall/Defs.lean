@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Python.Core.Closure.Defs
 public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
+public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Defs
 
 /-! # Closed callables for explicitly seeded module entry -/
 
@@ -10,6 +11,7 @@ public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 namespace Silmaril.Languages.Python.Core.Module.SeededCall
 
 open Core.Closure (RuntimeError)
+open Core.Module.TupleDispatch (equalContents)
 
 inductive ExceptionClass where
   | assertionError
@@ -25,6 +27,7 @@ inductive AssertionArgument where
   | integerPair (left right : Int)
   | booleanPair (left right : Bool)
   | textPair (left right : Core.Text)
+  | tuplePair (left right : List Core.Module.Value)
   deriving DecidableEq, Repr
 
 inductive Raised where
@@ -205,6 +208,7 @@ calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | compare (left right : Int)
   | compareText (left right : Core.Text)
+  | compareTuple (left right : List Core.Module.Value)
   | textConversion (result : Core.Text)
   | truthConversion (result : Bool)
   | intFromBool (value : Bool)
@@ -222,6 +226,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   match callee, arguments with
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .helper .assertEqual, [.text left, .text right] => .compareText left right
+  | .helper .assertEqual, [.returnedTuple left, .returnedTuple right] => .compareTuple left right
   | .builtin .str, [] => .textConversion (Core.Text.ofString "")
   | .builtin .str, [value] => (value.stockStr?).elim .unsupported .textConversion
   | .builtin .bool, [] => .truthConversion false
@@ -249,6 +254,9 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
   | .compareText left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.textPair left right)))
+  | .compareTuple left right =>
+    if equalContents left right then .ok .none
+    else .error (.raised (.assertionError (.tuplePair left right)))
   | .textConversion value => .ok (.text value)
   | .truthConversion value => .ok (.bool value)
   | .intFromBool value => .ok (.int (Int.ofNat value.toNat))
@@ -275,6 +283,11 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
   | unequalText {arity : Nat} (left right : Core.Text) (different : left ≠ right) :
       Executes (arity := arity) (.compareText left right)
         (.error (.raised (.assertionError (.textPair left right))))
+  | equalTuple {arity : Nat} (left right : List Core.Module.Value) (same : equalContents left right = true) :
+      Executes (arity := arity) (.compareTuple left right) (.ok .none)
+  | unequalTuple {arity : Nat} (left right : List Core.Module.Value) (different : equalContents left right ≠ true) :
+      Executes (arity := arity) (.compareTuple left right)
+        (.error (.raised (.assertionError (.tuplePair left right))))
   | textConversion {arity : Nat} (value : Core.Text) :
       Executes (arity := arity) (.textConversion value) (.ok (.text value))
   | truthConversion {arity : Nat} (value : Bool) :

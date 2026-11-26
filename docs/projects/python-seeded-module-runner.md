@@ -177,9 +177,13 @@ name preserves the earlier payload in its aliases.
 The published-closure operand adapter accepts up to three exact integer
 arguments after confirming the closure's same-run publication. The
 current module selector uses it for admitted zero-argument published
-calls. Ordinary entry checks arity and runs the body with the reached heap. Settled inner receipts precede outer helper settlement. Flat tuple
-results retain their exact tags in the inner receipt. The helper's
-comparison still requires two integers. A defined inner stop retains
+calls. Ordinary entry checks arity and runs the body with the reached heap. Settled inner receipts precede outer helper settlement.
+Flat tuple results retain their exact tags in the inner receipt. When the
+live callee is the equality helper and both operands are exact flat tuples,
+the helper compares lengths and corresponding items using scalar equality.
+Booleans compare numerically with integers, and None matches None.
+A mismatch raises AssertionError with both original tuples in order.
+A defined inner stop retains
 earlier receipts and skips later arguments and the outer invocation.
 Faults and exhausted prefixes retain the reached heap without a settled
 receipt for the interrupted inner call.
@@ -204,8 +208,8 @@ A linked zero-argument call through the resolved stock `tuple` descriptor
 returns the canonical empty tuple. Its settled receipt carries the empty
 tuple payload, and both heaps retain their incoming state. The live
 module-first lookup lets a saved stock alias survive rebinding of `tuple`.
-In the first statement of `tuple-constructors.py`, the inner receipt
-precedes the existing tuple helper equality boundary.
+In the first statement of `tuple-constructors.py`, the inner empty
+tuple receipt precedes the equality helper's successful None receipt.
 
 ### Checked positional preparation and variadic binding
 
