@@ -4,6 +4,8 @@ import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.
 import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.MixedContinuation.Defs
 meta import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.PurePrefix.Splice.Defs
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Flat.Thms
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Flat.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Thms
 meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureGamma.Reverse.Defs
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Translation.PureTheta.Reverse.Thms
@@ -1889,6 +1891,59 @@ private def threadedValue : MixedThetaTerm :=
     throw (IO.userError "mixed theta did not reject stale feedback after parsing")
   unless (recover threadedValue.toGraph).isNone do
     throw (IO.userError "mixed theta accepted a value row with runtime ports")
+
+private def orderedTail := Translation.Source.mixed (WithNestedFeedback.Syntax.link
+  (.structured tailNormal.toSyntax) (.structured tailNormal.toSyntax))
+private def orderedTailGraph := Translation.compile orderedTail
+
+private def recoveredLink (order : Bool) :
+    Translation.PureTheta.Link (mixedLoop.compile order) .mixed orderedTailGraph :=
+  (Translation.PureTheta.recoverLink (mixedLoop.compile order) .mixed orderedTailGraph).get
+    (Translation.PureTheta.recoverLink_compiled mixedLoop order orderedTail)
+
+example (coherent : Coherent) (order : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredLink order).fragment.typing
+      (PUnit.unit, (0 : Nat))).run 2 =
+        Part.some ((.inl (30554 : Nat) : LabelDen [number,number]), 277744) := by
+  have observed := (recoveredLink order).region_observe coherent (PUnit.unit, (0 : Nat)) 2
+  rw [mixedLoop.region_observe order coherent, flat_theta_return coherent, Part.map_some,
+    Part.bind_some] at observed
+  have tail : Flat.Serial.observe (ε := Bool) orderedTailGraph (3 : Nat) 2777 =
+      Part.some (ExplicitRuntime.exitTuple (A := number)
+        ((.inl (30554 : Nat) : LabelDen [number,number]), 277744)) := by
+    rw [show orderedTailGraph = Translation.compile orderedTail from rfl,
+      orderedTail.compile_observe coherent (PUnit.unit, (3 : Nat)) 2777]
+    let loop := Flat.Fragment.loop tailLoop
+    change Part.map _ ((Region.denote (ε := Bool) (m := Runtime) (Flat.link loop loop).typing
+      (PUnit.unit, (3 : Nat))).run 2777) = _
+    rw [Flat.denote_link _ _ coherent]
+    simp only [loop, Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent,
+      StateT.run_bind, tailReturns, Part.bind_eq_bind, Part.bind_some, merge, Part.map_some]
+  change Flat.Serial.observe (ε := Bool) orderedTailGraph (3 : Nat) 2777 = _ at observed
+  rw [tail] at observed
+  exact (Translation.mapped_exit_iff _ _ _).mp observed.symm
+
+example (coherent : Coherent) (order : Bool) :
+    (Region.denote (ε := Bool) (m := Runtime) (recoveredLink order).fragment.typing
+      (PUnit.unit, (98 : Nat))).run 2 = Part.none := by
+  have observed := (recoveredLink order).region_observe coherent (PUnit.unit, (98 : Nat)) 2
+  rw [mixedLoop.region_observe order coherent, flat_theta_no_return coherent, Part.map_none,
+    Part.bind_none] at observed
+  have absent := Part.eq_none_iff'.mp observed.symm
+  exact Part.eq_none_iff'.mpr absent
+
+#eval show IO Unit from do
+  for order in [false, true] do
+    unless (Translation.PureTheta.recoverLink (mixedLoop.compile order) .mixed orderedTailGraph).isSome do
+      throw (IO.userError "could not link the recovered mixed theta to the translated suffix")
+    let result := (mixedLoop.run runnerActions order 3 (0 : Nat) 2).bind fun output =>
+      Translation.run runnerActions orderedTailGraph 3 (output.get .head) (output.get (.tail .head))
+    match result.map (fun output =>
+        (show (Nat ⊕ Nat) ⊕ Nat from output.get .head, show Nat from output.get (.tail .head))) with
+    | some (.inl (.inl 30554), 277744) => pure ()
+    | _ => throw (IO.userError "the numbered suffix lost the mixed theta result or token")
+  unless (Translation.PureTheta.recoverLink staleFeedback.toGraph .mixed orderedTailGraph).isNone do
+    throw (IO.userError "flat linking accepted a stale theta feedback token")
 
 end MixedThetaReverse
 
