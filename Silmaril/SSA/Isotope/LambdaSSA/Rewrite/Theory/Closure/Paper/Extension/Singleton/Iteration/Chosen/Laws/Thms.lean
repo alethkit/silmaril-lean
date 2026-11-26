@@ -49,6 +49,12 @@ theorem iterateChosen_roll {X Y Z : Q} (h : X ⟶ Z) (s : Z ⟶ Y ⨿ X) :
       h ≫ iterateChosen Seed (s ≫ coprod.map (𝟙 Y) h) :=
   ProjectedElgot.iterateChosen_roll Seed h s
 
+/-- The inverse chosen coproduct comparison commutes with the images of the two legs. -/
+theorem coprodComparison_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
+    (PreservesColimitPair.iso (proj) X Y).inv ≫ coprod.map ((proj).map f) ((proj).map g) =
+      (proj).map (coprod.map f g) ≫ (PreservesColimitPair.iso (proj) X' Y').inv :=
+  ProjectedElgot.c_inv_map Seed f g
+
 /-- A commuting square of projected steps means equality of the projected standard Paper composites. -/
 theorem projectSquare_iff {X Y Z : P} (f : X ⟶ Y ⨿ X) (g : Z ⟶ Y ⨿ Z) (h : X ⟶ Z) :
     projectStep Seed f ≫ coprod.map (𝟙 ((proj).obj Y)) ((proj).map h) = (proj).map h ≫ projectStep Seed g ↔
