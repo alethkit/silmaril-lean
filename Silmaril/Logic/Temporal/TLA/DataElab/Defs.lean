@@ -40,6 +40,7 @@ inductive DiagnosticKind where
   | duplicateField (name : String)
   | primeRequiresLevels
   | nestedPrime (inner : Site)
+  | primeCrossesOldValue
   | instanceReplay (kind : Replay.DiagnosticKind)
   | expansionLimit
   | invalidExpansion
@@ -123,7 +124,9 @@ private def lowerBuiltin (site : Site) (name : Name) (args : List (Term signatur
   | .symbol .postfix "'", [operand] =>
     match operand.firstPrime with
     | some inner => fail site (.nestedPrime inner)
-    | none => pure (.prime site operand)
+    | none =>
+      if fragment = .collections && !operand.validPrimeOperand then fail site .primeCrossesOldValue
+      else pure (.prime site operand)
   | .ident "TRUE", [] => pure (.boolean true)
   | .ident "FALSE", [] => pure (.boolean false)
   | .ident "BOOLEAN", [] => pure .booleanSet
@@ -136,6 +139,9 @@ private def lowerBuiltin (site : Site) (name : Name) (args : List (Term signatur
   | .symbol .infix "\\lor", [l, r] => pure (.logic .or l r)
   | .symbol .infix "=>", [l, r] => pure (.logic .implies l r)
   | .symbol .infix "\\equiv", [l, r] => pure (.logic .equiv l r)
+  | .symbol .prefix "DOMAIN", [operand] =>
+    if enabled : fragment = .collections then pure (.graphDomain enabled operand)
+    else fail site (.unsupportedBuiltin (.builtin name))
   | _, _ => fail site (.unsupportedBuiltin (.builtin name))
 
 private def expressionArgs (site : Site) (id : BindingId) (args : List (Local signature fragment)) :
@@ -255,6 +261,33 @@ private def lowerFields (visit : Visit signature fragment) (locals : Context sig
   fields.zipIdx.mapM fun (field, i) => do
     return (field.name, ← visit locals (site.child (.field i)) field.value)
 
+private def lowerKey (visit : Visit signature fragment) (locals : Context signature fragment)
+    (site : Site) (enabled : fragment = .collections) (keySite : Nat → Site)
+    (args : List Surface.Expr) : LowerM (Term signature fragment) :=
+  match args with
+  | [] => fail site .invalidExpansion
+  | [arg] => visit locals (keySite 0) arg
+  | _ => return .tuple enabled (← args.zipIdx.mapM fun (arg, i) => visit locals (keySite i) arg)
+
+private def lowerExcept (registry : CheckedRegistry) (visit : Visit signature fragment)
+    (locals : Context signature fragment) (site : Site) (enabled : fragment = .collections)
+    (base : Surface.Expr) (updates : List Surface.Update) : LowerM (Term signature fragment) := do
+  let root ← visit locals (site.child (.operand 0)) base
+  let clauses ← updates.zipIdx.mapM fun (update, i) => do
+    let clause := site.child (.update i)
+    let keys ← update.path.zipIdx.mapM fun (component, j) => do
+      let position := clause.child (.updateComponent j)
+      match component with
+      | .field name => pure (.string enabled name)
+      | .index args => lowerKey visit locals position enabled (fun k => position.child (.argument k)) args
+    let id := BindingId.declared clause
+    let some binding := registry.findBinding id | fail clause (.missingBinding id)
+    unless binding.kind = .oldValue && binding.slots.isEmpty do fail clause (.invalidBinder id)
+    let slot ← freshWitness
+    let inner := (id, Local.expression (.oldValue enabled slot)) :: locals
+    return (slot, keys, ← visit inner (clause.child .body) update.value)
+  return .except enabled root clauses
+
 private def lowerQuant (visit : Visit signature fragment) (locals : Context signature fragment)
     (site : Site) (kind : Surface.Quantifier) (binders : Surface.RigidBinders)
     (body : Surface.Expr) : LowerM (Term signature fragment) := do
@@ -348,6 +381,9 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
     | .setMap .. => unsupported .setMapBounds
     | .setEnum items => return .enum (← operands items)
     | .literal (.natural value) => pure (.numeral value)
+    | .literal (.string value) =>
+      if enabled : fragment = .collections then pure (.string enabled value)
+      else unsupported .literal
     | .literal _ => unsupported .literal
     | .cartesian _ => unsupported .cartesian
     | .cases .. => unsupported .caseExpression
@@ -360,8 +396,15 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
         return .functionSet enabled site (← visit locals (site.child (.operand 0)) domain)
           (← visit locals (site.child (.operand 1)) range)
       else unsupported .functionSet
-    | .index .. => unsupported .index
-    | .tuple _ => unsupported .tuple
+    | .index fn args =>
+      if enabled : fragment = .collections then
+        let root ← visit locals (site.child (.operand 0)) fn
+        return .index enabled root
+          (← lowerKey visit locals site enabled (fun i => site.child (.operand (i + 1))) args)
+      else unsupported .index
+    | .tuple items =>
+      if enabled : fragment = .collections then return .tuple enabled (← operands items)
+      else unsupported .tuple
     | .record fields =>
       if enabled : fragment = .collections then
         return .record enabled site (← lowerFields visit locals site fields)
@@ -370,8 +413,15 @@ private def lower (registry : CheckedRegistry) (fragment : Fragment)
       if enabled : fragment = .collections then
         return .recordSet enabled site (← lowerFields visit locals site fields)
       else unsupported .recordSet
-    | .field .. => unsupported .field
-    | .except .. | .oldValue => unsupported .except
+    | .field root name =>
+      if enabled : fragment = .collections then
+        return .index enabled (← visit locals (site.child (.operand 0)) root) (.string enabled name)
+      else unsupported .field
+    | .except root updates =>
+      if enabled : fragment = .collections then lowerExcept registry visit locals site enabled root updates
+      else unsupported .except
+    | .oldValue =>
+      if fragment = .collections then apply [] else unsupported .except
     | .action .. | .fairness .. | .temporalQuant .. => unsupported .actionOrTemporal
     | .labeled .. => unsupported .labeled
 termination_by structural fuel
