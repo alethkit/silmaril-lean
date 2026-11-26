@@ -344,6 +344,50 @@ surplus arity and exercise linked code, later unrelated definitions,
 and a copy of the live closure.
 [Judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/RootCall/Checks.lean) · [Pinned call semantics](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#function-calls)
 
+### Wrapper returns and reached command prefixes
+
+The compiler now records the child ID used inside every wrapper.
+Checked module elaboration preserves the entire emitted chain in the
+final declaration table, including through admitted unrelated suffix
+definitions. If the root definition is the first command, fresh module
+entry supplies its target cell and the addresses it captures.
+
+A wrapper here has a required positional signature and a body consisting
+of its child's definition followed by a return of the child's lexical
+name. The independent return rule allocates the child closure and
+specifies its address, selected captures, and restored caller state.
+The checked activation supplies the local definition cell. The parent
+captures and frame layout supply every capture address for the child,
+including forwarded local addresses. The proof derives the exact
+definition and return body steps, and proves the child cell is
+still available after restoration. Pre-existing heap cells and caller
+slots are preserved. An assignment of the return to a valid owned
+destination reads back the escaped address.
+
+The inductive wrapper path composes successive invocations of escaped
+closures. Its bound is the number of available wrapper positions in
+the chain. Arity failure stops at the reached invocation with all
+earlier allocations retained. Each call body runs with its declaration
+removed from the available set. Each separately reached invocation
+starts with the full set. The resolved operational path and the
+existing dispatch and body denotations agree on the exact result and
+state. The path takes already evaluated positional values. The
+checked named-assignment theorem uses independent source operand
+evidence and derives binding and the wrapper body at the actual
+command site. A reached operand or arity error skips the assignment.
+
+The reached-prefix judgment composes source steps in order. Its
+transfer theorem takes correspondence at the reached command indices
+and preserves the final state at a reached error. With a complete
+source derivation it connects to the existing checked publication or
+error restoration boundary. The next step is to instantiate all of
+the source transitions for one whole module, including the mixed leaf,
+and derive the published observation independently. The fixtures
+execute the mixed leaf end to end, including alias mutation and an
+uninitialized global read. Independent leaf execution is still open.
+Loads, defaults, and wider wrapper and leaf bodies remain separate.
+[Wrapper judgments](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Wrapper/Checks.lean)
+
 ## Finite-manifest loader
 
 `Loader.load` takes a known module ID and an optional session. A session
