@@ -44,3 +44,33 @@ make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Thms +Silmaril.Proofs.
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Regression
 ```
+
+## One initialized rank-one MemRef
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Thms
+```
+
+`MemRef.lower n` emits a typed single block in the repository's ordered
+MLIR block syntax. The entry has one reference to an initialized,
+contiguous `memref<nxi64>` and the source scalar operands. In-bounds
+indices have carrier `Fin n`. Each source Load emits `memref.load`
+with a reference and index, then binds its `i64` result. Each Store
+emits `memref.store` with a word, reference, and index, then proceeds
+with an empty SSA result group. The existing ordered runtime model
+interprets the store through the buffer state.
+[Ordered block syntax](../../../../Silmaril/SSA/RVSDG/MLIR/Graph/Feedback/Defs.lean) ·
+[MemRef semantics](../../../../Silmaril/SSA/MLIR/MemRef/Defs.lean) ·
+[Pinned upstream operation definitions](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/MemRef/IR/MemRefOps.td)
+
+The native initial heap is the buffer's cell function. `MemRef.lower_run`
+proves equality of the returned word and the full final buffer.
+`MemRef.lower_returns_iff` identifies these observations with native
+ordered returns. The model is for straight-line code over one initialized
+buffer with zero offset and unit stride.
+[Lowering theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/MLIR/MemRef/Thms.lean)
+
+The three-cell executable regression loads, stores, and reloads from
+the destination. It returns 11 with final cells `[11, 11, 99]`. The
+load-only block returns 11 with final cells `[11, 22, 99]`.
+[Regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/MLIR/MemRef/Regression.lean)
