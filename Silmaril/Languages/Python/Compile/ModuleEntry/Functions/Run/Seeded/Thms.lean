@@ -524,6 +524,15 @@ theorem invokeFlatCall_tuple_reference (space : Namespace) (context : CallContex
   cases destination <;> simp [invokeFlatCall, invokeCall, invokeDescriptor, Core.Module.SeededCall.Request.decode,
     Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.invoke_tuple_reference]
 
+theorem run_textSliceGuard {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (test : TextSlice.Guard) (rest : List (Instruction scope)) (lists : ListHeap) :
+    runInstructionsIn space context (.textSliceGuard test :: rest) lists =
+      match checkTextSliceGuard space test with
+      | .ok () => runInstructionsIn space context rest lists
+      | .error error => ⟨space, .error (.ofCall error), [], context.heap, lists⟩ := by
+  cases checked : checkTextSliceGuard space test <;>
+    simp [runInstructionsIn, effectWithLists, effect, checked, Except.map, Except.mapError]
+
 theorem run_bindText {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (value : Core.Text) (rest : List (Instruction scope)) (lists : ListHeap) :
     runInstructionsIn space context (.bindText name value :: rest) lists =

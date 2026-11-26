@@ -5,6 +5,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuar
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 import Silmaril.Languages.Python.Core.Binary64.Thms
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.TextSlice
 
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions
@@ -105,6 +106,7 @@ theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}
     (lowerPlan tree index (.if_ guard yes no :: rest)).toOption.map Subtype.val =
       some (selected.map .scalar ++ tail) := by
   simp [lowerPlan, ClosedGuard.ordinaryIf_omitted_none checked, callSite?, binding?,
+    Proofs.Languages.Python.Compile.ModuleEntry.Functions.ordinaryIf_textSliceGuard_none checked,
     ModuleEntry.statements_complete checked, remaining,
     Except.mapError, Except.toOption]
   rfl

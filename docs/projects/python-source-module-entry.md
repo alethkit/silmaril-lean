@@ -211,6 +211,27 @@ Run the unchanged conversion pins and CPython 3.13.5 lookup and diagnostic
 controls with
 `python3.13 -I scripts/check-python-text-conversions.py --upstream /path/to/pinned/rigorous`.
 
+A checked module guard of the form `if not (left == right): raise E("message")`
+can compare exact text operands when at least one is a slice. Receivers and
+plain operands are live module names or validated text literals. Bounds and
+step are omitted, `None`, or integer literals with optional unary minus.
+Negative explicit bounds are relative to the code-point length and clip to the direction's
+valid endpoints. A negative step has default stop `-1`, which differs from
+an explicit `-1`. Selection keeps the indices at exact stride offsets from
+the normalized start, in increasing or decreasing order.
+
+The guard evaluates operands from left to right. A reached zero step on
+text raises `ValueError("slice step cannot be zero")` before later operands.
+Equality skips the entire raise arm. Inequality checks the exception name
+and reports a missing name. A reached exception constructor remains outside
+the profile. The checked operation changes neither heap and creates zero
+receipts. It uses code-point indices and exact content equality.
+
+Both runners complete the unchanged `test_string_slices.py` through its
+last comparison with only `a` bound. The pinned replay and CPython 3.13.5
+controls also check clipping, reverse defaults and explicit stops, non-ASCII
+code points, and the residual state after a failed read or zero step.
+
 A message-free assertion can use `bool()` or `bool(scalar)` on the left
 of a single `is` or `is not` link. The checker certifies the optional
 positional operand in the shared scalar profile and the right operand in

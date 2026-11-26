@@ -4,6 +4,7 @@ public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Defs
 
@@ -582,6 +583,30 @@ def listConstructionTest? (scope : Scope) : (statement : Source.Stmt) →
     | none => none
   | _ => none
 
+inductive TextSliceGuardTranslation (scope : Scope) : Source.Stmt → TextSlice.Guard → Prop where
+  | conditional {left right lhs rhs call name points message}
+      (first : TextSlice.OperandTranslation scope left lhs) (second : TextSlice.OperandTranslation scope right rhs)
+      (sliced : (lhs.bounds.isSome || rhs.bounds.isSome) = true)
+      (constructor : CallExpression call name [(.positional, .text points)])
+      (reference : GlobalReference scope name) (checked : Core.Text.ofPoints? points = some message) :
+      TextSliceGuardTranslation scope
+        (.if_ (.unary .not_ (.comparison left [(.eq, right)])) [.raise_ (some call) none] []) ⟨lhs, rhs, name⟩
+
+def textSliceGuard? (scope : Scope) : (statement : Source.Stmt) →
+    Option {guard // TextSliceGuardTranslation scope statement guard}
+  | .if_ (.unary .not_ (.comparison left [(.eq, right)])) [.raise_ (some call) none] [] => do
+    let lhs ← TextSlice.operand? scope left
+    let rhs ← TextSlice.operand? scope right
+    let ⟨(name, [(.positional, .text points)]), constructor⟩ ← callExpression? call | none
+    let reference ← globalReference? scope name
+    if sliced : (lhs.val.bounds.isSome || rhs.val.bounds.isSome) = true then
+      match checked : Core.Text.ofPoints? points with
+      | some _ => some ⟨⟨lhs.val, rhs.val, name⟩,
+          .conditional lhs.property rhs.property sliced constructor reference checked⟩
+      | none => none
+    else none
+  | _ => none
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
@@ -591,6 +616,7 @@ inductive Action (scope : Scope) where
   | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
+  | textSliceGuard (test : TextSlice.Guard)
   /-- Read the current module binding once at this assertion. -/
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
@@ -642,6 +668,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleChainTranslation tree.scope statement test)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.assertTupleChain test :: tail)
+  | textSliceGuard {index statement test rest tail}
+      (checked : TextSliceGuardTranslation tree.scope statement test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.textSliceGuard test :: tail)
   | omittedIf {index statement value rest tail}
       (first : ClosedGuard.Omitted statement value) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) tail
@@ -759,6 +789,9 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     else if let some test := tupleChainTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertTupleChain test.val :: tail.val, .assertTupleChain test.property tail.property⟩
+    else if let some test := textSliceGuard? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.textSliceGuard test.val :: tail.val, .textSliceGuard test.property tail.property⟩
     else if let some ⟨(name, .text points), binding⟩ := binding? statement then
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
       match checked : Core.Text.ofPoints? points with

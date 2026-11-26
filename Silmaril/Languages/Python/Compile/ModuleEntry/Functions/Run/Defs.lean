@@ -32,6 +32,7 @@ inductive Instruction (scope : Scope) where
   | assertBoolIdentity (test : BoolIdentityTest scope)
   | assertListConstruction (test : ListConstructionTest scope)
   | assertTupleChain (test : TupleChainTest scope)
+  | textSliceGuard (test : TextSlice.Guard)
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
@@ -109,6 +110,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertTupleChain test :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertTupleChain test :: instructions, blocks)
+  | .textSliceGuard test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.textSliceGuard test :: instructions, blocks)
   | .assertVarNames receiver _ needle :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertVarNames receiver needle :: instructions, blocks)
@@ -207,6 +211,14 @@ def checkTupleChain {scope : Scope} (session : Session) (test : TupleChainTest s
   | .ok true => .ok ()
   | .ok false => .error .assertionError
   | .error error => .error ((TupleChain.runtimeError? error).elim .scalarProfile .raised)
+
+def checkTextSliceGuard (session : Session) (test : TextSlice.Guard) : Except Completion Unit :=
+  (test.eval session.globals (fun
+    | .text value => some value
+    | _ => none)).mapError fun
+      | .missingName name => .raised (.nameError name)
+      | .zeroStep => .raised .zeroSliceStep
+      | .outsideTextProfile | .reachedRaise => .scalarProfile
 
 def scalar? : Value → Option Core.Module.Value := Value.scalar?
 
@@ -378,6 +390,9 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertTupleChain test => ([], match checkTupleChain session test with
+      | .ok () => .ready session rest
+      | .error error => .finished session error)
+    | .textSliceGuard test => ([], match checkTextSliceGuard session test with
       | .ok () => .ready session rest
       | .error error => .finished session error)
     | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with

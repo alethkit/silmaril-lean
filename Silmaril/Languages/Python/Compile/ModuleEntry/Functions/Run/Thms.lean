@@ -4,6 +4,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Thms
 public import Silmaril.Languages.Python.Core.Module.TupleDispatch.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleIdentity.Thms
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Thms
 import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Prefix
 
 public section
@@ -50,6 +51,13 @@ theorem assertOperand_scalarResult {scope : Source.Scope} (session : Core.Module
       (if value.truth = expected then .ready session rest else .finished session .assertionError) := by
   simp only [assertOperand, evaluate_scalarResult]
   cases value <;> rfl
+
+theorem advance_textSliceGuard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (test : TextSlice.Guard) (rest : List (Instruction scope)) :
+    advance table (.ready session (.textSliceGuard test :: rest)) =
+      ([], match checkTextSliceGuard session test with
+        | .ok () => .ready session rest
+        | .error error => .finished session error) := rfl
 
 theorem advance_bindText {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (name : Source.Name)
