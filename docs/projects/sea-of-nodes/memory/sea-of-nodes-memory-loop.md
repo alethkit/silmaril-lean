@@ -563,8 +563,6 @@ zero in both cases, with heaps `[9, 5, 99]` and `[5, 9, 99]`. Identifying
 the captured ports erases the distinction and restricts the pulled-back
 valuations to coincident addresses. The fixture also checks a finite
 whole-loop return and absence of a finite return with fixed wiring.
-Whole-loop emission that switches both address lanes on feedback
-remains open.
 [Activation regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/Institution/Lowering/Backends/Activation/Regression.lean)
 
 For the existing single-address generated Rooms,
@@ -578,6 +576,47 @@ feedback.
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.Institution.Lowering.Backends.Activation.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Loop.CarriedAddress.Institution.Backend.Instances.Thms
 ```
+
+#### Whole-loop feedback with two address Phis
+
+`TwoAddress.Graph` gives each lane a typed entry capture and a separate
+feedback operand. A feedback operand can select either old lane or a
+captured address. Both operands read the same pre-jump bank. Each
+activation runs the existing ordered Load/Store body, tests its returned
+word against a captured stop word, and carries the complete post-store
+heap. Addresses are in bounds by type, and the two lanes may coincide.
+[Typed source](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Defs.lean)
+
+`TwoAddress.Petri.lower` emits one numbered θ with the two address
+lanes and the heap in its carrier. `read_entryWires` checks the initial
+frame. `lowerActivation_run` and `lowerActivation_finishes_iff` give the
+exact tail tag, routed operands and heap of the numbered and coloured
+child. `lower_run` relates a native allowance of `b` backedges to
+`b + 1` numbered activations. `lower_finishes_iff` transfers the word and
+every cell between native finite return and a coloured firing trace
+from one entry marking. `no_finishes_iff` gives agreement on absence of
+any finite completion. Firing traces have their own witnesses.
+[Public theorems](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Petri/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Petri.Thms
+```
+
+The regression composes two `bindAddress` bindings into a simultaneous
+swap. It checks the packets `(0, 1) → (1, 0) → (0, 1)` and runs the
+emitted graph with a budget of three activations. The word is zero and
+the final heap is `[0, 0, 0, 42]`. Coincident entry addresses also return
+zero and leave `[0, 5, 0, 42]`.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Petri/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Petri.Regression
+```
+
+Two-lane MemRef CFG emission remains open. Its typed header would need
+a frame carrying both address values, a checked conversion to and from
+the MLIR block operands, and a feedback edge that reads both values from
+the completed activation before installing the next frame.
 
 ### Equations for coloured Petri completion
 
