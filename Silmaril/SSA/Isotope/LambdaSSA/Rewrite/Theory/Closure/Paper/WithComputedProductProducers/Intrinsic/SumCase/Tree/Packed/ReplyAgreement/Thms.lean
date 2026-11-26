@@ -5,7 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCo
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Reply.Payload.Finite.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement
 
-/-! # The intrinsic and witnessed observations of the same payload request -/
+/-! # The selected and witnessed observations of finite payload requests -/
 
 public section
 
@@ -46,8 +46,9 @@ theorem DirectProgram.denote_agrees (H : Ty Empty) (L : List (Ty Empty)) (p : Di
   Tagged.outcomes_injective (p.packedOutcomes_eq H L)
 
 /-- The selected fold and the actual witnessed finite tree have equal
-packed observations. A return can compute a witnessed expression over its
-retained replies, including a finite table quoted by `Finite.Expr.quote`. -/
+packed observations. A retained-bit test selects its next request and keeps
+the untested replies in scope. Returns can compute expressions or quoted
+finite tables over the live replies. -/
 theorem ReadTree.packedOutcomes_eq (H : Ty Empty) (L : List (Ty Empty)) (p : ReadTree (H :: L) 0) :
     letI := Kleisli.instructions model
     let := modelCoherent

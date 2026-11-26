@@ -200,6 +200,23 @@ private theorem packedCase_of {X A B : Ty Empty} {L : List (Ty Empty)} (bits : L
   | inl a => exact packedArm_of l x a
   | inr b => exact packedArm_of r x b
 
+private theorem packedBitCase_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
+    (test : Term signature.Instr X Bit) (l r : CaseTree signature.Instr (product X unit) L)
+    (x : value X) (b : Bool) (h : (test.targetArrow J M).of x = (pure (Reply.Payload.bit b) : Trace (value Bit))) :
+    runPacked (.case unit unit (emitPrefix bits test) l r) x =
+      bits.foldr (fun bit next => emit bit >>= fun _ => next)
+        (runPacked (if b then r else l) (x, PUnit.unit)) := by
+  rw [packedCase_of]
+  erw [h]
+  rw [pure_bind]
+  cases b <;> rfl
+
+private theorem retainSlot_of {X A : Ty Empty} (slot : Term signature.Instr X Bit) (x : value X) (a : value A) :
+    ((retainSlot (A := A) slot).targetArrow J M).of (x, a) = (slot.targetArrow J M).of x := by
+  simp only [retainSlot, Term.targetArrow, Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
+  change Bind.bind (m := Trace) (pure x) (fun y => (slot.targetArrow J M).of y) = _
+  rw [pure_bind]
+
 private theorem packedRequest_of {X : Ty Empty} {L : List (Ty Empty)} (bits : List Bool)
     (request : Bool) (l r : CaseTree signature.Instr (product X Bit) L) (x : value X) :
     runPacked (.case Bit Bit (emitPrefix bits (.call (show signature.Instr from Op.ask request) .unit)) l r) x =
@@ -245,21 +262,16 @@ private theorem selectTerminal_of {L : List (Ty Empty)} (pos : Position L)
   | literal b => exact packedLiteral_of bits pos x b
   | read i => exact packedLeaf_of bits pos (slots i) x (env i) (hslots i)
   | split low high ihl ihr =>
-    rw [selectTerminal, packedCase_of]
-    erw [hslots 0]
-    rw [pure_bind]
+    rw [selectTerminal, packedBitCase_of _ _ _ _ _ _ (hslots 0)]
     have older (i : Fin _) :
-        ((Term.seq (.fst X unit) (slots i.succ)).targetArrow J M).of (x, PUnit.unit) =
-          (pure (Reply.Payload.bit (env.tail i)) : Trace (value Bit)) := by
-      simp only [Term.targetArrow, Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
-      change Bind.bind (m := Trace) (pure x) (fun y => ((slots i.succ).targetArrow J M).of y) = _
-      rw [pure_bind]
-      exact hslots i.succ
+        ((retainSlot (A := unit) (slots i.succ)).targetArrow J M).of (x, PUnit.unit) =
+          (pure (Reply.Payload.bit (env.tail i)) : Trace (value Bit)) :=
+      (retainSlot_of (A := unit) (slots i.succ) x PUnit.unit).trans (hslots i.succ)
     cases h : env 0
-    · simp only [h, Reply.Payload.bit, Reply.Payload.Finite.Expr.eval, Bool.false_eq_true, ↓reduceIte]
+    · simp only [h, Reply.Payload.Finite.Expr.eval, Bool.false_eq_true, ↓reduceIte]
       rw [ihl (X := product X unit) _ [] (x, PUnit.unit) env.tail older]
       rfl
-    · simp only [h, Reply.Payload.bit, Reply.Payload.Finite.Expr.eval, ↓reduceIte]
+    · simp only [h, Reply.Payload.Finite.Expr.eval, ↓reduceIte]
       rw [ihr (X := product X unit) _ [] (x, PUnit.unit) env.tail older]
       rfl
 
@@ -310,31 +322,17 @@ theorem packed_outcomes (H : Ty Empty) (L : List (Ty Empty)) (p : DirectProgram 
   exact request_outcomes p.val.request _ _ p.val.left.normal.traceTree p.val.right.normal.traceTree
     Reply.Exits.Exit.packed (leaf_observe _ p.property.1) (leaf_observe _ p.property.2)
 
-private def replyValues : {n : Nat} → Reply.Payload.Finite.Assignment n → value (replyContext n)
-  | 0, _ => PUnit.unit
-  | _ + 1, env => (replyValues env.tail, Reply.Payload.bit (env 0))
-
-private theorem replyValues_push {n : Nat} (env : Reply.Payload.Finite.Assignment n) (b : Bool) :
-    replyValues (env.push b) = (replyValues env, Reply.Payload.bit b) := by
-  have tail : (env.push b).tail = env := by
-    funext i
-    simp only [Reply.Payload.Finite.Assignment.tail, Reply.Payload.Finite.Assignment.push, Fin.cases_succ]
-  simp only [replyValues, tail, Reply.Payload.Finite.Assignment.push, Fin.cases_zero]
-
-private theorem readReply_of {n : Nat} (env : Reply.Payload.Finite.Assignment n) (i : Fin n) :
-    ((readReply n i).targetArrow J M).of (replyValues env) = (pure (Reply.Payload.bit (env i)) : Trace (value Bit)) := by
-  induction n with
-  | zero => exact i.elim0
-  | succ n ih =>
-    refine Fin.cases ?_ (fun older => ?_) i
-    · simp only [readReply, Fin.cases_zero, Term.targetArrow, replyValues]
-      rfl
-    · simp only [readReply, Fin.cases_succ, Term.targetArrow,
-        Kleisli.Type.comp_of_eq_kleisliRight, Bind.kleisliRight]
-      change Bind.bind (m := Trace) (pure (replyValues env.tail))
-        (fun x => ((readReply n older).targetArrow J M).of x) = _
-      rw [pure_bind]
-      exact ih env.tail older
+private theorem bindReply_of {X : Ty Empty} {n : Nat} (slots : Fin n → Term signature.Instr X Bit)
+    (x : value X) (env : Reply.Payload.Finite.Assignment n)
+    (hslots : ∀ i, ((slots i).targetArrow J M).of x = (pure (Reply.Payload.bit (env i)) : Trace (value Bit)))
+    (b : Bool) (i : Fin (n + 1)) :
+    ((bindReply slots i).targetArrow J M).of (x, Reply.Payload.bit b) =
+      (pure (Reply.Payload.bit (env.push b i)) : Trace (value Bit)) := by
+  refine Fin.cases ?_ (fun j => ?_) i
+  · simp only [bindReply, Reply.Payload.Finite.Assignment.push, Fin.cases_zero]
+    rfl
+  · simp only [bindReply, Reply.Payload.Finite.Assignment.push, Fin.cases_succ, retainSlot_of]
+    exact hslots j
 
 private theorem emit_traceTree {L : List (Ty Empty)} {n : Nat} (bits : List Bool)
     (t : Reply.Payload.Finite.Tree L n) (env : Reply.Payload.Finite.Assignment n) :
@@ -345,34 +343,63 @@ private theorem emit_traceTree {L : List (Ty Empty)} {n : Nat} (bits : List Bool
   | cons b bs ih =>
     simp only [List.foldr, Reply.Payload.Finite.Tree.normal, Reply.Payload.Finite.Normal.traceTree, ih]
 
+private theorem selectedRequest_observe {X : Ty Empty} {L : List (Ty Empty)} {n : Nat} (bits : List Bool)
+    (req : Bool) (l r : CaseTree signature.Instr (product X Bit) L) (x : value X)
+    (left right : Reply.Payload.Finite.Normal L (n + 1)) (env : Reply.Payload.Finite.Assignment n)
+    (hl : ∀ b, (runPacked l (x, Reply.Payload.bit b)).outcomes = left.outcomes (env.push b))
+    (hr : ∀ b, (runPacked r (x, Reply.Payload.bit b)).outcomes = right.outcomes (env.push b)) :
+    (runPacked (selectRequest bits req l r) x).outcomes =
+      (bits.foldr Reply.Normal.emit ((Reply.Payload.Finite.Normal.request req left right).traceTree env)).outcomesWith
+        Reply.Exits.Exit.packed := by
+  rw [selectRequest, packedRequest_of]
+  apply prepend_outcomes
+  exact request_outcomes req _ _ _ _ Reply.Exits.Exit.packed hl hr
+
 private theorem readTree_observe {L : List (Ty Empty)} {n : Nat}
-    (p : ReadTree L n) (env : Reply.Payload.Finite.Assignment n) :
-    (runPacked p.selected (replyValues env)).outcomes = p.witnessed.normal.outcomes env := by
-  induction p with
+    (p : ReadTree L n) {X : Ty Empty} (slots : Fin n → Term signature.Instr X Bit)
+    (x : value X) (env : Reply.Payload.Finite.Assignment n)
+    (hslots : ∀ i, ((slots i).targetArrow J M).of x = (pure (Reply.Payload.bit (env i)) : Trace (value Bit))) :
+    (runPacked (p.selectedWith slots) x).outcomes = p.witnessed.normal.outcomes env := by
+  induction p generalizing X with
   | ret bits pos i =>
-    rw [ReadTree.selected, packedLeaf_of _ _ _ _ (env i) (readReply_of env i),
+    rw [ReadTree.selectedWith, selectTerminal_of pos (.read i) slots bits x env hslots,
       ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
     exact prefix_outcomes bits Reply.Exits.Exit.packed (pos.result (env i))
   | retExpr bits pos e =>
-    rw [ReadTree.selected, selectTerminal_of pos e _ bits _ env (readReply_of env),
+    rw [ReadTree.selectedWith, selectTerminal_of pos e slots bits x env hslots,
       ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
     exact prefix_outcomes bits Reply.Exits.Exit.packed (pos.result (e.eval env))
   | request bits req bound l r ihl ihr =>
-    rw [ReadTree.selected, packedRequest_of, ReadTree.witnessed,
-      Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
+    rw [ReadTree.selectedWith, ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
+    exact selectedRequest_observe bits req _ _ x l.witnessed.normal r.witnessed.normal env
+      (fun b => ihl (bindReply slots) (x, Reply.Payload.bit b) (env.push b) (bindReply_of slots x env hslots b))
+      (fun b => ihr (bindReply slots) (x, Reply.Payload.bit b) (env.push b) (bindReply_of slots x env hslots b))
+  | testRequest bits test low lowBound highBound fl fr tl tr ihfl ihfr ihtl ihtr =>
+    rw [ReadTree.selectedWith, packedBitCase_of _ _ _ _ _ _ (hslots test),
+      ReadTree.witnessed, Reply.Payload.Finite.Normal.outcomes, emit_traceTree]
     apply prepend_outcomes
-    refine request_outcomes req _ _ _ _ Reply.Exits.Exit.packed ?_ ?_
-    · intro b
-      erw [← replyValues_push env b]
-      exact ihl (env.push b)
-    · intro b
-      erw [← replyValues_push env b]
-      exact ihr (env.push b)
+    have remaining (i : Fin _) :
+        ((retainSlot (A := unit) (slots (test.succAbove i))).targetArrow J M).of (x, PUnit.unit) =
+          (pure (Reply.Payload.bit (env.without test i)) : Trace (value Bit)) :=
+      (retainSlot_of (A := unit) (slots (test.succAbove i)) x PUnit.unit).trans (hslots (test.succAbove i))
+    have nextSlot (b : Bool) := bindReply_of (X := product X unit) _ (x, PUnit.unit) (env.without test) remaining b
+    cases h : env test
+    · simp only [Reply.Payload.Finite.Tree.normal, Reply.Payload.Finite.Normal.traceTree, h, Bool.false_eq_true,
+        ↓reduceIte]
+      exact selectedRequest_observe (X := product X unit) [] low _ _ (x, PUnit.unit) fl.witnessed.normal fr.witnessed.normal
+        (env.without test)
+        (fun b => ihfl (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
+        (fun b => ihfr (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
+    · simp only [Reply.Payload.Finite.Tree.normal, Reply.Payload.Finite.Normal.traceTree, h, ↓reduceIte]
+      exact selectedRequest_observe (X := product X unit) [] (!low) _ _ (x, PUnit.unit) tl.witnessed.normal tr.witnessed.normal
+        (env.without test)
+        (fun b => ihtl (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
+        (fun b => ihtr (X := product (product X unit) Bit) _ ((x, PUnit.unit), Reply.Payload.bit b) ((env.without test).push b) (nextSlot b))
 
 theorem readTree_packed_outcomes (H : Ty Empty) (L : List (Ty Empty)) (p : ReadTree (H :: L) 0) :
     ((PJ J M (fun _ _ => ⟨rfl, rfl⟩) (pack p.selected.elaborate.property)).of PUnit.unit).outcomes =
       Reply.Payload.Finite.programOutcomes H L p.witnessed := by
   rw [p.selected.denote_packArrow J M (fun _ _ => ⟨rfl, rfl⟩), Reply.Payload.Finite.programOutcomes_eq]
-  exact readTree_observe p Fin.elim0
+  exact readTree_observe p (readReply 0) PUnit.unit Fin.elim0 (fun i => i.elim0)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SelectedCaseReplyAgreement
