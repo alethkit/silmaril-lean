@@ -1134,6 +1134,42 @@ fixture valuation.
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.Regression
 ```
 
+##### Composing capture reducts and reflecting truth
+
+For typed ambient maps `h : P ⟶ Q` and `k : Q ⟶ R`, the
+`*_comp` observation laws compare the two re-emissions with the
+original program evaluated at `reduct h (reduct k model)`. They
+retain the first word's role in the second-stage wiring and compare
+both words and the complete final heap. Each backend keeps its own
+finite witnesses.
+
+`InReductImage (h ≫ k) input` describes the source inputs obtained
+from target inputs at the same cell count. `in_image_comp` factors
+that image through the intermediate capture bank. A surjective
+second reduct leaves the first reduct's image unchanged. The composition
+laws for equations and termination identify satisfaction at the
+canonical target runtime with source truth on this image. All
+initialized heaps still participate at each included valuation.
+
+When the reduct covers every source input, the
+`*_satisfaction_iff_of_surjective` laws also reflect unrestricted
+source truth at that count. A typed port retraction
+`back : Q ⟶ P` with `h ≫ back = 𝟙 P` supplies a lift for every
+source input. [Composition and reduct-image laws](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Thms
+```
+
+The same regression composes store-port identification with insertion
+of an unused word capture. Both staged and composed numbered and MemRef
+executions return `(3, 3)` and `[11, 73, 11, 11, 91, 11]`. The linked
+coloured net has the same complete finite result. The re-emitted
+equation holds for all target inputs. The unrestricted source
+equation fails at the original valuation, which lies outside the
+composite reduct image. Insertion alone has a typed retraction and
+preserves the rejection.
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for
