@@ -6,7 +6,7 @@ import Silmaril.Wasm.Institution.Operational.HostCall.V1.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
-import Silmaril.Wasm.V1.Execution.Inversion
+public import Silmaril.Wasm.V1.Execution.Inversion
 import Silmaril.Wasm.Versions.Lime1.Execution.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.Run.Guard
 
@@ -47,7 +47,7 @@ theorem invoke_exact {H : Type} {host : HostSemantics H} {s : Store H} {outer : 
 
 /-- Invert the already-entered function frame and its initial label. The frame
 itself cannot exit while its leading instruction is the function label. -/
-private theorem frame_label_step {H : Type} {host : HostSemantics H} {s : Store H}
+theorem frame_label_step {H : Type} {host : HostSemantics H} {s : Store H}
     {outer f : Frame} {n : Nat} {body : List Admin} {dst : Config H} :
     Step host ⟨s, outer, [.frame n f [.label n [] body]]⟩ dst ↔
       (∃ nextStore nextFrame nextBody,
@@ -67,7 +67,7 @@ private theorem frame_label_step {H : Type} {host : HostSemantics H} {s : Store 
     · exact .frame (.label step n []) n outer
     · exact .frame (.pure _ _ pure) n outer
 
-private theorem first_source (stack : List Value) (i : Wasm.V1.Instr) (tail : List Admin)
+theorem first_source (stack : List Value) (i : Wasm.V1.Instr) (tail : List Admin)
     (nonvalue : asValue? (.source i) = none) :
     firstRedex (values stack ++ .source i :: tail) = some (.source i) := by
   simp [firstRedex_cons, nonvalue]
@@ -102,7 +102,7 @@ private theorem label_exit {n : Nat} {before body after : List Admin}
     exact .inr (.inr (.inr ⟨eq.symm, rfl⟩))
   all_goals simp [values] at shape
 
-private theorem label_source_live {n : Nat} {body after : List Admin} {i : Wasm.V1.Instr}
+theorem label_source_live {n : Nat} {body after : List Admin} {i : Wasm.V1.Instr}
     (pure : PureStep [.label n [] body] after) (head : firstRedex body = some (.source i))
     (noBranch : ∀ l, i ≠ .br l) (noReturn : i ≠ .return_) : False := by
   rcases label_exit pure rfl with done | ⟨depth, branch⟩ | ret | ⟨trap, _⟩
