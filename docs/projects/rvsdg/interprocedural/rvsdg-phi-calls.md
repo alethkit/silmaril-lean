@@ -826,6 +826,14 @@ and checks exact return, block, and resumption. The swapped θ backedge
 fails the same public admission.
 [Numbered demand API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Thms.lean)
 
+`ExportAnalysis.substituteDeadFormals` consumes these facts to prepare
+invocation arguments. It chooses the original value at each live port
+and the proposed replacement at each dead port of the same typed tuple.
+`linked_substituteDeadFormals` preserves the runner's observations at the
+chosen demand when the live captures agree. The θ/γ fixture proposes new
+values for all three formals, substitutes only the spare, and exercises
+the transformed invocation through return, block, and resumption.
+
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local

@@ -47,8 +47,17 @@ def ExportAnalysis.liveCapture (analysis : ExportAnalysis actions summary left r
     {ty : Ty V S} (p : Port summary.captures ty) : Bool :=
   (analysis.liveIn demand).contains (.arg p.index)
 
-def ExportAnalysis.liveFormal (analysis : ExportAnalysis actions summary left right) (demand : Demand)
-    {ty : Ty V S} (p : Port summary.fn.args ty) : Bool :=
-  (analysis.liveIn demand).contains (.arg (summary.captures.length + p.index))
+def ExportAnalysis.liveFormal (analysis : ExportAnalysis actions summary left right) (demand : Demand) :
+    {ty : Ty V S} → Port summary.fn.args ty → Bool :=
+  let live := analysis.liveIn demand
+  fun p => live.contains (.arg (summary.captures.length + p.index))
+
+/-- Replace dead formals using a tuple of proposed values at the same typed
+ports. The requested demand determines which original values are kept. -/
+def ExportAnalysis.substituteDeadFormals (analysis : ExportAnalysis actions summary left right)
+    (demand : Demand) (args replacements : Tuple m.Val summary.fn.args) : Tuple m.Val summary.fn.args :=
+  let live : {ty : Ty V S} → Port summary.fn.args ty → Bool := analysis.liveFormal demand
+  (NestedTheta.identityPorts summary.fn.args).map fun _ p =>
+    if live p then args.get p else replacements.get p
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix

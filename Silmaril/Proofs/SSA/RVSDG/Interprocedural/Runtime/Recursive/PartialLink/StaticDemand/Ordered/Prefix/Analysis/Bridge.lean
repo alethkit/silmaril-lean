@@ -46,4 +46,24 @@ theorem port_agreement (analysis : ExportAnalysis actions summary left right) (d
     (fun p live => captures p (List.contains_iff_mem.2 (List.mem_eraseDups.2 live)))
     (fun p live => formals p (List.contains_iff_mem.2 (List.mem_eraseDups.2 live)))
 
+private theorem get_map {Ty : Type u} {F : Ty → Type v} {G : Ty → Type w} {ports : Ports Ty}
+    (f : ∀ ty, F ty → G ty) (values : Tuple F ports) {ty : Ty} (p : Port ports ty) :
+    (values.map f).get p = f ty (values.get p) := by
+  induction p with
+  | head => cases values; rfl
+  | tail _ ih => cases values; exact ih _
+
+private theorem get_identityPort {Ty : Type u} {ports : Ports Ty} {ty : Ty} (p : Port ports ty) :
+    (NestedTheta.identityPorts ports).get p = p := by
+  induction p with
+  | head => rfl
+  | tail _ ih => simp only [NestedTheta.identityPorts, Tuple.get, get_map, ih]
+
+theorem substitute_dead_get (analysis : ExportAnalysis actions summary left right)
+    (demand : Demand) (args replacements : Tuple m.Val summary.fn.args) {ty : Ty V S}
+    (p : Port summary.fn.args ty) :
+    (analysis.substituteDeadFormals demand args replacements).get p =
+      if analysis.liveFormal demand p then args.get p else replacements.get p := by
+  simp only [ExportAnalysis.substituteDeadFormals, get_map, get_identityPort]
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.StaticDemand.Ordered.Prefix.Proofs
