@@ -66,3 +66,29 @@ read, and a duplicate static definition. [Soundness](../../Silmaril/SSA/LambdaRT
 theorems still require only the structural φ admission and their stated
 model assumptions. Primitive and value typing, typed Isotope admission,
 and capture agreement are separate obligations. [Source semantics](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Phi/Thms.lean) · [Typed admission](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Thms.lean)
+
+## Visible interaction trees
+
+`NamedFlat.Phi.runTree` runs the original predecessor-indexed evaluator in
+the shared weak ITree model. It evaluates every selected φ operand against
+the predecessor's outgoing store and commits the φ assignments in parallel before the
+target body runs. The lexical packet encoding commutes with entry and the
+continuation of every step, including stores reached after primitive replies.
+Weak-tree iteration lifts those equations to the whole run. [Local and whole-run equations](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Thms.lean)
+
+The open bridge uses the actual accepted elaboration with matching entry
+captures. The packed bridge also requires exact closed typing, a
+capture-closure witness, and a capture expression that runs the supplied
+producer and packs the capture environment for each reply. Both use the
+same primitive trees. The external list is `[none]`, so an explicit return
+occupies slot zero and receives the corresponding packed tag.
+[Named elaboration](https://github.com/hiloopai/silmaril-lean/pull/3473) · [Effectful capture closure](https://github.com/hiloopai/silmaril-lean/pull/3495)
+
+The bridge accepts the original structural lowering equation. The regression
+supplies it through `GlobalSSA.compile_sound`, and uses `compileTyped` and
+`Capture.close` for the checked target. The producer's reply supplies the
+first tick operand. A continuing tick reply is bound on the self-edge and
+becomes the next request's operand through the φ node. Either tick can
+return through the packed exit. The equation is in weak ITrees. The finite
+and infinite atomic results above are stated in `Part`.
+[Regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/ITree/Examples.lean)
