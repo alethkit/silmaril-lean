@@ -38,7 +38,7 @@ private theorem eval_base (m : RVSDG.Model.{u, v, w} Φ) (fuel : Nat)
     cases input with
     | cons tag args => exact Term.run_ofBase (children tag.down) m fuel args
 
-private theorem thenBase_eval (m : RVSDG.Model.{u, v, w} Φ) (fuel : Nat)
+theorem thenBase_eval (m : RVSDG.Model.{u, v, w} Φ) (fuel : Nat)
     (t : RVSDG.Term Φ args past frontSigs bank)
     (next : Wires args (extend past frontSigs) bank → Term Φ args (extend past frontSigs) suffix outs)
     (entry : Tuple m.Val args) (locals : Locals m.Val past)
@@ -60,6 +60,30 @@ variable {regs : List (ValueSort Data)} {out : ValueSort Data} {size : Nat}
 variable {src : Source Op regs out size} {entry : Fin size}
 variable (p : Program src entry) (m : Model.{u, v, w} Op)
 
+theorem afterHeader_eval {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend (extend past p.plan.producers) p.tail.producers) (dataPorts regs) →
+      Term (Opcode Op) args (extend (extend past p.plan.producers) p.tail.producers) suffix results)
+    (fuel : Nat) (input : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (observe : Bank (regs := regs) m → Option (Tuple (Val m.value) results))
+    (agrees : ∀ wires locals', (finish wires).eval (model m) fuel input locals' =
+      observe (wires.read input locals')) :
+    (p.afterHeader current finish).eval (model m) fuel input locals =
+      observe (p.tail.eval m (p.stage.eval m (current.read input locals))) := by
+  unfold Program.afterHeader
+  erw [thenBase_eval (observe := fun bank => observe (p.tail.eval m bank))]
+  · erw [Plan.lowerFrom_eval]
+    rfl
+  · intro merged locals'
+    erw [thenBase_eval (observe := observe) (agrees := agrees), Block.lowerFrom_eval]
+    rfl
+
+theorem latch_model (bank : Bank (regs := regs) m) :
+    (model m).run (.route (.test p.again (.take 1) (.take 0))) bank =
+      RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank := by
+  by_cases h : (bank.get p.again).down = true <;>
+    simp [model, Join.Choice.eval, RVSDG.Theta.bodyResult, h]
+
 private theorem route_eval {past : List (List (Ty Data))}
     (wires : Wires (dataPorts regs) past (dataPorts regs))
     (fuel : Nat) (input : Bank (regs := regs) m) (locals : Locals (Val m.value) past) :
@@ -67,13 +91,9 @@ private theorem route_eval {past : List (List (Ty Data))}
       some (RVSDG.Theta.bodyResult (model m) ((wires.read input locals).get p.again).down
         (wires.read input locals)) := by
   let bank := wires.read input locals
-  have packet : (model m).run (.route (.test p.again (.take 1) (.take 0))) bank =
-      RVSDG.Theta.bodyResult (model m) (bank.get p.again).down bank := by
-    by_cases h : (bank.get p.again).down = true <;>
-      simp [model, Join.Choice.eval, RVSDG.Theta.bodyResult, h]
   change some ((lastBank past (bodyPorts regs)).read input (locals.snoc
     ((model m).run (.route (.test p.again (.take 1) (.take 0))) bank))) = _
-  rw [lastBank_read m, packet]
+  rw [lastBank_read m, latch_model p m]
 
 theorem body_run (fuel : Nat) (old : Bank (regs := regs) m) :
     p.thetaBody.run (model m) fuel old =
@@ -85,15 +105,8 @@ theorem body_run (fuel : Nat) (old : Bank (regs := regs) m) :
   · erw [Block.lowerFrom_eval, read_initial]
     rfl
   · intro header locals
-    erw [thenBase_eval (observe := fun bank => route (p.tail.eval m bank))]
-    · erw [Plan.lowerFrom_eval]
-      rfl
-    · intro merged locals'
-      erw [thenBase_eval (observe := route)]
-      · erw [Block.lowerFrom_eval]
-        rfl
-      · intro wires locals''
-        exact route_eval p m wires fuel old locals''
+    exact afterHeader_eval p m header p.routeLatch fuel old locals route
+      (fun wires locals' => route_eval p m wires fuel old locals')
 
 private def finish (p : Program src entry) {past : List (List (Ty Data))}
     (input : Bank (regs := regs) m) (locals : Locals (Val m.value) past) (bank : Bank (regs := regs) m) :
@@ -136,6 +149,14 @@ private theorem graph_run (fuel : Nat) (input : Bank (regs := regs) m) :
     rfl
   · intro wires locals
     exact iterate_return_eval p m wires fuel input locals
+
+theorem lower_iterate (fuel : Nat) (input : Bank (regs := regs) m) :
+    p.lower.run (model m) fuel input =
+      (iterate (p.thetaBody.run (model m) fuel) (fun tag => tag.down.val == 1)
+        fuel ((src entry).body.eval m input)).map (fun bank => .cons (bank.get p.result) .nil) := by
+  rw [show p.thetaBody.run (model m) fuel = iterateBody p m from funext (body_run p m fuel)]
+  exact graph_run p m fuel input
+
 
 theorem arm_body (occurrence : Fin 2) :
     p.stage.table.get occurrence = (p.armPath occurrence).quads := by
@@ -232,7 +253,7 @@ private theorem traceVisits_step (fuel : Nat) (old : Bank (regs := regs) m) :
       (if ((p.nextBank m old).get p.again).down then traceVisits p m fuel (p.nextBank m old) else 0) +
         p.activationCost (p.selected m old) := by
   by_cases h : ((p.nextBank m old).get p.again).down = true <;>
-    simp [traceVisits, Program.trace, h, Nat.add_comm]
+    simp [traceVisits, Program.trace, traceFrom, h, Nat.add_comm]
 
 private abbrev runTheta (fuel : Nat) (old : Bank (regs := regs) m) :=
   iterate (iterateBody p m) (fun tag => tag.down.val == 1) fuel old

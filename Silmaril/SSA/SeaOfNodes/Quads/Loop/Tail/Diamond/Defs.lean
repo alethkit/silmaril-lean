@@ -107,13 +107,19 @@ def Program.selected (m : Model.{u, v, w} Op) (old : Bank (regs := regs) m) : Fi
 def Program.activationCost (occurrence : Fin 2) : Nat :=
   (p.armPath occurrence).blocks.length + 3
 
-/-- Record each visited merge occurrence, up to the first return or the θ
-activation bound. Original merge predecessor IDs are available via `predecessor`. -/
-def Program.trace (m : Model.{u, v, w} Op) : Nat → Bank (regs := regs) m → List (Fin 2)
+/-- Record one merge occurrence per activation until return or exhaustion. -/
+def traceFrom {BankState : Type w} (step : BankState → Fin 2 × Bool × BankState) :
+    Nat → BankState → List (Fin 2)
   | 0, _ => []
   | fuel + 1, old =>
+    let (occurrence, again, next) := step old
+    occurrence :: if again then traceFrom step fuel next else []
+
+/-- Record the selected merge occurrences for the full-bank loop. -/
+def Program.trace (m : Model.{u, v, w} Op) : Nat → Bank (regs := regs) m → List (Fin 2) :=
+  traceFrom fun old =>
     let next := p.nextBank m old
-    p.selected m old :: if (next.get p.again).down then trace m fuel next else []
+    (p.selected m old, (next.get p.again).down, next)
 
 /-- Count source visits in a bounded native execution, including the entry. -/
 def Program.sourceVisits (m : Model.{u, v, w} Op) (fuel : Nat) (input : Bank (regs := regs) m) : Nat :=
@@ -144,21 +150,33 @@ abbrev Program.plan : Plan Op regs := [p.stage]
 abbrev Program.bodySigs :=
   (src p.header).body.producers ++ (p.plan.producers ++ (p.tail.producers ++ [bodyPorts regs]))
 
-/-- Read the post-latch test and tag the entire updated bank for stop or feedback. -/
+/-- Use the post-latch test to tag the complete updated bank. -/
+def Program.latchNode {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (bank : Wires args past (dataPorts regs)) :
+    RVSDG.Node (Opcode Op) args past (bodyPorts regs) :=
+  ⟨_, .simple (.route (.test p.again (.take 1) (.take 0))), bank, Fin.elim0⟩
+
 def Program.routeLatch {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
     Term (Opcode Op) (dataPorts regs) past [bodyPorts regs] (bodyPorts regs) :=
-  let node : RVSDG.Node (Opcode Op) (dataPorts regs) past (bodyPorts regs) :=
-    ⟨_, .simple (.route (.test p.again (.take 1) (.take 0))), bank, Fin.elim0⟩
-  .bind (.ofBase node) (fun i => i.elim0) (.ret (lastBank past (bodyPorts regs)))
+  .bind (.ofBase (p.latchNode bank)) (fun i => i.elim0) (.ret (lastBank past (bodyPorts regs)))
 
-/-- The header compiles into the existing γ selector and arm regions. Their
-result ports are the merge Φs. The join and latch read that same selected bank. -/
+/-- Feed the post-header bank to the existing γ compiler, then run the
+common merge and latch quads before the supplied tail continuation. -/
+def Program.afterHeader {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend (extend past p.plan.producers) p.tail.producers) (dataPorts regs) →
+      Term (Opcode Op) args (extend (extend past p.plan.producers) p.tail.producers) suffix results) :
+    Term (Opcode Op) args past (p.plan.producers ++ (p.tail.producers ++ suffix)) results :=
+  thenBase (p.plan.lowerFrom current) fun merged =>
+    thenBase (p.tail.lowerFrom merged .jump) finish
+
+/-- The γ result ports are the merge Φs. The merge and latch read the
+same selected bank. -/
 def Program.thetaBody :
     Term (Opcode Op) (dataPorts regs) [] p.bodySigs (bodyPorts regs) :=
   thenBase ((src p.header).body.lowerFrom (initial regs) .jump) fun current =>
-    thenBase (p.plan.lowerFrom current) fun merged =>
-      thenBase (p.tail.lowerFrom merged .jump) p.routeLatch
+    p.afterHeader current p.routeLatch
 
 def Program.iterateThenReturn {past : List (List (Ty Data))}
     (bank : Wires (dataPorts regs) past (dataPorts regs)) :
