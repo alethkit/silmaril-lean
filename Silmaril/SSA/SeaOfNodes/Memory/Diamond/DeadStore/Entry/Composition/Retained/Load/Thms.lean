@@ -80,4 +80,51 @@ theorem lower_runs (graph : Graph args) (entry : Memory.Graph args) (version : N
       run programs.optimized programs.input guard fuel initial = expected :=
   Proofs.lower_runs graph entry version input guard fuel initial
 
+/-- Up to the first overwrite the two runs bind identical words and
+differ only by the nominated write. The first overwrite uses the same
+operand in both runs and establishes equality of the entire heap. -/
+theorem overwrite_tail_denote {past : List (List ValueSort)} {live : Nat}
+    (tail : Memory.Body args past live) (selected : PrefixStore args)
+    (input : Tuple (Val cells) args) (safe : checkOverwrite selected input tail = true)
+    (locals : Locals (Val cells) past) (initial : Heap cells) :
+    tail.denote input locals (selected.table.denote input initial).2 = tail.denote input locals initial :=
+  Proofs.overwrite_tail_denote tail selected input safe locals initial
+
+/-- The edit removes exactly the nominated Store, retaining operation
+order and original scalar operands, with identical returned word and
+entire heap at the checked valuation. -/
+theorem cutOverwrite_preserves {past : List (List ValueSort)} {live version : Nat}
+    {body retained : Memory.Body args past live} {selected : PrefixStore args}
+    (input : Tuple (Val cells) args) (accepted : cutOverwrite version input body = some (selected, retained)) :
+    DeletesStores 1 (operations body) (operations retained) ∧
+      ∀ (locals : Locals (Val cells) past) (initial : Heap cells),
+        body.denote input locals initial = retained.denote input locals initial :=
+  Proofs.cutOverwrite_preserves input accepted
+
+theorem lowerOverwrite_refused (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
+    (input : Tuple (Val cells) args)
+    (refused : cutOverwrite version input (Entry.lowerRepeated graph entry input).entry = none) :
+    let repeated := Entry.lowerRepeated graph entry input
+    lowerOverwrite graph entry version input = ⟨repeated.deleted, false, repeated.programs⟩ := by
+  simp only [lowerOverwrite, refused]
+
+/-- The actual emitted entries agree on the successor frame and every cell. -/
+theorem lowerOverwrite_entryTransition_eq (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
+    (input : Tuple (Val cells) args) (guard : Bool) (initial : Buffer cells) :
+    let programs := (lowerOverwrite graph entry version input).programs
+    entryTransition programs.optimized programs.input guard initial =
+      entryTransition programs.original programs.input guard initial :=
+  Proofs.lowerOverwrite_entryTransition_eq graph entry version input guard initial
+
+/-- At the checked input, both CFGs agree for any initial buffer, either
+predicate, and every CF budget. Each still executes three blocks. -/
+theorem lowerOverwrite_runs (graph : Graph args) (entry : Memory.Graph args) (version : Nat)
+    (input : Tuple (Val cells) args) (guard : Bool) (fuel : Nat) (initial : Buffer cells) :
+    let programs := (lowerOverwrite graph entry version input).programs
+    let result := graph.denote guard input (entry.denote input initial.cell).2
+    let expected := if fuel < 3 then none else some (result.1, Buffer.mk result.2)
+    run programs.original programs.input guard fuel initial = expected ∧
+      run programs.optimized programs.input guard fuel initial = expected :=
+  Proofs.lowerOverwrite_runs graph entry version input guard fuel initial
+
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load
