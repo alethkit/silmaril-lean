@@ -10,38 +10,45 @@ open Execution.Runtime (Frame ModuleInst Value)
 open Wasm.Lime1.Execution
 
 variable {H : Type} {base : Store H} {mem : Memory32 base} {host : HostSemantics H}
-  {active : Frame} {results types : List NumType} {ops : List (Op H)}
+  {active : Frame} {targets : List (List NumType)} {results types : List NumType} {ops : List (Op H)}
   {i : LocalIdx} {index : FuncIdx} {site : Site H}
 
-theorem checked_nil (h : Checked base active.module (active.locals.map Value.type) results types ([] : List (Op H))) :
+theorem checked_nil (h : Checked base active.module (active.locals.map Value.type) targets results types ([] : List (Op H))) :
     types = results := by cases h; rfl
 
-theorem checked_get (h : Checked base active.module (active.locals.map Value.type) results types (.get i :: ops)) :
+theorem checked_get (h : Checked base active.module (active.locals.map Value.type) targets results types (.get i :: ops)) :
     ∃ type, (active.locals.map Value.type)[i.toNat]? = some type ∧
-      Checked base active.module (active.locals.map Value.type) results (types ++ [type]) ops := by
+      Checked base active.module (active.locals.map Value.type) targets results (types ++ [type]) ops := by
   cases h with
   | get found tail => exact ⟨_, found, tail⟩
 
-theorem checked_drop (h : Checked base active.module (active.locals.map Value.type) results types (.drop :: ops)) :
+theorem checked_drop (h : Checked base active.module (active.locals.map Value.type) targets results types (.drop :: ops)) :
     ∃ saved type, types = saved ++ [type] ∧
-      Checked base active.module (active.locals.map Value.type) results saved ops := by
+      Checked base active.module (active.locals.map Value.type) targets results saved ops := by
   cases h with
   | drop tail => exact ⟨_, _, rfl, tail⟩
 
 theorem checked_call
-    (h : Checked base active.module (active.locals.map Value.type) results types (.call index site :: ops)) :
+    (h : Checked base active.module (active.locals.map Value.type) targets results types (.call index site :: ops)) :
     ∃ saved, types = saved ++ site.type.params ∧ active.module.funcs[index.toNat]? = some site.address ∧
-      site.Allocated base ∧ Checked base active.module (active.locals.map Value.type) results
+      site.Allocated base ∧ Checked base active.module (active.locals.map Value.type) targets results
         (saved ++ site.type.results) ops := by
   cases h with
   | call resolved allocated tail => exact ⟨_, rfl, resolved, allocated, tail⟩
 
+theorem checked_brIf {depth : LabelIdx}
+    (h : Checked base active.module (active.locals.map Value.type) targets results types (.brIf depth :: ops)) :
+    ∃ scratch payload, types = (scratch ++ payload) ++ [.int .i32] ∧ targets[depth.toNat]? = some payload ∧
+      Checked base active.module (active.locals.map Value.type) targets results (scratch ++ payload) ops := by
+  cases h with
+  | brIf target tail => exact ⟨_, _, rfl, target, tail⟩
+
 theorem checked_if {type : IfType} {left right : List (Op H)}
-    (h : Checked base active.module (active.locals.map Value.type) results types (.if_ type left right :: ops)) :
+    (h : Checked base active.module (active.locals.map Value.type) targets results types (.if_ type left right :: ops)) :
     ∃ saved, types = (saved ++ type.signature.params) ++ [.int .i32] ∧ type.Resolved active.module ∧
-      Checked base active.module (active.locals.map Value.type) type.signature.results type.signature.params left ∧
-      Checked base active.module (active.locals.map Value.type) type.signature.results type.signature.params right ∧
-      Checked base active.module (active.locals.map Value.type) results (saved ++ type.signature.results) ops := by
+      Checked base active.module (active.locals.map Value.type) (type.signature.results :: targets) type.signature.results type.signature.params left ∧
+      Checked base active.module (active.locals.map Value.type) (type.signature.results :: targets) type.signature.results type.signature.params right ∧
+      Checked base active.module (active.locals.map Value.type) targets results (saved ++ type.signature.results) ops := by
   cases h with
   | if_ resolved left right tail => exact ⟨_, rfl, resolved, left, right, tail⟩
 
@@ -68,6 +75,30 @@ theorem ready_step {a b : State H} (edge : Edge mem host active a b)
     simp only [List.map_append, List.map_cons, List.map_nil] at split
     have same := (List.append_inj' split rfl).1
     exact ⟨ready.1, same ▸ tail, contract_tail ready.2.2⟩
+  | brIf =>
+    obtain ⟨scratch, payload, stackEq, target, tail⟩ := checked_brIf ready.2.1
+    simp only [List.map_append, List.map_cons, List.map_nil, Value.int] at stackEq
+    have operands := List.append_cancel_right stackEq
+    split
+    · exact ⟨ready.1, operands.symm ▸ tail, contract_tail ready.2.2⟩
+    · exact ⟨ready.1, scratch, payload, operands, target⟩
+  | @branchLower bytes stack depth ops label labels positive =>
+    obtain ⟨labelReady, scratch, payload, typed, target⟩ := ready
+    cases labelReady with
+    | cons _ _ outer =>
+      cases depthEq : depth.toNat with
+      | zero => omega
+      | succ depth' =>
+        have lowered : (lowerLabel depth).toNat = depth' := by
+          change depth.toNat - 1 = depth'
+          omega
+        refine ⟨outer, label.saved.map Value.type ++ scratch, payload, ?_, ?_⟩
+        · simp only [List.map_append, typed, List.append_assoc]
+        · simpa [targetTypes, lowered, depthEq] using target
+  | branchDeliver _ typed =>
+    cases ready.1 with
+    | cons tail contract outer =>
+      exact ⟨outer, by simpa only [List.map_append, typed] using tail, contract⟩
   | @if_ bytes saved args guard type left right ops labels typed =>
     obtain ⟨savedTypes, stackEq, resolved, leftChecked, rightChecked, tail⟩ := checked_if ready.2.1
     simp only [List.map_append, List.map_cons, List.map_nil, Value.int, typed] at stackEq
@@ -75,10 +106,12 @@ theorem ready_step {a b : State H} (edge : Edge mem host active a b)
     obtain ⟨labelReady, _, contract⟩ := ready
     cases contract with
     | if_ leftContract rightContract tailContract =>
-      have tailChecked : Checked base active.module (active.locals.map Value.type) (labelResults results labels)
+      have tailChecked : Checked base active.module (active.locals.map Value.type) (targetTypes labels)
+          (labelResults results labels)
           (saved.map Value.type ++ type.signature.results) ops := same.symm ▸ tail
-      have selected : Checked base active.module (active.locals.map Value.type) type.signature.results
-          type.signature.params (select guard left right) ∧ Contract mem host (select guard left right) := by
+      have selected : Checked base active.module (active.locals.map Value.type)
+          (type.signature.results :: targetTypes labels) type.signature.results type.signature.params
+          (select guard left right) ∧ Contract mem host (select guard left right) := by
         by_cases zero : guard = 0
         · rw [show select guard left right = right from ite_eq_left zero]
           exact ⟨rightChecked, rightContract⟩

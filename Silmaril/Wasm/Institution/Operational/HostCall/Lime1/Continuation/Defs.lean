@@ -35,6 +35,7 @@ inductive Op (H : Type) where
   | get (index : LocalIdx)
   | drop
   | call (index : FuncIdx) (site : Site H)
+  | brIf (depth : LabelIdx)
   | if_ (type : IfType) (thenArm elseArm : List (Op H))
 
 mutual
@@ -42,6 +43,7 @@ def Op.instr {H : Type} : Op H → Wasm.Lime1.Instr
   | .get index => .localGet index
   | .drop => .drop
   | .call index _ => .call index
+  | .brIf depth => .brIf depth
   | .if_ type left right => .if_ type.blockType (expr left) (expr right)
 
 def expr {H : Type} : List (Op H) → Wasm.Lime1.Expr
@@ -51,26 +53,34 @@ end
 
 def code {H : Type} (ops : List (Op H)) : List Admin := expression (expr ops)
 
-/-- Static checks use the entered module, base allocation and active local
-types. Each stack is ordered bottom to top. -/
+/-- Static checks use the entered module, base allocation and active local types.
+The first index lists explicit label results from innermost to outermost.
+The next indices give the delivered result types and the initial stack types.
+Each operand stack is ordered bottom to top. -/
 inductive Checked {H : Type} (base : Store H) (module : ModuleInst)
-    (locals : List NumType) : List NumType → List NumType → List (Op H) → Prop where
-  | nil {results} : Checked base module locals results results []
-  | get {results stack index type ops} (localType : locals[index.toNat]? = some type)
-      (tail : Checked base module locals results (stack ++ [type]) ops) :
-      Checked base module locals results stack (.get index :: ops)
-  | drop {results stack type ops} (tail : Checked base module locals results stack ops) :
-      Checked base module locals results (stack ++ [type]) (.drop :: ops)
-  | call {results saved : List NumType} {index : FuncIdx} {site : Site H} {ops : List (Op H)}
+    (locals : List NumType) : List (List NumType) → List NumType → List NumType → List (Op H) → Prop where
+  | nil {targets results} : Checked base module locals targets results results []
+  | get {targets results stack index type ops} (localType : locals[index.toNat]? = some type)
+      (tail : Checked base module locals targets results (stack ++ [type]) ops) :
+      Checked base module locals targets results stack (.get index :: ops)
+  | drop {targets results stack type ops} (tail : Checked base module locals targets results stack ops) :
+      Checked base module locals targets results (stack ++ [type]) (.drop :: ops)
+  | call {targets} {results saved : List NumType} {index : FuncIdx} {site : Site H} {ops : List (Op H)}
       (resolved : module.funcs[index.toNat]? = some site.address) (allocated : site.Allocated base)
-      (tail : Checked base module locals results (saved ++ site.type.results) ops) :
-      Checked base module locals results (saved ++ site.type.params) (.call index site :: ops)
-  | if_ {results saved : List NumType} {type : IfType} {left right ops : List (Op H)}
+      (tail : Checked base module locals targets results (saved ++ site.type.results) ops) :
+      Checked base module locals targets results (saved ++ site.type.params) (.call index site :: ops)
+  | brIf {targets} {depth : LabelIdx} {results scratch payload : List NumType} {ops : List (Op H)}
+      (target : targets[depth.toNat]? = some payload)
+      (tail : Checked base module locals targets results (scratch ++ payload) ops) :
+      Checked base module locals targets results ((scratch ++ payload) ++ [.int .i32]) (.brIf depth :: ops)
+  | if_ {targets} {results saved : List NumType} {type : IfType} {left right ops : List (Op H)}
       (resolved : type.Resolved module)
-      (thenArm : Checked base module locals type.signature.results type.signature.params left)
-      (elseArm : Checked base module locals type.signature.results type.signature.params right)
-      (tail : Checked base module locals results (saved ++ type.signature.results) ops) :
-      Checked base module locals results ((saved ++ type.signature.params) ++ [.int .i32])
+      (thenArm : Checked base module locals (type.signature.results :: targets)
+        type.signature.results type.signature.params left)
+      (elseArm : Checked base module locals (type.signature.results :: targets)
+        type.signature.results type.signature.params right)
+      (tail : Checked base module locals targets results (saved ++ type.signature.results) ops) :
+      Checked base module locals targets results ((saved ++ type.signature.params) ++ [.int .i32])
         (.if_ type left right :: ops)
 
 inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) :
@@ -80,6 +90,7 @@ inductive Contract {H : Type} {base : Store H} (mem : Memory32 base) (host : Hos
   | drop {ops} (tail : Contract mem host ops) : Contract mem host (.drop :: ops)
   | call {index site ops} (siteContract : site.Contract mem host) (tail : Contract mem host ops) :
       Contract mem host (.call index site :: ops)
+  | brIf {depth ops} (tail : Contract mem host ops) : Contract mem host (.brIf depth :: ops)
   | if_ {type left right ops} (thenArm : Contract mem host left) (elseArm : Contract mem host right)
       (tail : Contract mem host ops) : Contract mem host (.if_ type left right :: ops)
 
@@ -91,6 +102,8 @@ structure Label (H : Type) where
 
 inductive Phase (H : Type) where
   | source (stack : List Value) (ops : List (Op H))
+  /-- The taken source branch still has its native suffix until this label is discarded. -/
+  | branch (stack : List Value) (depth : LabelIdx) (ops : List (Op H))
   | block (label : Label H) (args : List Value) (arm : List (Op H))
   | invoke (saved : List Value) (site : Site H) (args : List Value) (ops : List (Op H))
   | trapped (saved : List Value) (rest : List Admin)
@@ -110,11 +123,15 @@ def labelResults {H : Type} (results : List NumType) : List (Label H) → List N
   | [] => results
   | label :: _ => label.type.signature.results
 
+def targetTypes {H : Type} (labels : List (Label H)) : List (List NumType) :=
+  labels.map (fun label => label.type.signature.results)
+
 inductive LabelsReady {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H)
     (active : Frame) (results : List NumType) : List (Label H) → Prop where
   | nil : LabelsReady mem host active results []
   | cons {label : Label H} {rest : List (Label H)}
-      (tail : Checked base active.module (active.locals.map Value.type) (labelResults results rest)
+      (tail : Checked base active.module (active.locals.map Value.type)
+        (targetTypes rest) (labelResults results rest)
         (label.saved.map Value.type ++ label.type.signature.results) label.tail)
       (contract : Contract mem host label.tail)
       (outer : LabelsReady mem host active results rest) :
@@ -123,18 +140,21 @@ inductive LabelsReady {H : Type} {base : Store H} (mem : Memory32 base) (host : 
 def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H)
     (active : Frame) (results : List NumType) (phase : Phase H) (labels : List (Label H)) : Prop :=
   LabelsReady mem host active results labels ∧
+  let targets := targetTypes labels
   let delivered := labelResults results labels
   match phase with
-  | .source stack ops => Checked base active.module (active.locals.map Value.type) delivered
+  | .source stack ops => Checked base active.module (active.locals.map Value.type) targets delivered
       (stack.map Value.type) ops ∧ Contract mem host ops
+  | .branch stack depth _ => ∃ scratch payload,
+      stack.map Value.type = scratch ++ payload ∧ targets[depth.toNat]? = some payload
   | .block label args arm => label.type.Resolved active.module ∧
       args.map Value.type = label.type.signature.params ∧
-      Checked base active.module (active.locals.map Value.type) label.type.signature.results
-        (args.map Value.type) arm ∧ Contract mem host arm ∧
-      Checked base active.module (active.locals.map Value.type) delivered
+      Checked base active.module (active.locals.map Value.type)
+        (label.type.signature.results :: targets) label.type.signature.results (args.map Value.type) arm ∧ Contract mem host arm ∧
+      Checked base active.module (active.locals.map Value.type) targets delivered
         (label.saved.map Value.type ++ label.type.signature.results) label.tail ∧ Contract mem host label.tail
   | .invoke saved site args ops => site.Allocated base ∧ site.Arguments args ∧ site.Contract mem host ∧
-      Checked base active.module (active.locals.map Value.type) delivered
+      Checked base active.module (active.locals.map Value.type) targets delivered
         (saved.map Value.type ++ site.type.results) ops ∧ Contract mem host ops
   | .trapped _ _ => True
   | .frameResult out | .done out => labels = [] ∧ ResultTyped results out
@@ -167,6 +187,8 @@ def invokeContext {H : Type} (scope : Scope) (arity : Nat) (active : Frame)
 
 def Phase.renderIn {H : Type} (scope : Scope) (arity : Nat) (active : Frame) : Phase H → List Admin
   | .source stack ops => framed active [.label arity [] (values stack ++ code ops)] scope
+  | .branch stack depth ops => framed active [.label arity []
+      (values stack ++ .source (.br depth) :: code ops)] scope
   | .block label args arm => framed active [.label arity [] (values (label.saved ++ args) ++
       .source (.block label.type.blockType (expr arm)) :: code label.tail)] scope
   | .invoke saved site args ops => (invokeContext scope arity active saved ops).plug value
@@ -196,6 +218,16 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSem
         ⟨bytes, .source (stack ++ [v]) ops, labels⟩
   | drop {bytes stack v ops labels} : Edge mem host active ⟨bytes, .source (stack ++ [v]) (.drop :: ops), labels⟩
       ⟨bytes, .source stack ops, labels⟩
+  | brIf {bytes stack guard depth ops labels} :
+      Edge mem host active ⟨bytes, .source (stack ++ [Value.int .i32 guard]) (.brIf depth :: ops), labels⟩
+        ⟨bytes, if guard = 0 then .source stack ops else .branch stack depth ops, labels⟩
+  | branchLower {bytes stack depth ops label labels} (positive : 0 < depth.toNat) :
+      Edge mem host active ⟨bytes, .branch stack depth ops, label :: labels⟩
+        ⟨bytes, .branch (label.saved ++ stack) (lowerLabel depth) label.tail, labels⟩
+  | branchDeliver {bytes scratch payload depth ops label labels} (zero : depth.toNat = 0)
+      (typed : payload.map Value.type = label.type.signature.results) :
+      Edge mem host active ⟨bytes, .branch (scratch ++ payload) depth ops, label :: labels⟩
+        ⟨bytes, .source (label.saved ++ payload) label.tail, labels⟩
   | if_ {bytes saved args guard type left right ops labels} (typed : args.map Value.type = type.signature.params) :
       Edge mem host active ⟨bytes, .source ((saved ++ args) ++ [Value.int .i32 guard]) (.if_ type left right :: ops), labels⟩
         ⟨bytes, .block ⟨type, saved, ops⟩ args (select guard left right), labels⟩
