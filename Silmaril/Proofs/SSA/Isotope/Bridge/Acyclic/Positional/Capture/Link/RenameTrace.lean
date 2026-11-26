@@ -48,6 +48,17 @@ private theorem rename_atRun (r : BoundCtx.Renaming β δ) (q : Table Φ β K m)
 termination_by q.rank i
 decreasing_by exact q.decreases hq edge
 
+private theorem pull_underBinder {X Y : Ty Empty} (env : BoundEnv Val β) (x : Val X) (y : Val Y) :
+    pull (BoundCtx.Renaming.underBinder β X Y) ((env.snoc x).snoc y) = env.snoc y := by
+  rw [BoundCtx.Renaming.underBinder, pull_up]
+  rfl
+
+theorem underBinder_run_proof {X Y A : Ty Empty} (b : Operand Φ (β.snoc Y) A)
+    (env : BoundEnv Val β) (x : Val X) (y : Val Y) :
+    run (b.2.underBinder (X := X)) ((env.snoc x).snoc y) = run b.2 (env.snoc y) := by
+  unfold LetCase.LocallyNameless.Derivation.underBinder
+  rw [run_rename, pull_underBinder]
+
 /-- Insert an unused older slot while keeping the newest input in place. -/
 theorem weaken_receiver_run_proof {X Y : Ty Empty} (q : Table Φ (β.snoc Y) K m)
     (hq : q.check = true)
@@ -60,9 +71,8 @@ theorem weaken_receiver_run_proof {X Y : Ty Empty} (q : Table Φ (β.snoc Y) K m
   rw [emit_run, emit_run]
   change (run (a.2.rename ((BoundCtx.Renaming.succ β X).up Y)) ((env.snoc source).snoc input) >>= _) = _
   rw [run_rename]
-  have ambient : pull ((BoundCtx.Renaming.succ β X).up Y) ((env.snoc source).snoc input) = env.snoc input := by
-    rw [pull_up]
-    rfl
+  have ambient : pull ((BoundCtx.Renaming.succ β X).up Y) ((env.snoc source).snoc input) = env.snoc input :=
+    pull_underBinder env source input
   rw [ambient]
   congr 1
   funext x

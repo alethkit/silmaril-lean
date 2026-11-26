@@ -52,4 +52,32 @@ structure Interface (Φ : Type) {d : Nat} (β : LetCase.Structural.Finite.Contex
   exits : LCtx (Ty Empty)
   nonempty : exits ≠ []
 
+namespace Case
+
+open LetCase.LocallyNameless (Equiv)
+
+variable {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {d : Nat}
+  {β : LetCase.Structural.Finite.Context d} {I J K : LCtx (Ty Empty)}
+
+/-- The existing native LetCase equation classes at the literal packed types. -/
+abbrev Hom (Φ : Type) [LetCase.Structural.Finite.Signature Φ] {d : Nat}
+    (β : LetCase.Structural.Finite.Context d) (I J : LCtx (Ty Empty)) :=
+  Quotient (Reverse.operandSetoid Φ (β.snoc (packedExitType I)) J)
+
+/-- Native sequencing keeps the older captures under the input binder. -/
+def seq (p : Operand Φ (β.snoc (packedExitType I)) (packedExitType J))
+    (q : Operand Φ (β.snoc (packedExitType J)) (packedExitType K)) :
+    Operand Φ (β.snoc (packedExitType I)) (packedExitType K) :=
+  ⟨.let₁ p.1 q.1.underBinder, .let₁ p.2 q.2.underBinder⟩
+
+/-- The native identity is the newest input variable. -/
+def identity : Hom Φ β I I :=
+  Quotient.mk _ ⟨.bv 0, .bv⟩
+
+/-- Native let congruence descends to the existing LetCase quotient. -/
+def seqClass : Hom Φ β I J → Hom Φ β J K → Hom Φ β I K :=
+  Quotient.map₂ seq (fun {_ _} hp {_ _} hq => Equiv.let₁ hp hq.underBinder)
+
+end Case
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition

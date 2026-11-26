@@ -8,8 +8,8 @@ open CategoryTheory
 open Region (packedExitType)
 open Reverse (CheckedTable)
 open LetCase.Structural.Finite (Context Shape StructuralContext Types)
-open LetCase.Structural.Reply (run)
-open LetCase.LocallyNameless (Derivation)
+open LetCase.Structural.Reply (Γ₀ run)
+open LetCase.LocallyNameless (Derivation Equiv)
 open LetSeq.StraightLine.Structural (Log Trace model)
 open Silmaril.Semantics.NondeterministicTrace (Finite)
 open Isotope.Semantics (BoundEnv)
@@ -201,5 +201,38 @@ example : (tag low, path (tag low)) ∈ (run left.toLetCase.2 (ambient.snoc (tag
     (tag high, path (tag high)) ∈ (run right.toLetCase.2 (ambient.snoc (tag high))).outcomes := by
   rw [left_run, right_run]
   exact ⟨chosen (tag low), chosen (tag high)⟩
+
+/-- The composition square uses the actual category operation and the
+literal native let after emission. -/
+example : interfaceHomEquiv input obj obj (arrow first ≫ arrow middle) =
+    Case.seqClass (interfaceHomEquiv input obj obj (arrow first))
+      (interfaceHomEquiv input obj obj (arrow middle)) :=
+  interfaceHomEquiv_comp input (arrow first) (arrow middle)
+
+example : interfaceHomEquiv input obj obj (𝟙 obj) = Case.identity :=
+  interfaceHomEquiv_id input obj
+
+example : Equiv false Γ₀ Source (seq first middle).toLetCase.1
+    (Case.seq first.toLetCase middle.toLetCase).1 Packet :=
+  emit_seq_equiv input first middle
+
+/-- Start from a native term reading the old capture and both input tags.
+Its checked inverse is constructed from its actual derivation. -/
+private def direct : Operand Op Source Packet :=
+  ⟨.let₁ (.op .last (.pair (.bv 1) (.case (.bv 0) (.inl .unit) (.inr .unit))))
+    (.case (.bv 0) (.inl (.bv 0)) (.inr (.inl (.bv 0)))),
+    .let₁ (.op (.pair .bv (.case .bv (.inl .unit) (.inr .unit))))
+      (.case .bv (.inl .bv) (.inr (.inl .bv)))⟩
+
+private theorem directOutput : exits ≠ [] := List.cons_ne_nil _ _
+
+private def rebuilt : CheckedTable Op Source exits :=
+  CheckedTable.ofLetCase directOutput direct.2
+
+example : rebuilt.table.check = true := rfl
+
+example : emitClass input (Quotient.mk _ rebuilt) = (Quotient.mk _ direct : Case.Hom Op captures exits exits) := by
+  rw [rebuilt, ← Case.readbackClass_mk directOutput direct]
+  exact emit_readback input directOutput (Quotient.mk _ direct)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.CategoryTests

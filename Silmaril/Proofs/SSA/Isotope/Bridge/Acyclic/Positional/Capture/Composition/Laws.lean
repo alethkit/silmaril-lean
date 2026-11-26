@@ -7,9 +7,10 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition
 
 open Region (packedExitType)
-open Reverse (CheckedTable checkedSetoid)
+open Reverse (CheckedTable checkedSetoid operandSetoid)
 open LetCase.Structural.Finite (Context StructuralContext equiv_iff_traceArrow_eq_snoc)
-open LetCase.Structural.Reply (run traceArrow traceArrow_eq_iff_run valid_of_equiv traceArrow_of_valid)
+open LetCase.LocallyNameless (Equiv)
+open LetCase.Structural.Reply (Γ₀ run traceArrow traceArrow_eq_iff_run valid_of_equiv traceArrow_of_valid)
 open Isotope.Semantics (BoundEnv)
 open LetSeq.StraightLine.Structural.Categorical (traceJ traceTypes traceInstructions)
 open LambdaSSA.Semantics.Categorical (denoteRegion)
@@ -50,12 +51,11 @@ private theorem replay_run {n : Nat} {γ : Context n} {L : LCtx (Ty Empty)}
   rw [Native.denote_caseIter F M, Native.denote_caseIter F M]
   exact lc
 
-private theorem reflect_run (input : StructuralContext β)
-    (p q : CheckedTable Φ (β.snoc (packedExitType I)) K)
+private theorem reflect_operand_run (input : StructuralContext β)
+    (a b : Operand Φ (β.snoc (packedExitType I)) (packedExitType K))
     (eq : ∀ env : BoundEnv Val β, ∀ x : Val (packedExitType I),
-      run p.toLetCase.2 (env.snoc x) = run q.toLetCase.2 (env.snoc x)) :
-    (checkedSetoid Φ (β.snoc (packedExitType I)) K).r p q := by
-  apply p.table.packed_replay_of_equiv q.table p.checked q.checked 0 0 p.entry q.entry finite_pureLetBetaReplay
+      run a.2 (env.snoc x) = run b.2 (env.snoc x)) :
+    (operandSetoid Φ (β.snoc (packedExitType I)) K).r a b := by
   apply (equiv_iff_traceArrow_eq_snoc input _ _).mpr
   apply (traceArrow_eq_iff_run _ _).mpr
   intro ρ
@@ -63,6 +63,46 @@ private theorem reflect_run (input : StructuralContext β)
     funext (Fin.cases rfl (fun _ => rfl))
   rw [← split]
   exact eq _ _
+
+private theorem replay_of_emit_equiv {n : Nat} {γ : Context n} {L : LCtx (Ty Empty)}
+    (p q : CheckedTable Φ γ L) (eq : (operandSetoid Φ γ L).r p.toLetCase q.toLetCase) :
+    (checkedSetoid Φ γ L).r p q :=
+  p.table.packed_replay_of_equiv q.table p.checked q.checked 0 0 p.entry q.entry finite_pureLetBetaReplay eq
+
+private theorem reflect_run (input : StructuralContext β)
+    (p q : CheckedTable Φ (β.snoc (packedExitType I)) K)
+    (eq : ∀ env : BoundEnv Val β, ∀ x : Val (packedExitType I),
+      run p.toLetCase.2 (env.snoc x) = run q.toLetCase.2 (env.snoc x)) :
+    (checkedSetoid Φ (β.snoc (packedExitType I)) K).r p q :=
+  replay_of_emit_equiv p q (reflect_operand_run input p.toLetCase q.toLetCase eq)
+
+theorem emit_equiv_iff_replay_proof (input : StructuralContext β)
+    (p q : CheckedTable Φ (β.snoc (packedExitType I)) K) :
+    (operandSetoid Φ (β.snoc (packedExitType I)) K).r p.toLetCase q.toLetCase ↔
+      (checkedSetoid Φ (β.snoc (packedExitType I)) K).r p q :=
+  ⟨replay_of_emit_equiv p q, fun h => reflect_operand_run input p.toLetCase q.toLetCase
+    (fun env x => replay_run h (env.snoc x))⟩
+
+theorem emit_seq_equiv_proof (input : StructuralContext β)
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J)
+    (q : CheckedTable Φ (β.snoc (packedExitType J)) K) :
+    (operandSetoid Φ (β.snoc (packedExitType I)) K).r
+      (seq p q).toLetCase (Case.seq p.toLetCase q.toLetCase) := by
+  apply reflect_operand_run input
+  intro env x
+  rw [seq_run_proof]
+  change _ = (run p.toLetCase.2 (env.snoc x) >>= fun y =>
+    run (q.toLetCase.2.underBinder (X := packedExitType I)) ((env.snoc x).snoc y))
+  simp only [Link.Open.underBinder_run]
+
+theorem readback_respects_proof (h : K ≠ [])
+    {a b : Operand Φ (β.snoc (packedExitType I)) (packedExitType K)}
+    (eq : (operandSetoid Φ (β.snoc (packedExitType I)) K).r a b) :
+    (checkedSetoid Φ (β.snoc (packedExitType I)) K).r
+      (CheckedTable.ofLetCase h a.2) (CheckedTable.ofLetCase h b.2) :=
+  replay_of_emit_equiv _ _
+    ((CheckedTable.ofLetCase_emit false h a.2).trans
+      (LetCase.LocallyNameless.Equiv.trans eq (CheckedTable.ofLetCase_emit false h b.2).symm))
 
 theorem seq_congr_proof (input : StructuralContext β)
     {p₁ p₂ : CheckedTable Φ (β.snoc (packedExitType I)) J}
