@@ -90,6 +90,13 @@ private theorem step_preserves {globals : List String} {head : SourceCommand} {r
     rw [step] at compiled
     cases compiled
     exact append_frame program (frame :: frames) found
+  | @emit name signature body rest emitted _ =>
+    obtain ⟨declaration, step⟩ := emitted
+    change elaborateCommand ⟨⟨[], globals⟩, .global⟩ (.define name signature body) program = _ at compiled
+    rw [step program] at compiled
+    cases compiled
+    have within := (Array.getElem?_eq_some_iff.mp found).choose
+    simp [Array.getElem?_push, Nat.ne_of_lt within, found]
 
 private theorem segment_preserves {globals : List String} {commands : List SourceCommand}
     (profile : Segment globals commands) (program next : Program) (code : List Modules.Command)

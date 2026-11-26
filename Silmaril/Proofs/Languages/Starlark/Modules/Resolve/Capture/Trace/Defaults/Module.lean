@@ -17,7 +17,7 @@ open Silmaril.Languages.Starlark.Lists (State Outcome)
 
 local notation "Result" => Silmaril.Languages.Starlark.Modules.Result
 
-private theorem step_sound {globals : List String} {resolved : ResolvedModule}
+theorem step_sound {globals : List String} {resolved : ResolvedModule}
     {index : Nat} {state : State} {command : Command} {out : Result Unit}
     (step : Defaults.Step resolved globals index state command out) (host : Catalog) :
     ∃ code, resolved.source.commands[index]? = some code ∧ Executes resolved.program host state code out := by

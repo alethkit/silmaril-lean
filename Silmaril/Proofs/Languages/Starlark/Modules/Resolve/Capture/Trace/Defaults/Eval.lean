@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Binder
 public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Steps
+public import Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings.Heap
 
 public section
 
@@ -14,6 +15,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Functions
+open Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Bindings (Preserves)
 open Silmaril.Languages.Starlark.Lists (State Outcome Address Capture)
 open Silmaril.Languages.Starlark.Lists.Iteration (Flow)
 open Silmaril.Languages.Starlark.Functions.Lowering.Resolve (SourceExpr resolveTracked)
@@ -66,22 +68,33 @@ private theorem defaults_step {globals : List String} {defined : List PlainPosit
     (translated : ∀ item ∈ defined, resolveTracked ⟨[], globals⟩ item.source = .ok (item.value, item.reads))
     (state : State) :
     ∃ out, Evaluates globals state (defined.map PlainPositionalDefault.source)
-      (defined.map PlainPositionalDefault.value) out := by
+      (defined.map PlainPositionalDefault.value) out ∧
+      (∀ value next, out = .ok value next → Preserves state next) := by
   induction defined generalizing state with
-  | nil => exact ⟨_, .nil⟩
+  | nil => exact ⟨_, .nil, fun _ _ equal => by cases equal; exact Preserves.refl _⟩
   | cons head rest ih =>
-    obtain ⟨code, reads, out, tracked, evaluated, _⟩ := setup_value (accepted head (by simp)) state
+    obtain ⟨code, reads, out, tracked, evaluated, extension⟩ := setup_value (accepted head (by simp)) state
     have equal := (translated head (by simp)).symm.trans tracked
     obtain ⟨codeEq, readsEq⟩ := Prod.mk.inj (Except.ok.inj equal)
     subst code
     subst reads
     cases out with
-    | error => exact ⟨_, .error evaluated⟩
+    | error => exact ⟨_, .error evaluated, fun _ _ impossible => nomatch impossible⟩
     | ok value middle =>
-      obtain ⟨out, restRan⟩ := ih
+      obtain ⟨out, restRan, kept⟩ := ih
         (fun item member => accepted item (List.mem_cons_of_mem _ member))
         (fun item member => translated item (List.mem_cons_of_mem _ member)) middle
-      exact ⟨_, .next evaluated restRan⟩
+      refine ⟨_, .next evaluated restRan, ?_⟩
+      intro _ next equal
+      have first : Preserves state middle := by
+        rcases extension value middle rfl with rfl | ⟨cell, rfl⟩
+        · exact Preserves.refl _
+        · exact Preserves.push _ cell
+      cases out with
+      | error => cases equal
+      | ok values final =>
+        cases equal
+        exact first.trans (kept values _ rfl)
 
 theorem evaluates_from_source {globals : List String} {source : List (String × SourceExpr)}
     (admitted : ∀ item ∈ source, Initializer globals item.2) :
@@ -89,7 +102,8 @@ theorem evaluates_from_source {globals : List String} {source : List (String × 
       defined.map (fun item => (item.name, item.source)) = source ∧
       (∀ item ∈ defined, resolveTracked ⟨[], globals⟩ item.source = .ok (item.value, item.reads)) ∧
       ∀ state, ∃ out, Evaluates globals state (source.map Prod.snd)
-        (defined.map PlainPositionalDefault.value) out := by
+        (defined.map PlainPositionalDefault.value) out ∧
+        (∀ value next, out = .ok value next → Preserves state next) := by
   have static : ∃ defined : List PlainPositionalDefault,
       defined.map (fun item => (item.name, item.source)) = source ∧
       (∀ item ∈ defined, resolveTracked ⟨[], globals⟩ item.source = .ok (item.value, item.reads)) := by

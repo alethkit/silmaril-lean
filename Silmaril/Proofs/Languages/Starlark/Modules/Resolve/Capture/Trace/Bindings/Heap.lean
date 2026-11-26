@@ -37,6 +37,11 @@ theorem Preserves.push (state : State) (added : Cell) : Preserves state { state 
   have within := (Array.getElem?_eq_some_iff.mp stored).choose
   simp [Array.getElem?_push, Nat.ne_of_lt within, stored]
 
+theorem Preserves.trans {first middle last : State} (before : Preserves first middle) (after : Preserves middle last) :
+    Preserves first last :=
+  ⟨after.slots.trans before.slots, fun address cell stored kind =>
+    after.cells address cell (before.cells address cell stored kind) kind⟩
+
 theorem Preserves.of_old_cells {state next : State} (slots : next.slots = state.slots)
     (old : ∀ address, address < state.heap.size → next.heap[address]? = state.heap[address]?) :
     Preserves state next :=
@@ -50,14 +55,19 @@ theorem Preserves.layout {globals : List String} {state next : State} (preserves
   exact ⟨address, value, frozen, preserves.slots ▸ own, preserves.cells _ _ cell trivial⟩
 
 theorem Preserves.live {globals : List String} {state next : State} (preserves : Preserves state next)
-    {name : String} {address id : Nat} {captures : List Capture} {frozen : Bool}
+    {name : String} {address id : Nat} {captures : List Capture} {frozen : Bool} {defaults : List (Binding × Value)}
     (layout : ModuleSlots globals state) (member : name ∈ globals)
-    (live : RootCall.Live state name address id captures frozen) :
-    RootCall.Live next name address id captures frozen := by
+    (live : RootCall.Live state name address id captures frozen defaults) :
+    RootCall.Live next name address id captures frozen defaults := by
   obtain ⟨slot, _, _, owned, cell⟩ := layout.usable name member
   exact ⟨⟨slot, preserves.slots ▸ owned⟩,
     (retain_read owned preserves.slots ((preserves.cells _ _ cell trivial).trans cell.symm)).trans live.binding,
     preserves.cells _ _ live.cell trivial⟩
+
+/-- A successful command preserves protected cells before writing its result. -/
+inductive Writes (state : State) (target : String) : State → Prop where
+  | commit (middle : State) (value : Value) :
+      Preserves state middle → Writes state target (middle.write (globalSlot target) value)
 
 private theorem edit_keeps {before after : State} {address : Nat} {edit : Contents → Except Error Contents}
     (ran : editCell address edit before = .ok () after) :
