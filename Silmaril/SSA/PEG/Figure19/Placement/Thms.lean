@@ -42,6 +42,17 @@ theorem StrictPath.defined (path : StrictPath g target i)
     (start : (values (i, idx)).isSome) : (values (target, idx)).isSome :=
   Placement.Proofs.defined path solves start
 
+/-- A defined φ requires its condition and a defined selected operand at the same index. -/
+theorem phi_demands {args : Tuple (Ref g.sort) [.bool, g.sort i, g.sort i]}
+    (row : g.node i = .ofLabel .phi args)
+    {m : Interpretation.{u,v,w} P} {env : Tuple m.Value params}
+    {values : g.Valuation m} {idx : Index l} (solves : g.Solves m env values)
+    (start : (values (i, idx)).isSome) :
+    (values ((args.get .head).id, idx)).isSome ∧
+      ((values ((args.get (.tail .head)).id, idx)).isSome ∨
+       (values ((args.get (.tail (.tail .head))).id, idx)).isSome) :=
+  Placement.Proofs.phi_demands row solves start
+
 /-- A row strictly used by both arms of a defined φ is already demanded.
 This justifies sharing it before the choice for partial primitives. -/
 theorem StrictPath.defined_of_phi {flag : Ref g.sort .bool} {yes no : Ref g.sort (g.sort i)}

@@ -289,7 +289,7 @@ row. This suffices even with pure partial primitives.
 | §7.4 | One φ directly in the feedback vector becomes one SIMPLE branch. Its guard and shared primitive are scheduled over the old store before the branch. Each arm has its own primitive schedule and returns its result plus the inherited store. Extra φ, eval, pass, or unbound θ dependencies in the scheduled slices cause rejection. |
 | §7.5 | Primitive bindings use ordered, already available operands and fresh temporaries. The join binds the φ once, and the final projection commits the whole update vector simultaneously. |
 | §7.6–7.7 | Loop and branch fusion remain open. |
-| §7.8 | A strict path from each arm certifies this shared row's unconditional demand relative to a defined φ. General MustEval, discovery of shared-row candidates, and the paper's progress and precision requirements remain open. |
+| §7.8 | The original checker uses one strict path from each arm. The nested-branch extension below computes demand sets and discovers a shared row. General MustEval and the paper's progress and precision requirements for all PEG contexts remain open. |
 | §7.9 | The shared row stays in the continuing update, after the while guard. LICM, EvalCond and loop peeling remain open. |
 
 `Accepted.returns_iff_observe` relates the emitted SIMPLE return to the
@@ -308,6 +308,62 @@ placement remain open.
 [Placement checker and theorem](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Placement/Thms.lean) ·
 [Regression](../../tests/ssa/PEGCanonicalWhile.lean) ·
 [Paper §§7.3–7.9](https://arxiv.org/pdf/1012.1802v3#page=43)
+
+### Same-index MustEval for nested lazy branches
+
+`Figure19.MustEval.analyze` computes a table of finite sets for a typed
+PEG. In the expression slice, each row adds itself. A primitive unions
+all operand sets. A φ unions its flag set with the intersection of the
+two arm sets. Parameters and the θ, eval and pass boundaries are leaves.
+One round reads the previous table, so shared children do not trigger
+repeated recursive searches. From singleton sets, the implementation
+runs one round per graph row. `MustEval.stable` proves that a row is
+stable once the bound exceeds its rank in the followed operand DAG.
+
+`MustEval.defined` proves that membership at a defined root forces the
+member to be defined at the same input and iteration in any Figure 11
+solution. The proof uses strict primitive operands and the actual lazy
+φ rule, with partial instructions allowed. The local rank controls the
+round bound. The independent whole-graph demand rank justifies the
+Figure 11 solution.
+
+`Region.Placement.MustEval.extract` takes the graph alone. It checks the
+inward admission and single-loop boundary, then tries feedback-root φ
+rows and shared primitives demanded by both arms. It excludes candidates
+already demanded by the flag and requires a strict dependency on an old
+θ slot. The scheduler binds the selected primitive once before the outer
+branch in each continuing update. Nested φ are supported at arm roots,
+with primitive guard and leaf slices. Branch-local bindings stay in their
+arms and the final projection commits the full old-store update
+simultaneously. Other φ dependencies, including a φ used as an operand
+of a primitive slice, can cause rejection.
+
+The placement theorem uses only definedness of the original branch on
+the current old state. The emitted-loop successful-to-defined theorem
+uses the checked rank and negation law. The reverse direction still
+uses guard and complete lazy-update totality because the designated
+PEG observation can discard other slots. The regression discovers a
+partial primitive behind two nested φ arms, which the strict-path
+test in #4059 rejects. An arm-specific partial row reachable through
+both nested branches is rejected as a candidate, and a continuing
+execution that skips it succeeds. A zero-trip execution skips the
+update entirely.
+
+Section 7.8 starts on p. 53 and gives Definition 7 on p. 55. The transfer
+implements its root, strict-op and φ-condition propagation for this
+expression fragment after stabilization, with the additional
+both-arms test for sharing. Statement nodes, arbitrary contexts,
+semantic guard implications and general reversion progress are outside
+this analysis. Section 7.9 starts on p. 56 and introduces EvalCond on
+p. 57. The implementation places work inside a continuing iteration
+only. It covers neither EvalCond implications nor motion across loop
+boundaries, zero-trip hoisting, or loop peeling.
+[§7.8](https://arxiv.org/pdf/1012.1802v3#page=53) ·
+[Definition 7](https://arxiv.org/pdf/1012.1802v3#page=55) ·
+[§7.9](https://arxiv.org/pdf/1012.1802v3#page=56) ·
+[EvalCond](https://arxiv.org/pdf/1012.1802v3#page=57) ·
+[Analysis theorems](../../Silmaril/SSA/PEG/Figure19/Placement/MustEval/Thms.lean) ·
+[Placement](../../Silmaril/SSA/PEG/Simple/Revert/While/Region/Placement/MustEval/Thms.lean)
 
 Section 8.3's displayed cycle constraints exclude cycles without a θ
 node. A θ whose initializer selects itself still passes that test,
@@ -373,8 +429,8 @@ writers is rejected with `Rejection.reversion`.
 
 1. **Close the cyclic path from structured frontend through reversion.**
    Relate the Figure 19 typing rules to the repaired guard. Extend checked
-   placement from one shared branch in a parentless loop to multiple branches
-   and nested regions. Carry first-exit and prefix obligations through selection
+   placement from one hoist across nested branches in a parentless loop to
+   multiple update roots and nested loop regions. Carry first-exit and prefix obligations through selection
    and reversion. General extraction, fusion, MustEval, and LICM remain open.
 2. **Formalize the general saturation and cost interfaces.** Model
    node-generating analyses and prove (4.1)–(4.4) with their hypotheses.
