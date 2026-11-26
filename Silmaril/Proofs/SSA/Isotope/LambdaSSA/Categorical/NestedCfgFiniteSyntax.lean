@@ -61,12 +61,12 @@ private theorem case_types {Γ K : List (Ty Empty)} {a : Tm Φ} {l r : Region Φ
       obtain ⟨rfl, rfl⟩ := Ty.coprod.inj (unique _ test)
       exact ⟨yes, no⟩
 
-/-- A checked plain transfer along a written path fixes its exact target type,
-on the common or original side. The surrounding label context is arbitrary. -/
-theorem plain_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s : Region Φ}
-    {i : Nat} {A : Ty Empty} (wide : Bool) (ok : r.checkRoutes? layout Γ = some s)
-    (target : branchesTo i s = true) (localType : layout[i]? = some (A, false))
-    (typed : (if wide then r else s).HasType Γ K) : At K i A := by
+/-- Recover the payload type and tag at a checked transfer in an exact witness. -/
+theorem route_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s : Region Φ}
+    {i : Nat} {A : Ty Empty} (wide flag : Bool) (ok : r.checkRoutes? layout Γ = some s)
+    (target : branchesTo i s = true) (localType : layout[i]? = some (A, flag))
+    (typed : (if wide then r else s).HasType Γ K) :
+    if wide && flag then ∃ D, At K i (.coprod A D) else At K i A := by
   induction r generalizing Γ s with
   | br j a =>
       cases hit : layout[j]? with
@@ -86,9 +86,19 @@ theorem plain_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s 
               have ji : j = i := beq_iff_eq.mp target
               subst j
               obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj (hit.symm.trans localType))
-              cases Option.some.inj payload
               have unique := (Tm.synthRouteType?_sound found).2.1
-              cases wide <;> exact branch_type unique typed
+              cases tag
+              · cases Option.some.inj payload
+                cases wide <;> exact branch_type unique typed
+              · cases wide
+                · exact branch_type unique typed
+                · have eq : a = .inl b := by
+                    cases a <;> first | contradiction | cases Option.some.inj payload; rfl
+                  subst a
+                  cases typed with
+                  | br lookup ht =>
+                      cases ht with
+                      | inl h => exact ⟨_, (unique _ h) ▸ lookup⟩
   | case a l r il ir =>
       cases found : a.synthRouteType? Γ with
       | none => simp [Region.checkRoutes?, found] at ok
@@ -104,6 +114,14 @@ theorem plain_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s 
           · exact il hl yes arms.1
           · exact ir hr no arms.2
   | let₁ | let₂ | cfg => contradiction
+
+/-- A checked plain transfer fixes its exact target type. -/
+theorem plain_target {layout : RouteLayout Empty} {Γ K : List (Ty Empty)} {r s : Region Φ}
+    {i : Nat} {A : Ty Empty} (wide : Bool) (ok : r.checkRoutes? layout Γ = some s)
+    (target : branchesTo i s = true) (localType : layout[i]? = some (A, false))
+    (typed : (if wide then r else s).HasType Γ K) : At K i A := by
+  simpa only [Bool.and_false, Bool.false_eq_true, ite_false] using
+    route_target wide false ok target localType typed
 
 private theorem local_at {α : Type} {m : Nat} (P : Fin m → α) (L : List α) (i : Fin m) :
     (List.ofFn P ++ L)[i.val]? = some (P i) := by
