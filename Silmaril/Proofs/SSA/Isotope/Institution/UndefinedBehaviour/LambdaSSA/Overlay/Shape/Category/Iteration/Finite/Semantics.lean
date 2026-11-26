@@ -18,15 +18,15 @@ universe u v w x
 
 variable {κ : Type v} {A B : Ty κ} {α : Type w} {σ : Type x}
 
-variable {R : List (Ty κ)}
+variable {R L : List (Ty κ)}
 
 private theorem ordinary_singleton {n : Nat} {o p : Outcome n α σ} :
     Behaviour.Ordinary (WithTop.some {o}) p ↔ p = o :=
   ⟨fun h => Set.mem_singleton_iff.mp h.2, fun h => ⟨WithTop.coe_ne_top, Set.mem_singleton_iff.mpr h⟩⟩
 
-private theorem not_external_branch (o : Outcome [B].length α σ)
+private theorem not_external_branch (o : Outcome L.length α σ)
     (j : Fin R.length) (a : Value α) (s : σ) :
-    Feedback.external R [B] o ≠ .ret (Feedback.internal R [B] j) a s := by
+    Feedback.external R L o ≠ .ret (Feedback.internal R L j) a s := by
   cases o with
   | ret i b t =>
     intro eq
@@ -37,17 +37,19 @@ private theorem not_external_branch (o : Outcome [B].length α σ)
   | fault | diverge => intro eq; cases eq
 
 private theorem external_injective :
-    Function.Injective (Feedback.external (α := α) (σ := σ) R [B]) := by
+    Function.Injective (Feedback.external (α := α) (σ := σ) R L) := by
   intro o p eq
   cases o <;> cases p <;>
     simp only [Feedback.external, Outcome.ret.injEq, Outcome.fault.injEq, reduceCtorEq] at eq ⊢
   case ret.ret i a s j b t =>
-    exact ⟨(Fin.eq_zero i).trans (Fin.eq_zero j).symm, eq.2⟩
+    have indices := congrArg Fin.val eq.1
+    change R.length + i.val = R.length + j.val at indices
+    exact ⟨Fin.ext (Nat.add_left_cancel indices), eq.2⟩
   case fault.fault => exact eq
 
-private theorem branch_only {f : Feedback.Run R [B] α σ} {p q : Feedback.Point R.length α σ}
+private theorem branch_only {f : Feedback.Run R L α σ} {p q : Feedback.Point R.length α σ}
     {j : Fin R.length} {a : Value α} {s : σ}
-    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R [B] j) a s}) :
+    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R L j) a s}) :
     Feedback.Step f p q ↔ q = .block j a s := by
   constructor
   · intro edge
@@ -62,9 +64,9 @@ private theorem branch_only {f : Feedback.Run R [B] α σ} {p q : Feedback.Point
     rw [run]
     exact ordinary_singleton.mpr rfl
 
-theorem close_branch {f : Feedback.Run R [B] α σ} {p : Feedback.Point R.length α σ}
+theorem close_branch {f : Feedback.Run R L α σ} {p : Feedback.Point R.length α σ}
     {i : Fin R.length} {a : Value α} {s : σ}
-    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R [B] i) a s}) :
+    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R L i) a s}) :
     Feedback.close f p = Feedback.close f (.block i a s) := by
   have top : Feedback.close f p = ⊤ ↔ Feedback.close f (.block i a s) = ⊤ := by
     rw [Feedback.close_top_unfold (p := p)]
@@ -84,8 +86,8 @@ theorem close_branch {f : Feedback.Run R [B] α σ} {p : Feedback.Point R.length
     · exact (branch_only run).mp edge ▸ out
   · exact fun out => .inr ⟨_, (branch_only run).mpr rfl, out⟩
 
-private theorem close_terminal {f : Feedback.Run R [B] α σ} {p : Feedback.Point R.length α σ}
-    {o : Outcome [B].length α σ} (run : f p = WithTop.some {Feedback.external R [B] o}) :
+private theorem close_terminal {f : Feedback.Run R L α σ} {p : Feedback.Point R.length α σ}
+    {o : Outcome L.length α σ} (run : f p = WithTop.some {Feedback.external R L o}) :
     Feedback.close f p = WithTop.some {o} := by
   have noStep (q) : ¬ Feedback.Step f p q := by
     intro edge
@@ -111,32 +113,25 @@ private theorem close_terminal {f : Feedback.Run R [B] α σ} {p : Feedback.Poin
     subst u
     exact .inl ⟨p, .refl, run.symm ▸ ordinary_singleton.mpr rfl⟩
 
-section CertifiedTable
-
-variable {Φ : Type u} [HasTy Φ (Ty κ)] {X : Ty κ}
-variable {M : Shape.Model.{u,v,w,x} Φ ([] : List (Ty κ))}
-variable {captures points results states : Nat}
-variable (C : Carrier M X A B captures points results states)
-
 section Positional
 
-variable (invocation : Fin points → Fin R.length × Value M.raw.α × M.raw.σ)
-
-variable {f : Feedback.Run R [B] M.raw.α M.raw.σ} {rows : Fin points → Row points results states}
+variable {points results states : Nat}
+variable (C : PositionalCarrier R L α σ points results states)
+variable {f : Feedback.Run R L α σ} {rows : Fin points → Row points results states}
 
 private theorem close_stop (p : Fin points) (result : Result results states)
-    (run : f (invocationPoint invocation p) = Row.positional C invocation (.stop result)) :
-    Feedback.close f (invocationPoint invocation p) = result.behaviour C := by
+    (run : f (invocationPoint C.invocation p) = Row.routed C (.stop result)) :
+    Feedback.close f (invocationPoint C.invocation p) = result.routed C := by
   cases result with
-  | ret b t => exact close_terminal (o := .ret 0 (C.result b).val (C.final t)) run
+  | ret b t => exact close_terminal (o := .ret (C.result b).1 (C.result b).2 (C.final t)) run
   | fault t => exact close_terminal (o := .fault (C.final t)) run
   | diverge => exact close_terminal (o := .diverge) run
   | ub => exact Feedback.close_eq_top_iff.mpr ⟨_, .refl, run⟩
 
 private theorem classify_found (bound : Nat) (p : Fin points) (result : Result results states)
-    (agrees : ∀ q, f (invocationPoint invocation q) = (rows q).positional C invocation)
+    (agrees : ∀ q, f (invocationPoint C.invocation q) = (rows q).routed C)
     (found : search rows bound p = some result) :
-    Feedback.close f (invocationPoint invocation p) = result.behaviour C := by
+    Feedback.close f (invocationPoint C.invocation p) = result.routed C := by
   induction bound generalizing p with
   | zero => cases found
   | succ bound ih =>
@@ -144,56 +139,71 @@ private theorem classify_found (bound : Nat) (p : Fin points) (result : Result r
     | stop output =>
       have eq : output = result := by simpa [search, row] using found
       subst output
-      exact close_stop C invocation p result (row ▸ agrees p)
+      exact close_stop C p result (row ▸ agrees p)
     | «repeat» q =>
       have tail : search rows bound q = some result := by simpa [search, row] using found
       have here := agrees p
       rw [row] at here
-      exact (close_branch (i := (invocation q).1) here).trans (ih q tail)
+      exact (close_branch (i := (C.invocation q).1) here).trans (ih q tail)
 
 private theorem classify_cycle (p : Fin points)
-    (agrees : ∀ q, f (invocationPoint invocation q) = (rows q).positional C invocation)
+    (agrees : ∀ q, f (invocationPoint C.invocation q) = (rows q).routed C)
     (empty : search rows points p = none) :
-    Feedback.close f (invocationPoint invocation p) = Result.behaviour C .diverge := by
-  let path := fun k => invocationPoint invocation (orbit rows p k)
-  have atPath (k) : f (path k) = Row.positional C invocation (.repeat (orbit rows p (k + 1))) := by
-    exact (agrees _).trans (congrArg (Row.positional C invocation) (repeats_of_exhausted rows p empty k))
+    Feedback.close f (invocationPoint C.invocation p) = Result.routed C .diverge := by
+  let path := fun k => invocationPoint C.invocation (orbit rows p k)
+  have atPath (k) : f (path k) = Row.routed C (.repeat (orbit rows p (k + 1))) := by
+    exact (agrees _).trans (congrArg (Row.routed C) (repeats_of_exhausted rows p empty k))
   have onlyNext (k) (q) : Feedback.Step f (path k) q ↔ q = path (k + 1) :=
-    branch_only (j := (invocation (orbit rows p (k + 1))).1) (atPath k)
-  have reachable {q} (reach : Feedback.Reaches f (invocationPoint invocation p) q) : ∃ k, q = path k := by
+    branch_only (j := (C.invocation (orbit rows p (k + 1))).1) (atPath k)
+  have reachable {q} (reach : Feedback.Reaches f (invocationPoint C.invocation p) q) : ∃ k, q = path k := by
     induction reach with
-    | refl => exact ⟨0, congrArg (invocationPoint invocation) (orbit_zero rows p).symm⟩
+    | refl => exact ⟨0, congrArg (invocationPoint C.invocation) (orbit_zero rows p).symm⟩
     | tail _ edge ih =>
       obtain ⟨k, rfl⟩ := ih
       exact ⟨k + 1, (onlyNext k _).mp edge⟩
-  have safe : ¬ Feedback.ReachesUB f (invocationPoint invocation p) := by
+  have safe : ¬ Feedback.ReachesUB f (invocationPoint C.invocation p) := by
     rintro ⟨q, reach, top⟩
     obtain ⟨k, rfl⟩ := reachable reach
     exact WithTop.coe_ne_top (atPath k ▸ top)
-  have infinite : Feedback.Infinite f (invocationPoint invocation p) :=
-    ⟨path, congrArg (invocationPoint invocation) (orbit_zero rows p), fun k => (onlyNext k _).mpr rfl⟩
+  have infinite : Feedback.Infinite f (invocationPoint C.invocation p) :=
+    ⟨path, congrArg (invocationPoint C.invocation) (orbit_zero rows p), fun k => (onlyNext k _).mpr rfl⟩
   rw [Feedback.close_of_noUB safe]
   apply congrArg WithTop.some
   ext o
-  change (Feedback.Finite f (invocationPoint invocation p) o ∨
-    o = .diverge ∧ Feedback.Infinite f (invocationPoint invocation p)) ↔ o = .diverge
+  change (Feedback.Finite f (invocationPoint C.invocation p) o ∨
+    o = .diverge ∧ Feedback.Infinite f (invocationPoint C.invocation p)) ↔ o = .diverge
   constructor
   · rintro (⟨q, reach, finish⟩ | ⟨eq, _⟩)
     · obtain ⟨k, rfl⟩ := reachable reach
       rw [atPath k] at finish
-      exact (not_external_branch o (invocation (orbit rows p (k + 1))).1 _ _
+      exact (not_external_branch o (C.invocation (orbit rows p (k + 1))).1 _ _
         (ordinary_singleton.mp finish)).elim
     · exact eq
   · exact fun eq => .inr ⟨eq, infinite⟩
 
-theorem classify_positional (rows : Fin points → Row points results states) (p : Fin points)
-    (agrees : ∀ q, f (invocationPoint invocation q) = (rows q).positional C invocation) :
-    Feedback.close f (invocationPoint invocation p) = (execute rows p).behaviour C := by
+theorem classify_routed (rows : Fin points → Row points results states) (p : Fin points)
+    (agrees : ∀ q, f (invocationPoint C.invocation q) = (rows q).routed C) :
+    Feedback.close f (invocationPoint C.invocation p) = (execute rows p).routed C := by
   cases found : search rows points p with
-  | none => simpa [execute, found] using classify_cycle C invocation p agrees found
-  | some result => simpa [execute, found] using classify_found C invocation points p result agrees found
+  | none => simpa [execute, found] using classify_cycle C p agrees found
+  | some result => simpa [execute, found] using classify_found C points p result agrees found
 
 end Positional
+
+section CertifiedTable
+
+variable {Φ : Type u} [HasTy Φ (Ty κ)] {X : Ty κ}
+variable {M : Shape.Model.{u,v,w,x} Φ ([] : List (Ty κ))}
+variable {captures points results states : Nat}
+variable (C : Carrier M X A B captures points results states)
+
+theorem classify_positional {f : Feedback.Run R [B] M.raw.α M.raw.σ}
+    (invocation : Fin points → Fin R.length × Value M.raw.α × M.raw.σ)
+    (rows : Fin points → Row points results states) (p : Fin points)
+    (agrees : ∀ q, f (invocationPoint invocation q) = (rows q).positional C invocation) :
+    Feedback.close f (invocationPoint invocation p) = (execute rows p).behaviour C := by
+  have classified := classify_routed (C.positional invocation) rows p agrees
+  cases eq : execute rows p <;> rw [eq] at classified <;> exact classified
 
 private def singletonInvocation (p : Fin points) : Fin 1 × Value M.raw.α × M.raw.σ :=
   (0, (C.invocation p).1.val, (C.invocation p).2)
@@ -212,7 +222,7 @@ private theorem preimage_row (row : Row points results states) :
     cases o with
     | ret i b t =>
       have label : Feedback.internal [A] [B] 0 = (0 : Fin 2) := rfl
-      rcases label_cases i with rfl | rfl <;> simp [tagIterationOutcome, label]
+      rcases label_cases i with rfl | rfl <;> simp [tagIterationOutcome, Carrier.positional, singletonInvocation, label]
     | fault | diverge => simp [tagIterationOutcome]
   | stop result =>
     cases result with
@@ -222,12 +232,12 @@ private theorem preimage_row (row : Row points results states) :
       ext o
       cases o with
       | ret i a s =>
-        rcases label_cases i with rfl | rfl <;> simp [tagIterationOutcome, Feedback.external]
-      | fault | diverge => simp [tagIterationOutcome, Feedback.external]
+        rcases label_cases i with rfl | rfl <;> simp [tagIterationOutcome, Carrier.positional, Feedback.external]
+      | fault | diverge => simp [tagIterationOutcome, Carrier.positional, Feedback.external]
     | fault | diverge =>
       apply congrArg WithTop.some
       ext o
-      cases o <;> simp [tagIterationOutcome]
+      cases o <;> simp [tagIterationOutcome, Carrier.positional]
 
 set_option backward.isDefEq.respectTransparency false in
 theorem classify_sum

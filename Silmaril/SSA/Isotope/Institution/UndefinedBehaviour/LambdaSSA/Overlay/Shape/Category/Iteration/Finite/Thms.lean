@@ -21,11 +21,20 @@ variable (C : Carrier M X A B captures points results states)
 
 /-- A deterministic internal jump contributes exactly the destination's
 complete feedback observation at its carried payload and final state. -/
-theorem close_branch {R : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R [B] α σ}
+theorem close_branch {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
     {p : Feedback.Point R.length α σ} {i : Fin R.length} {a : Value α} {s : σ}
-    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R [B] i) a s}) :
+    (run : f p = WithTop.some {Outcome.ret (Feedback.internal R L i) a s}) :
     Feedback.close f p = Feedback.close f (.block i a s) :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.close_branch run
+
+/-- The bounded scan classifies actual feedback with any external label
+interface, retaining the label of each ordinary return. -/
+theorem classify_routed {R L : List (Ty κ)} {α : Type w} {σ : Type x} {f : Feedback.Run R L α σ}
+    (D : PositionalCarrier R L α σ points results states)
+    (rows : Fin points → Row points results states) (p : Fin points)
+    (agrees : ∀ q, f (invocationPoint D.invocation q) = (rows q).routed D) :
+    Feedback.close f (invocationPoint D.invocation p) = (execute rows p).routed D :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.classify_routed D rows p agrees
 
 /-- A finite table that decodes into positional CFG block points gives
 the complete observation of actual overlay closure at each coded point. -/
@@ -47,6 +56,14 @@ theorem classify_sum
     (iterateSum step).run 0 (C.invocation p).1 (C.invocation p).2 =
       (execute rows p).behaviour C :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.classify_sum C step rows certificate p
+
+/-- The check decides comparison of decoded labelled results. Distinct
+exit positions remain distinct even when they carry identical values. -/
+theorem check_routed_iff {R L : List (Ty κ)} {α : Type w} {σ : Type x}
+    (D : PositionalCarrier R L α σ points results states) (lower upper : Table captures points results states) :
+    check lower upper = true ↔ ∀ c p,
+      (execute (lower c) p).routed D ≤ (execute (upper c) p).routed D := by
+  simp [check, List.all_eq_true, Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.routed_order]
 
 /-- The checker compares precisely the decoded observations at every code. -/
 theorem check_behaviour_iff (lower upper : Table captures points results states) :

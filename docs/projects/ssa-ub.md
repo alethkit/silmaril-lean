@@ -667,6 +667,29 @@ return after the same backedge, an unaffected external exit, a two-label
 silent cycle, and a fault with a distinct final state.
 [CFG agreement and decision][ssa-ub-finite-cfg] [Two-label regression][ssa-ub-finite-cfg-regression]
 
+### Heterogeneous packets and ordered exits
+
+The positional variant assigns each internal and external label its own exact
+payload type. The packet for a label list is the dependent sum of an index and
+a value of the type at that index. It is equivalent to shaped values at the
+installed `packedExitType`. Seed and result codes are equivalences for the two
+packet interfaces. Invocation codes include the machine state. Return codes
+keep the external position even when two exits carry the same type and value.
+
+Each generated row gives the complete observation of its installed typed
+routed block. The same scan classifies the positional overlay CFG and, after
+packing the external return tags, the exact-sum iterator. The Boolean decision
+compares the shaped observation order directly at all common entry labels,
+typed constructor inputs, machine states, and coded captures. The source
+fragment uses acyclic typed blocks and the shaped graph of deterministic
+finite-state primitives.
+
+The regression crosses between a unit label and a product label, replays a
+silent cycle, and follows a state-changing backedge to literal UB. Two
+variants that return unit at distinct exits fail comparison in both
+directions. A third exit carries a product.
+[Dependent packets and decision][ssa-ub-dependent-cfg] [Heterogeneous regression][ssa-ub-dependent-cfg-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -710,6 +733,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Syntax.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -800,3 +824,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-finite-syntax-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/Syntax/Regression.lean
 [ssa-ub-finite-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Thms.lean
 [ssa-ub-finite-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Regression.lean
+[ssa-ub-dependent-cfg]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Thms.lean
+[ssa-ub-dependent-cfg-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Regression.lean
