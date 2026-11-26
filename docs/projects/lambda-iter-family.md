@@ -228,6 +228,34 @@ exit because table lookup misses. The packed evaluation also reflects back
 to the mutable source's numbered exit with the same payload.
 [Checked named and packed countdown](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
 
+### Infinite internal paths
+
+`NamedFlat.InfiniteRun` witnesses a successful entry followed by a sequence
+of successful internal `stepSSA` transfers at every natural-number position.
+`compile_infinite_run_iff` compares that witness with Isotope divergence on
+the actual graph admitted by `compileTyped`, using the same version-zero
+capture agreement and shared stateless `Part` primitives. The forward map
+numbers each transfer by the first matching block. The reverse map lifts the
+selected Isotope path to a named transfer at each position, preserving its
+label index and tagged payload. Atomic Isotope divergence on a flat table can
+only continue by completing successive internal block evaluations. Each
+individual flat body has finite syntax and contains no nested CFG.
+[Infinite execution correspondence](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Infinite/Thms.lean)
+
+`Capture.diverges_iff` transports the path using entry and block evaluation
+under the exact state-preserving capture packet. `packed_infinite_run_iff`
+then applies the existing dispatcher may-divergence theorem for atomic
+instructions. A separate primitive-local divergence predicate would need its
+own correspondence. Undefined `Part` results supply no such predicate, and
+neither comparison observes visible ITree events.
+
+The same two-capture table admits a primitive interpretation that repeats
+`10 → 20 → 10` indefinitely. A second interpretation leaves classification
+undefined at the first block. Both runners return `Part.none`. Only the
+repeating interpretation has an infinite transfer witness and packed
+divergence.
+[Repeated back edge and stuck-primitive regression](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Examples/Thms.lean)
+
 ### Edge arguments for a normalized φ port
 
 `Versioning.encode` and `Versioning.step_commutes` show the current
@@ -253,5 +281,6 @@ table.
 
 ```sh
 lake build --wfail Silmaril.SSA.Isotope.Bridge.NamedFlat.WholeRun.Thms \
+  Silmaril.SSA.Isotope.Bridge.NamedFlat.Infinite.Thms \
   Silmaril.SSA.LambdaRTL.CFG.Cyclic.Examples.Thms
 ```

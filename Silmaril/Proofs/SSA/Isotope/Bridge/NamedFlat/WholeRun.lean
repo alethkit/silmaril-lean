@@ -18,7 +18,7 @@ universe u
 
 variable {V K F α : Type u} {n : Nat}
 
-private theorem mem_number {labels : Nat} {index : K → Option (Fin labels)}
+theorem mem_number {labels : Nat} {index : K → Option (Fin labels)}
     {jump : K × Value α} {i : Nat} {v : Value α} :
     (i, v) ∈ number index jump ↔
       ∃ slot, index jump.1 = some slot ∧ (slot.val, jump.2) = (i, v) := by
@@ -31,7 +31,7 @@ local notation "index" => labelIndex graph.blocks exits
 local notation "findBlock" => (fun label => graph.blocks.findFinIdx? (fun item => label == Prod.fst item))
 
 omit [DecidableEq V] in
-private theorem label_cases {label : K} {slot : Fin (graph.blocks.length + exits.length)}
+theorem label_cases {label : K} {slot : Fin (graph.blocks.length + exits.length)}
     (numbered : index label = some slot) :
     (∃ i, findBlock label = some i ∧ slot = i.castAdd exits.length) ∨
       (∃ e, findBlock label = none ∧
@@ -58,7 +58,7 @@ private theorem step_done {start final : K × Value α} :
     simp [CFG.Cyclic.stepSSA, lookup_index, hit, Part.map_eq_map, Part.mem_map_iff]
 
 omit [DecidableEq K] in
-private theorem mem_continue {labels : Nat} (idx : K → Option (Fin labels))
+theorem mem_continue {labels : Nat} (idx : K → Option (Fin labels))
     {body : Part ((K × Value α) ⊕ (K × Value α))} {i : Nat} {v : Value α} :
     (i, v) ∈ (body >>= Sum.elim (fun _ => Part.none) (number idx)) ↔
       ∃ jump, Sum.inr jump ∈ body ∧ (i, v) ∈ number idx jump := by
