@@ -62,7 +62,22 @@ private theorem inferAt_sound {n : Nat} (ctx : BoundCtx (Ty Base) n) (expr : Tm 
           exact .inr (ih ctx (by assumption))
         · cases inferred
       all_goals cases inferred
-  | case | abort => cases inferred
+  | case test left right ihTest ihLeft ihRight =>
+    cases checked : inferAt ctx none test with
+    | none => simp [inferAt, checked] at inferred
+    | some ty =>
+      cases ty <;> simp only [inferAt, checked] at inferred
+      case coprod a b =>
+        change ((inferAt (.snoc ctx a) expected left).bind fun c =>
+          if inferAt (.snoc ctx b) expected right = some c ∧ expected.getD c = c then some c else none) = some A at inferred
+        obtain ⟨c, arm, next⟩ := Option.bind_eq_some_iff.mp inferred
+        split at next
+        · rename_i rightTyped
+          cases next
+          exact .case (ihTest ctx checked) (ihLeft (.snoc ctx a) arm) (ihRight (.snoc ctx b) rightTyped.1)
+        · cases next
+      all_goals cases inferred
+  | abort => cases inferred
 
 private theorem inferExpected_sound {n : Nat} (ctx : BoundCtx (Ty Base) n) (expr : Tm Empty F n)
     {A : Ty Base} (inferred : inferExpected ctx expr = some A) :

@@ -54,6 +54,8 @@ inductive Operand (sig : PrimitiveSignature F) : List PacketType → PacketType 
       Operand sig Γ b
   | let₂ {Γ : List PacketType} {a b c : PacketType} (value : Operand sig Γ (.product a b))
       (body : Operand sig (b :: a :: Γ) c) : Operand sig Γ c
+  | case {Γ : List PacketType} {a b c : PacketType} (test : Operand sig Γ (.coprod a b))
+      (left : Operand sig (a :: Γ) c) (right : Operand sig (b :: Γ) c) : Operand sig Γ c
 
 def Operand.written : {Γ : List PacketType} → {ty : PacketType} → Operand sig Γ ty → Tm F
   | _, _, .pure value => value.erase position
@@ -63,6 +65,7 @@ def Operand.written : {Γ : List PacketType} → {ty : PacketType} → Operand s
   | _, _, .call op arg => .op op arg.written
   | _, _, .let₁ value body => .let₁ value.written body.written
   | _, _, .let₂ value body => .let₂ value.written body.written
+  | _, _, .case test left right => .case test.written left.written right.written
 
 abbrev SlotMap (Γ Δ : List PacketType) := ∀ {a}, Slot Γ a → Slot Δ a
 
@@ -84,25 +87,37 @@ def bindSubstitution (value : Residual Δ ty) (older : Substitution Γ Δ) : Sub
   | .here => value
   | .there slot => older slot
 
+/-- A case payload is local to its arm and leaves the older slots in order. -/
+def liftSubstitution (values : Substitution Γ Δ) : Substitution (ty :: Γ) (ty :: Δ) :=
+  bindSubstitution (.var .here) (fun slot => renameExpr (fun old => .there old) (values slot))
+
 /-- Each application adds its reply to the scope. A silent product
-destructuring adds the right field at slot zero and the left at slot one. -/
+destructuring adds the right field at slot zero and the left at slot one.
+A case adds only its result to the shared continuation. -/
 inductive Requests (sig : PrimitiveSignature F) : List PacketType → List PacketType → Type
   | done {Γ : List PacketType} : Requests sig Γ Γ
   | request {Γ Δ : List PacketType} (op : F) (arg : Residual Γ (sig.argument op))
       (next : Requests sig (sig.reply op :: Γ) Δ) : Requests sig Γ Δ
   | unpack {Γ Δ : List PacketType} {a b : PacketType} (value : Residual Γ (.product a b))
       (next : Requests sig (b :: a :: Γ) Δ) : Requests sig Γ Δ
+  | choose {Γ Δ leftScope rightScope : List PacketType} {a b c : PacketType}
+      (test : Residual Γ (.coprod a b))
+      (left : Requests sig (a :: Γ) leftScope) (leftValue : Residual leftScope c)
+      (right : Requests sig (b :: Γ) rightScope) (rightValue : Residual rightScope c)
+      (next : Requests sig (c :: Γ) Δ) : Requests sig Γ Δ
 
 def Requests.append : {Γ Δ : List PacketType} → Requests sig Γ Δ → Requests sig Δ Θ → Requests sig Γ Θ
   | _, _, .done, next => next
   | _, _, .request op arg rest, next => .request op arg (rest.append next)
   | _, _, .unpack value rest, next => .unpack value (rest.append next)
+  | _, _, .choose test left l right r rest, next => .choose test left l right r (rest.append next)
 
 /-- Embed an older typed slot through the reply and product binders. -/
 def Requests.slots : {Γ Δ : List PacketType} → Requests sig Γ Δ → SlotMap Γ Δ
   | _, _, .done, _, slot => slot
   | _, _, .request _ _ next, _, slot => next.slots (.there slot)
   | _, _, .unpack _ next, _, slot => next.slots (.there (.there slot))
+  | _, _, .choose _ _ _ _ _ next, _, slot => next.slots (.there slot)
 
 /-- Carry substituted values through all slots added by a schedule. -/
 def Requests.weaken (requests : Requests sig Δ Θ) (values : Substitution Γ Δ) : Substitution Γ Θ :=
@@ -114,13 +129,20 @@ def Requests.shift : {Γ Δ : List PacketType} → Requests sig Γ Δ → Nat �
   | _, _, .done, i => i
   | _, _, .request _ _ next, i => next.shift (i + 1)
   | _, _, .unpack _ next, i => next.shift (i + 2)
+  | _, _, .choose _ _ _ _ _ next, i => next.shift (i + 1)
 
-/-- Insert the schedule as ordinary written lets. -/
-def Requests.wrap {A : Type} (bind unpack : Tm F → A → A) :
+/-- Insert lets for the schedule. A case joins through one let result instead
+of copying the surrounding continuation into both arms. -/
+def Requests.wrap : {A : Type} → (bind destruct : Tm F → A → A) →
     {Γ Δ : List PacketType} → Requests sig Γ Δ → A → A
-  | _, _, .done, body => body
-  | _, _, .request op arg next, body => bind (.op op (arg.erase position)) (next.wrap bind unpack body)
-  | _, _, .unpack value next, body => unpack (value.erase position) (next.wrap bind unpack body)
+  | _, _, _, _, _, .done, body => body
+  | _, bind, destruct, _, _, .request op arg next, body =>
+    bind (.op op (arg.erase position)) (next.wrap bind destruct body)
+  | _, bind, destruct, _, _, .unpack value next, body =>
+    destruct (value.erase position) (next.wrap bind destruct body)
+  | _, bind, destruct, _, _, .choose test left l right r next, body =>
+    bind (.case (test.erase position) (left.wrap Tm.let₁ Tm.let₂ (l.erase position))
+      (right.wrap Tm.let₁ Tm.let₂ (r.erase position))) (next.wrap bind destruct body)
 
 structure Scheduled (sig : PrimitiveSignature F) (Γ : List PacketType) (ty : PacketType) where
   scope : List PacketType
@@ -156,6 +178,13 @@ def Operand.scheduleWith : {Γ : List PacketType} → {ty : PacketType} → Oper
     let body := body.scheduleWith
       (bindSubstitution (.var .here) (bindSubstitution (.var (.there .here)) (initialized.weaken values)))
     ⟨body.scope, initialized.append body.requests, body.value⟩
+  | Γ, c, .case test left right, _, values =>
+    let tested := test.scheduleWith values
+    let older : Substitution Γ tested.scope := tested.requests.weaken values
+    let l := left.scheduleWith (liftSubstitution older)
+    let r := right.scheduleWith (liftSubstitution older)
+    ⟨c :: tested.scope, tested.requests.append (.choose tested.value l.requests l.value r.requests r.value .done),
+      .var .here⟩
 
 def Operand.scheduleAt (arg : Operand sig Γ ty) (slots : SlotMap Γ Δ) : Scheduled sig Δ ty :=
   arg.scheduleWith (fun slot => .var (slots slot))
@@ -198,6 +227,13 @@ def readOperandAt (sig : PrimitiveSignature F) :
   | Γ, some (.coprod a b), .inr value => do
     let ⟨ty, value⟩ ← readOperandAt sig Γ (some b) value
     if typed : ty = b then some ⟨.coprod a b, .inr (typed ▸ value)⟩ else none
+  | Γ, expected, .case test left right => do
+    let ⟨.coprod a b, test⟩ ← readOperandAt sig Γ none test | none
+    let ⟨c, left⟩ ← readOperandAt sig (a :: Γ) expected left
+    let ⟨d, right⟩ ← readOperandAt sig (b :: Γ) expected right
+    if same : d = c ∧ expected.getD c = c then
+      some ⟨c, .case test left (same.1 ▸ right)⟩
+    else none
   | _, _, _ => none
 
 def readOperand (sig : PrimitiveSignature F) (Γ : List PacketType) (written : Tm F) :
