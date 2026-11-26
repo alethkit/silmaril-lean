@@ -962,3 +962,35 @@ the default layout requested the overwritten atom again.
 · [Entry, step and run equations](../../Silmaril/SSA/LambdaRTL/CFG/Cyclic/Version/Thms.lean)
 · [Typed admission and packed execution](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/Thms.lean)
 · [Packet and back-edge regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)
+
+### From the opt-in packet-local versioner to LetCase
+
+`PacketLocal.Admission.letCase` expands the actual flat table produced by
+the opt-in compiler and retained by its typed admission. The existing
+finite rank checker must accept all written internal edges. Expansion
+reuses the structured acyclic `Code` let, case and join grammar,
+`Code.toLetCase`, and `FiniteExit.tag`. A local jump evaluates its argument
+before entering the target, with a typed weakening that skips the source's
+local binders. The original flat entry and product decoders are handled
+by the same expansion. The typed witnesses come from the admitted
+propositional typing proof by choice. The rank check and expansion on
+explicit witnesses are executable.
+
+`Admission.packed_letCase_tree` compares the existing packed LambdaSSA
+interpreter with native typed LetCase monadic evaluation in the same
+ordered weak ITree model. The caller record is projected into LetCase's
+bound environment and decoded by the packed program. Primitive agreement
+is the model's existing typed-to-erased compatibility on encoded inputs
+and replies. The outward observation uses the exact ordered exit tag and
+attached live-out payload. `letCase_observe` composes this equality with
+the named mutable runner. `letCase_observe_forward` uses the existing
+suffix-lookup runner when its `IsForward` hypothesis holds.
+
+The sum fixture expands the actual opt-in result and checks both caller
+choices at distinct ordered exits with the same payload type and an
+observed assigned live-out. The accepted cyclic packet-local fixture
+fails the acyclic rank check.
+
+[Ranked expansion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/FlatLetCase/Thms.lean)
+· [Typed interpreter square](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Thms.lean)
+· [Branch and cycle regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Case.lean)

@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Thms
 
 /-! # A typed sum packet selects distinct exits with identical payload types -/
 
@@ -174,6 +174,17 @@ example (right : Bool) (n : Nat) (ambient : Env Runtime) :
     region model.raw (extend ambient (packedInput right n)) packetLocalCase.program.code =
       pure (output right n) :=
   (packetLocalCase.packed_tree model (input right n) ambient).trans (named_result right n)
+
+private theorem packetLocalCaseRank : packetLocalCase.acyclicCheck = true := by decide
+
+-- The typed LetCase term is expanded from the actual admitted opt-in table.
+-- Its two branches preserve the ordered exit tag and selected live-out.
+example (right : Bool) (n : Nat) (ambient : Env Runtime) :
+    (packetLocalCase.letCaseTree model packetLocalCaseRank (input right n) >>= fun result =>
+      pure (0, encodeValue (AtomValues.carrier (κ := SortName))
+        (Region.packedExitType (List.ofFn (LiveOut.exitInterface ports fields).external)) result)) =
+      pure (output right n) :=
+  (packetLocalCase.letCase_observe model packetLocalCaseRank (input right n) ambient).trans (named_result right n)
 
 /-- Keep the input and the two exits, with the dispatcher in the entry.
 The left arm unpacks the same sum again and uses both binder depths. -/
@@ -576,6 +587,8 @@ example (right : Bool) (n saved : Nat) (ambient : Env Runtime) :
     region model.raw (extend ambient packed) (packetLocalAdmission true).program.code =
       LiveOut.observe model projectedPorts noFields (projectedSource true) (twoInput right n saved) :=
   (packetLocalAdmission true).packed_tree model (twoInput right n saved) ambient
+
+example : (packetLocalAdmission true).acyclicCheck = false := by decide
 
 end ProjectedCaptures
 
