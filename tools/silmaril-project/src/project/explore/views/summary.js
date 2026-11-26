@@ -65,9 +65,13 @@ async function summary() {
   const proj = await tq("projects", "SELECT * FROM projects ORDER BY origin DESC, name LIMIT 50");
   const local = proj.find((p) => p.origin === "local");
   if (local?.root) await resolve([local], ["root"], HINTS, false);
+  const docs = SOURCE?.repo.toLowerCase() === "https://github.com/hiloopai/silmaril-lean"
+    ? repoFile("docs/projects/README.md") : null;
   const root = local?.root ? `<p class="index-root">Project root ${link("problem", local.root)} ${verdictBadge(local.root)}</p>` : "";
   let h = `<section class="index-intro"><h2>${esc(local?.name || "Project index")}</h2>` +
-    (local?.description ? `<p>${esc(local.description)}</p>` : "") + root + "</section>" + explorerIndex();
+    (local?.description ? `<p>${esc(local.description)}</p>` : "") +
+    (docs ? `<p><a href="${esc(docs.blob)}">Project documentation</a></p>` : "") +
+    root + "</section>" + explorerIndex();
   const idx = tables.has("problems") ? await problemIndex() : { list: [] };
   if (idx.tooLarge) h += `<p class="muted">${idx.tooLarge} problems: too many to classify here; use the problem list and SQL.</p>`;
   const problemsOnly = idx.list.filter((e) => e.kind !== "group");
