@@ -89,4 +89,21 @@ theorem left_identity_proof (input : StructuralContext β) (h : I ≠ [])
   intro ρ x
   rw [seq_run_proof, identity_run, pure_bind]
 
+theorem right_identity_proof (input : StructuralContext β) (h : J ≠ [])
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J) :
+    (checkedSetoid Φ (β.snoc (packedExitType I)) J).r (seq p (identity h)) p := by
+  apply reflect_run input
+  intro ρ x
+  rw [seq_run_proof]
+  simp only [identity_run, bind_pure]
+
+theorem associative_proof {L : LCtx (Ty Empty)} (input : StructuralContext β)
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J)
+    (q : CheckedTable Φ (β.snoc (packedExitType J)) K)
+    (r : CheckedTable Φ (β.snoc (packedExitType K)) L) :
+    (checkedSetoid Φ (β.snoc (packedExitType I)) L).r (seq (seq p q) r) (seq p (seq q r)) := by
+  apply reflect_run input
+  intro ρ x
+  simp only [seq_run_proof, bind_assoc]
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition

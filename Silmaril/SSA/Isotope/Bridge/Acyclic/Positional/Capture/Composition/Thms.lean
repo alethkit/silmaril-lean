@@ -3,12 +3,18 @@ module
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.Defs
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.Laws
 
-/-! # Native left identity for written linking on literal packed inputs -/
+/-! # Native category laws for written linking on literal packed inputs
+
+Objects are nonempty ordered lists of atom-free types. Individual payload
+types may be empty. The shared ambient context and primitive signature
+satisfy the finite structural assumptions of the ordered trace separator.
+-/
 
 public section
 
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition
 
+open CategoryTheory
 open Region (packedExitType)
 open Reverse (CheckedTable checkedSetoid)
 open LetCase.Structural.Finite (Context StructuralContext)
@@ -19,7 +25,7 @@ open scoped LetCase.Structural.Finite LetSeq.StraightLine.Structural
 local notation "Val" => LetCase.Structural.Finite.Value
 
 variable {Φ : Type} [LetCase.Structural.Finite.Signature Φ] {d : Nat}
-  {β : Context d} {I J K : LCtx (Ty Empty)}
+  {β : Context d} {I J K L : LCtx (Ty Empty)}
 
 /-- The actual linked CFG computes each stage once at the original
 ambient and input packet interface. -/
@@ -44,6 +50,13 @@ theorem seq_congr (input : StructuralContext β)
 def seqClass (input : StructuralContext β) : Hom Φ β I J → Hom Φ β J K → Hom Φ β I K :=
   Quotient.map₂ seq (fun {_ _} hp {_ _} hq => seq_congr input hp hq)
 
+/-- Composition at representatives uses the literal linked table. -/
+@[simp] theorem seqClass_mk (input : StructuralContext β)
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J)
+    (q : CheckedTable Φ (β.snoc (packedExitType J)) K) :
+    seqClass input (Quotient.mk _ p) (Quotient.mk _ q) = Quotient.mk _ (seq p q) := by
+  simp only [seqClass, Quotient.map₂_mk]
+
 /-- The checked decoder is a left identity by native replay at the literal
 packed endpoints of the linked and original written graphs. -/
 theorem left_identity_replay (input : StructuralContext β) (h : I ≠ [])
@@ -60,5 +73,50 @@ theorem left_identity (input : StructuralContext β) (h : I ≠ []) (q : Hom Φ 
   Quotient.inductionOn q fun r => by
     rw [seqClass, Quotient.map₂_mk]
     exact Quotient.sound (left_identity_replay input h r)
+
+/-- The checked decoder is a right identity at the literal packed endpoints. -/
+theorem right_identity_replay (input : StructuralContext β) (h : J ≠ [])
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J) :
+    let linked := seq p (identity h)
+    ReplayEqv false (β.snoc (packedExitType I)).toList
+      (linked.table.packedSSA 0 linked.entry) (p.table.packedSSA 0 p.entry) [packedExitType J] :=
+  right_identity_proof input h p
+
+/-- Sequencing the written identity after a representative preserves its class. -/
+theorem right_identity (input : StructuralContext β) (h : J ≠ []) (p : Hom Φ β I J) :
+    seqClass input p (Quotient.mk _ (identity h)) = p :=
+  Quotient.inductionOn p fun r => by
+    rw [seqClass, Quotient.map₂_mk]
+    exact Quotient.sound (right_identity_replay input h r)
+
+/-- Both written associations replay to each other at their original packed
+input and ordered output. The three tables retain their own global checks. -/
+theorem associative_replay (input : StructuralContext β)
+    (p : CheckedTable Φ (β.snoc (packedExitType I)) J)
+    (q : CheckedTable Φ (β.snoc (packedExitType J)) K)
+    (r : CheckedTable Φ (β.snoc (packedExitType K)) L) :
+    let left := seq (seq p q) r
+    let right := seq p (seq q r)
+    ReplayEqv false (β.snoc (packedExitType I)).toList
+      (left.table.packedSSA 0 left.entry) (right.table.packedSSA 0 right.entry) [packedExitType L] :=
+  associative_proof input p q r
+
+/-- Written linking is associative on the native packed replay quotient. -/
+theorem associative (input : StructuralContext β)
+    (p : Hom Φ β I J) (q : Hom Φ β J K) (r : Hom Φ β K L) :
+    seqClass input (seqClass input p q) r = seqClass input p (seqClass input q r) :=
+  Quotient.inductionOn₃ p q r fun p₀ q₀ r₀ => by
+    simp only [seqClass, Quotient.map₂_mk]
+    exact Quotient.sound (associative_replay input p₀ q₀ r₀)
+
+/-- The category uses the existing native packed replay classes as homs,
+the written decoder as identity, and the written checked linker as composition. -/
+instance (input : StructuralContext β) : Category (Interface Φ β input) where
+  Hom I J := Hom Φ β I.exits J.exits
+  id I := Quotient.mk _ (identity I.nonempty)
+  comp p q := seqClass input p q
+  id_comp p := left_identity input _ p
+  comp_id p := right_identity input _ p
+  assoc p q r := associative input p q r
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition
