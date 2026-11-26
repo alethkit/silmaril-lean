@@ -482,6 +482,11 @@ globs = ["tests.ssa.PEG"]
 name = "PEGIRBridgeTests"
 globs = ["tests.ssa.PEGIRBridge"]
 
+# Check PEG lowering into the existing λRTL region and flat CFG evaluators.
+[[lean_lib]]
+name = "PEGForwardCFGTests"
+globs = ["tests.ssa.PEGForwardCFG"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"
