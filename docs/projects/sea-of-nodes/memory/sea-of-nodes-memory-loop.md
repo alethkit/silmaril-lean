@@ -1364,6 +1364,40 @@ singleton address cases. [Runnable coverage regression](../../../../Silmaril/Pro
 lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.Regression
 ```
 
+##### Composing checked lifts
+
+For capture maps `h : P ⟶ Q` and `k : Q ⟶ R`,
+`inReductImage_comp_iff_lift` characterizes composite image membership.
+There must be an intermediate valuation that reduces along `h` to the
+source and that `liftInput? k` accepts. `liftThrough? h k entry`
+checks the composite, then pulls the resulting target valuation back
+along `k` to construct that intermediate entry. Both returned entries
+carry the source's initialized heap. `liftThrough?_sound` gives the
+two exact entry reduct equations. [Checked lift API](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/Thms.lean)
+
+`Backend.satisfaction_liftThrough` transports a staged re-emission's
+equation or termination sentence at a recovered target model to the
+source model. The law applies to the numbered, MemRef and coloured
+rooms at the checked entries. Global truth remains relative to the
+reduct image. [Satisfaction transport](../../../../Silmaril/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Triple/Satisfaction/Institution/Thms.lean)
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Triple.Satisfaction.Institution.Thms
+```
+
+The first map in the regression inserts a spare word and the second
+identifies it with the right store port. The first lift alone fills the
+spare with `0`, so the second checker rejects it beside the store's
+`22`. The composite lift succeeds, and its second reduct fills the
+intermediate spare with `22`. Both re-emitted MemRef chains run from
+the recovered entry and return `(3, 3, 22)` with the complete final
+heap `[11, 73, 11, 3, 91, 22]`.
+[Runnable regression](../../../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Loop/TwoAddress/Institution/Sequential/Linked/Satisfaction/ReductImage/Check/CompositionRegression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Linked.Satisfaction.ReductImage.Check.CompositionRegression
+```
+
 ### Equations for coloured Petri completion
 
 `petriHolds` compares the two emitted graphs' finite completions for

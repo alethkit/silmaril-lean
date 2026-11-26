@@ -17,6 +17,8 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.
 open CategoryTheory Silmaril.Logic.Institution
 open RVSDG (Tuple)
 open RVSDG.NestedTheta.Institution
+open CarriedAddress.Institution.RuntimeEntry (Entry)
+open Linked.Satisfaction.ReductImage (liftThrough? liftThrough?_sound)
 open Memory.Diamond.Institution (reduct reduct_id reduct_comp)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
@@ -48,6 +50,18 @@ theorem Backend.satisfaction_map (backend : Backend) (h : P ⟶ Q) (s : Sentence
     backend.Holds (s.map h) model ↔ backend.Holds s (reduct h model) :=
   (backend.holds_iff_numbered (s.map h) model).trans
     ((s.satisfaction_map h model).trans (backend.holds_iff_numbered s (reduct h model)).symm)
+
+/-- Satisfaction of the staged re-emission at a checked target entry
+agrees with source satisfaction at the lifted valuation's reduct. -/
+theorem Backend.satisfaction_liftThrough (backend : Backend) (h : P ⟶ Q) (k : Q ⟶ R)
+    (s : Sentence P) {cells : Nat} {entry : Entry P.args cells} {between : Entry Q.args cells}
+    {target : Entry R.args cells} (lifted : liftThrough? h k entry = some (between, target)) :
+    backend.Holds ((s.map h).map k) target.model ↔ backend.Holds s entry.model := by
+  have stages := liftThrough?_sound h k lifted
+  have pulled : reduct h (reduct k target.model) = entry.model :=
+    congrArg (Entry.model (P := P)) ((congrArg (Entry.reduct h) stages.2).trans stages.1)
+  exact (backend.satisfaction_map k (s.map h) target.model).trans
+    ((backend.satisfaction_map h s (reduct k target.model)).trans (iff_of_eq (congrArg (backend.Holds s) pulled)))
 
 /-- Re-emit sentences along a typed port map and pull valuations back along it. -/
 def corridor (backend : Backend) (h : P ⟶ Q) : room backend P ⟶ room backend Q :=
