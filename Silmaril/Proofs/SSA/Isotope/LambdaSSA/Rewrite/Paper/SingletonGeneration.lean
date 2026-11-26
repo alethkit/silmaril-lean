@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Generation.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Product.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Generation.Domain.Interpretation.Thms
 
 /-! # Uniqueness on generated contextual singleton computations -/
 
@@ -74,31 +75,10 @@ theorem mapInCoordinates_eq_of_generated (T : Coordinates X)
     (hp : ∀ p : Φ, mapInCoordinates Seed F objIso (primitive Seed p) = mapInCoordinates Seed G otherIso (primitive Seed p))
     {A B : τ} {f : Obj A ⟶ Obj B} (hf : Generated Seed f) :
     mapInCoordinates Seed F objIso f = mapInCoordinates Seed G otherIso f := by
-  induction hf with
-  | id A => simp
-  | comp _ _ ihf ihg => rw [mapInCoordinates_comp, mapInCoordinates_comp, ihf, ihg]
-  | inv i _ ih =>
-    have : IsIso (mapInCoordinates Seed G otherIso i.hom) := by
-      unfold mapInCoordinates
-      infer_instance
-    apply (cancel_mono (mapInCoordinates Seed G otherIso i.hom)).mp
-    calc
-      _ = mapInCoordinates Seed F objIso (i.inv ≫ i.hom) := by rw [mapInCoordinates_comp, ih]
-      _ = mapInCoordinates Seed G otherIso (i.inv ≫ i.hom) := by simp
-      _ = _ := by rw [mapInCoordinates_comp]
-  | discard A => rw [hF.discard, hG.discard]
-  | fst A B => rw [hF.fst, hG.fst]
-  | snd A B => rw [hF.snd, hG.snd]
-  | copy A => rw [hF.copy, hG.copy]
-  | primitive p => exact hp p
-  | initial f => exact T.initial.hom_ext _ _
-  | inl A B => rw [hF.inl, hG.inl]
-  | inr A B => rw [hF.inr, hG.inr]
-  | copair _ _ ihf ihg => rw [mapInCoordinates_exactCopair Seed F objIso T hF,
-      mapInCoordinates_exactCopair Seed G otherIso T hG, ihf, ihg]
-  | left Y _ ih => rw [hF.left, hG.left, ih]
-  | right Y _ ih => rw [hF.right, hG.right, ih]
-  | iterate _ ih => rw [hF.iterate, hG.iterate, ih]
+  let left := Domain.Interpretation.restrict Seed F objIso hF
+    (instruction := fun p => mapInCoordinates Seed F objIso (primitive Seed p)) (fun _ => rfl)
+  let right := Domain.Interpretation.restrict Seed G otherIso hG (fun p => (hp p).symm)
+  exact Domain.Interpretation.map_eq Seed left right (Domain.ofGenerated Seed hf)
 
 set_option backward.isDefEq.respectTransparency false in
 /-- The specified object isomorphisms form a naturality square on every
