@@ -7,12 +7,14 @@ import Silmaril.SSA.PEG.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Thms
 import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Thms
+import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Conditional.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 meta import Silmaril.SSA.PEG.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Defs
 meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Defs
+meta import Silmaril.SSA.PEG.Simple.Structured.Completion.Token.Nested.Conditional.Defs
 meta import Silmaril.SSA.PEG.Simple.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Defs
 
@@ -27,6 +29,7 @@ private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | mul : Op [.count, .count] .count
   | pred : Op [.count] .count
   | positive : Op [.count] .bool
+  | odd : Op [.count] .bool
   | not : Op [.bool] .bool
   | bad : Op [] .count
 
@@ -37,6 +40,7 @@ private def model : Interpretation Op where
     | .mul, .cons a (.cons b .nil) => some ⟨a.down * b.down⟩
     | .pred, .cons a .nil => some ⟨a.down - 1⟩
     | .positive, .cons a .nil => some ⟨decide (0 < a.down)⟩
+    | .odd, .cons a .nil => some ⟨a.down % 2 == 1⟩
     | .not, .cons a .nil => some ⟨!a.down⟩
     | .bad, _ => none
 
@@ -465,17 +469,19 @@ private def outerResult (acc : Nat) : Nat → Nat
   | 0 => acc
   | k + 1 => outerResult (innerResult acc (k + 1)) k
 
+private theorem outerStep (acc k : Nat) :
+    Exec model outerBody (triple acc (k + 1) 0) (some (triple (innerResult acc (k + 1)) k 0)) :=
+  .seq (next := triple acc (k + 1) (k + 1)) .project
+    (.seq (next := triple (innerResult acc (k + 1)) (k + 1) 0) (innerExec acc (k + 1) (k + 1))
+      (.seq (next := prependCount k (triple (innerResult acc (k + 1)) (k + 1) 0))
+        (.assign rfl) .project))
+
 private theorem outerExec (acc k : Nat) :
     Exec model (.while rfl outerTest outerBody) (triple acc k 0)
       (some (triple (outerResult acc k) 0 0)) := by
   induction k generalizing acc with
   | zero => exact .whileStop rfl
-  | succ k ih =>
-    apply Exec.whileStep (next := triple (innerResult acc (k + 1)) k 0) rfl ?_ (ih _)
-    exact .seq (next := triple acc (k + 1) (k + 1)) .project
-      (.seq (next := triple (innerResult acc (k + 1)) (k + 1) 0) (innerExec acc (k + 1) (k + 1))
-        (.seq (next := prependCount k (triple (innerResult acc (k + 1)) (k + 1) 0))
-          (.assign rfl) .project))
+  | succ k ih => exact .whileStep rfl (outerStep acc k) (ih _)
 
 /-- The inner loop's trip count is the current outer counter. For an outer
 input of three the inner exits occur at three, two and one, respectively. -/
@@ -515,6 +521,40 @@ example : nestedLoops.Returns model (triple 0 2 0) ⟨4⟩ := by
   obtain ⟨value, returned, roots⟩ :=
     nestedToken.returns_of_completion .not model _ (fun _ => rfl) nestedTokenBase done
   rw [nestedTokenReturns] at roots
+  have eq := congrArg (fun xs : Tuple (fun t => Option (model.Value t)) [.count, .bool] =>
+    xs.get .head) roots
+  cases Option.some.inj eq
+  exact returned
+
+private def conditionalToken : Structured.Token.Nested.Conditional.Form Op [.count, .count, .count]
+    [.count, .count, .count] .count where
+  parent := nestedToken
+  selectChild := .op .odd (.cons (.var (.tail .head)) .nil)
+  skip := Structured.Token.Body.ofStmt outerCommit
+
+-- Take with child count three, skip at two, then take with fresh count
+-- one. The skipped step retains accumulator six.
+private theorem mixedTrace : WhileTrace model outerTest conditionalToken.step 3
+    (triple 0 3 0) (triple 7 0 0) :=
+  .step (next := triple 6 2 0) rfl (.branchTrue rfl (outerStep 0 2))
+    (.step (next := triple 6 1 0) rfl
+      (.branchFalse rfl (outerCommit.runLoopFree_enableWhile (triple 6 2 0)))
+      (.step (next := triple 7 0 0) rfl (.branchTrue rfl (outerStep 6 0)) (.stop rfl)))
+
+private def conditionalBase : Index (conditionalToken.program .not).nodes.length := fun _ => 0
+
+private theorem mixedObservation :
+    conditionalToken.observe .not model (triple 0 3 0) conditionalBase =
+      .cons (some ⟨7⟩) (.cons (some ⟨true⟩) .nil) :=
+  conditionalToken.observe_of_returns .not model _ (fun _ => rfl) conditionalBase
+    ⟨triple 7 0 0, mixedTrace.exec, rfl⟩
+
+example : conditionalToken.source.Returns model (triple 0 3 0) ⟨7⟩ := by
+  have done : ((conditionalToken.observe .not model (triple 0 3 0) conditionalBase).get
+      (.tail .head)).isSome := by rw [mixedObservation]; rfl
+  obtain ⟨value, returned, roots⟩ :=
+    conditionalToken.returns_of_completion .not model _ (fun _ => rfl) conditionalBase done
+  rw [mixedObservation] at roots
   have eq := congrArg (fun xs : Tuple (fun t => Option (model.Value t)) [.count, .bool] =>
     xs.get .head) roots
   cases Option.some.inj eq
@@ -1164,5 +1204,123 @@ example : (fixture.observe .not model (input true) base).get .head = some ⟨fal
 -- The same child input would fail if the body were entered.
 example : fixture.observe .not model (input false) base = .cons (some ⟨false⟩) (.cons (some ⟨true⟩) .nil) :=
   fixture.observe_of_returns .not model _ (fun _ => rfl) base ⟨input false, .whileStop rfl, rfl⟩
+
+private def finish : Body Op [.bool, .bool] [.bool, .bool] :=
+  .seq (.assign (.op .off .nil)) (.project (.cons .head (.cons .head .nil)))
+
+private def choiceFixture : Conditional.Form Op [.bool, .bool] [.bool] .bool where
+  parent := { fixture with capture := .cons .head .nil }
+  selectChild := .var (.tail .head)
+  skip := finish
+
+private def choiceInput (take : Bool) : Tuple model.Value [.bool, .bool] :=
+  .cons ⟨true⟩ (.cons ⟨take⟩ .nil)
+
+private def stopStore : Tuple model.Value [.bool, .bool] :=
+  .cons ⟨false⟩ (.cons ⟨false⟩ .nil)
+
+private def choiceGraph : Graph (Opcode Op) [.bool, .bool] [.bool, .bool] 28 28 :=
+  choiceFixture.translate .not
+private def choiceBase : Index 28 := fun _ => 0
+
+private def cr (i : Fin 28) {t : Ty Unit} (typed : choiceGraph.sort i = t) : Ref choiceGraph.sort t :=
+  ⟨i, typed⟩
+
+private noncomputable def choiceValues (take : Bool) : choiceGraph.Valuation tokenModel :=
+  choiceFixture.values .not model (choiceInput take)
+
+private theorem choiceSolved (take : Bool) : choiceGraph.Solves tokenModel (choiceInput take) (choiceValues take) :=
+  choiceGraph.denote_solves tokenModel (choiceInput take) (choiceFixture.translate_demandWellFounded .not)
+
+-- The child contains an actually bottom strict operation even on the
+-- input whose branch skips the entire activation.
+example : readRef (choiceValues false) (cr 19 (t := .count) rfl) choiceBase = none :=
+  Rules.at_label (choiceSolved false) (r := cr 19 rfl) (label := .op (.source Op.bad)) (args := .nil)
+    HEq.rfl choiceBase
+
+example : choiceFixture.observe .not model (choiceInput false) choiceBase =
+    .cons (some ⟨false⟩) (.cons (some ⟨true⟩) .nil) :=
+  choiceFixture.observe_of_returns .not model _ (fun _ => rfl) choiceBase
+    ⟨stopStore, .whileStep rfl (.branchFalse rfl (finish.source.runLoopFree_enableWhile (choiceInput false)))
+      (.whileStop rfl), rfl⟩
+
+private theorem choiceTheta : Rules.HasNode (g := choiceGraph) (cr 23 (t := .bool) rfl) (.theta 3)
+    (.cons (cr 26 rfl) (.cons (cr 6 rfl) .nil)) := HEq.rfl
+
+private theorem choiceLatchZero :
+    readRef (choiceValues true) (cr 23 (t := .bool) rfl) (choiceBase.set 3 0) = some ⟨true⟩ := by
+  have param : Rules.HasNode (g := choiceGraph) (cr 26 (t := .bool) rfl) (.param .head) .nil := HEq.rfl
+  exact (Rules.theta_zero (choiceSolved true) choiceTheta rfl).trans
+    (Rules.at_label (choiceSolved true) param _)
+
+private theorem choiceLatchOne :
+    readRef (choiceValues true) (cr 23 (t := .bool) rfl) (choiceBase.set 3 1) = some ⟨false⟩ := by
+  have eq := choiceSolved true
+  have selected : Rules.HasNode (g := choiceGraph) (cr 24 (t := .bool) rfl) (.theta 3)
+    (.cons (cr 27 rfl) (.cons (cr 7 rfl) .nil)) := HEq.rfl
+  have param : Rules.HasNode (g := choiceGraph) (cr 27 (t := .bool) rfl) (.param (.tail .head)) .nil := HEq.rfl
+  have flag : readRef (choiceValues true) (cr 24 (t := .bool) rfl) (choiceBase.set 3 0) = some ⟨true⟩ :=
+    (Rules.theta_zero eq selected rfl).trans (Rules.at_label eq param _)
+  have join : Rules.HasNode (g := choiceGraph) (cr 6 (t := .bool) rfl) .phi
+    (.cons (cr 24 rfl) (.cons (cr 11 rfl) (.cons (cr 9 rfl) .nil))) := HEq.rfl
+  have off : Rules.HasNode (g := choiceGraph) (cr 11 (t := .bool) rfl) (.op (.source Op.off)) .nil := HEq.rfl
+  have reset : (choiceBase.set 3 1).set 3 0 = choiceBase.set 3 0 := by
+    funext j
+    by_cases h : j = 3 <;> simp [Index.set, h]
+  rw [Rules.theta_succ eq choiceTheta rfl, reset, Rules.phi_at eq join, flag]
+  exact Rules.at_label eq off _
+
+private theorem choicePass :
+    readRef (choiceValues true) (cr 3 (t := .count) rfl) choiceBase = some ⟨1⟩ := by
+  have eq := choiceSolved true
+  have pass : Rules.HasNode (g := choiceGraph) (cr 3 (t := .count) rfl) (.pass 3)
+    (.cons (cr 4 rfl) .nil) := HEq.rfl
+  have neg : Rules.HasNode (g := choiceGraph) (cr 4 (t := .bool) rfl) (.op (.source Op.not))
+    (.cons (cr 23 rfl) .nil) := HEq.rfl
+  rw [Rules.pass_at eq pass]
+  let flags := fun j => (readRef (choiceValues true) (cr 4 (t := .bool) rfl) (choiceBase.set 3 j)).map ULift.down
+  have first : firstTrue flags = some 1 := (firstTrue_eq_some_iff_samples _ _).mpr
+    ⟨by
+      unfold flags
+      rw [Rules.unary_at eq neg, choiceLatchOne]
+      rfl,
+    fun j lt => by
+      have zero : j = 0 := by omega
+      subst j
+      unfold flags
+      rw [Rules.unary_at eq neg, choiceLatchZero]
+      rfl⟩
+  change (firstTrue flags).map ULift.up = _
+  rw [first]
+  rfl
+
+private theorem choiceData : (choiceFixture.observe .not model (choiceInput true) choiceBase).get .head =
+    some ⟨false⟩ := by
+  change readRef (choiceValues true) (cr 1 (t := .bool) rfl) choiceBase = _
+  have eval : Rules.HasNode (g := choiceGraph) (cr 1 (t := .bool) rfl) (.eval 3)
+    (.cons (cr 23 rfl) (.cons (cr 3 rfl) .nil)) := HEq.rfl
+  rw [Rules.eval_at (choiceSolved true) eval, choicePass]
+  change monotonize (fun j => readRef (choiceValues true) (cr 23 (t := .bool) rfl)
+    (choiceBase.set 3 j)) 1 = _
+  exact (monotonize_eq_some_iff _ _ _).mpr ⟨choiceLatchOne, fun j lt => by
+    have zero : j = 0 := by omega
+    subst j
+    rw [choiceLatchZero]
+    rfl⟩
+
+example : (choiceFixture.observe .not model (choiceInput true) choiceBase).get .head = some ⟨false⟩ ∧
+    (choiceFixture.observe .not model (choiceInput true) choiceBase).get (.tail .head) = none := by
+  refine ⟨choiceData, ?_⟩
+  have failed : choiceFixture.source.Fails model (choiceInput true) :=
+    .whileBodyFailed rfl (.branchTrue rfl
+      (.seq .project (.firstFailed (.whileBodyFailed rfl (.firstFailed (.assignFailed rfl))))))
+  cases observed : (choiceFixture.observe .not model (choiceInput true) choiceBase).get (.tail .head) with
+  | none => rfl
+  | some token =>
+    have done : ((choiceFixture.observe .not model (choiceInput true) choiceBase).get (.tail .head)).isSome := by
+      rw [observed]
+      rfl
+    obtain ⟨_, ⟨_, ran, _⟩, _⟩ := choiceFixture.returns_of_completion .not model _ (fun _ => rfl) choiceBase done
+    cases failed.deterministic ran
 
 end Silmaril.SSA.PEG.Simple.Structured.Token.Nested.Tests

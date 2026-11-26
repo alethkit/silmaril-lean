@@ -21,6 +21,90 @@ variable {outer child before all : List (Ty Data)} {t : Ty Data}
 variable {m : Interpretation.{u,v,w} P} {env : Tuple m.Value outer}
 variable {read : Reads (model m) all} {active : List (Fin all.length)}
 
+/-- The child and commit share one activation boundary. The input is the
+realized old outer tuple at that coordinate, including its incoming token. -/
+theorem activationFacts (f : Form P outer child t) (neg : P [.bool] .bool)
+    (negSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ctx : Tuple (Port before) (.bool :: outer))
+    (v : View (model m) env read active (f.activation neg ctx).code)
+    (i : Index all.length) (store : Tuple m.Value outer)
+    (entry : RealizesOn read (fun r => v.embed ((f.activation neg ctx).code.lift r))
+      ctx (pack m store) active i) :
+    let refs := (f.activation neg ctx).refs
+    (∀ {final}, Exec m f.step store (some final) →
+      RealizesOn read v.embed refs (pack m final) active i) ∧
+    ((read (v.embed (refs.get .head)) i).isSome → ∃ final,
+      Exec m f.step store (some final) ∧ RealizesOn read v.embed refs (pack m final) active i ∧
+      ∃ count : Nat, read (v.left.embed (passRef (.bool :: child))) i = some ⟨count⟩ ∧
+        read (v.left.embed (portLeft .head)) i = some ⟨true⟩) := by
+  let call := f.childRegion neg ctx
+  let post := f.commit.lower (params := outer) call.refs
+  change View (model m) env read active (.seq call.code (.straight post.code)) at v
+  let cv := v.left
+  let pv := v.right
+  let childFacts := loopFreeFacts f.childGuard f.childBody neg cv
+  have captureAligned :
+      RealizesOn read (fun r => cv.embed (call.code.lift r)) (captureRefs f.capture ctx)
+        (pack m (select store f.capture)) active i := by
+    intro j agree ty slot
+    cases slot with
+    | head => exact entry j agree _ .head
+    | tail p =>
+      change read (cv.embed (call.code.lift ((select (tail ctx) f.capture).get p))) j =
+        some ((select store f.capture).get p)
+      rw [get_select, get_select]
+      have ref : (tail ctx).get (f.capture.get p) = ctx.get (.tail (f.capture.get p)) := by
+        cases ctx
+        rfl
+      rw [ref]
+      exact entry j agree _ (.tail (f.capture.get p))
+  have commitAt {final : Tuple m.Value child}
+      (exits : RealizesOn read cv.embed call.refs (pack m final) active i) :
+      match f.commit.source.runLoopFree m final with
+      | none => ∀ j, Agrees active i j → read (v.embed (post.refs.get .head)) j = none
+      | some next => RealizesOn read v.embed post.refs (pack m next) active i :=
+    sliceExact f.commit call.refs pv final exits
+  constructor
+  · intro result run
+    cases run with
+    | seq project rest =>
+      cases project
+      cases rest with
+      | seq childRun committed =>
+        obtain ⟨_, trace⟩ := childRun.while_trace
+        have exits := (LoopFacts.ofTrace cv childFacts negSem captureAligned trace).1
+        have eq := (f.commit.source.runLoopFree_enableWhile _).deterministic committed
+        have realized := commitAt exits
+        rw [eq] at realized
+        exact realized
+  · intro complete
+    have childComplete : (read (cv.embed (portLeft .head)) i).isSome := by
+      cases token : read (cv.embed (portLeft .head)) i with
+      | some b => rfl
+      | none =>
+        have noToken : read (v.embed (post.refs.get .head)) i = none := by
+          apply sliceBottom f.commit call.refs pv
+          change read (cv.embed (call.refs.get .head)) i = none
+          simpa only [call, Form.childRegion, loop, get_map, ports_get] using token
+        change (read (v.embed (post.refs.get .head)) i).isSome at complete
+        rw [noToken] at complete
+        cases complete
+    obtain ⟨count, childFinal, trace, pass, _⟩ :=
+      LoopFacts.ofCompletion cv childFacts negSem captureAligned childComplete
+    have exits := (LoopFacts.ofTrace cv childFacts negSem captureAligned trace).1
+    have atCommit := commitAt exits
+    change (read (v.embed (post.refs.get .head)) i).isSome at complete
+    cases ran : f.commit.source.runLoopFree m childFinal with
+    | none =>
+      rw [ran] at atCommit
+      rw [atCommit _ (agrees_self active i)] at complete
+      cases complete
+    | some final =>
+      rw [ran] at atCommit
+      have commitRun := ran ▸ f.commit.source.runLoopFree_enableWhile childFinal
+      have marker := exits i (agrees_self active i) _ .head
+      exact ⟨final, .seq .project (.seq trace.exec commitRun), atCommit, ⟨count, pass, marker⟩⟩
+
 theorem nestedFacts (f : Form P outer child t) (neg : P [.bool] .bool)
     (negSem : ∀ b : Bool, m.run neg (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
     {init : Tuple (Port before) (.bool :: outer)}
@@ -31,86 +115,14 @@ theorem nestedFacts (f : Form P outer child t) (neg : P [.bool] .bool)
       read (cv.embed (portLeft .head)) j = some ⟨true⟩) := by
   let test := loopTest f.guard outer before
   let ctx := test.code.liftRefs (loopSlots outer before)
-  let call := f.childRegion neg ctx
-  let post := f.commit.lower (params := outer) call.refs
-  let steps := Code.seq call.code (.straight post.code)
-  change View (model m) env read active
-    (.loop init (.seq (.straight test.code) steps)
-      (steps.lift (test.refs.get .head)) post.refs (.source neg)) at v
-  let cv := v.inner.right.left
-  let pv := v.inner.right.right
-  let childFacts := loopFreeFacts f.childGuard f.childBody neg cv
-  have captures {i k store} (aligned : AtIteration v i k (pack m store)) :
-      RealizesOn read (fun r => cv.embed (call.code.lift r)) (captureRefs f.capture ctx)
-        (pack m (select store f.capture)) (v.key :: active) (i.set v.key k) := by
-    intro j agree ty slot
-    have position (p : Port (.bool :: outer) ty) :
-        (ctx.get p) = test.code.lift (portLeft p) := by
-      simp only [ctx, Simple.Code.liftRefs, loopSlots, get_map, ports_get]
-    have alignedAt (p : Port (.bool :: outer) ty) :
-        read (v.inner.embed (steps.lift (ctx.get p))) j = some ((pack m store).get p) := by
-      rw [position]
-      simpa only [get_map, ports_get, Code.lift, steps] using aligned j agree ty p
-    cases slot with
-    | head => exact alignedAt .head
-    | tail p =>
-      change read (v.inner.embed (steps.lift ((select (tail ctx) f.capture).get p))) j =
-        some ((select store f.capture).get p)
-      rw [get_select, get_select]
-      have ref : (tail ctx).get (f.capture.get p) = ctx.get (.tail (f.capture.get p)) := by
-        generalize ctx = xs
-        cases xs
-        rfl
-      rw [ref]
-      exact alignedAt (.tail (f.capture.get p))
-  have commitAt {i : Index all.length} {k : Nat} {final : Tuple m.Value child}
-      (exits : RealizesOn read cv.embed call.refs (pack m final) (v.key :: active) (i.set v.key k)) :
-      match f.commit.source.runLoopFree m final with
-      | none => ∀ j, Agrees (v.key :: active) (i.set v.key k) j →
-          read (v.inner.embed (post.refs.get .head)) j = none
-      | some next => RealizesOn read v.inner.embed post.refs (pack m next)
-          (v.key :: active) (i.set v.key k) :=
-    sliceExact f.commit call.refs pv final exits
-  refine ⟨fun aligned j agree => guardAligned f.guard steps v aligned j agree, ?_, ?_⟩
-  · intro i k store result aligned run
-    cases run with
-    | seq project rest =>
-      cases project
-      cases rest with
-      | seq childRun committed =>
-        obtain ⟨_, trace⟩ := childRun.while_trace
-        have exits := (LoopFacts.ofTrace cv childFacts negSem (captures aligned) trace).1
-        have eq := (f.commit.source.runLoopFree_enableWhile _).deterministic committed
-        have realized := commitAt (i := i) (k := k) exits
-        rw [eq] at realized
-        exact realized
-  · intro i k store aligned complete
-    let point := i.set v.key k
-    have childComplete : (read (cv.embed (portLeft .head)) point).isSome := by
-      cases token : read (cv.embed (portLeft .head)) point with
-      | some b => rfl
-      | none =>
-        have noToken : read (v.inner.embed (post.refs.get .head)) point = none := by
-          apply sliceBottom f.commit call.refs pv
-          change read (cv.embed (call.refs.get .head)) point = none
-          simpa only [call, Form.childRegion, loop, get_map, ports_get] using token
-        change (read (v.inner.embed (post.refs.get .head)) point).isSome at complete
-        rw [noToken] at complete
-        cases complete
-    obtain ⟨count, childFinal, trace, pass, _⟩ :=
-      LoopFacts.ofCompletion cv childFacts negSem (captures aligned) childComplete
-    have exits := (LoopFacts.ofTrace cv childFacts negSem (captures aligned) trace).1
-    have atCommit := commitAt (i := i) (k := k) exits
-    cases ran : f.commit.source.runLoopFree m childFinal with
-    | none =>
-      rw [ran] at atCommit
-      rw [atCommit _ (agrees_self (v.key :: active) point)] at complete
-      cases complete
-    | some final =>
-      rw [ran] at atCommit
-      have commitRun := ran ▸ f.commit.source.runLoopFree_enableWhile childFinal
-      have marker := exits point (agrees_self (v.key :: active) point) _ .head
-      exact ⟨final, .seq .project (.seq trace.exec commitRun), atCommit, ⟨count, pass, marker⟩⟩
+  let step := f.activation neg ctx
+  change View (model m) env read active (.loop init (.seq (.straight test.code) step.code)
+    (step.code.lift (test.refs.get .head)) step.refs (.source neg)) at v
+  have atActivation {i k store} (aligned : AtIteration v i k (pack m store)) :=
+    activationFacts f neg negSem ctx v.inner.right (i.set v.key k) store
+      (loopScopeAligned f.guard step.code v aligned)
+  exact ⟨fun aligned j agree => guardAligned f.guard step.code v aligned j agree,
+    fun aligned run => (atActivation aligned).1 run, fun aligned done => (atActivation aligned).2 done⟩
 
 theorem correspondence (f : Form P outer child t) (neg : P [.bool] .bool)
     (m : Interpretation.{u,v,w} P) (env : Tuple m.Value outer)

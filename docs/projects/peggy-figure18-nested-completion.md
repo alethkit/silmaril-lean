@@ -38,6 +38,7 @@ when the parent takes zero trips with the same child input.
 
 The fragment has one outer loop and one child, with projection-only
 captures. It covers successful completion and uses bottom as the common
-absence of completion for failures and divergence. Arbitrary nesting,
-conditional child placement, and general effect-token semantics remain
-outside the result.
+absence of completion for failures and divergence. Arbitrary nesting
+and general effect-token semantics remain outside the result. The
+[conditional-child extension](peggy-figure18-conditional-child.md)
+handles one child in a selected outer arm.

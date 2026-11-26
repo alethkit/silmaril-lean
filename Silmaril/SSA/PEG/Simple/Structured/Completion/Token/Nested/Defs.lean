@@ -42,13 +42,17 @@ def Form.childRegion (ctx : Tuple (Port before) (.bool :: outer)) :
     Build (Opcode P) outer before (.bool :: child) :=
   loop f.childGuard f.childBody neg (captureRefs f.capture ctx)
 
+def Form.activation (ctx : Tuple (Port before) (.bool :: outer)) :
+    Build (Opcode P) outer before (.bool :: outer) :=
+  let inner := f.childRegion neg ctx
+  inner.thenBuild (.straight (f.commit.lower inner.refs))
+
 def Form.region (init : Tuple (Port before) (.bool :: outer)) :
     Build (Opcode P) outer before (.bool :: outer) :=
   let test := loopTest f.guard outer before
-  let inner := f.childRegion neg (test.code.liftRefs (loopSlots outer before))
-  let post := f.commit.lower inner.refs
-  ⟨_, .loop init (.seq (.straight test.code) (.seq inner.code (.straight post.code)))
-    (post.code.lift (inner.code.lift (test.refs.get .head))) post.refs (.source neg),
+  let step := f.activation neg (test.code.liftRefs (loopSlots outer before))
+  ⟨_, .loop init (.seq (.straight test.code) step.code)
+    (step.code.lift (test.refs.get .head)) step.refs (.source neg),
     (ports (.bool :: outer)).map fun _ p => portLeft p⟩
 
 def Form.program : Build (Opcode P) outer [] [t, .bool] :=
