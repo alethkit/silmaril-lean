@@ -60,6 +60,7 @@ private def detail : AssertionArgument → String
   | .textPair left right =>
     s!"text-pair:{reprStr (left.points.map UInt32.toNat)}:{reprStr (right.points.map UInt32.toNat)}"
   | .tuplePair left right => s!"tuple-pair:{reprStr left}:{reprStr right}"
+  | .dictionaryPair left right => s!"dictionary-pair:{reprStr left}:{reprStr right}"
   | .emptyTuple => "tuple:()"
   | .listObject object => s!"list:{reprStr object.contents}"
 

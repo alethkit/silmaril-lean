@@ -83,6 +83,11 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
     some <| match operand.evalIn globals source.heap.project source.frame with
     | .ok value => resumeStore source destination value next stack
     | .error error => fail source.heap stack error
+  | .running source (.storeDictionary destination entries next) stack =>
+    let address := source.heap.next
+    let heap := (source.heap.reserve 1).bind ⟨address⟩
+      (.dictionaryData (Core.Module.Dictionary.build entries)) (Nat.lt_succ_self address)
+    some (resumeStore { source with heap } (.local destination) (.dictionary ⟨address⟩) next stack)
   | .running source (.assert test next) stack =>
     some <| match test.evalIn globals source.heap.project source.frame with
     | .ok value =>

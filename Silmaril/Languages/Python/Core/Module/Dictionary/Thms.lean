@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Module.Dictionary.Defs
+import Silmaril.Proofs.Languages.Python.Core.Module.Dictionary.Equality
 
 public section
 
@@ -16,6 +17,21 @@ theorem insert_keeps {first entry : Entry} (rest : List Entry)
 
 theorem build_snoc (display : List Entry) (entry : Entry) :
     build (display ++ [entry]) = insert entry (build display) := by simp [build, List.foldl_append]
+
+theorem equalContents_iff {left right : List Entry} :
+    equalContents left right = true ↔
+      (∀ entry ∈ left, ∃ other ∈ right, entry.equal other = true) ∧
+      (∀ entry ∈ right, ∃ other ∈ left, entry.equal other = true) := by
+  simp [equalContents, List.all_eq_true, List.any_eq_true]
+
+theorem equalContents_perm {left left' right right' : List Entry}
+    (lhs : left.Perm left') (rhs : right.Perm right') :
+    equalContents left right = equalContents left' right' := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [equalContents_iff, lhs.mem_iff, rhs.mem_iff]
+
+theorem equalContents_self (entries : List Entry) : equalContents entries entries = true :=
+  Proofs.Languages.Python.Core.Module.Dictionary.equalContents_self entries
 
 theorem Get.eval_missing (test : Get) (globals : String → Option ReadValue)
     (resolve : Object → Option (List Entry)) (missing : globals test.receiver = none) :

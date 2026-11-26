@@ -59,7 +59,8 @@ private def seededDictionary (source : Source.Module) (space : Namespace)
     (values : Bindings) (objects : List (Core.Module.Dictionary.Object × List Core.Module.Dictionary.Entry)) (calls : List (String × Result)) : Bool := Id.run do
   let .ok compiled := compile source | return false
   let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled initialHeap (lists := initialLists)
-  let expected := values ++ space.moduleGlobals
+  let expected := (values.foldl (fun (base : Namespace) (name, value) =>
+    base.bindGlobal name value) space).moduleGlobals
   return result.completion == completion && heapMatches result.heap objects && result.lists == initialLists &&
     result.residual.builtins == space.builtins && result.residual.moduleGlobals.length == expected.length &&
     expected.all (fun (name, value) => lookupBinding result.residual.moduleGlobals name == some value) &&
@@ -83,9 +84,13 @@ def scalar(value):
     return ".none"
 
 
-def object_term(address, entries):
+def entries_term(entries):
     pairs = ", ".join(f"({atom(key)}, {atom(value)})" for key, value in entries.items())
-    return f"(⟨{address}⟩, [{pairs}])"
+    return f"[{pairs}]"
+
+
+def object_term(address, entries):
+    return f"(⟨{address}⟩, {entries_term(entries)})"
 
 
 def value_term(value, objects):

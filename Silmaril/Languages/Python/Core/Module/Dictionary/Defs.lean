@@ -21,6 +21,15 @@ def insert (entry : Entry) : List Entry → List Entry
 def build (display : List Entry) : List Entry :=
   display.foldl (fun entries entry => insert entry entries) []
 
+def Entry.equal (left right : Entry) : Bool :=
+  left.1.equal right.1 && left.2.equal right.2
+
+/-- Exact dictionaries have one value for each key. Compare the pairs in
+both directions so their insertion orders play no role. -/
+def equalContents (left right : List Entry) : Bool :=
+  left.all (fun entry => right.any (entry.equal ·)) &&
+    right.all (fun entry => left.any (entry.equal ·))
+
 structure Object where
   address : Nat
   deriving DecidableEq, Repr

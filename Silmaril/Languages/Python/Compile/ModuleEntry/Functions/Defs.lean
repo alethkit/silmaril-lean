@@ -372,11 +372,14 @@ def lowerCallValues (scope : Scope) : (source : List (Source.ArgumentKind × Sou
 inductive CallArgument (scope : Scope) where
   | value (operand : CallValue scope)
   | dictionaryGet (test : Core.Module.Dictionary.Get)
+  | dictionaryDisplay (entries : List Core.Module.Dictionary.Entry)
   | call (name : Name) (reference : GlobalReference scope name) (arguments : List (CallValue scope))
 
 inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
   | dictionaryGet {source test} (checked : Dictionary.checkedGet? scope source = some test) :
       ArgumentTranslation scope source (.dictionaryGet test)
+  | dictionaryDisplay {source entries} (checked : source.mapM Dictionary.entry? = some entries) :
+      ArgumentTranslation scope (.dictionary source) (.dictionaryDisplay entries)
   | value {source operand} (translated : CallValueTranslation scope source operand) :
       ArgumentTranslation scope source (.value operand)
   | call {source name arguments reference operands}
@@ -390,18 +393,23 @@ inductive CallArguments (scope : Scope) :
       (tail : CallArguments scope rest targets) :
       CallArguments scope ((.positional, source) :: rest) (argument :: targets)
 
-def lowerCallArgument (scope : Scope) (source : Source.Expr) :
-    Except Error {argument // ArgumentTranslation scope source argument} := do
-  if let some ⟨(name, arguments), shape⟩ := callExpression? source then
-    let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
-    let operands ← lowerCallValues scope arguments
-    return ⟨.call name reference operands.val, .call shape operands.property⟩
-  else
-    match checked : Dictionary.checkedGet? scope source with
-    | some test => return ⟨.dictionaryGet test, .dictionaryGet checked⟩
-    | none =>
-      let operand ← lowerCallValue scope source
-      return ⟨.value operand.val, .value operand.property⟩
+def lowerCallArgument (scope : Scope) : (source : Source.Expr) →
+    Except Error {argument // ArgumentTranslation scope source argument}
+  | .dictionary entries =>
+    match checked : entries.mapM Dictionary.entry? with
+    | some display => .ok ⟨.dictionaryDisplay display, .dictionaryDisplay checked⟩
+    | none => .error (.scalar .expressionProfile)
+  | source => do
+    if let some ⟨(name, arguments), shape⟩ := callExpression? source then
+      let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
+      let operands ← lowerCallValues scope arguments
+      return ⟨.call name reference operands.val, .call shape operands.property⟩
+    else
+      match checked : Dictionary.checkedGet? scope source with
+      | some test => return ⟨.dictionaryGet test, .dictionaryGet checked⟩
+      | none =>
+        let operand ← lowerCallValue scope source
+        return ⟨.value operand.val, .value operand.property⟩
 
 def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
     Except Error {target // CallArguments scope source target}

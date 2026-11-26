@@ -28,6 +28,11 @@ result = d.clear()
 observed = alias.get(1, 0)
 kept = other.get(1)
 """, "normal", ".normal", 0, 9),
+    ("dictionary_argument_to_closure", """def identity(value):
+    return value
+d = identity({True: 2, 1: 7})
+observed = d.get(1)
+""", "normal", ".normal", 7, None),
     ("none_literal_preserved", """observed = None
 assert observed == None
 assert observed != False
