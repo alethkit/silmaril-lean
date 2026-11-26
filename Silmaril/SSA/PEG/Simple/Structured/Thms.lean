@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.PEG.Simple.Structured.Defs
 public import Silmaril.SSA.PEG.Semantics.Thms
 import Silmaril.Proofs.SSA.PEG.Simple.Structured.Correctness
+import Silmaril.Proofs.SSA.PEG.Simple.Structured.Structural
 
 public section
 
@@ -36,9 +37,16 @@ theorem translate_feedbackCycles (p : Program P true params t) (neg : P [.bool] 
     (translate p neg).FeedbackCycles :=
   Proofs.feedbackCycles (program p neg).code (program p neg).refs
 
+/-- Compiler output satisfies the structural admission used by Peggy.
+A dependency enters a hidden loop through a sample, and a cycle through a
+pass or eval crosses feedback of a strictly enclosing loop. -/
+theorem translate_wellFormed (p : Program P true params t) (neg : P [.bool] .bool) :
+    (translate p neg).WellFormed :=
+  Proofs.structuralWellFormed p neg
+
 theorem translate_demandWellFounded (p : Program P true params t) (neg : P [.bool] .bool) :
     WellFounded (translate p neg).Demand :=
-  (translate p neg).demandWellFounded_of_check _ (translate_rank p neg)
+  (translate p neg).demandWellFounded (translate_wellFormed p neg)
 
 /-- Theorem 2 for the full typed SIMPLE statement syntax. An actual successful
 execution gives a defined PEG return. Each loop's first exit and eval prefix
