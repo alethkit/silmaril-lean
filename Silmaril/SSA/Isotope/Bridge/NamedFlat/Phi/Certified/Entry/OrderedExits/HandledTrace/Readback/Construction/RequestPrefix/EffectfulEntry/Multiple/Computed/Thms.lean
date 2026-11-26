@@ -30,7 +30,8 @@ theorem Requests.slots_position {Γ Δ : List PacketType} {ty : PacketType}
     requests slot
 
 /-- The original operand and its scheduled lets have equal complete
-weak trees, with product effects in the evaluator's left-to-right order. -/
+weak trees. Products run left to right, and let bodies share the value
+returned by a single evaluation of the initializer. -/
 theorem Operand.preserves_run {Γ : List PacketType} {ty : PacketType}
     (arg : Operand sig Γ ty) (instr : Primitive E F α) (env : Env α) :
     LambdaSSA.Semantics.Interaction.term instr env arg.written =
