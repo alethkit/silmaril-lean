@@ -457,7 +457,7 @@ sum cocone is colimiting. The binary and initial proofs give the Mathlib
 `PreservesFiniteCoproducts` property. The stateful regression takes the
 installed Paper copair of two effectful arrows, checks distinct final
 states and faults, and verifies that the right arm's fault and divergence
-are absent from the left-tagged execution. The value-product comparison is below. Iteration preservation remains separate.
+are absent from the left-tagged execution.
 [Preservation][ssa-ub-paper-exact-sum] [Regression][ssa-ub-paper-exact-sum-regression]
 
 ### Product values and fixed-factor actions
@@ -485,6 +485,32 @@ state three, with the original tagged payload pair in both results.
 It also checks pairing the projections in reverse order.
 The product universal property here is for typed value maps.
 [Regression][ssa-ub-paper-product-regression]
+
+### Bind-first exact-sum iteration
+
+The installed guarded singleton `iterateSum` for a step `A → B ⊕ A`
+interprets as repeated observations of that step. The left tag returns
+the payload and its final machine state. The right tag transfers that
+payload and final state to the next invocation. The comparison uses the
+one-label native CFG, guarded literal substitution, and the typed
+payload invariant at reachable blocks. The one-step unfolding composes
+the interpreted step with the exact-sum copair of identity and the
+interpreted iterator.
+
+Finite returns and faults agree in both directions. May-divergence is
+either divergence in a finitely reached step or an infinite chain of
+ordinary repeat observations. This uses the native CFG agreement theorem,
+including its coinductive divergence proof. The interpreted native
+arrows yield ordinary observations. The target closure retains its
+reachable-top rule for general observation arrows. The comparison is
+at the installed empty-capture exact-sum iterator. Its one-step law
+follows from the guarded source law and exact-sum preservation.
+
+The regression makes a state-changing request before a tag-producing
+request. From state zero it repeats once before returning at state two,
+faulting at state twelve, or diverging in the second step. From state
+two it has an infinite chain of repeats.
+[Preservation][ssa-ub-paper-iteration] [Regression][ssa-ub-paper-iteration-regression]
 
 ## Coverage and gaps
 
@@ -522,6 +548,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.ExactSum.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Product.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Paper.Category.Iteration.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -598,3 +625,5 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-paper-product-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Product/Regression.lean
 [ssa-ub-paper-uniformity-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Uniformity/Regression.lean
 [ssa-ub-paper-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Regression.lean
+[ssa-ub-paper-iteration]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Thms.lean
+[ssa-ub-paper-iteration-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Paper/Category/Iteration/Regression.lean
