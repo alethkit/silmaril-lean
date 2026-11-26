@@ -67,7 +67,7 @@ theorem term_case_operand_ne {reply q v a b c : Tm Φ} {p : Φ} {l r s : Region 
   obtain ⟨z, ez, _⟩ := evalValue (observation := obs) ret (he.extend tx)
   have observed := extension_same (observation := obs) (computed_step_same rfl) eq env he
   have call : obs.callResult p = some (.inl x) := by
-    simp only [obs, caseObservation, evalTermWith, ex, Option.map_some]
+    simp only [obs, caseObservation, evalTermWith, Bool.and_false, Bool.false_eq_true, ite_false, ex, Option.map_some]
   simp only [evalRegionWith, evalTermWith, show obs.caseTerm = true from rfl,
     show obs.evaluateCallOperand = true from rfl, ite_true, ey, call] at observed
   change Result.fault =
