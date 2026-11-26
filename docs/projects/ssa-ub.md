@@ -110,13 +110,50 @@ exactly for formed left endpoints in discardable contexts.
 and `iter_body_refines_literal` uses native iteration congruence at the
 original context split. [Quantitative typing and refinement][iter-ub-quant]
 
+## LambdaSSA's empty-label boundary
+
+In the exact LambdaSSA typing judgment, a region with no external labels
+must contain a local block. `not_noLocalBlocks` excludes even regions that
+wrap their bodies in zero-block CFGs. A unit-state CFG that branches to
+itself gives a typed region at every value and label context. A unit-fed
+instruction can be sequenced before that CFG, with the local backedge
+ignoring its result. Exact LambdaSSA typing here has no quantitative
+usage or effect-bound premise. [Typing][ssa-typing] [Witnesses][ssa-ub-defs]
+
+`Refines` compares sets of return, fault and divergence observations by
+inclusion in every model of the observational institution. In the
+`faultModel` every primitive faults, with no successful primitive
+transitions and no primitive divergence. The unit-fed prefix faults
+and the bare CFG diverges. A simultaneous upper bound would need both
+observations from the same initial state. Mutual induction through
+nested CFGs and block traversal proves that fault and internal divergence
+are exclusive when successful primitive steps are deterministic and a
+faulting primitive call cannot also return. Thus `no_common_upper_bound`
+and `no_greatest` hold for every exact typing interface of an alphabet
+with a unit-taking operation. This includes the fresh `unit → A`
+instruction in `UB.dialect P e`, for any effect label `e`. The obstruction
+quantifies over all typed native regions, so it also bounds what can be
+encoded using typed native substitution or feedback. [Observation order][ssa-observations]
+[Obstruction][ssa-ub] [Dialect regression][ssa-ub-regression]
+
+At a fixed model, an empty-label region has no finite return. Its
+observations are contained in the set of all faults and divergences.
+The unit-fed prefix attains that greatest set if its primitive can fault
+from every initial state to every final state and can, at each initial state,
+either diverge or return to the backedge. The regression instantiates this
+with a model in which the instruction both faults and can diverge.
+Greatest behaviour here is a law of that model. A contextual UB
+presentation would still need directed laws under label substitution and
+feedback, together with hypotheses making those laws sound. [Fixed-model result][ssa-ub]
+[Model regression][ssa-ub-regression]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
 |---|---|---|
 | LetCase | The exact typed preorder gives `caseTheory` and ordered algebra models. The separate operational institution observes results, faults and divergence. | Instantiate the ordered monad with `casePSig` or the specification of `caseTheory`. `typedEquiv` proves both typed round trips between explicit UB and native terms generated with `op (ub A) unit`, including under binders. The interpreted order preserves and reflects on these endpoints. Arbitrary unit-typed operands can have effects, and an operational equivalence needs to preserve their evaluation and justify the sequencing and UB laws in the chosen observation model. [Ordered theory][let-theory] [Typed round trip][case] [Ordered bridge][case-refinement] [Observations][obs] |
 | LetIter | `iterTheory` gives ordered refinement models. The separate quantitative `Refinement.Thms` also has categorical initiality and singleton-input completeness. Operational stuckness yields an undefined outcome, while the observational institution tracks returns, faults and divergence. | The exact literal-unit round trip and ordered quotient comparison include the iteration binder. Quantitative literal-unit UB is limited to discardable contexts and compatible effect bounds. A linear input would require a resource-consuming encoding or a different typing rule for UB. [Ordered theory][let-theory] [Ordered bridge][iter-ub-refinement] [Quantitative typing][iter-ub-quant] [Categorical initiality][quant] [Undefined outcome][iter-beh] |
-| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. A top **region** needs a constructor or a terminating encoding at every label context, including an empty one, plus a typed ordered presentation and compatible label substitution and feedback. The observational isomorphism does not give these typing or top laws. [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
+| LambdaSSA | Typed terms use unary instructions and regions have separate value and label contexts. The typed CFG quotient uses `RewriteEquiv`. The observational institution has inclusion of outcomes, with an observational isomorphism to LetIter for single-exit regions. | The primitive monad supplies a unit-taking expression instruction. Every exact typing interface, including the empty-label boundary, has a countermodel to uniform greatest refinement by a native region. At a fixed model with the stated saturation assumptions the unit-fed prefix is greatest at the empty interface. A contextual extension still needs sound directed substitution and feedback laws. [Empty-label boundary][ssa-ub] [Typing][ssa-typing] [Rewrite quotient][ssa-rewrite] [Observational isomorphism][ssa-obs] |
 | LambdaRTL | The acyclic model interprets unary applications in a monad; its alphabet institution takes the observation relation as a parameter. It distinguishes lexical SSA, projected RTL and full RTL store observations. The separate machine RTL adapter reports stuckness as an undefined outcome. | A top region needs a chosen store/label observation order and a typed result and continuation interface. Its interpretation must dominate all observations for every environment at the selected boundary. An instruction relabelling or a lawful monad supplies no such law. [Syntax and model][rtl] [Institution][rtl-inst] [Machine RTL outcomes][rtl-beh] |
 
 An effect bound of `⊤` permits all effects in the typing system. It does
@@ -136,6 +173,7 @@ provide that UB order or its sequencing laws. [Effect system][effects]
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetCase.Refinement.Regression
 lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.Regression
+lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Regression
 ```
 
 [ordered]: ../../Silmaril/Raw/SSA/Isotope/Institution/Refinement/Ordered.lean
@@ -173,3 +211,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LetIter.
 [mir]: ../../Silmaril/Raw/Compiler/Mir/Semantics.lean
 [kleisli]: ../../Silmaril/SSA/Isotope/LetIter/Categorical/Kleisli/Thms.lean
 [weak-tree]: ../../tests/ssa/LetIterWeakTreeSoundness.lean
+[ssa-observations]: ../../Silmaril/SSA/Isotope/Institution/Observational/Thms.lean
+[ssa-ub-defs]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Defs.lean
+[ssa-ub]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Thms.lean
+[ssa-ub-regression]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Regression.lean
