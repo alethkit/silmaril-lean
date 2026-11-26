@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Thms
-import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Atomic
+public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize.Structured.Thms
 
 /-! # Completeness for two generated single-instruction loop bodies -/
 
@@ -27,6 +26,6 @@ theorem complete_atomic
     (secondJoin : TwoBlock.Instruction Φ J (Silmaril.coprod D M)) :
     (recognize (compile ⟨gate, ⟨firstHeader, .instruction firstBody, firstJoin⟩⟩
       ⟨secondHeader, .instruction secondBody, secondJoin⟩)).isSome = true :=
-  Proofs.complete_atomic gate firstHeader firstBody firstJoin secondHeader secondBody secondJoin
+  complete_generated _ _
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Numbered.Recognize
