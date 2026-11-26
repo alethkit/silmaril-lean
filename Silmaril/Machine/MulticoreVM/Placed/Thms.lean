@@ -51,6 +51,17 @@ theorem ofThreadStep_refines (step : Transition (ThreadId → Option Thread) Thr
     (ofThreadStep (CoreId := CoreId) (Core := Core) step).Refines step :=
   fun {_ _ _ _ _ _} _ h => h.1
 
+/-- Project a successful finite execution through a state observation of both stores. -/
+theorem Scheduled.refinesBy [DecidableEq CoreId] {State : Type u}
+    {instruction : Instruction CoreId ThreadId Core Thread Choice Event}
+    {view : StoreView CoreId ThreadId Core Thread State} {step : Transition State ThreadId Choice Event}
+    (refines : instruction.RefinesBy view step)
+    {schedule : Schedule CoreId ThreadId Choice} {initial final : Config CoreId ThreadId Core Thread}
+    {word : TaggedWord CoreId ThreadId Event} (run : Scheduled instruction schedule initial word final) :
+    MulticoreVM.Scheduled step (threadSchedule schedule) (view initial.cores initial.threads)
+      (threadWord word) (view final.cores final.threads) :=
+  Proofs.Machine.MulticoreVM.Placed.scheduled_refinesBy refines run
+
 /-- Project a successful finite execution to a current-thread schedule, named word and final
 thread store. Placement commands disappear, while even silent instructions take a step. -/
 theorem Scheduled.refines [DecidableEq CoreId]
@@ -60,7 +71,7 @@ theorem Scheduled.refines [DecidableEq CoreId]
     {schedule : Schedule CoreId ThreadId Choice} {initial final : Config CoreId ThreadId Core Thread}
     {word : TaggedWord CoreId ThreadId Event} (run : Scheduled instruction schedule initial word final) :
     MulticoreVM.Scheduled step (threadSchedule schedule) initial.threads (threadWord word) final.threads :=
-  Proofs.Machine.MulticoreVM.Placed.scheduled_refines refines run
+  run.refinesBy (view := fun _ threads => threads) refines
 
 /-- The projected named observation belongs to the abstract run at the filtered length. -/
 theorem Scheduled.mem_threadRun [DecidableEq CoreId]
