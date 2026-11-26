@@ -158,6 +158,19 @@ private def identityEvidence (source : Source.Module) (profile completion : Stri
     (session.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell &&
     (seeded.heap.contents 0).map Compile.ModuleEntry.Functions.Run.Seeded.seededValue == cell
 
+private def trueAssertionOperands (source : Source.Module) (profile : String) (count : Nat) : Bool :=
+  match Compile.ModuleEntry.Functions.Run.compile source with
+  | .error _ => false
+  | .ok compiled =>
+    compiled.instructions.length == count && compiled.instructions.all fun instruction =>
+      match instruction with
+      | .scalar (.assertion test) =>
+        match Compile.ModuleEntry.Functions.Run.evaluate (Compile.ModuleEntry.Functions.Run.seed .empty) test,
+            Compile.ModuleEntry.Functions.Run.Seeded.evaluateScalar (initial profile) false test with
+        | .ok (.bool true), .ok (.bool true) => true
+        | _, _ => false
+      | _ => false
+
 private def additionEvidence (source : Source.Module) (profile : String) (succeeds : Bool) : Bool := Id.run do
   let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
   let space := initial profile
@@ -285,6 +298,8 @@ UPSTREAM_LITERAL_TRUTH = (
 )
 UPSTREAM_SINGLETON_IDENTITY_CASE = "tests/python/programs/original/k-python/programs/testis.py"
 UPSTREAM_SINGLETON_IDENTITY_SHA256 = "f02f9072633592a48e89434d4ff3e59d6e633c47f93ff63dc23cb70ce7595bb7"
+UPSTREAM_DEAD_BOOLEAN_CASE = "tests/python/programs/original/k-python/programs/testbools1.py"
+UPSTREAM_DEAD_BOOLEAN_SHA256 = "4460b8a8f68da90dd09b0d491019c82def8b75d29d9edc71292cd7300b704c69"
 UPSTREAM_NONE_VALUE_CASE = "tests/python/programs/original/lambda-py/python-reference/types/address-of-none.py"
 UPSTREAM_NONE_VALUE_SHA256 = "6915793674cc89745a2cc378a00b71f42051087d0fe3d8fdf3787900031d9ca4"
 UPSTREAM_SCALAR_WARNINGS = {
@@ -632,6 +647,13 @@ after = 9
 assert False is None
 after = 9
 """, ["AssertionError:empty", "None", "absent"]),
+    ("dead_boolean_suffix", "legacy_builtin", """result = True and False and (5 / 0) and (1 // 0)
+after = False or True or (5 / 0)
+assert (False and (True and 5 / 0)) is False
+""", ["normal", "bool:False", "bool:True"]),
+    ("dead_boolean_integer_tags", "legacy_preamble", """result = 0 and (5 / 0)
+after = 7 or (5 / 0)
+""", ["normal", "int:0", "int:7"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -778,6 +800,8 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "dead_boolean_suffix": '[("after", .bool true), ("result", .bool false)]',
+    "dead_boolean_integer_tags": '[("after", .int 7), ("result", .int 0)]',
     "none_value_tags": '[("after", .bool true), ("alias", .none), ("result", .none)]',
     "none_value_left_lookup": '[("result", .none)]',
     "none_value_right_lookup": '[("result", .none)]',
@@ -841,6 +865,8 @@ def identity_bindings(bindings):
 
 CPYTHON_FIXTURE_BINDINGS = {
     **IDENTITY_FIXTURE_BINDINGS,
+    "dead_boolean_suffix": {"result": False, "after": True},
+    "dead_boolean_integer_tags": {"result": 0, "after": 7},
     "none_value_tags": {"result": None, "alias": None, "after": True},
     "literal_if_order": {"result": 7, "kept": 7, "after": 7},
     "literal_if_failure": {"result": 7},
@@ -1066,6 +1092,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256, {}),
         (UPSTREAM_NONE_VALUE_CASE, UPSTREAM_NONE_VALUE_SHA256, {"ret": 3}),
         (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_SINGLETON_IDENTITY_SHA256, {}),
+        (UPSTREAM_DEAD_BOOLEAN_CASE, UPSTREAM_DEAD_BOOLEAN_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
@@ -1088,8 +1115,14 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
             assert cpython(source, profile, expected_globals=bindings,
                            expected_warnings=syntax_warnings) == expected, (path, profile)
             name = json.dumps(profile)
-            if path == UPSTREAM_SINGLETON_IDENTITY_CASE:
+            if path in (UPSTREAM_SINGLETON_IDENTITY_CASE, UPSTREAM_DEAD_BOOLEAN_CASE):
                 guards.append(f'#guard identityEvidence pythonSource {name} "normal" []')
+            if path == UPSTREAM_DEAD_BOOLEAN_CASE:
+                assertions = ast.parse(source).body
+                assert len(assertions) == 8 and all(isinstance(stmt, ast.Assert) for stmt in assertions)
+                assert all(eval(compile(ast.Expression(stmt.test), path, "eval", optimize=0),
+                                {"__builtins__": {}}) is True for stmt in assertions)
+                guards.append(f"#guard trueAssertionOperands pythonSource {name} 8")
             guards.extend((
                 guard_observation(profile, expected),
                 f"#guard exactGlobals pythonSource {name} {seeded_bindings}",
@@ -1200,6 +1233,8 @@ if __name__ == "__main__":
             if name in IDENTITY_FIXTURE_BINDINGS:
                 bindings = identity_bindings(IDENTITY_FIXTURE_BINDINGS[name])
                 check += f"\n#guard identityEvidence pythonSource {json.dumps(profile)} {json.dumps(expected[0])} {bindings}"
+            if name in ("dead_boolean_suffix", "dead_boolean_integer_tags"):
+                check += f"\n#guard callNames pythonSource {json.dumps(profile)} == some []"
             if name == "empty":
                 check += "\n" + AUDIT
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)

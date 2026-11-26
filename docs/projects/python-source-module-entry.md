@@ -63,14 +63,21 @@ left to right, carry the middle singleton into the next link, and stop at
 the first false comparison or operand error. A successful test produces
 a Boolean. Integer and text identities are outside this profile.
 
-Closed `and` and `or` operands are Boolean or integer literals. The
-checker validates every operand, then selects a value in order. `and`
-stops at the first false value and `or` at the first true value, with
-the last value used when the scan reaches the end. The emitted result
-retains its integer or Boolean tag. A closed `not` or assertion can
-also test `None` or a flat literal list or tuple whose elements pass
-the same scalar check. These tests use only falsity or emptiness and
-emit no container value.
+Reached operands of a checked `and` or `or` are Boolean or signed integer
+literals. The source certificate records the first false value for
+`and`, the first true value for `or`, or the last value at the end of
+the sequence. A deciding operand permits the checker to use a separate
+syntax check on the whole dead suffix. That grammar accepts integer,
+Boolean and `None` literals, recursive unary and binary expressions, and
+nested Boolean expressions with at least two operands. Names, calls,
+and constructs introducing scopes are outside the dead-suffix grammar.
+The module still runs full source scope analysis. A reached true division
+remains an expression-profile rejection. Skipped true division has no
+runtime instruction. The emitted result retains its integer or Boolean tag.
+
+A closed `not` or assertion can also test `None` or a flat literal list or
+tuple whose elements pass the scalar check. These tests use only falsity
+or emptiness and emit no container value.
 
 `None` can also be bound, read and copied as a module value. It has its
 own tag and is false in a truth test. Scalar `==` and `!=` evaluate

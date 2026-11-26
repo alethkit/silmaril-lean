@@ -87,6 +87,90 @@ theorem literalBooleanOp_iff (operator : Source.BooleanOperator) (first second :
     cases remaining : (second :: rest).mapM scalarLiteral? <;>
     simp [literalBooleanOp?, initial, remaining, selectScalar_iff]
 
+theorem selectSourceScalar_iff (operator : Source.BooleanOperator) (value : Core.Module.Value)
+    (rest : List Source.Expr) (result : Core.Module.Value) :
+    selectSourceScalar? operator value rest = some result ↔ SelectsSourceScalar operator value rest result := by
+  induction rest generalizing value result with
+  | nil =>
+    constructor
+    · intro same
+      cases same
+      exact .last value
+    · intro selected
+      cases selected
+      rfl
+  | cons next rest ih =>
+    constructor
+    · intro selected
+      cases continued : continuesSelection operator value with
+      | false =>
+        cases checked : (next :: rest).all skippedScalarSyntax with
+        | false => simp [selectSourceScalar?, continued, checked] at selected
+        | true =>
+          have same : value = result := by simpa only [selectSourceScalar?, continued, Bool.false_eq_true,
+            ↓reduceIte, checked, Option.some.injEq] using selected
+          subst result
+          exact .stop continued checked
+      | true =>
+        cases literal : scalarLiteral? next with
+        | none => simp [selectSourceScalar?, continued, literal] at selected
+        | some operand =>
+          have tail : selectSourceScalar? operator operand rest = some result := by
+            simpa [selectSourceScalar?, continued, literal] using selected
+          exact .next continued literal ((ih operand result).mp tail)
+    · intro selected
+      cases selected with
+      | stop decided checked => simp [selectSourceScalar?, decided, checked]
+      | next continued literal tail => simp [selectSourceScalar?, continued, literal, (ih _ _).mpr tail]
+
+theorem checkedBooleanOp_iff (operator : Source.BooleanOperator) (first second : Source.Expr)
+    (rest : List Source.Expr) (result : Core.Module.Value) :
+    checkedBooleanOp? operator (first :: second :: rest) = some result ↔
+      ∃ initial, scalarLiteral? first = some initial ∧ SelectsSourceScalar operator initial (second :: rest) result := by
+  cases initial : scalarLiteral? first <;> simp [checkedBooleanOp?, initial, selectSourceScalar_iff]
+
+private theorem scalarLiteral_skippedSyntax (source : Source.Expr) {value : Core.Module.Value}
+    (literal : scalarLiteral? source = some value) : skippedScalarSyntax source = true := by
+  cases source with
+  | unary op operand =>
+    cases op <;> cases operand <;>
+      simp_all [scalarLiteral?, integerLiteral?, skippedScalarSyntax]
+  | integer | boolean => simp [skippedScalarSyntax]
+  | _ => simp [scalarLiteral?, integerLiteral?] at literal
+
+private theorem selectSourceScalar_closed (operator : Source.BooleanOperator) (source : List Source.Expr)
+    (values : List Core.Module.Value) (closed : source.mapM scalarLiteral? = some values)
+    (initial : Core.Module.Value) :
+    source.all skippedScalarSyntax = true ∧
+      selectSourceScalar? operator initial source = some (selectScalar operator initial values) := by
+  induction source generalizing values initial with
+  | nil =>
+    cases closed
+    exact ⟨rfl, rfl⟩
+  | cons source rest ih =>
+    cases head : scalarLiteral? source <;> cases tail : rest.mapM scalarLiteral? <;>
+      simp [List.mapM_cons, head, tail] at closed
+    subst values
+    rename_i next remaining
+    have tailChecked := ih remaining tail next
+    have checked : (source :: rest).all skippedScalarSyntax = true := by
+      simp [scalarLiteral_skippedSyntax _ head, tailChecked.1]
+    refine ⟨checked, ?_⟩
+    cases continued : continuesSelection operator initial with
+    | true => simp [selectSourceScalar?, selectScalar, continued, head, tailChecked.2]
+    | false => simp [selectSourceScalar?, selectScalar, continued, checked]
+
+theorem checkedBooleanOp_closed (operator : Source.BooleanOperator) (operands : List Source.Expr)
+    (value : Core.Module.Value) (closed : literalBooleanOp? operator operands = some value) :
+    checkedBooleanOp? operator operands = some value := by
+  match operands with
+  | [] | [_] => contradiction
+  | first :: second :: rest =>
+    cases head : scalarLiteral? first <;> cases tail : (second :: rest).mapM scalarLiteral? <;>
+      simp [literalBooleanOp?, head, tail] at closed
+    subst value
+    simpa [checkedBooleanOp?, head] using (selectSourceScalar_closed operator (second :: rest) _ tail _).2
+
 private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
   cases translated <;> rfl

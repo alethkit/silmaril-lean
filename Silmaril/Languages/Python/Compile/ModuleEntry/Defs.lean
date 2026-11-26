@@ -195,6 +195,52 @@ def literalBooleanOp? (operator : BooleanOperator) : List Expr → Option Core.M
     return selectScalar operator value values
   | _ => none
 
+/-- Syntax allowed in a dead Boolean suffix. The grammar is binder-free:
+scalar literals, unary and binary expressions, and nested Boolean expressions
+of arity at least two. It checks structure without evaluating any operator. -/
+def skippedScalarSyntax : Expr → Bool
+  | .integer _ | .boolean _ | .none_ => true
+  | .unary _ operand => skippedScalarSyntax operand
+  | .binary _ left right => skippedScalarSyntax left && skippedScalarSyntax right
+  | .booleanOp _ (first :: second :: rest) =>
+    skippedScalarSyntax first && skippedScalarSyntax second &&
+      rest.attach.all (fun operand => skippedScalarSyntax operand.val)
+  | _ => false
+termination_by source => sizeOf source
+decreasing_by
+  all_goals simp_wf
+  all_goals
+    first
+    | omega
+    | have smaller := List.sizeOf_lt_of_mem operand.property
+      omega
+
+/-- Each reached source operand has a closed scalar certificate. The stop
+rule certifies that the entire remaining syntax is unreachable. -/
+inductive SelectsSourceScalar (operator : BooleanOperator) :
+    Core.Module.Value → List Expr → Core.Module.Value → Prop where
+  | last (value : Core.Module.Value) : SelectsSourceScalar operator value [] value
+  | stop {value next rest} (decided : continuesSelection operator value = false)
+      (syntaxChecked : (next :: rest).all skippedScalarSyntax = true) :
+      SelectsSourceScalar operator value (next :: rest) value
+  | next {value source rest operand result} (continued : continuesSelection operator value = true)
+      (literal : scalarLiteral? source = some operand)
+      (tail : SelectsSourceScalar operator operand rest result) :
+      SelectsSourceScalar operator value (source :: rest) result
+
+def selectSourceScalar? (operator : BooleanOperator) (value : Core.Module.Value) :
+    List Expr → Option Core.Module.Value
+  | [] => some value
+  | next :: rest =>
+    if continuesSelection operator value then
+      (scalarLiteral? next).bind fun operand => selectSourceScalar? operator operand rest
+    else if (next :: rest).all skippedScalarSyntax then some value else none
+
+def checkedBooleanOp? (operator : BooleanOperator) : List Expr → Option Core.Module.Value
+  | first :: second :: rest =>
+    (scalarLiteral? first).bind fun value => selectSourceScalar? operator value (second :: rest)
+  | _ => none
+
 def literalTupleMember? (left right : Expr) : Option Bool := do
   let needle ← scalarLiteral? left
   let elements ← scalarTuple? right
@@ -256,7 +302,7 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
       OperandTranslation scope (.comparison left (first :: second :: rest)) (.booleanResult value)
   | literalNegation {source value} (checked : literalNegation? source = some value) :
       OperandTranslation scope (.unary .not_ source) (.booleanResult value)
-  | literalBooleanOp {operator operands value} (checked : literalBooleanOp? operator operands = some value) :
+  | literalBooleanOp {operator operands value} (checked : checkedBooleanOp? operator operands = some value) :
       OperandTranslation scope (.booleanOp operator operands) (.scalarResult value)
   | literalConditional {condition yes no decision lhs rhs}
       (guard : literalGuard? condition = some decision)
@@ -303,7 +349,7 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
     | some value => .ok ⟨.booleanResult value, .literalNegation folded⟩
     | none => .error .expressionProfile
   | .booleanOp operator operands =>
-    match folded : literalBooleanOp? operator operands with
+    match folded : checkedBooleanOp? operator operands with
     | some value => .ok ⟨.scalarResult value, .literalBooleanOp folded⟩
     | none => .error .expressionProfile
   | .subscript source index =>
