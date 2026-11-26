@@ -22,6 +22,10 @@ xs = [2]
 kw = {"d": 7}
 duplicate = {"c": 7}
 wrong = 0
+def assign_fail():
+    saved = choose(f, mark(1, 0))
+    later = mark(2, 99)
+    return later
 `
 	cases := []struct {
 		name    string
@@ -34,6 +38,8 @@ wrong = 0
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[0]"}},
 		{"middle-application-masks-later-effects", "mark(1, choose)(f, mark(2, 0))(mark(3, 0))(mark(4, 0))",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1, 2]"}},
+		{"failed-body-assignment-masks-later-effects", "assign_fail()",
+			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},
 		{"effects-before-spread-error", "f(mark(1, 1), c=mark(2, 3), *mark(3, wrong), **mark(4, kw))",

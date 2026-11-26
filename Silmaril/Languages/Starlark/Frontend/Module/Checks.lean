@@ -24,6 +24,7 @@ public inductive Observation where
   | duplicateExplicitKeyword (name : String)
   | requiredAfterDefault (name : String)
   | uninitializedGlobal (name : String)
+  | uninitializedLocal (name : String)
   | invalidStar | invalidStarStar
   deriving DecidableEq
 
@@ -81,6 +82,7 @@ private def observe (source : String) : Option Observation :=
   | .ok (.error (.runtime (.multipleArgumentValues name)) _) => some (.multipleValues name)
   | .ok (.error (.runtime (.duplicateKey (.string key))) _) => some (.duplicateKey key)
   | .ok (.error (.runtime (.uninitialized ⟨.global, name⟩)) _) => some (.uninitializedGlobal name)
+  | .ok (.error (.runtime (.uninitialized ⟨.local, name⟩)) _) => some (.uninitializedLocal name)
   | .error (.validation (.validation (.syntax (.duplicateExplicitKeyword name)))) =>
     some (.duplicateExplicitKeyword name)
   | .error (.validation (.validation (.syntax (.requiredAfterDefault name)))) =>
