@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Infer.Defs
 
-/-! Admission for an exported φ member and its finite group. -/
+/-! Admission for standalone λ exports and fixed φ member groups. -/
 
 @[expose] public section
 
@@ -49,9 +49,19 @@ inductive Group.In {members : List (Function V S)} (group : Group m members) : F
   | ordinary {port : Ty V S} (value : m.Val port) (plain : ordinaryPort port = true) : Group.In group value
   | member (slot : Fin members.length) : Group.In group (group.ref slot)
 
+/-- A standalone family admits ordinary values and one exact callable.
+The capture check is separate from membership in this family. -/
+inductive StandaloneIn (root : m.Val (.value (.function args outs))) : Family m where
+  | ordinary {port : Ty V S} (value : m.Val port) (plain : ordinaryPort port = true) : StandaloneIn root value
+  | exported : StandaloneIn root root
+
+def isStandaloneLambda {port : Ty V S} : m.Val port → Bool
+  | .closure _ _ => true
+  | _ => false
+
 /-- Admission for the actual export values. All ordinary entry arguments
 are admitted. Callable values obtained by following internal wires stay
-within the groups, even across recursive arguments and returns. -/
+within their respective families, including across recursive calls. -/
 def ExportAdmission (primitives : Primitives m σ) (ids : GlobalRel)
     (left right : m.Val (.value (.function args outs))) : Prop :=
   ∃ familyL familyR, CheckedFamily primitives ids familyL familyR ∧ familyL left ∧ familyR right ∧
@@ -81,17 +91,23 @@ def checkGroups (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
       (inferResolved keys (resolve m (left.ref slot)) (resolve m (right.ref slot))).isSome)).all id
 
 /-- Select the finite families directly from two actual exported values.
-This policy accepts φ exports with ordinary outer captures. The paired
-invocation still requires linker provenance and compatible primitives. -/
+The checker accepts paired standalone λ closures or paired φ exports
+with ordinary outer captures. Paired invocation also uses linker
+provenance and compatible primitives. -/
 def checkExport (keys : OpcodeCode (Instruction Op)) [DecidableEq keys.Key]
     (left right : m.Val (.value (.function args outs))) : Bool :=
-  letI : DecidableEq (Function V S) := fun a b =>
-    decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
-  match exportGroup left, exportGroup right with
-  | some left, some right =>
-    if same : left.members = right.members then
-      checkGroups keys left.group (same.symm ▸ right.group)
-    else false
-  | _, _ => false
+  if isStandaloneLambda left && isStandaloneLambda right then
+    let bodyL := resolve m left
+    let bodyR := resolve m right
+    ordinaryPorts bodyL.context && ordinaryPorts bodyR.context && (inferResolved keys bodyL bodyR).isSome
+  else
+    letI : DecidableEq (Function V S) := fun a b =>
+      decidable_of_iff (a.args = b.args ∧ a.results = b.results) (by cases a; cases b; simp)
+    match exportGroup left, exportGroup right with
+    | some left, some right =>
+      if same : left.members = right.members then
+        checkGroups keys left.group (same.symm ▸ right.group)
+      else false
+    | _, _ => false
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered

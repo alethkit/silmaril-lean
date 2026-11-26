@@ -17,13 +17,26 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {members : List (Function V S)} {primitives : Primitives m σ} {ids : GlobalRel}
 
-private theorem ordinary_tuple (group : Group m members) {ports : Ports (Ty V S)} (tuple : Tuple m.Val ports)
-    (ordinary : ordinaryPorts ports = true) : TupleIn group.In tuple := by
+private abbrev HasOrdinary (family : Family m) : Prop :=
+  ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → family value
+
+private theorem ordinary_tuple {family : Family m} (admits : HasOrdinary family)
+    {ports : Ports (Ty V S)} (tuple : Tuple m.Val ports) (ordinary : ordinaryPorts ports = true) :
+    TupleIn family tuple := by
   induction tuple with
   | nil => trivial
   | cons value tail ih =>
     have both := Bool.and_eq_true_iff.mp ordinary
-    exact ⟨.ordinary value both.1, ih both.2⟩
+    exact ⟨admits value both.1, ih both.2⟩
+
+private theorem closed_with_captures {family : Family m}
+    (ordinary : OrdinaryOutputs Op) (admits : HasOrdinary family)
+    (captures : ∀ {args outs : Ports (Ty V S)} {callee : m.Val (.value (.function args outs))},
+      family callee → TupleIn family (resolve m callee).values) : Closed primitives family where
+  captures := captures
+  primitive := by
+    intro _ _ opcode _ _ _ _ output _
+    exact ordinary_tuple admits output (ordinary opcode)
 
 private theorem member_values (family : Family m) (members : List (Function V S))
     (refs : (slot : Fin members.length) → m.Val members[slot].port)
@@ -43,19 +56,16 @@ private theorem member_prefix (family : Family m) (members : List (Function V S)
     | succ n => exact ⟨⟨known 0, trivial⟩, ih n _ (fun _ => known _)⟩
 
 private theorem closed (ordinary : OrdinaryOutputs Op) (group : Group m members)
-    (outer : ordinaryPorts group.context = true) : Closed primitives group.In where
-  captures := by
-    intro args outs callee admitted
-    cases admitted with
-    | ordinary _ plain => cases plain
-    | member slot =>
-      have refs := member_values group.In members group.ref (fun i => .member i)
-      have earlier := member_prefix group.In members slot.val group.ref (fun i => .member i)
-      exact TupleIn.read (group.definitions slot).captures
-        (TupleIn.prepend refs (ordinary_tuple group group.values outer)) earlier
-  primitive := by
-    intro _ _ opcode _ _ _ _ output _
-    exact ordinary_tuple group output (ordinary opcode)
+    (outer : ordinaryPorts group.context = true) : Closed primitives group.In := by
+  apply closed_with_captures ordinary Group.In.ordinary
+  intro args outs callee admitted
+  cases admitted with
+  | ordinary _ plain => cases plain
+  | member slot =>
+    have refs := member_values group.In members group.ref (fun i => .member i)
+    have earlier := member_prefix group.In members slot.val group.ref (fun i => .member i)
+    exact TupleIn.read (group.definitions slot).captures
+      (TupleIn.prepend refs (ordinary_tuple Group.In.ordinary group.values outer)) earlier
 
 private theorem member_origin {group : Group m members} {port : Ty V S} {value : m.Val port}
     (known : group.In value) (callable : ordinaryPort port = false) :
@@ -72,6 +82,30 @@ private def slotNumber {port : Ty V S} : m.Val port → Option Nat
 private theorem related_slot {port : Ty V S} {left right : m.Val port}
     (related : ValueRelated m ids left right) : slotNumber left = slotNumber right := by
   cases related <;> rfl
+
+private theorem closed_standalone (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty V S)}
+    (root : m.Val (.value (.function args outs))) (plain : ordinaryPorts (resolve m root).context = true) :
+    Closed primitives (StandaloneIn root) := by
+  apply closed_with_captures ordinary StandaloneIn.ordinary
+  intro _ _ _ known
+  cases known with
+  | ordinary _ plain => cases plain
+  | exported => exact ordinary_tuple StandaloneIn.ordinary (resolve m root).values plain
+
+private theorem checked_standalone (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty V S)}
+    (left right : m.Val (.value (.function args outs)))
+    (plainL : ordinaryPorts (resolve m left).context = true)
+    (plainR : ordinaryPorts (resolve m right).context = true)
+    (checked : Resolved m ⟨args, outs⟩ (resolve m left) (resolve m right)) :
+    CheckedFamily primitives ids (StandaloneIn left) (StandaloneIn right) := by
+  refine ⟨closed_standalone ordinary left plainL, closed_standalone ordinary right plainR, ?_⟩
+  intro _ _ _ _ knownL knownR _
+  cases knownL with
+  | ordinary _ plain => cases plain
+  | exported =>
+    cases knownR with
+    | ordinary _ plain => cases plain
+    | exported => exact checked
 
 variable [DecidableEq (Ty V S)] {keys : OpcodeCode (Instruction Op)} [DecidableEq keys.Key]
 
@@ -101,16 +135,24 @@ theorem checkExport_sound (ordinary : OrdinaryOutputs Op) {args outs : Ports (Ty
     (accepted : checkExport keys left right = true) : ExportAdmission primitives ids left right := by
   unfold checkExport at accepted
   split at accepted
-  next l r _ _ =>
-    obtain ⟨membersL, groupL, knownL⟩ := l
-    obtain ⟨membersR, groupR, knownR⟩ := r
-    split at accepted
-    next same =>
-      change membersL = membersR at same
-      subst membersR
-      exact ⟨groupL.In, groupR.In, checked_groups ordinary groupL groupR accepted, knownL, knownR,
-        fun tuple plain => ⟨ordinary_tuple groupL tuple plain, ordinary_tuple groupR tuple plain⟩⟩
+  · obtain ⟨plain, scanned⟩ := Bool.and_eq_true_iff.mp accepted
+    obtain ⟨plainL, plainR⟩ := Bool.and_eq_true_iff.mp plain
+    exact ⟨StandaloneIn left, StandaloneIn right,
+      checked_standalone ordinary left right plainL plainR (inferResolved_sound scanned), .exported, .exported,
+      fun tuple plain => ⟨ordinary_tuple StandaloneIn.ordinary tuple plain,
+        ordinary_tuple StandaloneIn.ordinary tuple plain⟩⟩
+  · split at accepted
+    next l r _ _ =>
+      obtain ⟨membersL, groupL, knownL⟩ := l
+      obtain ⟨membersR, groupR, knownR⟩ := r
+      split at accepted
+      next same =>
+        change membersL = membersR at same
+        subst membersR
+        exact ⟨groupL.In, groupR.In, checked_groups ordinary groupL groupR accepted, knownL, knownR,
+          fun tuple plain => ⟨ordinary_tuple Group.In.ordinary tuple plain,
+            ordinary_tuple Group.In.ordinary tuple plain⟩⟩
+      next => cases accepted
     next => cases accepted
-  next => cases accepted
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.AdmissionProofs
