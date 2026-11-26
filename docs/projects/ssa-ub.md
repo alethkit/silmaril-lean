@@ -1231,6 +1231,24 @@ readback yields no verdict even there. The theorem fixes the carrier
 size. It supplies no completeness or cutoff across different sizes.
 [Shared-entry refinement][ssa-ub-open-guarded-entries]
 
+A concrete shared-entry refutation transports along any injection
+`Fin n ↪ Fin m`. Map the script's query states and the final states of
+successful replies and faults, then reconstruct the total interpreter
+with ordinary divergence as fallback. At the mapped initial state both
+original decorated observations are the images of their old observations.
+The existing bounded rows run inside the image of the injection, retaining
+divergence and fresh top. Injectivity reflects the ordinary subset order,
+so the refutation still has the same caller and direction.
+
+A rejected shared-entry check therefore rejects on the larger carrier
+with exhaustive inventories and the same exact-readback endpoints and
+caller domain. The proof supplies the transported witness. The larger
+enumeration can find a different witness first. The regression shifts a
+three-state script into five states and checks a return, fault, selected
+exit and infinite replay. This is an upward rejection law. It gives no
+finite cutoff or downward rejection guarantee.
+[Carrier embedding][ssa-ub-open-guarded-carrier-embedding]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1398,5 +1416,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-schedule]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Schedule/Thms.lean
 [ssa-ub-open-guarded-fixed-carrier]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Thms.lean
 [ssa-ub-open-guarded-entries]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/Thms.lean
+[ssa-ub-open-guarded-carrier-embedding]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/State/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean

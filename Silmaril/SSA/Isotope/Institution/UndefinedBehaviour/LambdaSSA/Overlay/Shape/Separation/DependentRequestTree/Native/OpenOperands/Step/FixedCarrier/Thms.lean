@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Defs
+public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.State.Defs
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Thms
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Classification
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.FixedCarrier.Decision
@@ -47,6 +47,18 @@ theorem Table.observe_runFinite (g : Table S R) (caller : Syntax.Payload (R.get 
     g.observeAt caller prim p s = resultBehaviour (g.runFinite caller prim configs stores p s) :=
   Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.classify
     g caller prim configs stores p s
+
+/-- The same bounded rows classify an enlarged interpreter at mapped
+states if each primitive reply there is exactly the original mapped reply.
+All coded transfers stay in the image of the state embedding. -/
+theorem Table.observe_runFinite_mapState {larger : Nat} (e : Fin states ↪ Fin larger)
+    (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
+    (prim : Syntax.Primitives Φ states) (other : Syntax.Primitives Φ larger)
+    (agree : ∀ f a s, other f a (e s) = (prim f a s).mapState e)
+    (configs : ConfigurationEnumeration R) (stores : StateInventory states) (p : Packet R) (s : Fin states) :
+    g.observeAt caller other p (e s) = resultBehaviour ((g.runFinite caller prim configs stores p s).mapState e) :=
+  Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier.classify_mapState
+    e g caller prim other agree configs stores p s
 
 /-- The whole decorated observation at any typed block invocation depends
 only on the finite support of complete query keys. -/
