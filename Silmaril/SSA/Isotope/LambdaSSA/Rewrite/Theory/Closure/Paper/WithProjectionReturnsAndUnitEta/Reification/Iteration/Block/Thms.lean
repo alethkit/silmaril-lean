@@ -131,4 +131,36 @@ theorem actualCarriedIteration_eq_captureResult (X S : τ)
       retainedInput retainedOutput)
     route iteration
 
+/-- Reify the actual carried loop whose block destructures the input and returns
+the captured field. The two carrier product coordinates determine the route. -/
+theorem actualCarriedIteration_eq_captureResult_of_carrierTensor (X S : τ)
+    (K : V ⥤ Values) (q : K ⋙ (I) ≅ J)
+    (capture : K.obj (M.obj X) ≅ Val X)
+    (state : K.obj (M.obj (product X S)) ≅ Val (product X S))
+    (captureCoord : (objIso X).hom = (q.app (M.obj X)).inv ≫ (I).map capture.hom)
+    (stateCoord : let P := product X S
+      (objIso P).hom = (q.app (M.obj P)).inv ≫ (I).map state.hom)
+    (firstLeg : state.hom ≫ ((fan) X S).fst = K.map (fstMap M X S) ≫ capture.hom)
+    (diagonalCoord : let P := product X S
+      (objIso (product P P)).hom =
+        (q.app (M.obj (product P P))).inv ≫ (I).map (chosenValueProductMap pe K M P state))
+    (blockInputCoord : let P := product X S
+      (objIso (product X P)).hom =
+        (q.app (M.obj (product X P))).inv ≫
+          (I).map (chosenBinaryValueProductMap pe K M X P capture state))
+    (retainedInput : RetainedTensorAgrees J M objIso X (product X S))
+    (retainedOutput : RetainedPackedExitsAgree J M objIso X S X)
+    (stateCarrier : RetainedTensorAgrees J M objIso X S)
+    (resultCarrier : RetainedTensorAgrees J M objIso X X)
+    (iteration : TransportedIterationAgrees J M objIso (captureResultBlock X S)) :
+    let actual := contextualStep J (blockComputation M J X S X
+      (denoteSingletonRegion J M (captureResultBlock (Φ := Φ) X S).hasType))
+    let state := carrier J M objIso X S
+    let result := carrier J M objIso X X
+    state.inv ≫ CategoryTheory.iterate actual ≫ result.hom =
+      Lit (iterateRegion_valueBranches (realizePackedStep_typed (captureResultBlock X S))) :=
+  actualCarriedIteration_eq_captureResult J M objIso pe X S K q capture state captureCoord stateCoord
+    firstLeg diagonalCoord blockInputCoord retainedInput retainedOutput
+    (carriedRoute_eq_of_carrierTensor J M objIso X S X stateCarrier resultCarrier retainedOutput) iteration
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEta.Reification
