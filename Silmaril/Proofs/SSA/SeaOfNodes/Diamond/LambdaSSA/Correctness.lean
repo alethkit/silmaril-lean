@@ -26,7 +26,7 @@ variable {context : List (Code Data)}
 variable {inputs : List (ValueSort Data)} {out : ValueSort Data}
 variable (m : Model.{u,v,w} Op)
 
-private theorem encode_injective {sort : ValueSort Data} :
+theorem encode_injective {sort : ValueSort Data} :
     Function.Injective (encode m (sort := sort)) := by
   cases sort with
   | predicate =>
@@ -51,7 +51,7 @@ private theorem encode_operands_injective (ins : List (ValueSort Data)) :
         obtain rfl := ih tail
         rfl
 
-private theorem instruction_deterministic : InstrDeterministic (instruction m (σ := σ)) := by
+theorem instruction_deterministic : InstrDeterministic (instruction m (σ := σ)) := by
   intro opcode input start result finish result' finish' eval eval'
   cases opcode with
   | apply op =>
@@ -68,7 +68,7 @@ private theorem wireTerm_typed (layout : Layout args past context)
   | nil => exact .unit
   | cons origin _ ih => exact .pair (.var (layout.resolve origin).property) ih
 
-private theorem schedule_typed (flow : Dataflow Op args past sigs)
+theorem schedule_typed (flow : Dataflow Op args past sigs)
     (layout : Layout args past context) {tail : Region (Primitive Op)} {labels : List (Code Data)}
     (typed : tail.HasType (scheduledContext context sigs) labels) :
     (schedule flow layout tail).HasType context labels := by
@@ -126,16 +126,12 @@ theorem edge_transfer_iff (slot : Slot) (old : Env (Atom m)) (start finish : σ)
     cases g.phi.merge.predecessor slot <;> rfl
   rw [PhiView.latch_eq_transfer (instruction m) (phiView g), edge_latch, target]
 
-private theorem get_map {T : Type u} {F : T → Type v} {G : T → Type w}
+theorem get_map {T : Type u} {F : T → Type v} {G : T → Type w}
     {ports : List T} {t : T} (f : ∀ t, F t → G t) (xs : Tuple F ports) (p : Port ports t) :
     (xs.map f).get p = f t (xs.get p) := by
   induction p with
   | head => cases xs; rfl
   | tail _ ih => cases xs with | cons _ rest => exact ih rest
-
-private def TupleMatch (env : Env (Atom m)) {ports : List (Diamond.Ty Data)}
-    (refs : Tuple (Ref context) ports) (values : Tuple (Val m.value) ports) : Prop :=
-  ∀ {p} (slot : Port ports p), env (refs.get slot).val = encodePort m (values.get slot)
 
 private theorem tupleMatch_shift {ports : List (Diamond.Ty Data)} {A : Code Data}
     {env : Env (Atom m)} {refs : Tuple (Ref context) ports} {values : Tuple (Val m.value) ports}
@@ -146,7 +142,7 @@ private theorem tupleMatch_shift {ports : List (Diamond.Ty Data)} {A : Code Data
   rw [get_map]
   exact ok slot
 
-private theorem inputRefs_match {ports : List (Diamond.Ty Data)} (values : Tuple (Val m.value) ports) :
+theorem inputRefs_match {ports : List (Diamond.Ty Data)} (values : Tuple (Val m.value) ports) :
     TupleMatch m (inputEnv m values) (inputRefs ports) values := by
   induction values with
   | nil => intro _ slot; cases slot
@@ -155,11 +151,6 @@ private theorem inputRefs_match {ports : List (Diamond.Ty Data)} (values : Tuple
     cases slot with
     | head => rfl
     | tail slot => exact tupleMatch_shift m ih (encodePort m v) slot
-
-private def LocalsMatch (env : Env (Atom m)) : {past : List (List (Diamond.Ty Data))} →
-    Locals (Ref context) past → Locals (Val m.value) past → Prop
-  | [], _, _ => True
-  | _ :: _, refs, locals => TupleMatch m env refs.1 locals.1 ∧ LocalsMatch env refs.2 locals.2
 
 private theorem localsMatch_get {env : Env (Atom m)}
     {refs : Locals (Ref context) past} {locals : Locals (Val m.value) past}
@@ -185,11 +176,7 @@ private theorem localsMatch_push {env : Env (Atom m)}
     | tail impossible => cases impossible
   | cons _ _ ih => exact ⟨tupleMatch_shift m matched.1 _, ih matched.2⟩
 
-private def LayoutMatch (layout : Layout args past context)
-    (env : Env (Atom m)) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) : Prop :=
-  TupleMatch m env layout.argsRefs entry ∧ LocalsMatch m env layout.localRefs locals
-
-private theorem LayoutMatch.resolve {layout : Layout args past context}
+theorem LayoutMatch.resolve {layout : Layout args past context}
     {env : Env (Atom m)} {entry : Tuple (Val m.value) args} {locals : Locals (Val m.value) past}
     (matched : LayoutMatch m layout env entry locals) {port : Diamond.Ty Data}
     (origin : Origin args past port) :
@@ -214,9 +201,9 @@ private theorem wireTerm_eval {layout : Layout args past context}
   induction wires with
   | nil => exact .unit
   | cons origin rest ih =>
-    exact .pair (Semantics.Tm.Eval.var_of_eq (matched.resolve m origin)) ih
+    exact .pair (Semantics.Tm.Eval.var_of_eq (LayoutMatch.resolve m matched origin)) ih
 
-private theorem schedule_eval (flow : Dataflow Op args past sigs)
+theorem schedule_eval (flow : Dataflow Op args past sigs)
     {layout : Layout args past context} {env : Env (Atom m)}
     {entry : Tuple (Val m.value) args} {locals : Locals (Val m.value) past}
     (matched : LayoutMatch m layout env entry locals) {tail : Region (Primitive Op)}
@@ -229,7 +216,7 @@ private theorem schedule_eval (flow : Dataflow Op args past sigs)
   | nil => exact runTail env matched
   | cons op wires rest ih =>
     refine .let₁ (.op (wireTerm_eval m matched wires start) ⟨wires.read entry locals, rfl, rfl, rfl⟩) ?_
-    exact ih (matched.push m (m.run op (wires.read entry locals))) runTail
+    exact ih (LayoutMatch.push m matched (m.run op (wires.read entry locals))) runTail
 
 private theorem dispatch_eval {env : Env (Atom m)} {entry : Tuple (Val m.value) (dataPorts inputs)}
     (matched : LayoutMatch m (finalLayout g) env entry (g.dataflow.eval m entry PUnit.unit))
@@ -237,7 +224,7 @@ private theorem dispatch_eval {env : Env (Atom m)} {entry : Tuple (Val m.value) 
     Semantics.Region.Eval (instruction m) env (terminatorRegion (dispatch g)) start
       0 (.pair (encode m (g.denote m entry)) .unit) start := by
   generalize dataResult : g.dataflow.eval m entry PUnit.unit = locals at matched
-  have discr := matched.resolve m g.predicate
+  have discr := LayoutMatch.resolve m matched g.predicate
   cases selected : (read m g.predicate entry locals).down with
   | false =>
     refine .case_inr (va := .unit) (Semantics.Tm.Eval.var_of_eq ?_) ?_
@@ -245,7 +232,7 @@ private theorem dispatch_eval {env : Env (Atom m)} {entry : Tuple (Val m.value) 
     · apply (PhiView.latch_eq_transfer (instruction m) (phiView g)
         (projectionEdge g .onFalse) _ _ _ _ _).mpr
       refine ⟨rfl, ?_, rfl⟩
-      rw [projection_latch, matched.resolve m (g.phi.operand (g.phi.merge.slot .onFalse))]
+      rw [projection_latch, LayoutMatch.resolve m matched (g.phi.operand (g.phi.merge.slot .onFalse))]
       simp only [Graph.denote, dataResult, selected, Projection.ofBool, encodePort]
   | true =>
     refine .case_inl (va := .unit) (Semantics.Tm.Eval.var_of_eq ?_) ?_
@@ -253,7 +240,7 @@ private theorem dispatch_eval {env : Env (Atom m)} {entry : Tuple (Val m.value) 
     · apply (PhiView.latch_eq_transfer (instruction m) (phiView g)
         (projectionEdge g .onTrue) _ _ _ _ _).mpr
       refine ⟨rfl, ?_, rfl⟩
-      rw [projection_latch, matched.resolve m (g.phi.operand (g.phi.merge.slot .onTrue))]
+      rw [projection_latch, LayoutMatch.resolve m matched (g.phi.operand (g.phi.merge.slot .onTrue))]
       simp only [Graph.denote, dataResult, selected, Projection.ofBool, encodePort]
 
 private theorem lower_eval_denote (entry : Tuple (Val m.value) (dataPorts inputs)) (start : σ) :
