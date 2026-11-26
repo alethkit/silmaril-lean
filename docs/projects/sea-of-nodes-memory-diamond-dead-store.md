@@ -186,6 +186,38 @@ distinct ports naming the same cell, and a middle route that reads the
 old cell before its overwrite.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
 
+### Use a retained prefix binding as Store data
+
+`DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord.lower` admits a nominated
+Store with an original argument address and a typed data wire produced
+by the retained entry prefix. The cut also exposes the identical typed
+prefix ending in a Return of that wire, so its readback is the original
+pre-Store operand for each initial buffer. Both emitted CFGs retain the
+actual Load/Store prefix and the nonempty certified argument-addressed
+Load suffix, with their scalar wiring and Return unchanged. The original
+entry buffer is the retained entry buffer with that prefix-produced word
+written back at the nominated cell.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Defs.lean) ·
+[Pinned Simple memory Phi](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The native interval checker verifies the overwrite and reader certificate
+on each original arm. Its proof works for any incoming word at the
+nominated cell, so both artifacts use the same original arms. The same
+typed invocation validates the suffix and every occurrence. For any
+initialized buffer and common CF budget, the emitted artifacts preserve
+the entry return word, exact selected slot, complete join packet, and
+final word and buffer. Address operands at the cut and in the checked
+suffix come from original arguments. The existing argument-data entry
+points remain available under `FinalEntry` and `LoadTail`.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/LoadTail/PrefixWord/Thms.lean)
+
+The runnable fixture checks duplicate predecessor IDs, a prefix Load
+whose value differs from the suffix result and every argument word,
+suffix alias refusal, and a pre-overwrite read that blocks only the
+middle occurrence. Run it with
+`lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean`.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter

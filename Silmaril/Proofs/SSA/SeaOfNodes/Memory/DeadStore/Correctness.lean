@@ -130,6 +130,15 @@ private theorem noReadUntil_observations (overwrite : Nat) (body : Body args pas
       obtain ⟨result, reads⟩ := ih _ _ _ (writes_agree agrees (readValue value input locals)) rest
       exact ⟨result, fun index => by simpa only [readAt_store memory] using reads index⟩
 
+theorem noReadUntil_write (overwrite : Nat) (graph : Graph args)
+    (input : Tuple (Val cells) args) (valid : facts.Valid input) (initial : Heap cells) (word : Word)
+    (checked : noReadUntil facts overwrite graph = true) :
+    let written := initial.write (cell input facts.observed) word
+    graph.denote input initial = graph.denote input written ∧
+      ∀ index, readAt graph index input PUnit.unit initial = readAt graph index input PUnit.unit written :=
+  noReadUntil_observations overwrite graph input PUnit.unit valid initial _
+    (fun other distinct => (initial.read_write_other _ other word distinct).symm) checked
+
 private theorem rewriteAt_observations (candidate : Candidate) (body rewritten : Body args past version)
     (success : rewriteAt candidate facts body = some rewritten)
     (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (valid : facts.Valid input)

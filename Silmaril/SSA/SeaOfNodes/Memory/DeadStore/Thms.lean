@@ -37,6 +37,16 @@ theorem reindexMemory_readAt {past : List (List ValueSort)} {version : Nat}
     readAt (reindexMemory body live) index input locals heap = readAt body index input locals heap :=
   Proofs.reindexMemory_readAt body live index input locals heap
 
+/-- A checked overwrite makes an arbitrary incoming write to the observed
+cell invisible to every Load and to the returned word and complete heap. -/
+theorem noReadUntil_write (overwrite : Nat) (graph : Graph args)
+    (input : Tuple (Val cells) args) (valid : facts.Valid input) (initial : Heap cells) (word : Word)
+    (checked : noReadUntil facts overwrite graph = true) :
+    let written := initial.write (Forwarding.Disjoint.cell input facts.observed) word
+    graph.denote input initial = graph.denote input written ∧
+      ∀ index, readAt graph index input PUnit.unit initial = readAt graph index input PUnit.unit written :=
+  Proofs.noReadUntil_write overwrite graph input valid initial word checked
+
 theorem rewrite_eq_some_iff (input : Tuple (Val cells) args) :
     rewrite graph candidate facts input = some rewritten ↔
       rewriteWith graph candidate facts = some rewritten ∧ facts.Valid input := by

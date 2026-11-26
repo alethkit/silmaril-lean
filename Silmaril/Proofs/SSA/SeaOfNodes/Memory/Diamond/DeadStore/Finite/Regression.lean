@@ -4,11 +4,13 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord.Thms
 
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
@@ -279,5 +281,50 @@ private def runTailSwitch (arrival : Occurrence preds) (fuel : Nat) :
 example : MemRef.CF.LoadTail.lower preds fits tailEntry 3 (arms headPort) witnesses suffix input tailFacts = none :=
   (MemRef.CF.LoadTail.lower_eq_none_iff tailCutAccepted).mpr ⟨1, rfl⟩
 #guard (MemRef.CF.LoadTail.lower preds fits tailEntry 3 (arms headPort) witnesses suffix input tailFacts).isNone
+
+-- The removed write uses the value 3 from the retained prefix Load.
+-- The prefix leaves 22 in the target cell and changes the source cell
+-- to 11, so neither the current cell contents nor the tail word is the operand.
+private def localPrefix (tail : Memory.Body Args [[.word]] 2) : Memory.Graph Args :=
+  .load (.latest 0) (.arg sidePort)
+    (.store (.latest 0) (.arg headPort) (.arg middleWord)
+      (.store (.latest 1) (.arg sidePort) (.arg firstWord) tail))
+
+private def localEntry : Memory.Graph Args :=
+  localPrefix (.store (.latest 2) (.arg headPort) loaded (trailingReads 3))
+
+private def localCut : MemRef.CF.LoadTail.PrefixWord.Cut Args [] 0 :=
+  ⟨headPort, localPrefix (.ret (.latest 2) loaded), localPrefix (trailingReads 2)⟩
+
+example : MemRef.CF.LoadTail.PrefixWord.cut tailFacts 3 localEntry = some localCut := rfl
+#guard readback (observe localCut.beforeStore input initial) == [3, 22, 11, 55]
+
+private def localPrograms :=
+  MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (arms sidePort) witnesses suffix input tailFacts
+
+#guard localPrograms.map entryBuffers == some ([3, 11, 55], [22, 11, 55])
+#guard (localPrograms.map fun p => (emittedEntryWord p.original, emittedEntryWord p.optimized)) ==
+  some (some 11, some 11)
+
+#guard (List.ofFn fun i => compareSwitch localPrograms i 3) ==
+  [some (0, [11, 11, 11, 55], [11, 11, 11, 55]),
+   some (1, [11, 22, 22, 55], [22, 22, 11, 55]),
+   some (2, [99, 99, 11, 55], [99, 99, 99, 55])]
+#guard (compareSwitch localPrograms 1 2).isNone
+
+-- With these arms, only the suffix validation can refuse this invocation.
+#guard MemRef.CF.LoadTail.PrefixWord.checkArms preds headPort (fun _ => last) (fun _ => ⟨1, []⟩) aliasInput
+#guard (MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (fun _ => last)
+    (fun _ => ⟨1, []⟩) suffix aliasInput tailFacts).isNone
+
+-- The two equal predecessor IDs still have independent reader checks.
+#guard (List.ofFn fun i =>
+  MemRef.CF.LoadTail.PrefixWord.checkArm headPort (arms headPort i) (witnesses i) input) == [true, false, true]
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (localEntry.denote input initial.cell).2 == some 3
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (Memory.Graph.denote localCut.retained input initial.cell).2 == some 22
+#guard (MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (arms headPort)
+    witnesses suffix input tailFacts).isNone
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
