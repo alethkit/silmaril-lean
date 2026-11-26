@@ -150,3 +150,55 @@ open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF
 The last line shows exhaustion at those two bounds. The regression also
 checks the partial observation `Part.some` of the encoded return.
 [Comparison regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Comparison/Regression.lean)
+
+## Check an equation between two pruned loops
+
+Import
+`Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Comparison.Equation.Thms`.
+`Equation.nativeEquation` and `Equation.prunedEquation` package the
+actual numbered γ/θ graphs in the existing nested RVSDG runtime-observation
+sentence. This sentence fits the inner diamond. The native pure-loop
+institution's equation container uses a linear header producer table.
+The unpruned graph's finite returns are exactly the quad source runner's
+finite returns.
+[Nested runtime sentences](../../Silmaril/SSA/RVSDG/NestedTheta/Institution/RuntimeObservation/Defs.lean) ·
+[Native pure-loop equations](../../Silmaril/SSA/SeaOfNodes/Loop/Institution/Defs.lean) ·
+[Quad adequacy](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/Thms.lean)
+
+`Equation.rvsdg_satisfaction` compares the two sentences in the concrete
+word model. Independently, `Equation.cf_satisfaction` relates native
+satisfaction to equality of the two emitted CF observations at every
+typed CF valuation. The proof uses `encodeValues` for the shared ordered
+entry bank, including its `i1` predicates, and the exact singleton word
+return from the comparison theorem. `Equation.cf_at_iff` gives the same
+equivalence at one native valuation. Both sides must share the typed
+entry bank and result width. Their checked block tables and masks may
+differ.
+[Equation API](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Comparison/Equation/Thms.lean)
+
+The second program adds the carried stride in short arm block 0, first
+selected after feedback. Both follow merge predecessors `[6, 0, 6]`
+and feed back the same first bank. The two final words, 22 and 24, refute
+the equation at this valuation. The smaller budgets below give bounded
+exhaustion. The equation uses partial observations, where absence requires
+failure to return at every finite budget.
+[Inequation regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Diamond/MLIR/CF/Pruned/Comparison/Equation/Regression.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Comparison.Equation.Example.Defs`.
+Paste the block into `QuadDiamondEquation.lean` and run
+`lake env lean -DwarningAsError=true QuadDiamondEquation.lean`.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Comparison.Equation.Example.Defs
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Comparison.Equation.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Diamond.MLIR.CF.Pruned.Equation.Example
+
+#eval rvsdgResults 3   -- (some 22, some 24)
+#eval cfResults 16     -- (some 22, some 24)
+#eval rvsdgResults 2   -- (none, none)
+#eval cfResults 15     -- (none, none)
+```
