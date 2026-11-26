@@ -453,3 +453,46 @@ because its only use is at zero-based feedback slot `3`. The fixture
 takes predecessors `[3, 2, 4]` and returns `16` after two feedback steps,
 at source, CF and θ budgets `14/15/3`. Each runner exhausts one unit below.
 [Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Regression.lean)
+
+## Compile the original quad table
+
+`Backends.compile` takes the ordered source table and entry ID. It uses
+the original §3.1 recognizer, reports `.shape` when that check refuses,
+and otherwise passes through the first failed projection, split or
+result-port check. `compileChecked` accepts an existing checked
+`Program`. On success the compiler prepares the latch once and stores
+both typed artifacts as `targets.cf` and `targets.numbered`.
+[Compiler](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Defs.lean)
+
+`Targets.numbered_packet` and `Targets.cf_activation_packet` identify
+the exact packet or selected frame after the original selected path.
+`Targets.cf_run` uses source visits plus the CF return visit, and
+`Targets.numbered_run` uses θ activations. `Targets.returns_iff`
+quantifies source, CF and θ budgets independently for each value.
+`Targets.noFiniteReturn_iff` characterizes exhaustion at every bound.
+The compiler uses the checked pure nested shape and the existing
+strict header and merge projections.
+[Compiler laws](../../Silmaril/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Thms.lean)
+
+Build with
+`lake build --wfail +Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Example.Defs`.
+Paste into `QuadNestedCompile.lean` and run
+`lake env lean -DwarningAsError=true QuadNestedCompile.lean`.
+
+```lean
+module
+
+meta import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Example.Defs
+
+open Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends
+
+#eval (compile Example.source 0).map Example.report
+```
+
+The accepted run records cuts `[1, 0]`, five latch operations in each
+emitted target, and the protected stride use at feedback slot `3`.
+It traverses predecessors `[3, 2, 4]` and returns `16` at source, CF,
+and θ budgets `14/15/3`. The same compiled pair exhausts one unit
+below. The regression checks `.shape` for the edge that skips the merge
+and `.headerProjection` for a recognized full-bank header.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Quads/Loop/Tail/Nested/MergePrune/Latch/DeadProducer/Iteration/Backends/Regression.lean)
