@@ -117,6 +117,40 @@ theorem close_terminal {f : Feedback.Run R L α σ} {p : Feedback.Point R.length
     subst u
     exact .inl ⟨p, .refl, run.symm ▸ ordinary_singleton.mpr rfl⟩
 
+theorem close_infinite_of_singleton {f : Feedback.Run R L α σ}
+    (path : Nat → Feedback.Point R.length α σ)
+    (localStep : ∀ n, ∃ i a s, path (n + 1) = .block i a s ∧
+      f (path n) = WithTop.some {Outcome.ret (Feedback.internal R L i) a s}) :
+    Feedback.close f (path 0) = WithTop.some {Outcome.diverge} := by
+  have unique (n : Nat) (q : Feedback.Point R.length α σ) :
+      Feedback.Step f (path n) q ↔ q = path (n + 1) := by
+    obtain ⟨i, a, s, next, run⟩ := localStep n
+    rw [next, branch_only run]
+  have reached {q} (h : Feedback.Reaches f (path 0) q) : ∃ n, q = path n := by
+    induction h with
+    | refl => exact ⟨0, rfl⟩
+    | tail _ step ih =>
+      obtain ⟨n, rfl⟩ := ih
+      exact ⟨n + 1, (unique n _).mp step⟩
+  have safe : ¬ Feedback.ReachesUB f (path 0) := by
+    rintro ⟨q, steps, top⟩
+    obtain ⟨n, rfl⟩ := reached steps
+    obtain ⟨_, _, _, _, run⟩ := localStep n
+    exact WithTop.coe_ne_top (run ▸ top)
+  rw [Feedback.close_of_noUB safe]
+  apply congrArg WithTop.some
+  ext o
+  change (Feedback.Finite f (path 0) o ∨ o = .diverge ∧ Feedback.Infinite f (path 0)) ↔ o = .diverge
+  constructor
+  · rintro (⟨q, steps, obs⟩ | h)
+    · obtain ⟨n, rfl⟩ := reached steps
+      obtain ⟨i, a, s, _, run⟩ := localStep n
+      rw [run] at obs
+      exact (not_external_branch o i a s (ordinary_singleton.mp obs)).elim
+    · exact h.1
+  · intro h
+    exact .inr ⟨h, path, rfl, fun n => (unique n _).mpr rfl⟩
+
 section Positional
 
 variable {points results states : Nat}

@@ -1,7 +1,8 @@
 module
 
-import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Product.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Feedback.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.TwoRequest.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Refinement.Checker.Interface.Thms
 
 namespace Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands
@@ -281,15 +282,21 @@ example : (emptyTable 0).compareInterface? (emptyTable 0) enumeration (emptyTabl
 example : (emptyTable 0).compareInterface? (emptyTable 0) enumeration (emptyTable 0).native
     (emptyTable 1).native rfl emptyCallers = none := rfl
 
-private def backedge : Table sig Packets where
+private def loopRow (target : Fin Packets.length) (typed : Packets.get target = Bit)
+    (operand : Syntax.Expr [Bit, Bit] Bit) : Row sig Packets [Bit, Bit] :=
+  .request .flip operand (fun _ => target) fun j => by
+    obtain rfl := Fin.eq_zero j
+    exact typed
+
+private def loopTable (operand : Syntax.Expr [Bit, Bit] Bit) : Table sig Packets where
   entry := 0
   row := Fin.cases (motive := fun i : Fin 3 => Row sig Packets [Packets.get i, Bit])
-    (.request .flip (Syntax.Expr.var (Γ := [Bit, Bit]) (0 : Fin 2)) (fun _ => (0 : Fin 3))
-      (fun j => by
-        obtain rfl := Fin.eq_zero j
-        rfl))
+    (loopRow 0 rfl operand)
     (fun i => source.row i.succ)
   selected := source.selected
+
+private abbrev backedge := loopTable (.var 0)
+private abbrev literalLoop := loopTable (.inl .unit)
 
 example : backedge.entryCheck = false := rfl
 
@@ -365,6 +372,68 @@ example : (Feedback.close (backedge.feedback left returnsForever) (blockPoint lo
   refine ⟨?_, Or.inr ⟨rfl, infiniteReplay⟩⟩
   rintro ⟨q, _, top⟩
   cases q <;> exact WithTop.coe_ne_top top
+
+private def loopPairs : List (Packet Packets × Packet Packets) :=
+  [(loopStart, loopStart), (loopNext, loopNext)]
+
+private def secondLoop : Table sig Packets where
+  entry := 1
+  row := Fin.cases (motive := fun i : Fin 3 => Row sig Packets [Packets.get i, Bit])
+    (source.row 0)
+    (Fin.cases (motive := fun i : Fin 2 => Row sig Packets [Packets.get i.succ, Bit])
+      (loopRow 1 rfl (.var 0)) (fun _ => .exit 0))
+  selected := source.selected
+
+private def shiftedPairs : List (Packet Packets × Packet Packets) :=
+  [(loopStart, ⟨1, left⟩), (loopNext, ⟨1, right⟩)]
+
+example : backedge.checkProduct secondLoop left left enumeration shiftedPairs = true := rfl
+example : backedge.checkProduct secondLoop left left enumeration [(loopStart, ⟨1, left⟩)] = false := rfl
+
+example {n : Nat} (prim : Syntax.Primitives Op n) (s : Fin n) :
+    Shape.denote (withExitUB backedge.native backedge.selected)
+      (Syntax.model prim (backedge.bindings left)) s ≤
+    Shape.denote (withExitUB secondLoop.native secondLoop.selected)
+      (Syntax.model prim (secondLoop.bindings left)) s :=
+  backedge.checkProduct_sound secondLoop backedge.native secondLoop.native rfl rfl
+    left left enumeration shiftedPairs rfl prim s
+
+-- The first listed reply loops within the proposed singleton relation.
+-- The later payload at that same reply tag reaches the missing pair.
+example : backedge.checkProduct literalLoop left left enumeration [(loopStart, loopStart)] = false := rfl
+
+example : backedge.checkProduct literalLoop left left enumeration loopPairs = false := rfl
+
+private def adverseReply : Prefix sig.replies 1 :=
+  .step .flip left.val 0 right (.stop (some (.flip, right.val)))
+
+private abbrev adversePrim := sig.primitives adverseReply.handler
+
+example : ¬ Shape.denote (withExitUB backedge.native backedge.selected)
+      (Syntax.model adversePrim (backedge.bindings left)) 0 ≤
+    Shape.denote (withExitUB literalLoop.native literalLoop.selected)
+      (Syntax.model adversePrim (literalLoop.bindings left)) 0 := by
+  have lower := (backedge.observe_entry backedge.native rfl left adversePrim 0).trans
+    ((backedge.observe_step left adversePrim loopStart 0).trans (backedge.observe_step left adversePrim loopNext 1))
+  have upper := (literalLoop.observe_entry literalLoop.native rfl left adversePrim 0).trans
+    ((literalLoop.observe_step left adversePrim loopStart 0).trans (literalLoop.observe_step left adversePrim loopNext 1))
+  change _ = TwoRequest.resultBehaviour (.fault 1) at lower
+  change _ = TwoRequest.resultBehaviour .diverge at upper
+  rw [lower, upper, TwoRequest.result_order]
+  simp [Result.refines]
+
+private def exitPairs : List (Packet Packets × Packet Packets) :=
+  [(loopStart, loopStart), (⟨1, left⟩, ⟨1, left⟩),
+    (⟨1, right⟩, ⟨1, right⟩), (exitPoint, exitPoint)]
+
+example : source.checkProduct marked left left enumeration exitPairs = true := rfl
+example : marked.checkProduct source left left enumeration exitPairs = false := rfl
+
+/-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.checkProduct_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound] -/
+#guard_msgs in
+#print axioms Table.checkProduct_sound
 
 /-- info: 'Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.Table.observe_entry' depends on axioms: [propext,
  Classical.choice,
