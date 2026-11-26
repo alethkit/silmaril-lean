@@ -19,7 +19,7 @@ variable {checked : scope.Checked actions} {routes : Routes inputsL inputsR scop
 
 /-- Synthesis succeeds on every direct forwarding derivation. The
 hypotheses require exact tracked slot sources in both links at each call. -/
-theorem synthesizeAt_complete {source : Boundary imports entry scope.past}
+theorem synthesizeAt_complete {source : ScopeBoundary imports entry scope.past past}
     {code : Code Op entry past sigs outs true (some scope.table)}
     (tracked : Tracked checked routes source code) :
     (synthesizeAt checked routes source code rfl).isSome = true :=
@@ -29,7 +29,7 @@ theorem synthesizeAt_complete {source : Boundary imports entry scope.past}
 capture wires. Whole-prefix admission also checks the binding itself. -/
 theorem synthesize_complete {captures : Wires imports scope.past context}
     {code : Code Op (context ++ fn.args) past sigs outs true (some scope.table)}
-    (tracked : Tracked checked routes (captureBoundary captures) code) :
+    (tracked : Tracked checked routes (ScopeBoundary.start (captureBoundary captures) past) code) :
     (synthesize checked routes captures code).isSome = true := by
   simpa [synthesize] using Proofs.tracked_complete tracked
 

@@ -133,6 +133,157 @@ theorem project_read {Ty : Type u} {F : Ty → Type w} {imports context params u
   boundary_project_read (captureBoundary wires) requested sources found inputs locals _
     (capture_reads wires inputs locals args) inner
 
+private theorem map_get {Ty : Type u} {F G : Ty → Type w} {ports : Ports Ty}
+    (f : ∀ ty, F ty → G ty) (tuple : Tuple F ports) {ty : Ty} (p : Port ports ty) :
+    (tuple.map f).get p = f ty (tuple.get p) := by
+  induction p with
+  | head => cases tuple; rfl
+  | tail _ ih => cases tuple; exact ih _
+
+private theorem identity_get {Ty : Type u} {ports : Ports Ty} {ty : Ty} (p : Port ports ty) :
+    (NestedTheta.identityPorts ports).get p = p := by
+  induction p with
+  | head => rfl
+  | tail _ ih => simp only [NestedTheta.identityPorts, Tuple.get, map_get, ih]
+
+private theorem start_empty {entry : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : Boundary imports entry outer) (i : Fin past.length) {ty : Ty V S} (p : Port past[i] ty) :
+    ((ScopeBoundary.start source past).locals.get i).get p = none := by
+  induction past with
+  | nil => exact i.elim0
+  | cons sig rest ih =>
+    refine Fin.cases ?_ (fun j => ih j) i p
+    intro q
+    exact map_get (fun _ _ => none) (NestedTheta.identityPorts sig) q
+
+theorem start_reads {entry : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : Boundary imports entry outer) (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer)
+    (values : Tuple m.Val entry) (locals : Locals m.Val past)
+    (reads : source.Reads inputs outerLocals values) :
+    (ScopeBoundary.start source past).Reads inputs outerLocals values locals := by
+  intro ty edge origin found
+  cases edge with
+  | arg p => exact reads p (by cases past <;> exact found)
+  | output i p =>
+    change ((ScopeBoundary.start source past).locals.get i).get p = some origin at found
+    rw [start_empty] at found
+    cases found
+
+theorem enter_reads {entry child : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (wires : Wires entry past child)
+    (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer)
+    (values : Tuple m.Val entry) (locals : Locals m.Val past) (reads : source.Reads inputs outerLocals values locals) :
+    (source.enter wires).Reads inputs outerLocals (wires.read values locals) := by
+  intro ty p origin found
+  rw [read_get wires p values locals]
+  exact reads (wires.get p) found
+
+private theorem locals_snoc_reads {head : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (sources : Locals (fun ty => Option (Origin imports outer ty)) past)
+    (values : Locals m.Val past) (newSources : Tuple (fun ty => Option (Origin imports outer ty)) head)
+    (newValues : Tuple m.Val head) (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer)
+    (old : ∀ (i : Fin past.length) {ty} (p : Port past[i] ty) {origin}, (sources.get i).get p = some origin →
+      (values.get i).get p = (Wires.read (.cons origin .nil) inputs outerLocals).get .head)
+    (added : ∀ {ty} (p : Port head ty) {origin}, newSources.get p = some origin →
+      newValues.get p = (Wires.read (.cons origin .nil) inputs outerLocals).get .head) :
+    ∀ (i : Fin (past ++ [head]).length) {ty} (p : Port (past ++ [head])[i] ty) {origin},
+      ((sources.snoc newSources).get i).get p = some origin →
+      ((values.snoc newValues).get i).get p = (Wires.read (.cons origin .nil) inputs outerLocals).get .head := by
+  induction past with
+  | nil =>
+    intro i
+    refine Fin.cases ?_ (fun j => j.elim0) i
+    intro p origin h
+    exact added p h
+  | cons head tail ih =>
+    intro i
+    refine Fin.cases ?_ (fun j => ?_) i
+    · intro p origin h
+      exact old 0 p h
+    · intro p origin h
+      exact ih sources.2 values.2 (fun k {_} q {_} found => old k.succ q found) j p h
+
+theorem snoc_reads {entry out : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (outMap : Boundary imports out outer)
+    (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer) (values : Tuple m.Val entry)
+    (locals : Locals m.Val past) (result : Tuple m.Val out)
+    (reads : source.Reads inputs outerLocals values locals) (added : outMap.Reads inputs outerLocals result) :
+    (source.snoc outMap).Reads inputs outerLocals values (locals.snoc result) := by
+  intro ty edge origin found
+  cases edge with
+  | arg p => exact reads (.arg p) found
+  | output i p =>
+    exact locals_snoc_reads source.locals locals _ result inputs outerLocals
+      (fun j {_} q {_} h => reads (.output j q) h)
+      (fun {_} q {_} h => added q (by simpa only [map_get, identity_get] using h)) i p found
+
+theorem join_reads {child out : Ports (Ty V S)} {outer : List (Ports (Ty V S))}
+    {loops : Bool} {member : Option (MemberSummaries V S)} {extra : Nat}
+    {armSigs : Fin (extra + 2) → List (Ports (Ty V S))} (source : Boundary imports child outer)
+    (arms : (i : Fin (extra + 2)) → Code Op child [] (armSigs i) out loops member)
+    (inputs : Tuple m.Val imports) (locals : Locals m.Val outer) (values : Tuple m.Val child)
+    (result : Tuple m.Val out) (i : Fin (extra + 2))
+    (reads : source.Reads inputs locals values) (returned : (arms i).Forwards values result) :
+    (source.join arms).Reads inputs locals result := by
+  intro ty p origin found
+  unfold Boundary.join at found
+  cases first : (source.armResult (arms 0)).get p with
+  | none => simp [first] at found
+  | some expected =>
+    by_cases all : ∀ j, ((source.armResult (arms j)).get p).map Origin.address = some expected.address
+    · have selected : expected = origin := by simpa [first, all] using found
+      subst origin
+      have arm := all i
+      cases edge : (arms i).returnArg p with
+      | none => simp [Boundary.armResult, edge] at arm
+      | some q =>
+        cases wire : source.get q with
+        | none => simp [Boundary.armResult, edge, wire] at arm
+        | some actual =>
+          have eq : actual.address = expected.address := by simpa [Boundary.armResult, edge, wire] using arm
+          have same : (Tuple.cons actual .nil : Wires imports outer [ty]) = .cons expected .nil :=
+            NestedTheta.Equality.addresses_injective _ _ (by simp [Wires.addresses, eq])
+          rw [← same]
+          exact (returned p q edge).trans (reads q wire)
+    · simp only [first] at found
+      change (if ∀ j, ((source.armResult (arms j)).get p).map Origin.address = some expected.address then some expected else none) = some origin at found
+      rw [ite_eq_right all] at found
+      cases found
+
+private theorem scope_project_read {entry users : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (wires : Wires entry past users)
+    (sources : Wires imports outer users) (found : source.project wires = some sources)
+    (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer) (values : Tuple m.Val entry)
+    (locals : Locals m.Val past) (reads : source.Reads inputs outerLocals values locals) :
+    sources.read inputs outerLocals = wires.read values locals := by
+  induction wires with
+  | nil => cases found; rfl
+  | cons origin rest ih =>
+    cases selected : source.get origin with
+    | none => simp [ScopeBoundary.project, selected] at found
+    | some q =>
+      cases more : source.project rest with
+      | none => simp [ScopeBoundary.project, selected, more] at found
+      | some tail =>
+        have same : Tuple.cons q tail = sources := by simpa [ScopeBoundary.project, selected, more] using found
+        subst sources
+        exact congrArg₂ Tuple.cons (reads origin selected).symm (ih tail more)
+
+theorem scoped_call {entry : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry scope.past past) (i : Fin scope.table.members.length)
+    (target : Origin entry past (scope.table.at i).fn.port) (witnesses : Wires entry past (scope.table.at i).captures)
+    (sources expected : Wires imports scope.past (CallPorts scope.table i))
+    (found : source.project (.cons target witnesses) = some sources) (same : sources.addresses = expected.addresses)
+    (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val scope.past) (guard : Guard m scope.table)
+    (resolved : selects guard i (expected.read inputs outerLocals)) (values : Tuple m.Val entry)
+    (locals : Locals m.Val past) (reads : source.Reads inputs outerLocals values locals) :
+    guard i ((Wires.read (.cons target .nil) values locals).get .head) (witnesses.read values locals) := by
+  have h := scope_project_read source _ sources found inputs outerLocals values locals reads
+  rw [NestedTheta.Equality.addresses_injective sources expected same] at h
+  unfold selects at resolved
+  rw [h] at resolved
+  exact resolved
+
 theorem widen_read {args users head : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     (wires : Wires args past users) (inputs : Tuple m.Val args) (locals : Locals m.Val past)
     (value : Tuple m.Val head) :

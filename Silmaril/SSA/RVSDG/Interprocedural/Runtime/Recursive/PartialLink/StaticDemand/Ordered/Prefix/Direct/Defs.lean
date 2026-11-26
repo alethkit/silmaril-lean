@@ -61,6 +61,57 @@ def Boundary.project {Ty : Type u} {imports entry : Ports Ty} {outer past : List
     pure (.cons origin tail)
   | _, .cons (.output _ _) _ => none
 
+/-- A boundary for the entry and any tracked earlier bindings. -/
+structure ScopeBoundary (imports entry : Ports (Ty V S)) (outer past : List (Ports (Ty V S))) where
+  args : Boundary imports entry outer
+  locals : Locals (fun ty => Option (Origin imports outer ty)) past
+
+def ScopeBoundary.get {entry : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) {ty : Ty V S} :
+    Origin entry past ty → Option (Origin imports outer ty)
+  | .arg p => source.args.get p
+  | .output i p => (source.locals.get i).get p
+
+def ScopeBoundary.start {entry : Ports (Ty V S)} {outer : List (Ports (Ty V S))}
+    (source : Boundary imports entry outer) : (past : List (Ports (Ty V S))) → ScopeBoundary imports entry outer past
+  | [] => ⟨source, PUnit.unit⟩
+  | sig :: rest => ⟨source, (NestedTheta.identityPorts sig |>.map (fun _ _ => none), (start source rest).locals)⟩
+
+def ScopeBoundary.snoc {entry out : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (outMap : Boundary imports out outer) :
+    ScopeBoundary imports entry outer (past ++ [out]) :=
+  ⟨source.args, source.locals.snoc ((NestedTheta.identityPorts out).map fun _ p => outMap.get p)⟩
+
+def ScopeBoundary.enter {entry child : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (wires : Wires entry past child) :
+    Boundary imports child outer := ⟨fun p => source.get (wires.get p)⟩
+
+def ScopeBoundary.project {entry : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) : {users : Ports (Ty V S)} →
+    Wires entry past users → Option (Wires imports outer users)
+  | _, .nil => some .nil
+  | _, .cons origin rest => do
+    let wire ← source.get origin
+    let tail ← source.project rest
+    pure (.cons wire tail)
+
+/-- An arm can contribute only a result returned directly from its entry. -/
+def Boundary.armResult {child out : Ports (Ty V S)} {outer sigs : List (Ports (Ty V S))}
+    {loops : Bool} {member : Option (MemberSummaries V S)} (source : Boundary imports child outer)
+    (arm : Code Op child [] sigs out loops member) : Boundary imports out outer :=
+  ⟨fun p => (arm.returnArg p).bind fun q => source.get q⟩
+
+/-- Track the result only when every arm forwards the same typed linker wire. -/
+def Boundary.join {child out : Ports (Ty V S)} {outer : List (Ports (Ty V S))}
+    {loops : Bool} {member : Option (MemberSummaries V S)} {extra : Nat}
+    {armSigs : Fin (extra + 2) → List (Ports (Ty V S))} (source : Boundary imports child outer)
+    (arms : (i : Fin (extra + 2)) → Code Op child [] (armSigs i) out loops member) : Boundary imports out outer :=
+  ⟨fun p => do
+    let origin ← (source.armResult (arms 0)).get p
+    if ∀ i, ((source.armResult (arms i)).get p).map Origin.address = some origin.address then
+      some origin
+    else none⟩
+
 /-- Compose capture edges with the actual linker wires. -/
 def project {Ty : Type u} {imports context params users : Ports Ty} {past localSigs : List (Ports Ty)}
     (wires : Wires imports past context) (requested : Wires (context ++ params) localSigs users) :
@@ -72,6 +123,14 @@ def Boundary.Reads {Ty : Type u} {F : Ty → Type w} {imports entry : Ports Ty} 
     (values : Tuple F entry) : Prop :=
   ∀ {ty} (p : Port entry ty) {origin}, source.get p = some origin →
     values.get p = (Wires.read (.cons origin .nil : Wires imports outer [ty]) inputs locals).get .head
+
+/-- Agreement at every tracked original or locally produced wire. -/
+def ScopeBoundary.Reads {entry : Ports (Ty V S)} {outer past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry outer past) (inputs : Tuple m.Val imports) (outerLocals : Locals m.Val outer)
+    (values : Tuple m.Val entry) (locals : Locals m.Val past) : Prop :=
+  ∀ {ty} (edge : Origin entry past ty) {origin}, source.get edge = some origin →
+    (Wires.read (.cons edge .nil) values locals).get .head =
+      (Wires.read (.cons origin .nil) inputs outerLocals).get .head
 
 def widen {args users head : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     (wires : Wires args past users) : Wires args (past ++ [head]) users :=
@@ -122,11 +181,12 @@ variable {inputsL inputsR : Tuple m.Val imports}
 /-- A call's typed operands project to the supplied slot's exact sources,
 and the target origin has checked membership in both links. -/
 def TrackedSite (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope)
-    {entry : Ports (Ty V S)} (source : Boundary imports entry scope.past)
-    (i : Fin scope.table.members.length) (target : Port entry (scope.table.at i).fn.port)
-    (witnesses : Wires entry [] (scope.table.at i).captures) : Prop :=
+    {entry : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    (source : ScopeBoundary imports entry scope.past past)
+    (i : Fin scope.table.members.length) (target : Origin entry past (scope.table.at i).fn.port)
+    (witnesses : Wires entry past (scope.table.at i).captures) : Prop :=
   ∃ sources route,
-    Boundary.project source (.cons (.arg target) witnesses) = some sources ∧
+    source.project (.cons target witnesses) = some sources ∧
     routes i = some route ∧ sources.addresses = route.wires.addresses ∧
     (checked.state.left.available (entry := inputsL) Known.ordinary (sources.get .head)).isSome = true ∧
     (checked.state.right.available (entry := inputsR) Known.ordinary (sources.get .head)).isSome = true
@@ -136,33 +196,35 @@ under its composed boundary. A θ tracks only same-port feedback sources in
 its body. Both require tracked suffixes under the enclosing boundary. -/
 inductive Tracked (checked : scope.Checked actions) (routes : Routes inputsL inputsR scope) :
     {entry outs : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
-    Boundary imports entry scope.past → Code Op entry past sigs outs true (some scope.table) → Prop where
+    ScopeBoundary imports entry scope.past past → Code Op entry past sigs outs true (some scope.table) → Prop where
   | ret {entry outs : Ports (Ty V S)} {past : List (Ports (Ty V S))}
-      {source : Boundary imports entry scope.past} (wires : Wires entry past outs) :
+      {source : ScopeBoundary imports entry scope.past past} (wires : Wires entry past outs) :
       Tracked checked routes source (.ret wires)
   | primitive {entry ins results outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-      {source : Boundary imports entry scope.past} {opcode : Op ins outs} {operands : Wires entry past ins}
+      {source : ScopeBoundary imports entry scope.past past} {opcode : Op ins outs} {operands : Wires entry past ins}
       {rest : Code Op entry (past ++ [outs]) sigs results true (some scope.table)} :
-      Tracked checked routes source rest → Tracked checked routes source (.primitive opcode operands rest)
+      Tracked checked routes (source.snoc ⟨fun _ => none⟩) rest → Tracked checked routes source (.primitive opcode operands rest)
   | call {entry outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-      {source : Boundary imports entry scope.past} {i : Fin scope.table.members.length}
-      {target : Port entry (scope.table.at i).fn.port} {witnesses : Wires entry [] (scope.table.at i).captures}
+      {source : ScopeBoundary imports entry scope.past past} {i : Fin scope.table.members.length}
+      {target : Origin entry past (scope.table.at i).fn.port} {witnesses : Wires entry past (scope.table.at i).captures}
       {args : Wires entry past (scope.table.at i).fn.args}
       {rest : Code Op entry (past ++ [(scope.table.at i).fn.results]) sigs outs true (some scope.table)} :
-      TrackedSite checked routes source i target witnesses → Tracked checked routes source rest →
-      Tracked checked routes source (.familyCall (table := scope.table) i target witnesses args rest)
+      TrackedSite checked routes source i target witnesses → Tracked checked routes (source.snoc ⟨fun _ => none⟩) rest →
+      Tracked checked routes source (.callAt (table := scope.table) i target witnesses args rest)
   | gamma {entry captures outputs outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
-      {source : Boundary imports entry scope.past} {extra : Nat} {armSigs : Fin (extra + 2) → List (Ports (Ty V S))}
+      {source : ScopeBoundary imports entry scope.past past} {extra : Nat} {armSigs : Fin (extra + 2) → List (Ports (Ty V S))}
       {selector : Origin entry past (.control (extra + 2))} {wires : Wires entry past captures}
       {arms : (i : Fin (extra + 2)) → Code Op captures [] (armSigs i) outputs true (some scope.table)}
       {rest : Code Op entry (past ++ [outputs]) sigs outs true (some scope.table)} :
-      (∀ i, Tracked checked routes (Boundary.forward source wires) (arms i)) → Tracked checked routes source rest →
+      (∀ i, Tracked checked routes (ScopeBoundary.start (source.enter wires) []) (arms i)) →
+      Tracked checked routes (source.snoc ((source.enter wires).join arms)) rest →
       Tracked checked routes source (.gamma extra armSigs selector wires arms rest)
   | theta {entry carried outs : Ports (Ty V S)} {past sigs bodySigs : List (Ports (Ty V S))}
-      {source : Boundary imports entry scope.past} {wires : Wires entry past carried}
+      {source : ScopeBoundary imports entry scope.past past} {wires : Wires entry past carried}
       {body : Code Op carried [] bodySigs (Theta.BodyResults carried) true (some scope.table)}
       {rest : Code Op entry (past ++ [carried]) sigs outs true (some scope.table)} :
-      Tracked checked routes ((source.forward wires).feedback body) body → Tracked checked routes source rest →
+      Tracked checked routes (ScopeBoundary.start ((source.enter wires).feedback body) []) body →
+      Tracked checked routes (source.snoc ⟨fun _ => none⟩) rest →
       Tracked checked routes source (.theta wires body rest)
 
 end Tracking
