@@ -160,6 +160,11 @@ def hoist (outer : F) (arg : Operand sig Γ (sig.argument outer)) (tail : Region
     (.let₁ (.op outer (operand position scheduled.value))
       (tail.renameVars (Silmaril.DeBruijn.lift scheduled.requests.shift)))
 
+/-- Execute the operand schedule and send its residual to the same label. -/
+def scheduleJump (label : Nat) (arg : Operand sig Γ ty) : Region F :=
+  let scheduled := arg.schedule
+  scheduled.requests.wrap Region.let₁ Region.let₂ (.br label (operand position scheduled.value))
+
 /-- An exact written entry boundary and its operand type. Jumps use the
 same positional block and exit profile as the shared CFG checker. -/
 inductive Boundary (sig : PrimitiveSignature F) (context : BoundCtx PacketType captures)
@@ -178,9 +183,7 @@ target. A request still shifts the older slots beneath its own reply. -/
 def Boundary.lower {labels : Nat} {context : BoundCtx PacketType captures}
     {types : Fin labels → PacketType} : Boundary sig context types → Region F
   | .request outer arg tail => hoist outer arg tail.erase
-  | .jump label arg =>
-    let scheduled := arg.schedule
-    scheduled.requests.wrap Region.let₁ Region.let₂ (.br label.val (operand position scheduled.value))
+  | .jump label arg => scheduleJump label.val arg
 
 /-- Check both the operand's synthesized type and its exact written syntax. -/
 def readArgument [DecidableEq F] (sig : PrimitiveSignature F) (Γ : List PacketType)

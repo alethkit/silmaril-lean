@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Defs
 
-/-! # Schedule case tests and branch-local request arguments -/
+/-! # Schedule case tests and branch-local operands -/
 
 @[expose] public section
 
@@ -39,20 +39,24 @@ def productTypes (sig : PrimitiveSignature F) (Γ : List PacketType) (value : Tm
 
 /-- Traverse written binders with the operand checker's types. A request
 argument is scheduled inside its current arm, before the request and its
-reply continuation. The continuation checker verifies the resulting row. -/
-def scheduleCases [DecidableEq F] (sig : PrimitiveSignature F) :
+reply continuation. A transfer operand uses the original destination's type.
+The continuation checker verifies the resulting row. -/
+def scheduleCases [DecidableEq F] (sig : PrimitiveSignature F) {labels : Nat} (types : Fin labels → PacketType) :
     List PacketType → Region F → Option (Region F)
-  | _, .br label arg => some (.br label arg)
+  | Γ, .br label arg =>
+    if within : label < labels then
+      (readArgument sig Γ (types ⟨label, within⟩) arg).map (fun found => scheduleJump label found.val)
+    else none
   | Γ, .let₁ (.op op argument) tail =>
     (readArgument sig Γ (sig.argument op) argument).bind fun arg =>
-      (scheduleCases sig (sig.reply op :: Γ) tail).map (hoist op arg.val)
+      (scheduleCases sig types (sig.reply op :: Γ) tail).map (hoist op arg.val)
   | Γ, .let₁ value tail => (readOperand sig Γ value).bind fun found =>
-    (scheduleCases sig (found.1 :: Γ) tail).map (.let₁ value)
+    (scheduleCases sig types (found.1 :: Γ) tail).map (.let₁ value)
   | Γ, .let₂ value tail => (productTypes sig Γ value).bind fun (a, b) =>
-    (scheduleCases sig (b :: a :: Γ) tail).map (.let₂ value)
+    (scheduleCases sig types (b :: a :: Γ) tail).map (.let₂ value)
   | Γ, .case test left right => (readCaseTest sig Γ test).bind fun found =>
-    (scheduleCases sig (found.leftType :: Γ) left).bind fun left =>
-      (scheduleCases sig (found.rightType :: Γ) right).map (scheduleCase found.operand left)
+    (scheduleCases sig types (found.leftType :: Γ) left).bind fun left =>
+      (scheduleCases sig types (found.rightType :: Γ) right).map (scheduleCase found.operand left)
   | _, .cfg .. => none
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.EffectfulEntry.Multiple.Computed
