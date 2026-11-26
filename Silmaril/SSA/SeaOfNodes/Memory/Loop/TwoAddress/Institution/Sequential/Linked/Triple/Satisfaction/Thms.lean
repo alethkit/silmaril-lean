@@ -14,6 +14,7 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.
 open CategoryTheory
 open RVSDG (Tuple)
 open RVSDG.NestedTheta.Institution
+open Silmaril.MLIR.MemRef (Buffer)
 open Memory.Diamond.Institution (reduct)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
@@ -40,6 +41,16 @@ theorem Program.numbered_returns_map (h : P ⟶ Q) (p : Program P) (model : Entr
     (initial : Heap model.cells) (out : Triple.Result model.cells) :
     (p.map h).numberedReturns model initial out ↔ p.numberedReturns (reduct h model) initial out :=
   Proofs.numbered_returns_map h p model initial out
+
+theorem Program.numbered_observe_map (h : P ⟶ Q) (p : Program P) (model : EntryModel Q)
+    (initial : Heap model.cells) :
+    (p.map h).numberedObserve model initial = p.numberedObserve (reduct h model) initial :=
+  Proofs.numbered_observe_map h p model initial
+
+theorem Program.runMemRef_map (h : P ⟶ Q) (p : Program P) (model : EntryModel Q)
+    (fuel : Nat) (initial : Buffer model.cells) :
+    (p.map h).runMemRef model fuel initial = p.runMemRef (reduct h model) fuel initial :=
+  MemRef.runFuel_map h p.pair.first p.pair.second p.third p.pair.wiring p.wiring model fuel initial
 
 /-- At one typed valuation, both sentence forms transfer over all initialized heaps. -/
 theorem Sentence.memref_satisfaction (s : Sentence P) (model : EntryModel P) :

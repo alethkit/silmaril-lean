@@ -83,6 +83,15 @@ private theorem mem_observe (p : Program P) (model : EntryModel P) (initial : He
     resultCodec model.cells out ∈ p.numberedObserve model initial ↔ p.numberedReturns model initial out :=
   Part.eq_some_iff.symm.trans (numbered_eq_some_iff p model initial out)
 
+theorem numbered_observe_map (h : P ⟶ Q) (p : Program P) (model : EntryModel Q)
+    (initial : Heap model.cells) :
+    (p.map h).numberedObserve model initial = p.numberedObserve (reduct h model) initial := by
+  apply Part.ext
+  intro raw
+  obtain ⟨out, rfl⟩ := (resultCodec model.cells).surjective raw
+  exact (mem_observe (p.map h) model initial out).trans
+    ((numbered_returns_map h p model initial out).trans (mem_observe p (reduct h model) initial out).symm)
+
 private theorem equation_iff (lhs rhs : Program P) (model : EntryModel P) (initial : Heap model.cells) :
     lhs.numberedObserve model initial = rhs.numberedObserve model initial ↔
       ∀ out, lhs.numberedReturns model initial out ↔ rhs.numberedReturns model initial out := by
