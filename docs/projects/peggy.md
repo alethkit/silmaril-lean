@@ -3,7 +3,9 @@
 The typed PEG core represents finite **Program Expression Graphs** with
 sharing, branching and loop feedback. Peggy is the optimizer that uses PEGs
 and adds equivalences to build E-PEGs. The current library covers graph
-construction, scope and structural guards.
+construction, scope and structural guards. The
+[checked Egg bridge](peggy-egg.md) covers ranked loop-free PEGs with
+partial primitive applications and lazy φ.
 
 Ross Tate, Michael Stepp, Zachary Tatlock and Sorin Lerner, *Equality
 Saturation: A New Approach to Optimization*, LMCS 7(1:10), 2011,
@@ -105,9 +107,9 @@ remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1
 4. **E-PEGs and optimization**. Add `Silmaril.SSA.Peggy.EPEG`,
    `.Saturation`, `.Extraction` and `.Validation`. Reuse sorted
    [Egg explanation contracts](../../Silmaril/Logic/Egg/Core/Thms.lean) for
-   the acyclic equational fragment. Check node extension, guarded rule
-   receipts and congruence, and prove every merge preserves equality of
-   node streams. Prove §4's monotonicity and uniqueness of normal forms
+   the [checked acyclic equational fragment](peggy-egg.md). Check node
+   extension, guarded rule receipts and congruence, and prove every merge
+   preserves equality of node streams. Prove §4's monotonicity and uniqueness of normal forms
    separately from finite-fuel progress. Use an independent graph and
    CFG-like check on extracted representatives. The displayed Boolean
    constraints in §8.3 also admit invalid selections, such as a θ
@@ -115,10 +117,11 @@ remains a proof obligation. [Definition 5.1 and Fig. 11](https://arxiv.org/pdf/1
    separately from any cost-minimality claim. Prove validation by
    composition with adequate frontends at the chosen observation.
 5. **IR bridges**. Put `Bridge.Egg`, `Bridge.MLIR` and `Bridge.RVSDG`
-   under `Silmaril.SSA.Peggy`. Start with pure total acyclic PEGs and
-   regionless MLIR/ordered RVSDG values. Prove unfolding preserves
-   denotation, including ordered result projections. For structured RVSDG
-   loops, align θ body iterations, exit polarity, and PEG pass/eval.
+   under `Silmaril.SSA.Peggy`. The [Egg bridge](peggy-egg.md) checks acyclic
+   unfolding and equality of ordered partial results. Start the MLIR and
+   RVSDG bridges with pure total acyclic PEGs and regionless MLIR/ordered
+   RVSDG values. For structured RVSDG loops, align θ body iterations, exit
+   polarity, and PEG pass/eval.
    Compose typed λSSA and the pure Sea of Nodes diamond through RVSDG.
    Use typed, coherently versioned λRTL forward CFGs with an explicit
    exit/store observation. Put machine RTL and Wasm adapters in their own

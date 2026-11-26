@@ -54,9 +54,9 @@ private theorem eval_eq {operand : Operand layout} {result : Except Failure Valu
   | globalFound found => simp [Operand.evalIn, NameRead.evalIn, found]
   | globalMissing missing => simp [Operand.evalIn, NameRead.evalIn, missing]
   | eqInt _ ih => rw [Operand.evalIn, ← name_read_eval, ih]
-  | addLeftError _ first => simp [Operand.evalIn, first, Except.bind]
-  | addRightError _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
-  | addValues _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
+  | binaryLeftError _ first => simp [Operand.evalIn, first, Except.bind]
+  | binaryRightError _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
+  | binaryValues _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
   | _ => rfl
 
 private theorem name_rule (source : NameRead layout) :
@@ -75,19 +75,19 @@ private theorem eval_rule (operand : Operand layout) :
   induction operand with
   | readGlobal name => exact name_rule (.global name)
   | eqInt source _ => exact .eqInt (name_rule source)
-  | addInt left right ihLeft ihRight =>
+  | binaryInt op left right ihLeft ihRight =>
     cases first : left.evalIn globals heap frame with
     | error error =>
       simpa [Operand.evalIn, first, Except.bind] using
-        (EvaluatesIn.addLeftError (right := right) (first ▸ ihLeft))
+        (EvaluatesIn.binaryLeftError (right := right) (first ▸ ihLeft))
     | ok lhs =>
       cases second : right.evalIn globals heap frame with
       | error error =>
         simpa [Operand.evalIn, first, second, Except.bind] using
-          (EvaluatesIn.addRightError (first ▸ ihLeft) (second ▸ ihRight))
+          (EvaluatesIn.binaryRightError (first ▸ ihLeft) (second ▸ ihRight))
       | ok rhs =>
         simpa [Operand.evalIn, first, second, Except.bind] using
-          (EvaluatesIn.addValues (first ▸ ihLeft) (second ▸ ihRight))
+          (EvaluatesIn.binaryValues (first ▸ ihLeft) (second ▸ ihRight))
   | _ => constructor
 
 private theorem arguments_eq {operands : List (Operand layout)} {result : Except Failure (List Value)}
@@ -250,6 +250,7 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | resume heap caller stack result => rfl
   | receive destination wrote => simp [advanceIn, destination, store_eq wrote]
   | receiveDiscard destination => simp [advanceIn, destination]
+  | receiveReturn continuation => simp [advanceIn, continuation]
   | receiveError heap caller stack error => rfl
 
 theorem step_of_advance {source : State} {transition : Transition}
@@ -323,7 +324,7 @@ theorem step_of_advance {source : State} {transition : Transition}
         cases holds <;> simp [advanceIn, evaluated] at advanced <;> subst transition
         · exact .assertCodeNamesFalse evaluated
         · exact .assertCodeNamesTrue evaluated
-    | callTo destination callee arguments next =>
+    | invoke callee arguments continuation =>
       cases evaluated : evalCallIn globals heap frame callee arguments with
       | error error =>
         simp only [advanceIn, evaluated, Option.some.injEq] at advanced
@@ -331,7 +332,7 @@ theorem step_of_advance {source : State} {transition : Transition}
         exact .callError (evaluated ▸ inputs_rule callee arguments)
       | ok inputs =>
         obtain ⟨value, values⟩ := inputs
-        cases dispatched : Dispatch.dispatch table value values heap ⟨_, frame, ⟨destination, next⟩⟩ stack with
+        cases dispatched : Dispatch.dispatch table value values heap ⟨_, frame, continuation⟩ stack with
         | error failure =>
           simp only [advanceIn, evaluated, dispatched, Option.some.injEq] at advanced
           subst transition
@@ -353,15 +354,22 @@ theorem step_of_advance {source : State} {transition : Transition}
   | receiving heap caller stack result =>
     cases result with
     | ok value =>
-      cases destination : caller.continuation.destination with
-      | store slot =>
-        simp only [advanceIn, destination, Option.some.injEq] at advanced
+      cases continuation : caller.continuation with
+      | none =>
+        simp only [advanceIn, continuation, Option.some.injEq] at advanced
         subst transition
-        exact .receive destination (store_rule slot value caller.continuation.body stack)
-      | discard =>
-        simp only [advanceIn, destination, Option.some.injEq] at advanced
-        subst transition
-        exact .receiveDiscard destination
+        exact .receiveReturn continuation
+      | some resume =>
+        obtain ⟨destination, body⟩ := resume
+        cases destination with
+        | store slot =>
+          simp only [advanceIn, continuation, Option.some.injEq] at advanced
+          subst transition
+          exact .receive continuation (store_rule slot value body stack)
+        | discard =>
+          simp only [advanceIn, continuation, Option.some.injEq] at advanced
+          subst transition
+          exact .receiveDiscard continuation
     | error error =>
       simp only [advanceIn, Option.some.injEq] at advanced
       subst transition

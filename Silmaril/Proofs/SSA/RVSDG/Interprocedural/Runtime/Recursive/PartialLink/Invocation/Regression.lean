@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 import Silmaril.SSA.RVSDG.Thms
@@ -29,7 +30,7 @@ private def machine : Machine Op where
 
 private def numberValue (n : Nat) : Tuple machine.Val [number] := .cons (.data n) .nil
 
-private def primitives : Primitives machine Nat where
+private def actions : Continuation.Partial.Executable.Actions machine Nat where
   step
     | .initialize, .cons (.data n) .nil => fun store =>
       let input : Nat := n
@@ -38,6 +39,8 @@ private def primitives : Primitives machine Nat where
       let value : Nat := captured
       let input : Nat := argument
       if input = 0 then .none else .some (numberValue (value + input + store), store + 2)
+
+private abbrev primitives : Primitives machine Nat := actions.toPrimitives
 
 private def initTail : Term Op [number] [[number]] [] [number] :=
   .ret (.cons (.output (0 : Fin 1) .head) .nil)
@@ -168,5 +171,69 @@ example : (request 2 1).start primitives =
 
 example : (request 2 1).Returns primitives :=
   returns_iff_machine.mpr ⟨_, started 1, numberValue 38, 27, invokedReturn.steps .halt⟩
+
+example : Executable.link actions 73 graph (numberValue 2) 20 = .linked published 25 :=
+  Executable.link_iff.mpr (linked 1)
+
+example : Executable.run actions 0 73 graph (numberValue 0) .head (numberValue 0) 20 = .error linkFailure :=
+  (Executable.run_error_iff (request 0 0) actions 0).mpr (linkBlocked 0)
+
+section ExecutableModule
+
+private abbrev moduleInputs : Ports T := [number, number]
+private abbrev moduleOutputs : Ports T := [fn.port, fn.port]
+private abbrev moduleItems : List (Ports T) := [[global], [global], [fn.port], [fn.port]]
+
+private def seedDelta : DeltaTerm Op moduleInputs [] (.data ()) :=
+  ⟨[number], .cons (.arg .head) .nil, [[number]], initTerm⟩
+
+private def guardDelta : DeltaTerm Op moduleInputs [[global]] (.data ()) :=
+  ⟨[number], .cons (.arg (.tail .head)) .nil, [[number]], initTerm⟩
+
+private def exportLambda : LambdaTerm Op moduleInputs [[global], [global]] fn :=
+  ⟨[global], .cons (.output (0 : Fin 2) .head) .nil, [[number]], body⟩
+
+private def exportGroup : PhiTerm Op moduleInputs [[global], [global], [fn.port]] [fn] :=
+  ⟨[global], .cons (.output (0 : Fin 3) .head) .nil,
+    .cons ⟨[global], .cons (.arg .head) .nil, [[number]], body⟩ .nil⟩
+
+private def moduleGraph : Omega Op moduleInputs moduleOutputs moduleItems :=
+  OmegaTerm.toGraph ⟨.bind (.delta seedDelta) <| .bind (.delta guardDelta) <|
+    .bind (.lambda exportLambda) <| .bind (.phi exportGroup) <|
+    .ret (.cons (.output (2 : Fin 4) .head) (.cons (.output (3 : Fin 4) .head) .nil))⟩
+
+private def runModule (fuel guard : Nat) (port : Port moduleOutputs fn.port) :
+    Except (Failure machine Nat) (Continuation.Partial.Executable.Observation machine Nat [number]) :=
+  Executable.run actions fuel 73 moduleGraph (.cons (.data (2 : Nat)) (numberValue guard)) port (numberValue 1) 20
+
+-- Both exports consume the first initialized global, with payload 12.
+-- Each invocation starts at store 30 after the two successful initializers.
+example : runModule 64 3 .head = .ok (.returned (numberValue 43) 32) := by cbv
+
+example : runModule 64 3 (.tail .head) = .ok (.returned (numberValue 43) 32) := by cbv
+
+private def suspensionStore :
+    Except (Failure machine Nat) (Continuation.Partial.Executable.Observation machine Nat [number]) → Option Nat
+  | .ok (.suspended config) => some config.store
+  | _ => none
+
+example : suspensionStore (runModule 0 3 (.tail .head)) = some 30 := by cbv
+
+private def initializerOperand {ins outs : Ports T} : Op ins outs → Tuple machine.Val ins → Option Nat
+  | .initialize, .cons (.data n) .nil => some n
+  | .observe, _ => none
+
+private def failureDetails :
+    Except (Failure machine Nat) (Continuation.Partial.Executable.Observation machine Nat [number]) →
+    Option (Nat × Nat × Nat × Nat)
+  | .error failure => (initializerOperand failure.site.opcode failure.site.input).map
+      (fun n => (failure.unitId, failure.vertex, n, failure.store))
+  | .ok _ => none
+
+-- The second initializer fails after the seed changed the store.
+-- This is a link-time error even with zero invocation microsteps.
+example : failureDetails (runModule 0 0 (.tail .head)) = some (73, 1, 0, 25) := by cbv
+
+end ExecutableModule
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Tests

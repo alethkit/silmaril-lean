@@ -53,7 +53,11 @@ theorem payload_labelInject (A : τ) :
 variable {C : Type u₂} [Category.{v₂} C] [SymmetricCategory V]
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
   [DistributiveTensor V] [DistributivePremonoidalCategory C]
-  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (J : V ⥤ C)
+
+section Denotation
+
+variable [Iteration C] [ElgotCategory C] [StrongElgotFreydCategory J]
   [InstructionModel J M Φ] [RegionTypingCoherent (Φ := Φ) J M]
 
 theorem denoteSingleCfg {Γ : VCtx τ} {L : LCtx τ} {A : τ} {e p : Region Φ}
@@ -75,6 +79,10 @@ theorem denote_weakenCapture {Γ : VCtx τ} {L : LCtx τ} {A B : τ} {p : Region
     denoteRegion J M (hp.renameVars ((Ren.wk Γ B).lift A)) =
       J.map (fst (ctxObj M Γ) (M.obj B) ▷ M.obj A) ≫ denoteRegion J M hp :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.SingletonDispatcher.denote_weakenCapture M J hp
+
+end Denotation
+
+variable [DistributiveFreydCategory J]
 
 theorem route_inr {E A B : V} :
     J.map (E ◁ (coprod.inr : B ⟶ A ⨿ B)) ≫

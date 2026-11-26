@@ -73,14 +73,14 @@ private theorem core_nest {H : Type} {P : Numerics.Profile} {a b : Core.Config H
   rw [(core_nest_step (P := P) stays scopes).2]
   simp only [exactStep, exists_eq_left]
 
-theorem core_resolution {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+theorem core_resolution_allocated {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {active : Activation} {program : Graph.Program} {tables : Tables} {out : Outcome}
-    (ready : active.Checked program tables) (allocated : program.CoreAllocated s)
+    (ready : active.Checked program tables) (allocated : active.binding.site.CoreAllocated program s)
     (tableAllocated : Tables.CoreAllocated tables s) (resolved : active.resolve program = some out)
     (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
       Core.Step P noHost (active.coreConfig s scopes tail a) dst ↔ dst = active.coreConfig s scopes tail b) := by
-  have chain := Indirect.core_trace_exact (P := P) (stack := active.operands.saved ++ active.operands.args)
+  have chain := Indirect.core_trace_allocated_exact (P := P) (stack := active.operands.saved ++ active.operands.args)
     (rest := tail.map Graph.coreEmit) ready.site allocated (core_table ready tableAllocated) resolved
   have pending (a : Indirect.Phase) (mem : a ∈ (out.coreTrace).dropLast) : a.Pending := by
     cases out <;>
@@ -150,16 +150,16 @@ private theorem lime_nest {H : Type} {a b : Config H}
   simp only [exactStep, exists_eq_left]
 
 open Wasm.Lime1.Execution in
-theorem lime_resolution {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
+theorem lime_resolution_allocated {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
     {tables : Tables} {out : Outcome}
-    (ready : active.Checked program tables) (allocated : program.LimeAllocated s)
+    (ready : active.Checked program tables) (allocated : active.binding.site.LimeAllocated program s)
     (tableAllocated : Tables.LimeAllocated tables s) (resolved : active.resolve program = some out)
     (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) (dst : Config H) :
     Step CallFrame.limeNoHost (active.limeSource s scopes tail) dst ↔ dst = active.limeResolved s scopes tail out :=
   lime_nest (a := Indirect.limeSource s active.caller active.binding.site active.operands.selector
       (active.operands.saved ++ active.operands.args) (tail.map Graph.limeEmit))
     Indirect.lime_lookup_stays
-    (fun _ => Indirect.lime_step_iff ready.site allocated (lime_table ready tableAllocated) resolved)
+    (fun _ => Indirect.lime_step_allocated_iff ready.site allocated (lime_table ready tableAllocated) resolved)
     scopes dst
 
 open Wasm.Lime1.Execution in

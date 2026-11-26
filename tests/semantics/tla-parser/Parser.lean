@@ -287,6 +287,55 @@ private def checkReferenceExpressions : IO Unit := do
   checkExpr "explicit action in fairness with a nested reduced subscript" (← expr "WF_[A]_f(i)(B)")
     (.fairness .weak (.action .square (name "A") (name "f" [name "i"])) (name "B"))
 
+private def checkSetExpressions : IO Unit := do
+  let x := name "x"
+  let y := name "y"
+  let s := name "S"
+  let t := name "T"
+  let p := name "p"
+  let one := Expr.literal (.natural 1)
+  let member := infixOp "\\in"
+  let conjunct := infixOp "/\\"
+  let checkForms := fun (forms : List String) (tree : Expr) =>
+    forms.forM fun source => do checkExpr source (← expr source) tree
+  checkForms ["{<<1, 2>> \\in S}", "{(<<1, 2>> \\in S)}"]
+    (.setEnum [member (.tuple [one, .literal (.natural 2)]) s])
+  checkForms ["{<<x, y>> \\in S}", "{(<<x, y>> \\in S)}"]
+    (.setEnum [member (.tuple [x, y]) s])
+  checkForms ["{x \\in S /\\ p}", "{(x \\in S) /\\ p}"]
+    (.setEnum [conjunct (member x s) p])
+  checkForms ["{x \\in (S /\\ p)}"] (.setEnum [member x (conjunct s p)])
+  checkForms ["{1 \\in S : x \\in T}", "{(1 \\in S) : x \\in T}"]
+    (.setMap (member one s) [⟨.names ["x"], t⟩])
+  checkForms ["{1 ∈ S : x \\in T}"] (.setMap (infixOp "∈" one s) [⟨.names ["x"], t⟩])
+  checkForms ["{x \\in S /\\ p : q}"] (.setFilter (.ident "x") (conjunct s p) (name "q"))
+  checkForms ["{x \\in S : x \\in T}"] (.setFilter (.ident "x") s (member x t))
+  checkForms ["{x \\in S \\in T : p}"] (.setFilter (.ident "x") (member s t) p)
+  checkForms ["{<<x, y>> ∈ S : p}"] (.setFilter (.tuple ["x", "y"]) s p)
+  checkForms ["{x, y \\in S}"] (.setEnum [x, member y s])
+  checkForms ["{F(x,y) : x,y \\in S, <<a,b>> \\in T}"]
+    (.setMap (name "F" [x, y]) [⟨.names ["x", "y"], s⟩, ⟨.tuple ["a", "b"], t⟩])
+  checkForms ["{<<x, 1>> \\in S : y \\in T}", "{(<<x, 1>> \\in S) : y \\in T}"]
+    (.setMap (member (.tuple [x, one]) s) [⟨.names ["y"], t⟩])
+  let inLet := Expr.letIn
+    [.definition (.operator .ordinary (.ident "A" []) (.choose (.ident "y") none y))]
+  checkForms ["{x \\in LET A == CHOOSE y : y IN A}"] (.setEnum [member x (inLet (name "A"))])
+  checkForms ["{x \\in LET A == CHOOSE y : y IN A : p}"]
+    (.setFilter (.ident "x") (inLet (name "A")) p)
+  let selectorDomain := Expr.ref (.operator (.ident "A")) [] [.structural .body]
+  checkForms ["{x \\in A!:}"] (.setEnum [member x selectorDomain])
+  checkForms ["{x \\in A!: : p}"] (.setFilter (.ident "x") selectorDomain p)
+  let recordDomain := Expr.recordSet [⟨"field", s⟩]
+  checkForms ["{x \\in [field : S]}"] (.setEnum [member x recordDomain])
+  checkForms ["{x \\in [field : S] : p}"] (.setFilter (.ident "x") recordDomain p)
+  checkForms ["{x \\in r.CHOOSE : p}"] (.setFilter (.ident "x") (.field (name "r") "CHOOSE") p)
+  checkForms ["/\\ {x \\in {y \\in T : p} :\n      /\\ p\n      /\\ q}\n/\\ r"]
+    (.junction .conjunction [.setFilter (.ident "x") (.setFilter (.ident "y") t p)
+      (.junction .conjunction [p, name "q"]), name "r"])
+  let nested := List.range 24 |>.foldl (fun source _ => "{x \\in LET A == CHOOSE y : y IN " ++ source ++ "}") "S"
+  let nestedTree := List.range 24 |>.foldl (fun tree _ => .setEnum [member x (inLet tree)]) s
+  checkForms [nested] nestedTree
+
 private def checkUpstreamShape (parsed : Module) : IO Unit := do
   if parsed.name == "HourClock" then
     match parsed.units with
@@ -378,6 +427,7 @@ public def main (args : List String) : IO Unit := do
   checkJunctions
   checkConstructs
   checkReferenceExpressions
+  checkSetExpressions
   checkDiagnostics
   checkModuleShape
   let fixtures := System.FilePath.mk "tests/semantics/tla-quint"

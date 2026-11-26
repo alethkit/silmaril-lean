@@ -107,8 +107,8 @@ reads a parent's subsequent write through the child's capture.
 The [closure body compiler](../../Silmaril/Languages/Python/Compile/Closure/Body/Thms.lean)
 accepts one top-level function containing nested function definitions,
 single-name assignments and nonlocal declarations, with a final value return
-in each function. Expressions cover integers, addition, names and positional
-calls. Each successful result carries the analyzed source tree and a
+in each function. Expressions cover integers, addition, multiplication, names and
+positional calls. Each successful result carries the analyzed source tree and a
 translation derivation. Child code carries the analyzed path, ordered
 parameter destinations and capture operands. The compiler proves its
 preorder list of code paths has no duplicates for code-table linking. The

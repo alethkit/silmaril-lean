@@ -66,8 +66,9 @@ current module-first lookup, so rebinding and aliasing follow that lookup.
 The call uses the same ordinary preparation, namespace projection and
 heap as the callback path.
 
-A flat factory assignment uses a published function with zero positional
-slots or one positional slot supplied with an integer. Its checked body
+A flat factory assignment accepts the live descriptor of a function
+published or bound as a factory result in this run. It takes up to three
+exact positional integers in declaration order. Its checked body
 returns a closure created in a private local, either directly or through
 at most two local wrapper calls. The runner reads the live callee and
 evaluates the arguments before invoking it. A successful closure result
@@ -78,8 +79,8 @@ A nested module call saves its outer callee before evaluating arguments.
 A direct zero-argument argument call can use the published selector.
 When the saved outer callee is the integer equality helper and its result
 is discarded, an argument can also call a closure saved by a factory
-assignment in this run with one integer. The ordinary invocation uses
-the live namespace and the saved closure's cells. The runner carries the
+assignment in this run with no arguments or one integer. The ordinary
+invocation uses the live namespace and the saved closure's cells. The runner carries the
 reached heap and any settled receipt to later arguments and then invokes
 the saved helper through the closed dispatcher.
 
@@ -123,6 +124,49 @@ unadmitted descriptor or parameter boundary.
 `SeededCall.runObserved_result` and `Expectation.caught_iff` characterize
 closed execution and the catch payload.
 [Runner theorems](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Seeded/Thms.lean)
+
+
+## Remaining call and closure inventory
+
+The fixed corpus after #3147 has 360 compiler rejections among historically
+compiled inputs. Of these, 176 contain a function declaration or lambda.
+The ranking below uses complete ASTs and CPython 3.13.5 execution. The
+ordinary reference and empty-seed reference both omit helper bindings.
+The checked factory path now covers the two successive result bindings
+in rank 1. Closure arithmetic and final global-call lowering close the
+named-definition input. Checked nested lambda lowering uses the same
+factory path for the lambda input.
+
+| Rank | Pinned shapes | Whole-input outcome and remaining prerequisites |
+| ---: | --- | --- |
+| 1 | `mixed-freevars-and-cellvars.py` and `lambda4.py` each assign the result of a three-integer factory, then call that saved result with three integers to obtain a second closure. | The empty reference raises the missing-helper `NameError` after both writes. Builtin and preamble references finish normally. The named-definition row uses closure multiplication and a final call through a live global. The lambda row lowers three nested function blocks and uses a zero-argument escaped call inside the equality helper. |
+| 2 | `lambda1.py`, `lambda2.py` and `lambda3.py` construct factories with lambdas. | Both supplied references finish normally. The empty reference reaches the missing helper after binding the resulting closures. The first uses a fixed nested lambda chain. The second uses a checked final call to a lexical lambda and forwards its captured cell. The third needs module call lowering for literal `None` and a seeded factory argument profile that binds it. |
+| 3 | `nesting-plus-free-ref-to-global.py` assigns a declared global in an outer factory. | The two returned closures see the last write. The supplied references finish normally and the empty reference reaches the missing helper. The compiler needs declared-global writes and child lookup of that global. Executor namespace effects must survive return and failure. |
+| 4 | `testfunctions8.py` compares named call results in assertions. `testscope1.py` immediately calls a returned closure inside an assertion. | Both complete normally in every reference. They need checked call results as comparison operands. The first also uses a standalone Boolean assignment in the seeded namespace. The second needs a call-result callee and the assertion-message evaluation rule. |
+| 5 | `testfunctions11.py` omits two trailing literal positional defaults after six supplied values. | All references finish normally. It needs a saved-default positional binder, a conjunctive assertion, and a seeded ordinary discard with the completed argument list. Larger default and unpacking rows also require tuple, mapping or exception semantics. |
+
+The two defaulted lambda rows need saved positional defaults and binding
+of omitted suffix slots. Their full supplied runs also need tuple results
+and tuple equality in the helper, variadic collection, and the
+`___assertRaises(TypeError, ...)` path with positional callback
+arguments. `lambda_stararg.py` additionally expands literal tuples in
+argument order. With the current helper names supplied, CPython first
+stops at the missing `TypeError` name. With that class also supplied,
+both original inputs complete normally.
+
+The decorator row completes normally in CPython with no helpers. Its
+closures require call results as arithmetic operands and subtraction.
+The module also needs inside-out decorator application with callable
+arguments, publication of the final decorated binding, and a call
+result as a comparison operand.
+
+The factory ledger authorizes exact descriptors recorded by a successful
+publication or factory binding in the same run. The separate argument
+selector uses the escaped ledger only after resolving the live equality
+helper in a discard call. Imported descriptors, broad value-return
+assignments, arbitrary call-result callees, keyword expansion, and
+ordinary calls through the general seeded dispatcher require their own
+admission and settlement rules.
 
 ## Corpus replay handoff
 

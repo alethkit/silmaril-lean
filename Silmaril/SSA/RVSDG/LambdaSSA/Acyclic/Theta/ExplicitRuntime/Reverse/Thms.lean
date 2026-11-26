@@ -18,6 +18,11 @@ universe u
 variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {A B K E D : τ}
 
+theorem read_compiled (s : Loop Φ A B K E D) :
+    read (graph s).toTerm =
+      [.theta [.header s.header, .gamma [[.headerExit], (BodyView.ofBody s.body).1 ++ [.join s.join]]]] :=
+  Proofs.read_graph s
+
 /-- The forward compiler supplies a decomposition for its numbered graph. -/
 noncomputable def canonical (s : Loop Φ A B K E D) : Decomposition (graph s) B K :=
   Proofs.canonical s

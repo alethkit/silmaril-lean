@@ -68,6 +68,9 @@ inductive Binding (Op : Dialect.{u, v} (ValueSort V S) S) (rename : Nat → Nat)
       (initializer : Term Op context [] sigs [.value value]) :
     Binding Op rename args pastL pastR (.delta ⟨context, left, sigs, initializer⟩)
       (.delta ⟨context, right, sigs, initializer⟩)
+  | phi {members : List (Function V S)}
+      {left : PhiTerm Op args pastL members} {right : PhiTerm Op args pastR members}
+      (paired : left.Renumbered rename right) : Binding Op rename args pastL pastR (.phi left) (.phi right)
 
 /-- Match the ordered bindings at their mapped absolute positions, with
 only empty φ declarations allowed to occur at different points. The outer
