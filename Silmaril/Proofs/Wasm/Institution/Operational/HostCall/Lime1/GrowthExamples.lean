@@ -202,7 +202,7 @@ private theorem contract : program.Contract mem host := by
       · rw [catalog parent found] at used
         simp [target, fn, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets, Graph.Op.targets] at used
       · rw [catalog parent found] at used
-        simp [target, fn] at used
+        simp [target, fn, MemoryTarget.sourceOps, MemoryTarget.descendants] at used
   constructor
   · intro _ _ _ _ _ _ answer
     cases answer.2.2

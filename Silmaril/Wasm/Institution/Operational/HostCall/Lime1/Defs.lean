@@ -99,13 +99,35 @@ def MemoryTarget.Allocated {H : Type} (callee : MemoryTarget) (base : Store H) :
   base.funcs[callee.address.value]? =
     some (.wasm callee.fn.declaration.type callee.fn.declaration.module callee.code)
 
+mutual
+
 def MemoryTarget.supportedOp (growthEnabled : Bool) : Graph.Memory32.Op → Bool
   | .ranked (.numeric (.get _)) | .ranked (.call _) | .load _ | .store _ | .size => true
   | .callIndirect .. => true
+  | .if_ _ left right => supportedCode growthEnabled left && supportedCode growthEnabled right
   | .grow => growthEnabled
   | _ => false
 
-/-- Straight-line memory instructions, local reads and calls under the selected
+def MemoryTarget.supportedCode (growthEnabled : Bool) : List Graph.Memory32.Op → Bool
+  | [] => true
+  | op :: rest => supportedOp growthEnabled op && supportedCode growthEnabled rest
+
+end
+
+mutual
+
+/-- Include instructions in both branches when checking static links. -/
+def MemoryTarget.sourceOps : List Graph.Memory32.Op → List Graph.Memory32.Op
+  | [] => []
+  | op :: rest => op :: descendants op ++ sourceOps rest
+
+def MemoryTarget.descendants : Graph.Memory32.Op → List Graph.Memory32.Op
+  | .if_ _ left right => sourceOps left ++ sourceOps right
+  | _ => []
+
+end
+
+/-- Memory instructions, local reads, calls and conditionals under the selected
 extent policy. Operand typing uses the complete ordered result list.
 The per-instruction allocation links are checked by `IndirectSite.MemoryLinked`. -/
 structure MemoryTarget.Checked {H : Type} (callee : MemoryTarget) {base : Store H}
@@ -197,7 +219,7 @@ structure IndirectSite.MemoryLinked {H : Type} {base : Store H} (site : Indirect
       (∃ child, site.MemoryDirect (base := base) parent target child ∧ calls.permits parent.fn.rank child.fn.rank) ∨
       ∃ code, MemoryDirectHost memory host parent target code
   indirect : ∀ (parent : MemoryTarget), site.memoryLookup parent.address = some parent.fn →
-    ∀ index signature, .callIndirect index signature ∈ parent.fn.code →
+    ∀ index signature, .callIndirect index signature ∈ MemoryTarget.sourceOps parent.fn.code →
       site.MemoryIndirect memory host parent index signature calls
 
 /-- Matching hosts supply the embedding contract. Registered memory targets

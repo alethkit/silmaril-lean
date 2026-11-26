@@ -170,7 +170,7 @@ private theorem render_lookup {saved args : List Value} {indirect : IndirectSite
   | none => rfl
   | some target =>
     cases target <;> simp [render, Phase.afterLookup, Phase.renderCode, Phase.renderIn, IndirectSite.lookupHead,
-      plug_invoke, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, WasmTarget.callTarget, MemoryCallee.render,
+      plug_invoke, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, WasmTarget.callTarget, MemoryCallee.renderUnder,
       values_append, List.append_assoc]
 
 private theorem render_wasm {saved : List Value} {site : IndirectSite} {callee : WasmTarget}
@@ -208,7 +208,7 @@ private theorem render_memory {saved : List Value} {site : IndirectSite} {callee
   cases phase <;> try rfl
   case done out =>
     cases out <;> simp [render, Phase.afterMemory, Phase.renderCode, Phase.renderIn,
-      MemoryCallee.render, result, values_append, List.append_assoc]
+      MemoryCallee.renderUnder, result, values_append, List.append_assoc]
 
 private theorem memory_read {saved : List Value} {site : IndirectSite} {callee : MemoryTarget}
     {phase : MemoryCallee.Phase H} {ops : List (Op H)}

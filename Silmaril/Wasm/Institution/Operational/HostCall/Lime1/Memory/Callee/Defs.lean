@@ -8,6 +8,7 @@ public import Silmaril.Wasm.Institution.Operational.MemoryWrite.Native.Defs
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.MemoryCallee
 
 open Execution.Runtime (Frame Result Value)
+open CallContinuation.OuterCall.Computed
 open Wasm.Lime1.Execution
 open CallContinuation.OuterCall.Ranked
 
@@ -16,6 +17,8 @@ The relation carries live bytes separately from the frame and its operands. -/
 inductive Phase (H : Type) where
   | invoke (args : List Value)
   | body (args stack : List Value) (ops : List Graph.Memory32.Op)
+  | ifBlock (args saved : List Value) (type : Option NumType) (arm rest : List Graph.Memory32.Op)
+  | arm (args saved : List Value) (type : Option NumType) (phase : Phase H) (rest : List Graph.Memory32.Op)
   | child (args saved : List Value) (callee : MemoryTarget) (phase : Phase H) (rest : List Graph.Memory32.Op)
   | hostInvoke (args saved : List Value) (target : Site H) (operands : List Value) (rest : List Graph.Memory32.Op)
   | trapped (args stack : List Value) (rest : List Admin)
@@ -25,59 +28,118 @@ inductive Phase (H : Type) where
 def code (ops : List Graph.Memory32.Op) : List Admin :=
   expression (ops.map fun op => op.v1.toLime)
 
-def resultTyped (callee : MemoryTarget) : Result → Prop
-  | .values vs => vs.map Value.type = callee.fn.declaration.results
+def expr (ops : List Graph.Memory32.Op) : Wasm.Lime1.Expr :=
+  ops.map fun op => op.v1.toLime
+
+def blockType (type : Option NumType) : Wasm.Lime1.BlockType := Wasm.V1.BlockType.toLime type
+
+def selectArm (guard : BitVec 32) (left right : List Graph.Memory32.Op) : List Graph.Memory32.Op :=
+  if guard = 0 then right else left
+
+def resultTyped (types : List NumType) : Result → Prop
+  | .values vs => vs.map Value.type = types
   | .trap => True
 
-/-- Live bodies and suspended suffixes come from their registered function.
-This lets a reached lookup use the link checked for its source instruction. -/
-def Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) (site : IndirectSite)
-    (callee : MemoryTarget) : Phase H → Prop
-  | .invoke args | .trapped args _ _ => args.map Value.type = callee.fn.declaration.params
+def Typed (callee : MemoryTarget) (types : List NumType) (labels : List (List NumType))
+    (stack : List Value) (ops : List Graph.Memory32.Op) : Prop :=
+  callee.fn.checkRegion (Prefix.stackTypes stack) types ops labels = true
+
+def InLabel {H : Type} (args : List Value) : Phase H → Prop
+  | .body current .. | .ifBlock current .. | .arm current .. | .child current ..
+  | .hostInvoke current .. | .trapped current .. => current = args
+  | _ => False
+
+def FromCode (callee : MemoryTarget) (ops : List Graph.Memory32.Op) : Prop :=
+  MemoryTarget.sourceOps ops ⊆ MemoryTarget.sourceOps callee.fn.code
+
+/-- Live regions and suspended suffixes retain the type and source links
+needed to resume with the ordered result of an arm or invocation. -/
+def ReadyAt {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) (site : IndirectSite)
+    (callee : MemoryTarget) (types : List NumType) (labels : List (List NumType)) : Phase H → Prop
+  | .invoke args => args.map Value.type = callee.fn.declaration.params ∧
+      types = callee.fn.declaration.results ∧ labels = callee.fn.entryLabels
+  | .trapped args _ _ => args.map Value.type = callee.fn.declaration.params
   | .body args stack ops => args.map Value.type = callee.fn.declaration.params ∧
-      ops.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ callee.fn.WellTyped stack ops ∧
-      ∀ op ∈ ops, op ∈ callee.fn.code
+      ops.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ Typed callee types labels stack ops ∧
+      FromCode callee ops
+  | .ifBlock args saved type arm rest =>
+      args.map Value.type = callee.fn.declaration.params ∧
+      arm.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ FromCode callee arm ∧
+      Typed callee type.toList (type.toList :: labels) [] arm ∧
+      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ FromCode callee rest ∧
+      ∀ vs : List Value, vs.map Value.type = type.toList → Typed callee types labels (saved ++ vs) rest
+  | .arm args saved type phase rest =>
+      args.map Value.type = callee.fn.declaration.params ∧ InLabel args phase ∧
+      ReadyAt mem host site callee type.toList (type.toList :: labels) phase ∧
+      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ FromCode callee rest ∧
+      ∀ vs : List Value, vs.map Value.type = type.toList → Typed callee types labels (saved ++ vs) rest
   | .child args saved child phase rest =>
       args.map Value.type = callee.fn.declaration.params ∧
       site.memoryLookup child.address = some child.fn ∧ child.Allocated base ∧
-      (∀ out, phase ≠ .done out) ∧ Ready mem host site child phase ∧
-      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧
-      (∀ op ∈ rest, op ∈ callee.fn.code) ∧
-      ∀ vs : List Value, vs.map Value.type = child.fn.declaration.results → callee.fn.WellTyped (saved ++ vs) rest
+      (∀ out, phase ≠ .done out) ∧ ReadyAt mem host site child child.fn.declaration.results child.fn.entryLabels phase ∧
+      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ FromCode callee rest ∧
+      ∀ vs : List Value, vs.map Value.type = child.fn.declaration.results → Typed callee types labels (saved ++ vs) rest
   | .hostInvoke args saved target operands rest =>
       args.map Value.type = callee.fn.declaration.params ∧
       target.Allocated base ∧ target.Arguments operands ∧ target.Contract mem host ∧
-      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧
-      (∀ op ∈ rest, op ∈ callee.fn.code) ∧
-      ∀ vs : List Value, target.TypedResult (.values vs) → callee.fn.WellTyped (saved ++ vs) rest
-  | .exit args out => args.map Value.type = callee.fn.declaration.params ∧ resultTyped callee out
-  | .done out => resultTyped callee out
+      rest.all (MemoryTarget.supportedOp mem.extent.growthEnabled) = true ∧ FromCode callee rest ∧
+      ∀ vs : List Value, target.TypedResult (.values vs) → Typed callee types labels (saved ++ vs) rest
+  | .exit args out => args.map Value.type = callee.fn.declaration.params ∧ resultTyped types out
+  | .done out => resultTyped types out
 
-def render {H : Type} (callee : MemoryTarget) : Phase H → List Admin
+abbrev Ready {H : Type} {base : Store H} (mem : Memory32 base) (host : HostSemantics H) (site : IndirectSite)
+    (callee : MemoryTarget) : Phase H → Prop :=
+  ReadyAt mem host site callee callee.fn.declaration.results callee.fn.entryLabels
+
+def frameCode : Bool → Nat → Frame → List Admin → List Admin
+  | true, arity, frame, body => [.frame arity frame body]
+  | false, _, _, body => body
+
+/-- Function activation rendering and label-only rendering use the same
+active body. Only actual calls install a native frame in rendered execution. -/
+def renderUnder {H : Type} (callee : MemoryTarget) (arity : Nat) (boxed : Bool) : Phase H → List Admin
   | .invoke args => values args ++ [.invoke callee.address]
-  | .body args stack ops => [.frame callee.fn.declaration.results.length (callee.fn.declaration.frame args)
-      [.label callee.fn.declaration.results.length [] (values stack ++ code ops)]]
-  | .child args saved child phase rest =>
-      [.frame callee.fn.declaration.results.length (callee.fn.declaration.frame args)
-        [.label callee.fn.declaration.results.length [] (values saved ++ render child phase ++ code rest)]]
-  | .hostInvoke args saved target operands rest =>
-      [.frame callee.fn.declaration.results.length (callee.fn.declaration.frame args)
-        [.label callee.fn.declaration.results.length []
-          (values (saved ++ operands) ++ .invoke target.address :: code rest)]]
-  | .trapped args stack rest => [.frame callee.fn.declaration.results.length (callee.fn.declaration.frame args)
-      [.label callee.fn.declaration.results.length [] (values stack ++ .trap :: rest)]]
-  | .exit args out => [.frame callee.fn.declaration.results.length (callee.fn.declaration.frame args) (result out)]
+  | .body args stack ops => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values stack ++ code ops)]
+  | .ifBlock args saved type arm rest => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values saved ++ .source (.block (blockType type) (expr arm)) :: code rest)]
+  | .arm args saved type phase rest => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values saved ++ renderUnder callee type.toList.length false phase ++ code rest)]
+  | .child args saved child phase rest => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values saved ++ renderUnder child child.fn.declaration.results.length true phase ++ code rest)]
+  | .hostInvoke args saved target operands rest => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values (saved ++ operands) ++ .invoke target.address :: code rest)]
+  | .trapped args stack rest => frameCode boxed arity (callee.fn.declaration.frame args)
+      [.label arity [] (values stack ++ .trap :: rest)]
+  | .exit args out => frameCode boxed arity (callee.fn.declaration.frame args) (result out)
   | .done out => result out
+
+abbrev renderAt {H : Type} (callee : MemoryTarget) (arity : Nat) : Phase H → List Admin :=
+  renderUnder callee arity true
+
+abbrev render {H : Type} (callee : MemoryTarget) : Phase H → List Admin :=
+  renderAt callee callee.fn.declaration.results.length
+
+def afterArm {H : Type} (args saved : List Value) (type : Option NumType) (rest : List Graph.Memory32.Op) :
+    Phase H → Phase H
+  | .exit _ (.values vs) => .body args (saved ++ vs) rest
+  | .exit _ .trap => .trapped args saved (code rest)
+  | phase => .arm args saved type phase rest
 
 def afterChild {H : Type} (args saved : List Value) (child : MemoryTarget) (rest : List Graph.Memory32.Op) : Phase H → Phase H
   | .done (.values vs) => .body args (saved ++ vs) rest
   | .done .trap => .trapped args saved (code rest)
   | phase => .child args saved child phase rest
 
-def config {H : Type} {base : Store H} (mem : Memory32 base) (caller : Frame)
+def configAt {H : Type} {base : Store H} (mem : Memory32 base) (caller : Frame)
+    (saved : List Value) (tail : List Admin) (callee : MemoryTarget) (arity : Nat) (bytes : ByteArray)
+    (phase : Phase H) : Config H :=
+  ⟨mem.store bytes, caller, values saved ++ renderAt callee arity phase ++ tail⟩
+
+abbrev config {H : Type} {base : Store H} (mem : Memory32 base) (caller : Frame)
     (saved : List Value) (tail : List Admin) (callee : MemoryTarget) (bytes : ByteArray)
     (phase : Phase H) : Config H :=
-  ⟨mem.store bytes, caller, values saved ++ render callee phase ++ tail⟩
+  configAt mem caller saved tail callee callee.fn.declaration.results.length bytes phase
 
 /-- The page count encoded as the i32 result of a size or successful grow. -/
 def pages (bytes : ByteArray) : Value :=
@@ -152,6 +214,14 @@ inductive Edge {H : Type} {base : Store H} (mem : Memory32 base)
       (answer : host target.code (mem.store bytes) operands .diverged) :
       Edge mem host site callee bytes (.hostInvoke args saved target operands rest)
         bytes (.hostInvoke args saved target operands rest)
+  | ifSelect {callee bytes args saved type left right rest guard} :
+      Edge mem host site callee bytes (.body args (saved ++ [Value.int .i32 guard]) (.if_ type left right :: rest))
+        bytes (.ifBlock args saved type (selectArm guard left right) rest)
+  | ifEnter {callee bytes args saved type arm rest} :
+      Edge mem host site callee bytes (.ifBlock args saved type arm rest) bytes (.arm args saved type (.body args [] arm) rest)
+  | armStep {callee bytes written args saved type phase next rest}
+      (entered : InLabel args phase) (move : Edge mem host site callee bytes phase written next) :
+      Edge mem host site callee bytes (.arm args saved type phase rest) written (afterArm args saved type rest next)
   | child {callee child bytes written args saved phase next rest}
       (move : Edge mem host site child bytes phase written next) :
       Edge mem host site callee bytes (.child args saved child phase rest)

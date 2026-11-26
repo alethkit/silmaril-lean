@@ -49,22 +49,24 @@ theorem step_iff (allocated : site.Allocated base) (contract : site.Contract mem
     · exact .inl ⟨memory.store next, outcome, behavior, rfl⟩
     · exact .inr diverged
 
-theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
+theorem answer_through {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
     (plugged : wrapped.code = context.plug value inner.code) (store : wrapped.store = inner.store)
-    (decomposed : decompose? wrapped = (decompose? inner).map
-      (fun c => { c with context := context.comp c.context }))
+    (present : (decompose? wrapped).isSome = (decompose? inner).isSome)
     (located : CalloutAt wrapped call) (answer : Answer host wrapped call dst) :
     ∃ c mid, CalloutAt inner c ∧ Answer host inner c mid ∧
       dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ := by
   cases found : decompose? inner with
   | none =>
-    obtain ⟨_, outerFound, _⟩ := decompose?_complete located
-    rw [decomposed, found] at outerFound
-    cases outerFound
+    have reachable := exists_callout_iff.mp ⟨call, located⟩
+    simp [present, found] at reachable
   | some c =>
     have here := decompose?_sound found
-    have lifted : CalloutAt wrapped { c with context := context.comp c.context } :=
-      decompose?_sound (by rw [decomposed, found]; rfl)
+    have lifted : CalloutAt wrapped { c with context := context.comp c.context } := by
+      refine ⟨?_, store ▸ here.found, here.arity⟩
+      change wrapped.code = (context.comp c.context).plug value (c.redex coding)
+      rw [plugged, EvalCtx.plug_comp]
+      congr 1
+      exact here.plugged
     obtain ⟨_, _, hostEq, argsEq, resumes⟩ := located.unique lifted
     rcases Answer.iff.mp answer with ⟨returned, outcome, behavior, eq⟩ | ⟨diverged, rfl⟩
     · have inside : host c.host inner.store c.args (.returned returned outcome) := by
@@ -75,6 +77,17 @@ theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callou
     · have inside : host c.host inner.store c.args .diverged := by
         simpa only [store, hostEq, argsEq] using diverged
       exact ⟨c, inner, here, .diverged inside, by cases dst; simp_all⟩
+
+theorem answer_under {inner wrapped : Config H} {call : Execution.Runtime.Callout H Wasm.Lime1.Instr}
+    (plugged : wrapped.code = context.plug value inner.code) (store : wrapped.store = inner.store)
+    (decomposed : decompose? wrapped = (decompose? inner).map
+      (fun c => { c with context := context.comp c.context }))
+    (located : CalloutAt wrapped call) (answer : Answer host wrapped call dst) :
+    ∃ c mid, CalloutAt inner c ∧ Answer host inner c mid ∧
+      dst = ⟨mid.store, wrapped.frame, context.plug value mid.code⟩ := by
+  apply answer_through plugged store _ located answer
+  rw [decomposed]
+  cases decompose? inner <;> rfl
 
 theorem memoryLinked_forFiniteRun {indirect : IndirectSite}
     {calls : CallContinuation.OuterCall.Ranked.Graph.Memory32.CallMode}

@@ -2,6 +2,7 @@ module
 
 import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.IndexedLoop.Thms
 import Silmaril.Wasm.Institution.Operational.MemoryWrite.Thms
+import Silmaril.Wasm.Institution.Operational.MemoryQuery.Thms
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.CycleExamples
 
@@ -14,8 +15,8 @@ open IndexedLoop (Edge Program State call_run_iff producerType)
 private abbrev i32 := Value.int .i32
 private abbrev i64 := Value.int .i64
 
-private def empty : ByteArray := ⟨#[0, 0, 0, 0, 0, 0]⟩
-private def written : ByteArray := ⟨#[0, 1, 2, 3, 4, 0]⟩
+private def empty : ByteArray := ⟨#[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]⟩
+private def written : ByteArray := ⟨#[0, 1, 2, 3, 4, 0, 0, 0, 0, 0]⟩
 private abbrev word : BitVec 32 := 0x04030201
 private def signature : Wasm.Lime1.FuncType := ⟨[.int .i32], [.int .i32]⟩
 private def moduleAt : ModuleInst :=
@@ -36,12 +37,28 @@ private def leafFn : Graph.Memory32.Function := ⟨declaration, 0, [i32 42], []�
 private def a : MemoryTarget := ⟨⟨0⟩, aFn⟩
 private def b : MemoryTarget := ⟨⟨1⟩, bFn⟩
 private def leaf : MemoryTarget := ⟨⟨2⟩, leafFn⟩
-private def table : Execution.Runtime.TableInst := ⟨[some a.address, some leaf.address], none⟩
+private def armType : Option NumType := some (.int .i32)
+private def callArm : List Graph.Memory32.Op := [getSelector, .ranked (.call callB)]
+private def baseArm : List Graph.Memory32.Op := [getSelector]
+private def guardTail : List Graph.Memory32.Op := [.store 1, .load 1]
+private def guardSaved : List Value := [i32 4, i32 0]
+private def guardFn : Graph.Memory32.Function :=
+  ⟨declaration, 0, guardSaved ++ [i32 0, i32 word],
+    .store 5 :: getSelector :: .if_ armType callArm baseArm :: guardTail⟩
+-- Both arms must leave the scalar result, including the skipped arm.
+example : ¬ guardFn.WellTyped guardFn.initial
+    (.store 5 :: getSelector :: .if_ armType callArm [] :: guardTail) := by
+  unfold Graph.Memory32.Function.WellTyped
+  decide
+
+private def guarded : MemoryTarget := ⟨⟨6⟩, guardFn⟩
+
+private def table : Execution.Runtime.TableInst := ⟨[some a.address, some leaf.address, some guarded.address], none⟩
 
 private def site : IndirectSite where
   toSite := ⟨table, ⟨1⟩, signature⟩
   graph := ⟨[]⟩
-  memoryFunctions := [some aFn, some bFn, some leafFn]
+  memoryFunctions := [some aFn, some bFn, some leafFn, none, none, none, some guardFn]
   memoryCalls := .recursive
 
 private def prepare : Site Nat :=
@@ -69,48 +86,53 @@ private def caller : Frame := ⟨[], { funcs := [⟨3⟩] }⟩
 private def base : Store Nat :=
   { memories := [⟨empty, some 1⟩], tables := [table], funcs :=
     [.wasm signature moduleAt a.code, .wasm signature moduleAt b.code, .wasm signature moduleAt leaf.code,
-      .wasm program.functionType program.module program.function, .host producerType 0, .host prepare.type 1] }
+      .wasm program.functionType program.module program.function, .host producerType 0, .host prepare.type 1, .wasm signature moduleAt guarded.code] }
 private def mem : Memory32 base := ⟨⟨0⟩, ⟨empty, some 1⟩, rfl, .fixed⟩
 private def host : HostSemantics Nat := fun code store operands outcome =>
   match code with
   | 0 => store = base ∧ operands = [i64 7] ∧
       outcome = .returned base (.values [i32 1, i64 88, i32 0])
-  | 1 => store = base ∧ operands = [i64 99, i32 1] ∧ ∃ selector : BitVec 32,
-      outcome = .returned base (.values (saved ++ [i32 selector, i32 0]))
+  | 1 => store = base ∧ operands = [i64 99, i32 1] ∧ ∃ arg selector : BitVec 32,
+      outcome = .returned base (.values (saved ++ [i32 arg, i32 selector]))
   | _ => False
 
 private theorem tableEntries {address : FuncAddr} (member : some address ∈ site.table.refs) :
-    address = a.address ∨ address = leaf.address := by
+    address = a.address ∨ address = leaf.address ∨ address = guarded.address := by
   simpa [site, table] using member
 
 private theorem registered {callee : MemoryTarget} (found : site.memoryLookup callee.address = some callee.fn) :
-    callee = a ∨ callee = b ∨ callee = leaf := by
+    callee = a ∨ callee = b ∨ callee = leaf ∨ callee = guarded := by
   rcases callee with ⟨⟨address⟩, fn⟩
-  rcases address with _ | _ | _ | address <;> simp_all [IndirectSite.memoryLookup, site, a, b, leaf]
+  rcases address with _ | _ | _ | _ | _ | _ | _ | address <;>
+    simp_all [IndirectSite.memoryLookup, site, a, b, leaf, guarded]
 
 private theorem outerLinked : site.Linked base program.module := by
   refine ⟨rfl, rfl, rfl, ?_, ?_⟩
   · intro address fn found
     simp [site, Graph.Program.lookup] at found
   · intro address member
-    rcases tableEntries member with rfl | rfl
+    rcases tableEntries member with rfl | rfl | rfl
     · exact ⟨.wasm signature moduleAt a.code, rfl, fun _ => .inr ⟨aFn, rfl, rfl⟩⟩
     · exact ⟨.wasm signature moduleAt leaf.code, rfl, fun _ => .inr ⟨leafFn, rfl, rfl⟩⟩
+    · exact ⟨.wasm signature moduleAt guarded.code, rfl, fun _ => .inr ⟨guardFn, rfl, rfl⟩⟩
 
 private theorem directLink : site.MemoryDirect (base := base) a callB b := ⟨rfl, rfl, rfl, rfl, rfl⟩
 
+private theorem guardLink : site.MemoryDirect (base := base) guarded callB b := ⟨rfl, rfl, rfl, rfl, rfl⟩
+
 private theorem innerLinked : site.MemoryIndirect mem host b ⟨0⟩ ⟨signature.params, signature.results⟩ := by
   refine ⟨rfl, rfl, fun address member => ?_⟩
-  rcases tableEntries member with rfl | rfl
+  rcases tableEntries member with rfl | rfl | rfl
   · exact ⟨.wasm signature moduleAt a.code, rfl, fun _ => ⟨aFn, rfl, rfl, trivial⟩⟩
   · exact ⟨.wasm signature moduleAt leaf.code, rfl, fun _ => ⟨leafFn, rfl, rfl, trivial⟩⟩
+  · exact ⟨.wasm signature moduleAt guarded.code, rfl, fun _ => ⟨guardFn, rfl, rfl, trivial⟩⟩
 
 private theorem graphLinked : site.MemoryLinked mem host := by
   constructor
   · intro callee found
-    rcases registered found with rfl | rfl | rfl <;> exact ⟨rfl, rfl, rfl, rfl⟩
+    rcases registered found with rfl | rfl | rfl | rfl <;> exact ⟨rfl, rfl, rfl, rfl⟩
   · intro parent found target used
-    rcases registered found with rfl | rfl | rfl
+    rcases registered found with rfl | rfl | rfl | rfl
     · have same : target = callB := by
         simpa [a, aFn, getSelector, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets,
           Graph.Op.targets] using used
@@ -119,16 +141,23 @@ private theorem graphLinked : site.MemoryLinked mem host := by
     · simp [b, bFn, getSelector, choose, Graph.Memory32.Function.targets, Graph.Memory32.Op.targets,
         Graph.Op.targets] at used
     · simp [leaf, leafFn, Graph.Memory32.Function.targets] at used
+    · have same : target = callB := by
+        simpa [guarded, guardFn, getSelector, callArm, baseArm, guardTail, Graph.Memory32.Function.targets,
+          Graph.Memory32.Op.targets, Graph.Memory32.codeTargets, Graph.Op.targets] using used
+      subst target
+      exact .inl ⟨b, guardLink, trivial⟩
   · intro parent found index ty used
-    rcases registered found with rfl | rfl | rfl
-    · simp [a, aFn, getSelector] at used
+    rcases registered found with rfl | rfl | rfl | rfl
+    · simp [a, aFn, getSelector, MemoryTarget.sourceOps, MemoryTarget.descendants] at used
     · have same : Graph.Memory32.Op.callIndirect index ty = choose := by
-        simpa [b, bFn, getSelector] using used
+        simpa [b, bFn, getSelector, choose, MemoryTarget.sourceOps, MemoryTarget.descendants] using used
       change Graph.Memory32.Op.callIndirect index ty =
         .callIndirect ⟨0⟩ ⟨signature.params, signature.results⟩ at same
       obtain ⟨rfl, rfl⟩ := Graph.Memory32.Op.callIndirect.inj same
       exact innerLinked
-    · simp [leaf, leafFn] at used
+    · simp [leaf, leafFn, MemoryTarget.sourceOps] at used
+    · simp [guarded, guardFn, callArm, baseArm, guardTail, getSelector,
+        MemoryTarget.sourceOps, MemoryTarget.descendants] at used
 
 -- The same graph cannot supply the strict admission policy. A's direct site
 -- is well linked but its allocated target has the same rank.
@@ -152,16 +181,18 @@ private theorem programChecked : program.Checked mem caller ⟨0⟩ := by
 private theorem programContract : program.Contract mem host := by
   have prepared : prepare.Contract mem host := by
     intro _ _ _ _ _ _ answer
-    obtain ⟨_, _, _, eq⟩ := answer
+    obtain ⟨_, _, _, _, eq⟩ := answer
     cases eq
     exact ⟨empty, rfl, rfl, rfl⟩
   have dispatchContract : site.Contract mem host := by
     refine ⟨?_, graphLinked⟩
     intro address code member allocated
-    rcases tableEntries member with rfl | rfl
+    rcases tableEntries member with rfl | rfl | rfl
     · cases (show some (.wasm signature moduleAt a.code : FuncInst Wasm.Lime1.Func Nat) =
         some (.host signature code) from allocated)
     · cases (show some (.wasm signature moduleAt leaf.code : FuncInst Wasm.Lime1.Func Nat) =
+        some (.host signature code) from allocated)
+    · cases (show some (.wasm signature moduleAt guarded.code : FuncInst Wasm.Lime1.Func Nat) =
         some (.host signature code) from allocated)
   constructor
   · intro _ _ _ _ _ _ answer
@@ -174,7 +205,8 @@ private abbrev Path := Relation.ReflTransGen (Edge program mem host 7) ⟨empty,
 private abbrev BodyPath (bytes : ByteArray) (phase : Continuation.Phase Nat) :=
   Path ⟨bytes, .continuation phase []⟩
 
-private theorem atInvoke (selector : BitVec 32) : BodyPath empty (.memory saved site a (.invoke [i32 selector]) []) := by
+private theorem atDispatch (arg selector : BitVec 32) :
+    BodyPath empty (.source ((saved ++ [i32 arg]) ++ [i32 selector]) dispatch) := by
   have producer : Path ⟨empty, .producerInvoke 7⟩ :=
     ((((Relation.ReflTransGen.single (.control .resolve)).tail (.control .enter)).tail
       (.control .readLocal)).tail (.control (.openLoop 7))).tail (.control (.resolveProducer 7))
@@ -185,10 +217,11 @@ private theorem atInvoke (selector : BitVec 32) : BodyPath empty (.memory saved 
       (.control (.dropInput 1 88))).tail (.control (.loopResult 1))
   have preparing : BodyPath empty (.invoke [] prepare [i64 99, i32 1] dispatch) :=
     exit.tail (.continuation (.resolve (saved := []) (args := [i64 99, i32 1]) rfl))
-  have prepared : BodyPath empty (.source ((saved ++ [i32 selector]) ++ [i32 0]) dispatch) :=
-    preparing.tail (.continuation (.returned (vs := saved ++ [i32 selector, i32 0]) rfl rfl
-      ⟨rfl, rfl, selector, rfl⟩))
-  exact prepared.tail (.continuation (.callIndirect (saved := saved) (args := [i32 selector]) rfl
+  exact preparing.tail (.continuation (.returned (vs := saved ++ [i32 arg, i32 selector]) rfl rfl
+      ⟨rfl, rfl, arg, selector, rfl⟩))
+
+private theorem atInvoke (selector : BitVec 32) : BodyPath empty (.memory saved site a (.invoke [i32 selector]) []) :=
+  (atDispatch selector 0).tail (.continuation (.callIndirect (saved := saved) (args := [i32 selector]) rfl
     (.memory (callee := a) rfl rfl (show a.Allocated base from rfl) rfl)))
 
 private abbrev Position := ByteArray × MemoryCallee.Phase Nat
@@ -313,5 +346,134 @@ example (n : Nat) : Steps host launch (program.render mem caller ⟨0⟩ 7 (inRo
     | succ k ih => exact ih
   exact (call_run_iff (arg := 7) programChecked programContract).mpr
     ⟨_, reached, by change mem.Live (pendingAgain (n + 1)).1; rw [bytes]; rfl, rfl⟩
+
+private def beforeGuard : ByteArray := ⟨#[0, 0, 0, 0, 0, 1, 2, 3, 4, 0]⟩
+private def returnedGuard : ByteArray := ⟨#[0, 42, 0, 0, 0, 1, 2, 3, 4, 0]⟩
+
+private abbrev GuardPath (bytes : ByteArray) (phase : MemoryCallee.Phase Nat) :=
+  BodyPath bytes (.memory saved site guarded phase [])
+
+private theorem GuardPath.step {bytes nextBytes : ByteArray} {p q : MemoryCallee.Phase Nat}
+    (path : GuardPath bytes p) (move : MemoryCallee.Edge mem host site guarded bytes p nextBytes q) :
+    BodyPath nextBytes (.afterMemory saved site guarded [] q) :=
+  path.tail (.continuation (.memory move))
+
+private theorem atBlock (guard : BitVec 32) :
+    GuardPath beforeGuard (.ifBlock [i32 guard] guardSaved armType
+      (MemoryCallee.selectArm guard callArm baseArm) guardTail) := by
+  have invocation : GuardPath empty (.invoke [i32 guard]) :=
+    (atDispatch guard 2).tail (.continuation (.callIndirect (saved := saved) (args := [i32 guard]) rfl
+      (.memory (callee := guarded) rfl rfl (show guarded.Allocated base from rfl) rfl)))
+  have entered : GuardPath empty (.body [i32 guard] guardFn.initial guardFn.code) :=
+    invocation.step .enter
+  have stored : GuardPath beforeGuard (.body [i32 guard] guardSaved
+      [getSelector, .if_ armType callArm baseArm, .store 1, .load 1]) :=
+    entered.step (.store (saved := guardSaved) (MemoryWrite.fact_at (.write 0 word beforeGuard (by decide))))
+  have tested : GuardPath beforeGuard (.body [i32 guard] (guardSaved ++ [i32 guard])
+      (.if_ armType callArm baseArm :: guardTail)) := stored.step (.get (v := i32 guard) rfl)
+  exact tested.step .ifSelect
+
+private def inGuard (guard : BitVec 32) (phase : MemoryCallee.Phase Nat) : MemoryCallee.Phase Nat :=
+  .arm [i32 guard] guardSaved armType phase guardTail
+
+private theorem guardOpen (guard : BitVec 32) :
+    GuardPath beforeGuard (inGuard guard (.body [i32 guard] [] (MemoryCallee.selectArm guard callArm baseArm))) :=
+  (atBlock guard).step .ifEnter
+
+-- The native prefix ends after selection and still contains a source block.
+example : Steps host launch ⟨mem.store beforeGuard, caller, program.functionCode 7
+    (values saved ++ MemoryWrite.limeActivationCode 1 (declaration.frame [i32 0]) [] []
+      (values guardSaved ++ [.source (.block (MemoryCallee.blockType armType) (MemoryCallee.expr baseArm))] ++
+        MemoryCallee.code guardTail))⟩ :=
+  (call_run_iff (arg := 7) programChecked programContract).mpr ⟨_, atBlock 0, rfl, rfl⟩
+
+private theorem finishGuard {bits : BitVec 32} {bytes : ByteArray} {guard : BitVec 32}
+    (resumed : GuardPath beforeGuard (.body [i32 guard] (guardSaved ++ [i32 bits]) guardTail))
+    (write : MemoryWrite.EdgeAt beforeGuard 1 (.store 0 bits) (.written bytes))
+    (read : MemoryQuery.EdgeAt bytes 1 (.load 4) (.value word)) (live : mem.Live bytes) :
+    Steps host launch ⟨mem.store bytes, caller, values [i64 77, i32 word]⟩ := by
+  have stored : GuardPath bytes (.body [i32 guard] [i32 4] [.load 1]) :=
+    resumed.step (.store (saved := [i32 4]) write)
+  have loaded : GuardPath bytes (.body [i32 guard] [i32 word] []) :=
+    stored.step (.load (saved := []) read)
+  have label : GuardPath bytes (.exit [i32 guard] (.values [i32 word])) := loaded.step .labelDone
+  have restored : BodyPath bytes (.source [i64 77, i32 word] []) := label.step .frameDone
+  exact (call_run_iff (arg := 7) programChecked programContract).mpr
+    ⟨_, (restored.tail (.continuation .labelResult)).tail (.continuation .frameDone), live, rfl⟩
+
+-- The zero arm runs no call. Its scalar result reaches the shared suffix.
+example : Steps host launch ⟨mem.store beforeGuard, caller, values [i64 77, i32 word]⟩ := by
+  have opened : GuardPath beforeGuard (inGuard 0 (.body [i32 0] [] baseArm)) := guardOpen 0
+  have read : GuardPath beforeGuard (inGuard 0 (.body [i32 0] [i32 0] [])) :=
+    opened.step (.armStep rfl (.get (v := i32 0) rfl))
+  exact finishGuard (read.step (.armStep rfl .labelDone))
+    (MemoryWrite.fact_at (.write 0 0 beforeGuard (by decide)))
+    (MemoryQuery.fact_at (.load 4 word (by decide))) rfl
+
+private def inGuardB (guard : BitVec 32) (phase : MemoryCallee.Phase Nat) : MemoryCallee.Phase Nat :=
+  inGuard guard (.child [i32 guard] [] b phase [])
+
+private theorem atGuardChoice (guard : BitVec 32) (nonzero : guard ≠ 0) :
+    GuardPath beforeGuard (inGuardB guard (.body [i32 guard] [i32 guard, i32 guard] [choose])) := by
+  have opened : GuardPath beforeGuard (inGuard guard (.body [i32 guard] [] callArm)) := by
+    have chosen : MemoryCallee.selectArm guard callArm baseArm = callArm := ite_eq_right nonzero
+    simpa only [chosen] using guardOpen guard
+  have read : GuardPath beforeGuard (inGuard guard (.body [i32 guard] [i32 guard] [.ranked (.call callB)])) :=
+    opened.step (.armStep rfl (.get (v := i32 guard) rfl))
+  have invoked : GuardPath beforeGuard (inGuardB guard (.invoke [i32 guard])) :=
+    read.step (.armStep rfl (.call (saved := []) (operands := [i32 guard]) guardLink rfl))
+  have entered : GuardPath beforeGuard (inGuardB guard (.body [i32 guard] [] bFn.code)) :=
+    invoked.step (.armStep rfl (.child .enter))
+  have first : GuardPath beforeGuard (inGuardB guard (.body [i32 guard] [i32 guard] [getSelector, choose])) :=
+    entered.step (.armStep rfl (.child (.get (v := i32 guard) rfl)))
+  exact first.step (.armStep rfl (.child (.get (v := i32 guard) rfl)))
+
+private def inGuardLeaf (phase : MemoryCallee.Phase Nat) : MemoryCallee.Phase Nat :=
+  inGuardB 1 (.child [i32 1] [] leaf phase [])
+
+-- The nonzero arm makes the call and returns through its explicit label.
+example : Steps host launch ⟨mem.store returnedGuard, caller, values [i64 77, i32 word]⟩ := by
+  have invocation : GuardPath beforeGuard (inGuardLeaf (.invoke [i32 1])) :=
+    (atGuardChoice 1 (by decide)).step (.armStep rfl (.child
+      (.callIndirect (saved := []) (operands := [i32 1]) (child := leaf)
+        (.memory rfl rfl (show leaf.Allocated base from rfl) rfl) rfl)))
+  have entered : GuardPath beforeGuard (inGuardLeaf (.body [i32 1] [i32 42] [])) :=
+    invocation.step (.armStep rfl (.child (.child .enter)))
+  have leafLabel : GuardPath beforeGuard (inGuardLeaf (.exit [i32 1] (.values [i32 42]))) :=
+    entered.step (.armStep rfl (.child (.child .labelDone)))
+  have bBody : GuardPath beforeGuard (inGuardB 1 (.body [i32 1] [i32 42] [])) :=
+    leafLabel.step (.armStep rfl (.child (.child .frameDone)))
+  have bLabel : GuardPath beforeGuard (inGuardB 1 (.exit [i32 1] (.values [i32 42]))) :=
+    bBody.step (.armStep rfl (.child .labelDone))
+  have armBody : GuardPath beforeGuard (inGuard 1 (.body [i32 1] [i32 42] [])) :=
+    bLabel.step (.armStep rfl (.child .frameDone))
+  exact finishGuard (armBody.step (.armStep rfl .labelDone))
+    (MemoryWrite.fact_at (.write 0 42 returnedGuard (by decide)))
+    (MemoryQuery.fact_at (.load 4 word (by decide))) rfl
+
+-- A trap in the selected callee skips the join and keeps the write before the if.
+example : Steps host launch ⟨mem.store beforeGuard, caller, [.trap]⟩ := by
+  have trapped : GuardPath beforeGuard (inGuardB (-1) (.trapped [i32 (-1)] [i32 (-1)] [])) :=
+    (atGuardChoice (-1) (by decide)).step (.armStep rfl (.child
+      (.indirectTrap (stack := [i32 (-1)]) (index := ⟨0⟩)
+        (signature := ⟨signature.params, signature.results⟩) (selector := -1) (.bounds rfl))))
+  have erased : GuardPath beforeGuard (inGuardB (-1) (.trapped [i32 (-1)] [] [])) :=
+    trapped.step (.armStep rfl (.child (.erase (removed := [i32 (-1)]) (cut := []) rfl rfl (.inl (by simp)))))
+  have bLabel : GuardPath beforeGuard (inGuardB (-1) (.exit [i32 (-1)] .trap)) :=
+    erased.step (.armStep rfl (.child .labelTrap))
+  have armTrap : GuardPath beforeGuard (inGuard (-1) (.trapped [i32 (-1)] [] [])) :=
+    bLabel.step (.armStep rfl (.child .frameDone))
+  have trappedGuard : GuardPath beforeGuard (.trapped [i32 (-1)] guardSaved (MemoryCallee.code guardTail)) :=
+    armTrap.step (.armStep rfl .labelTrap)
+  have cleaned : GuardPath beforeGuard (.trapped [i32 (-1)] [] []) :=
+    trappedGuard.step (.erase (removed := guardSaved) (cut := MemoryCallee.code guardTail)
+      rfl rfl (.inl (by simp [guardSaved])))
+  have guardLabel : GuardPath beforeGuard (.exit [i32 (-1)] .trap) :=
+    cleaned.step .labelTrap
+  have outer : BodyPath beforeGuard (.trapped saved []) := guardLabel.step .frameDone
+  have discarded : BodyPath beforeGuard (.trapped [] []) :=
+    outer.tail (.continuation (.erase (removed := saved) (cut := []) rfl rfl (.inl (by simp [saved]))))
+  exact (call_run_iff (arg := 7) programChecked programContract).mpr
+    ⟨_, (discarded.tail (.continuation .labelTrap)).tail (.continuation .frameDone), rfl, rfl⟩
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.CycleExamples
