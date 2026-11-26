@@ -108,10 +108,10 @@ theorem reindexDiagonal_chosenValueProductMap (P : τ) (e : K.obj (M.obj P) ≅ 
   have right : packedDiagonal M P ≫ sndMap M P P = 𝟙 _ := by
     simp [packedDiagonal, packedPair, sndMap]
   apply BinaryFan.IsLimit.hom_ext ((fanLimit) P)
-  · simp only [chosenValueProductMap, chosenValueDiagonal, Category.assoc, BinaryFan.IsLimit.lift_fst,
+  · simp only [chosenValueProductMap, chosenBinaryValueProductMap, chosenValueDiagonal, Category.assoc, BinaryFan.IsLimit.lift_fst,
       ← K.map_comp_assoc, left]
     rw [K.map_id, Category.id_comp, Iso.inv_hom_id]
-  · simp only [chosenValueProductMap, chosenValueDiagonal, Category.assoc, BinaryFan.IsLimit.lift_snd,
+  · simp only [chosenValueProductMap, chosenBinaryValueProductMap, chosenValueDiagonal, Category.assoc, BinaryFan.IsLimit.lift_snd,
       ← K.map_comp_assoc, right]
     rw [K.map_id, Category.id_comp, Iso.inv_hom_id]
 
