@@ -77,4 +77,31 @@ theorem term_case_operand_ne {reply q v a b c : Tm Φ} {p : Φ} {l r s : Region 
   rw [ez] at observed
   cases observed
 
+open scoped BoundSimulation.Obstruction.Observer.CanonicalUnit in
+/-- An observer that marks term cases and gives every primitive no result
+validates both exact call-site shapes. -/
+theorem unit_case_return_ne_of_call_sites
+    {Seed : VCtx (Ty Empty) → Region Φ → Region Φ → LCtx (Ty Empty) → Prop}
+    (sites : ∀ {Γ L r s}, Seed Γ r s L →
+      (∃ (p : Φ) (a b : Tm Φ) (k : Region Φ), r = .let₁ (.op p a) k ∧ s = .let₁ (.op p b) k) ∨
+      (∃ (p : Φ) (a b : Tm Φ) (l k : Region Φ), r = .case (.op p a) l k ∧ s = .case (.op p b) l k)) :
+    ¬ Paper.Extension.Eqv Seed [Ty.coprod Ty.unit Ty.unit]
+      (.let₁ (.case (.var 0) .unit .unit) (.br 0 (.var 0)))
+      (.case (.var 0) (.let₁ .unit (.br 0 (.var 0))) (.let₁ .unit (.br 0 (.var 0)))) [Ty.unit] := by
+  intro eq
+  let obs : TermObservation (α := Empty) Φ := { caseTerm := true }
+  have step {Γ L r s} (h : Seed Γ r s L) : SameWith obs Γ r s := by
+    intro env _
+    rcases sites h with ⟨p, a, b, k, rfl, rfl⟩ | ⟨p, a, b, l, k, rfl, rfl⟩ <;>
+      simp [evalRegionWith, evalTermWith, obs]
+  let env : Env := Semantics.extend (fun _ => .unit) (.inl .unit)
+  have valid : EnvTy [Ty.coprod U U] env := by
+    intro i A hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact .inl .unit
+    | succ i => simp [At] at hi
+  have observed := extension_same (observation := obs) step eq env valid
+  change Result.fault = Result.jump 0 .unit at observed
+  cases observed
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing
