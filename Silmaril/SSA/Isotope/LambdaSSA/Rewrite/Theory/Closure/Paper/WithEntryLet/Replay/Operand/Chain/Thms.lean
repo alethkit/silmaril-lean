@@ -74,4 +74,31 @@ theorem mixed_expansion :
         some (.let₁ (.var 0) ((bothRequestsMoved.substVars θ).renameVars Nat.succ)) :=
   EntryLetChainExample.mixed_expansion
 
+theorem expandedBothMoves_typed : ValueBranches [Bit] expandedBothMoves [Bit] :=
+  EntryLetChainExample.expandedBothMoves_typed
+
+/-- The intermediate can leave the substitution image while the result
+still has a standard-Paper-equivalent representative in that image. -/
+theorem mixed_endpoint :
+    Paper.Eqv [Bit] expandedBothMoves (bothRequestsMoved.substVars θ) [Bit] :=
+  EntryLetChainExample.mixed_endpoint
+
+/-- The native endpoint equality holds with the let still expanded. -/
+theorem mixed_final_composite :
+    source ≫ coprod.map (𝟙 X) forget = ofRegion expandedBothMoves_typed ≫ (sumIso U U).hom :=
+  EntryLetChainExample.mixed_final_composite
+
+/-- Replay the entry move, the native expansion, and the move under the
+new binder to recover the original cyclic square in standard Paper. -/
+theorem mixed_repaired :
+    ∃ g : X ⟶ X ⨿ X, projectStep Seed g = projectStep Seed target ∧
+      source ≫ coprod.map (𝟙 X) forget = forget ≫ g :=
+  EntryLetChainExample.mixed_repaired
+
+/-- Ordinary constructor uniformity applies to the repaired mixed square. -/
+theorem mixed_corrected_iterate :
+    iterateChosen Seed (projectStep Seed source) =
+      (J).map forget ≫ iterateChosen Seed (projectStep Seed target) :=
+  EntryLetChainExample.mixed_corrected_iterate
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet.ChainExample

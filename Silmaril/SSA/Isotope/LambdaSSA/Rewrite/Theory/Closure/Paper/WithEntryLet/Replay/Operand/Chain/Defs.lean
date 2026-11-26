@@ -24,4 +24,8 @@ noncomputable def source : D ⟶ X ⨿ D :=
 def expandedFirstMove : Region Instruction :=
   .let₁ (.var 0) ((firstRequestMoved.substVars (Tm.singleSubst .unit ∘ lift Nat.succ)).renameVars Nat.succ)
 
+/-- The written end of the mixed derivation keeps the expanded let. -/
+def expandedBothMoves : Region Instruction :=
+  .let₁ (.var 0) ((bothRequestsMoved.substVars (Tm.singleSubst .unit ∘ lift Nat.succ)).renameVars Nat.succ)
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithEntryLet.ChainExample

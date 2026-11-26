@@ -15,7 +15,8 @@ open Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Regi
 open Silmaril.DeBruijn (lift)
 open CategoryTheory CategoryTheory.Limits
 open Paper.TypeCategory
-open Paper.WithEntryLet (Site repairTargetMoves uniformity_of_target_moves ofRegion_comp_constructor)
+open Paper.WithEntryLet
+  (Site repairTargetMoves repairTargetAfterLetValue uniformity_of_target_moves ofRegion_comp_constructor)
 open Paper.WithEntryLet.OperandExample hiding source target repaired corrected_square corrected_iterate
 open Paper.WithEntryLet.ChainExample Paper.EntryLetObstruction
 open Paper.Extension.Singleton (projection projectStep iterateChosen projectSquare_iff)
@@ -141,16 +142,17 @@ private theorem block_move_composite :
   rw [block_move]
   rfl
 
+private theorem entry_move_composite :
+    (Site.entry .here).move (twoFlatRequests.substVars substForget) =
+      some (firstRequestMoved.substVars substForget) := by
+  rw [Site.move_substVars, entry_move]
+  rfl
+
 theorem moves_composite :
     Site.moveAll sites (twoFlatRequests.substVars substForget) =
       some (bothRequestsMoved.substVars substForget) := by
-  have first :
-      (Site.entry .here).move (twoFlatRequests.substVars substForget) =
-        some (firstRequestMoved.substVars substForget) := by
-    rw [Site.move_substVars, entry_move]
-    rfl
   change ((Site.entry .here).move _ >>= fun p => (Site.block 0 .here).move p >>= some) = _
-  rw [first]
+  rw [entry_move_composite]
   change ((Site.block 0 .here).move (firstRequestMoved.substVars substForget) >>= some) = _
   rw [block_move_composite]
   rfl
@@ -247,5 +249,59 @@ theorem mixed_expansion :
   · simp only [expandedFirstMove, Site.move]
     rw [renameVars_eq_substVars, Site.move_substVars, block_move_composite]
     simp only [Option.map_some, renameVars_eq_substVars]
+
+private theorem contract_weakened (r : Region Instruction) :
+    (r.renameVars Nat.succ).substVars (Tm.singleSubst (.var 0)) = r := by
+  rw [substVars_renameVars]
+  exact substVars_var r
+
+private theorem expandedBody_typed :
+    ValueBranches [Bit, Bit] ((firstRequestMoved.substVars substForget).renameVars Nat.succ) [Bit] :=
+  ((sequenceRequests_typed movedRequest_typed flatStep_typed).substVars substForget_typed).renameVars
+    (Ren.wk [Bit] Bit)
+
+theorem expandedBothMoves_typed : ValueBranches [Bit] expandedBothMoves [Bit] :=
+  .let₁ (.var rfl) (bothComposite.renameVars (Ren.wk [Bit] Bit))
+
+theorem mixed_endpoint :
+    Paper.Eqv [Bit] expandedBothMoves (bothRequestsMoved.substVars substForget) [Bit] := by
+  obtain ⟨q, hq, _, eq⟩ := Site.move_under_letValue (.block 0 .here)
+    (.var (i := 0) (rfl : At [Bit] 0 Bit)) expandedBody_typed mixed_expansion.2.2
+  rw [contract_weakened, block_move_composite] at hq
+  cases Option.some.inj hq
+  exact eq
+
+theorem mixed_final_composite :
+    source ≫ coprod.map (𝟙 X) forget = ofRegion expandedBothMoves_typed ≫ (sumIso U U).hom := by
+  rw [(ofRegion_eq_iff expandedBothMoves_typed bothComposite).2 mixed_endpoint]
+  exact end_square
+
+private theorem mixed_prefix :
+    Site.moveAll [.entry .here] (twoFlatRequests.substVars substForget) =
+      some (((firstRequestMoved.substVars substForget).renameVars Nat.succ).substVars
+        (Tm.singleSubst (.var 0))) := by
+  rw [contract_weakened]
+  change ((Site.entry .here).move (twoFlatRequests.substVars substForget) >>= some) = _
+  rw [entry_move_composite]
+  rfl
+
+theorem mixed_repaired :
+    let hr := sequenceRequests_typed flatRequest_typed flatStep_typed
+    ∃ g : X ⟶ X ⨿ X,
+      projectStep Seed g = projectStep Seed (ofRegion hr ≫ (sumIso U U).hom) ∧
+      source ≫ coprod.map (𝟙 X) forget = forget ≫ g :=
+  repairTargetAfterLetValue [.entry .here] (.block 0 .here)
+    (.unit (Γ := [Bit])) (sequenceRequests_typed flatRequest_typed flatStep_typed)
+    source (.var (i := 0) rfl) expandedBody_typed expandedBothMoves_typed
+    mixed_prefix mixed_expansion.2.2 mixed_final_composite
+
+theorem mixed_corrected_iterate :
+    let hr := sequenceRequests_typed flatRequest_typed flatStep_typed
+    iterateChosen Seed (projectStep Seed source) =
+      (J).map forget ≫ iterateChosen Seed (projectStep Seed (ofRegion hr ≫ (sumIso U U).hom)) := by
+  obtain ⟨g, hg, native⟩ := mixed_repaired
+  dsimp only
+  rw [← hg]
+  exact Paper.Extension.Singleton.uniformity_of_constructor_square Seed ⟨.unit, .unit, rfl⟩ source g native
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetChainExample

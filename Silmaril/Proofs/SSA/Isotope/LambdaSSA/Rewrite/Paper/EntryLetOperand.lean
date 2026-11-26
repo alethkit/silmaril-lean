@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithEntryLet.Replay.Operand.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Family.Substitution.Thms
 
 /-! # Pulling an entry-let move back along a constructor substitution -/
 
@@ -158,6 +159,33 @@ theorem moveAll_pullback (sites : List Site) {Γ : VCtx τ} {L : LCtx τ} {r s :
       rw [hq]
       exact hout
 
+theorem move_letValue (site : Site) {Γ : VCtx τ} {L : LCtx τ} {T : τ}
+    {a : Tm Φ} {body moved : Region Φ} (ha : Tm.BranchValue Γ a T)
+    (hm : site.move body = some moved) (ht : HasType (T :: Γ) moved L) :
+    site.move (body.substVars (Tm.singleSubst a)) = some (moved.substVars (Tm.singleSubst a)) ∧
+      Paper.Eqv Γ (.let₁ a moved) (moved.substVars (Tm.singleSubst a)) L := by
+  refine ⟨?_, .cfgEta (.native (.letValue ha ht))⟩
+  rw [move_substVars, hm]
+  rfl
+
+theorem move_under_letValue (site : Site) {Γ : VCtx τ} {L : LCtx τ} {T : τ}
+    {a : Tm Φ} {body s : Region Φ} (ha : Tm.BranchValue Γ a T)
+    (hb : ValueBranches (T :: Γ) body L)
+    (hm : (Site.unaryBody site).move (.let₁ a body) = some s) :
+    ∃ q, site.move (body.substVars (Tm.singleSubst a)) = some q ∧
+      ValueBranches Γ q L ∧ Paper.Eqv Γ s q L := by
+  change (site.move body).map (Region.let₁ a) = some s at hm
+  obtain ⟨moved, hmoved, rfl⟩ := Option.map_eq_some_iff.mp hm
+  have hg := (move_sound site hb hmoved).1
+  obtain ⟨he, eq⟩ := move_letValue site ha hmoved hg.hasType
+  refine ⟨_, he, hg.substVars ?_, eq⟩
+  intro i A hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    exact ha
+  | succ i => exact .var hi
+
 open CategoryTheory CategoryTheory.Limits
 open Paper.TypeCategory (ofType ofRegion sumIso)
 open Paper.Extension.Singleton (projection projectStep iterateChosen)
@@ -213,5 +241,30 @@ theorem uniformity_of_target_moves (sites : List Site) (ha : Tm.BranchValue [A] 
   obtain ⟨g, hg, native⟩ := repairTargetMoves sites ha hr f hs hm comm
   rw [← hg]
   exact Paper.Extension.Singleton.uniformity_of_constructor_square Seed ⟨a, ha, rfl⟩ f g native
+
+theorem repairTargetAfterLetValue (sites : List Site) (site : Site)
+    (ha : Tm.BranchValue [A] a D)
+    (hr : ValueBranches [D] r [Silmaril.coprod B D])
+    (f : Obj A ⟶ Obj B ⨿ Obj A)
+    {T : τ} {v : Tm Φ} {body : Region Φ}
+    (hv : Tm.BranchValue [A] v T) (hb : ValueBranches [T, A] body [Silmaril.coprod B D])
+    (hs : ValueBranches [A] s [Silmaril.coprod B D])
+    (prefixMoves : Site.moveAll sites (r.substVars (Tm.singleSubst a ∘ lift Nat.succ)) =
+      some (body.substVars (Tm.singleSubst v)))
+    (hm : (Site.unaryBody site).move (.let₁ v body) = some s)
+    (comm : f ≫ coprod.map (𝟙 (Obj B)) (ofRegion (.br (ℓ := 0) rfl ha)) =
+      ofRegion hs ≫ (sumIso B D).hom) :
+    let h := ofRegion (.br (ℓ := 0) rfl ha)
+    ∃ g : Obj D ⟶ Obj B ⨿ Obj D,
+      projectStep Seed g = projectStep Seed (ofRegion hr ≫ (sumIso B D).hom) ∧
+      f ≫ coprod.map (𝟙 (Obj B)) h = h ≫ g := by
+  obtain ⟨q, hq, ht, eq⟩ := move_under_letValue site hv hb hm
+  apply repairTargetMoves (sites ++ [site]) ha hr f ht
+  · simp only [Site.moveAll, List.foldlM_append] at prefixMoves ⊢
+    rw [prefixMoves]
+    change (site.move (body.substVars (Tm.singleSubst v)) >>= some) = some q
+    rw [hq]
+    rfl
+  · rwa [← (Paper.TypeCategory.ofRegion_eq_iff hs ht).2 eq]
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.EntryLetOperand
