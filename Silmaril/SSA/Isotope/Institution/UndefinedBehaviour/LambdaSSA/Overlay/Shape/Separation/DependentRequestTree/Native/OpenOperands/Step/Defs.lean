@@ -17,10 +17,11 @@ universe u x
 
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] {S : RequestSignature Φ} {R : List Syntax.Ty} {σ : Type x}
 
-/-- A row either leaves at its written position or performs one request.
+/-- A row leaves at its written position, diverges ordinarily, or performs one request.
 Its continuation stores the exact next label and incoming payload. -/
 inductive Head (S : RequestSignature Φ) (R : List Syntax.Ty) where
   | exit (tag : Tag) (selected : Bool)
+  | diverge
   | request (f : Φ) (arg : Syntax.Payload (instrSrc f))
       (next : (i : Fin (S.replies f).length) → Syntax.Payload ((S.replies f).get i) → Packet R)
 
@@ -37,6 +38,7 @@ abbrev Transition.repeat {states : Nat} (p : Packet R) (s : Fin states) : Transi
 def Head.execute (prim : Syntax.StatePrimitives Φ σ) :
     Head S R → σ → StateTransition R σ
   | .exit i selected, s => .exit i selected s
+  | .diverge, _ => .diverge
   | .request f arg next, s =>
     match prim f arg s with
     | .ret a t =>
@@ -47,7 +49,7 @@ def Head.execute (prim : Syntax.StatePrimitives Φ σ) :
 
 /-- Potential successful successors across the exhaustive typed reply list. -/
 def Head.successors (replies : ReplyEnumeration S) : Head S R → List (Packet R)
-  | .exit .. => []
+  | .exit .. | .diverge => []
   | .request f _ next => (replies.packets f).map fun p => next p.1 p.2
 
 /-- Inspect just the current block. The caller stays fixed and the incoming
@@ -55,6 +57,7 @@ value is read at its own label type. Every internal transfer consumes a reply. -
 def Table.head (g : Table S R) (caller : Syntax.Payload (R.get g.entry)) (config : Packet R) : Head S R :=
   match g.row config.1 with
   | .exit i => .exit i (g.selected i)
+  | .diverge => .diverge
   | .request f arg next typed =>
     .request f (arg.eval ((g.bindings caller).push config.2)) fun j a =>
       ⟨next j, cast (congrArg Syntax.Payload (typed j).symm) a⟩

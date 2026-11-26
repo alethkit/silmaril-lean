@@ -127,11 +127,14 @@ private theorem finish_number (names : Fin 5 ≃ K) (i : TwoRequest.Tag) (payloa
 private def next (query : Query (signature P.Instr) E) :
     Head (signature P.Instr) Packets → Tree E (Cursor Packets)
   | .exit i _ => pure (atExit i)
+  | .diverge => Silmaril.Elgot.ITree.diverge
   | .request op arg route => query op arg >>= fun r => pure (atBlock (route r.down.1 r.down.2))
 
 private theorem headStep_eq (query : Query (signature P.Instr) E) (h : Head (signature P.Instr) Packets) :
     headStep (B := Transfer α) query h = (next query h >>= fun p => pure (.inr p)) := by
-  cases h <;> simp [headStep, next]
+  cases h with
+  | diverge => exact (Silmaril.Elgot.ITree.diverge_bind _).symm
+  | exit | request => simp [headStep, next]
 
 private theorem cast_payload_val {A B : Syntax.Ty} (h : A = B) (p : Syntax.Payload A) :
     (cast (congrArg Syntax.Payload h) p).val = p.val := by cases h; rfl

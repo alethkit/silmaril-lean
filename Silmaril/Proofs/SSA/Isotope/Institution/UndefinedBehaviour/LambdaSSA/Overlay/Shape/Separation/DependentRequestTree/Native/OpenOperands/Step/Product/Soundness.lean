@@ -33,9 +33,14 @@ theorem check_pair_iff [DecidableEq Φ] (replies : ReplyEnumeration S)
   | exit i selected =>
     cases q with
     | exit j selected' => cases selected <;> cases selected' <;> simp [Head.checkPair, Head.Matches]
-    | request => cases selected <;> simp [Head.checkPair, Head.Matches]
+    | request | diverge => cases selected <;> simp [Head.checkPair, Head.Matches]
+  | diverge =>
+    cases q with
+    | exit _ selected => cases selected <;> simp [Head.checkPair, Head.Matches]
+    | request | diverge => simp [Head.checkPair, Head.Matches]
   | request f arg next =>
     cases q with
+    | diverge => simp [Head.checkPair, Head.Matches]
     | exit i selected => cases selected <;> simp [Head.checkPair, Head.Matches]
     | request g arg' next' =>
       rw [Head.checkPair, Head.Matches]
@@ -95,10 +100,17 @@ private theorem local_match (g : Table S R) (h : Table S T) (caller : Payload (R
           left
           rw [g.observe_state_step, h.observe_state_step, lower, upper, same]
           exact le_rfl
-      | request => simp [lower, upper, Head.Matches] at agreement
+      | request | diverge => simp [lower, upper, Head.Matches] at agreement
+  | diverge =>
+    cases lower : g.head caller p with
+    | exit | request => simp [lower, upper, Head.Matches] at agreement
+    | diverge =>
+      left
+      rw [g.observe_state_step, h.observe_state_step, lower, upper]
+      exact le_rfl
   | request op' operand' next' =>
     cases lower : g.head caller p with
-    | exit => simp [lower, upper, Head.Matches] at agreement
+    | exit | diverge => simp [lower, upper, Head.Matches] at agreement
     | request op operand next =>
       rw [lower, upper] at agreement
       obtain ⟨keys, values, replies⟩ := agreement

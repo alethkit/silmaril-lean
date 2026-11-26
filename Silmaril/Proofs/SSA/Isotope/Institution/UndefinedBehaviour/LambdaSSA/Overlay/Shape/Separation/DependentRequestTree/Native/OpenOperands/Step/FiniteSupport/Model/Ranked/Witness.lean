@@ -32,10 +32,11 @@ private theorem below_next (g : Table S R) (caller : Payload (R.get g.entry))
   unfold Table.head at head
   split at head
   · cases head
+  · cases head
   · rename_i op operand route typed row
     cases head
     have edge : route a.1 ∈ g.targets p.1 := by
-      rw [Table.targets, row, Row.targets]
+      rw [Table.targets, row]
       exact List.mem_ofFn.mpr ⟨a.1, rfl⟩
     have down := Rank.ranked_successor g.targets bound.1 edge
     exact ⟨down.1, down.2.trans_le (Nat.le_of_lt_succ bound.2)⟩
@@ -73,10 +74,16 @@ private theorem probe [DecidableEq Φ] (g : Table S R) (h : Table S T)
               have same : i = j := by simpa [lower, upper, Head.Matches] using agreement
               rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper, same] at failed
               exact (failed le_rfl).elim
-          | request => simp [lower, upper, Head.Matches] at agreement
+          | diverge | request => simp [lower, upper, Head.Matches] at agreement
+      | diverge =>
+        cases lower : g.head a p with
+        | diverge =>
+          rw [g.observe_state_step a prim p s, h.observe_state_step b prim q s, lower, upper] at failed
+          exact (failed le_rfl).elim
+        | exit | request => simp [lower, upper, Head.Matches] at agreement
       | request k operand route =>
         cases lower : g.head a p with
-        | exit => simp [lower, upper, Head.Matches] at agreement
+        | exit | diverge => simp [lower, upper, Head.Matches] at agreement
         | request f arg next =>
           rw [lower, upper] at agreement
           obtain ⟨rfl, values, _⟩ := agreement

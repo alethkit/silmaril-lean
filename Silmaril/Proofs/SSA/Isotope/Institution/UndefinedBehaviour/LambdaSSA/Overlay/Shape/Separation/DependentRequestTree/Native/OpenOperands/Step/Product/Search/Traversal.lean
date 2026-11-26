@@ -104,10 +104,15 @@ theorem check_pair_edges [DecidableEq Φ] (replies : ReplyEnumeration S)
   | exit i marked =>
     cases q with
     | exit j marked' => cases marked <;> cases marked' <;> simp [Head.checkPair, Head.productEdges]
-    | request => cases marked <;> rfl
+    | request | diverge => cases marked <;> rfl
+  | diverge =>
+    cases q with
+    | exit i marked => cases marked <;> rfl
+    | request | diverge => rfl
   | request f arg next =>
     cases q with
     | exit i marked => cases marked <;> rfl
+    | diverge => rfl
     | request g arg' next' =>
       simp only [Head.checkPair, Head.productEdges]
       split
@@ -130,10 +135,10 @@ theorem edge_forms [DecidableEq Φ] (replies : ReplyEnumeration S)
       edge = (⟨f, reply⟩, next reply.1 reply.2, next' reply.1 reply.2) := by
   unfold Table.productEdges at listed
   cases lower : g.head caller p.1 with
-  | exit => simp [lower, Head.productEdges] at listed
+  | exit | diverge => simp [lower, Head.productEdges] at listed
   | request f arg next =>
     cases upper : h.head caller' p.2 with
-    | exit => simp [lower, upper, Head.productEdges] at listed
+    | exit | diverge => simp [lower, upper, Head.productEdges] at listed
     | request op' operand' next' =>
       rw [lower, upper, Head.productEdges] at listed
       split at listed

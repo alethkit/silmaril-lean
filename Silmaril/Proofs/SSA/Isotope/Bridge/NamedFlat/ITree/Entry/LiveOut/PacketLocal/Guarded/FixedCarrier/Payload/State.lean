@@ -75,6 +75,7 @@ theorem observe_roots_on (g : Endpoint (Recognize.signature Φ) R A)
       simp only [Head.execute, treeStepOn, out_ret, Part.some_dom, ↓reduceDIte, Part.get_some,
         decodes, terminalOn, liftOut]
       rfl
+    | diverge => simp [Head.execute, treeStepOn, terminalOn, liftOut]
     | request f arg next =>
       simp only [Head.execute, treeStepOn, out_vis, Part.some_dom, ↓reduceDIte, Part.get_some]
       cases prim f arg x.2 <;> rfl

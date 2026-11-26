@@ -166,7 +166,7 @@ private abbrev rerouted := Recognize.guardedTable Op.poll (checkedAdapter false 
 private def firstUnitDestination (table : Table nativeSig Packets) : Option Nat :=
   match table.row 0 with
   | .request _ _ next _ => some (next 1).val
-  | .exit .. => none
+  | .exit .. | .diverge => none
 
 -- The guarded heads use the destinations extracted from the compiled row.
 example : firstUnitDestination native = some 1 ∧ firstUnitDestination rerouted = some 2 :=

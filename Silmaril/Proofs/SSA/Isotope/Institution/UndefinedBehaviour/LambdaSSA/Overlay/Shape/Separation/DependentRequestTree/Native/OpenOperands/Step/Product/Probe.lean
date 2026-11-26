@@ -42,16 +42,31 @@ theorem local_mismatch_refutes [DecidableEq Φ] (g : Table S R) (h : Table S T)
         refine ⟨test none, ?_⟩
         rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
         cases marked <;> simp_all [Head.Matches, Head.execute, result_order, Result.refines]
-      | request f arg next =>
+      | diverge | request =>
         refine ⟨test none, ?_⟩
         rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
         simp [Head.execute, test, result_order, Result.refines]
+  | diverge =>
+    cases lower : g.head a p with
+    | diverge => exact (mismatch (by simp [lower, upper, Head.Matches])).elim
+    | exit i marked =>
+      refine ⟨test none, ?_⟩
+      rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
+      cases marked <;> simp [Head.execute, result_order, Result.refines]
+    | request f arg next =>
+      refine ⟨test (some (f, arg.val)), ?_⟩
+      rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
+      simp [Head.execute, test, result_order, Result.refines]
   | request k operand route =>
     cases lower : g.head a p with
     | exit i marked =>
       refine ⟨test none, ?_⟩
       rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
       cases marked <;> simp [Head.execute, test, result_order, Result.refines]
+    | diverge =>
+      refine ⟨test (some (k, operand.val)), ?_⟩
+      rw [g.observe_step a _ p 0, h.observe_step b _ q 0, lower, upper]
+      simp [Head.execute, test, result_order, Result.refines]
     | request f arg next =>
       have different : ¬ (f = k ∧ arg.val = operand.val) := by
         rintro ⟨rfl, values⟩

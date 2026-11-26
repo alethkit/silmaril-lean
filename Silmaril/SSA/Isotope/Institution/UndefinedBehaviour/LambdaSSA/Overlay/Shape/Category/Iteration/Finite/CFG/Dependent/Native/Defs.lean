@@ -38,6 +38,16 @@ def Producer.program : {Γ : List Syntax.Ty} → Producer Φ Γ A → Program Φ
 def jump (i : Fin L.length) (typed : L.get i = A) (a : Expr Γ A) : Typed Φ Γ L :=
   ⟨.br i a.term, .br (typed ▸ List.getElem?_eq_getElem i.isLt) a.typed⟩
 
+/-- A native terminal implementation of ordinary divergence. The inner
+unit block silently jumps to itself and never enters a primitive. -/
+def diverge : Typed Φ Γ L :=
+  let entry : Typed Φ Γ ([.unit] ++ L) :=
+    jump (Feedback.internal [.unit] L 0) (internal_type 0) .unit
+  let blocks (i : Fin ([.unit] : List Syntax.Ty).length) :
+      Typed Φ (([.unit] : List Syntax.Ty).get i :: Γ) ([.unit] ++ L) :=
+    jump (Feedback.internal [.unit] L 0) (internal_type 0) .unit
+  ⟨nativeFeedback entry blocks, nativeFeedback_hasType entry blocks⟩
+
 def bind (r : Typed Φ Γ [A]) (k : Typed Φ (A :: Γ) L) : Typed Φ Γ L :=
   let next : (i : Fin [A].length) → Typed Φ ([A].get i :: Γ) L :=
     fun i => by obtain rfl := Fin.eq_zero i; exact k

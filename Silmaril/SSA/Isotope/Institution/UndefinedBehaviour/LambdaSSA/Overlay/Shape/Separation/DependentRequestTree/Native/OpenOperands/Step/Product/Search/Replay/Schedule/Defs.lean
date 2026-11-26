@@ -57,7 +57,7 @@ def Request.row (req : Request S) (s t : Fin states) : InterpreterScript.Row Φ 
 def Request.ofHead? [DecidableEq Φ] (head : Head S R) (reply : Σ f : Φ, Packet (S.replies f)) :
     Option (Request S) :=
   match head with
-  | .exit .. => none
+  | .exit .. | .diverge => none
   | .request op arg _ =>
     if eq : reply.1 = op then some ⟨op, arg, eq ▸ reply.2⟩ else none
 

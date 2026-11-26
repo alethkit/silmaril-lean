@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Step.Defs
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Separation.DependentRequestTree.Native.OpenOperands.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.ExitUB.Thms
+import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Thms
 import Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.Thms
@@ -48,6 +49,10 @@ theorem raw_step (g : Table S R) (caller : Payload (R.get g.entry)) (prim : Stat
     rw [denote_push prim _ incoming, Table.blocks, rowEq]
     exact CFG.observe_jump (L := R ++ Exits) prim ((g.bindings caller).push incoming)
       (exitLabel R Exits j) ((external_type (R := R) (L := Exits) j).trans (exit_type j)) .unit s
+  · rename_i rowEq
+    change denote (.native (g.blocks i)) (extendModel (model prim (g.bindings caller)).raw incoming.val) s = _
+    rw [denote_push prim _ incoming, Table.blocks, rowEq]
+    exact CFG.Dependent.Native.observe_diverge prim ((g.bindings caller).push incoming) s
   · rename_i f arg next typed rowEq
     let env := (g.bindings caller).push incoming
     let target (j : Fin (S.replies f).length) := Feedback.internal R Exits (next j)
@@ -106,6 +111,8 @@ theorem observe_state_step (g : Table S R) (caller : Payload (R.get g.entry)) (p
       · intro eq
         obtain ⟨rfl, rfl, _⟩ := StateTransition.exit.inj eq
         rfl
+      · intro impossible
+        cases impossible
       · rename_i f arg next typed _
         rw [Head.execute]
         split <;> simp

@@ -40,6 +40,7 @@ def atExit (i : TwoRequest.Tag) : Cursor R := ⟨.inl i⟩
 keeps its tag. Selected UB is interpreted by the separate shaped semantics. -/
 def headStep (query : Query S E) : Head S R → Tree E (B ⊕ Cursor R)
   | .exit i _ => pure (.inr (atExit i))
+  | .diverge => Silmaril.Elgot.ITree.diverge
   | .request f arg next => query f arg >>= fun r =>
       pure (.inr (atBlock (next r.down.1 r.down.2)))
 

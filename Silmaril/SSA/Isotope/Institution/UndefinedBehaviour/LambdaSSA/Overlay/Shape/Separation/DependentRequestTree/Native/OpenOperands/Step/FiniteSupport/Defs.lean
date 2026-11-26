@@ -56,12 +56,14 @@ def replyDestination (f : Φ) (next : (i : Fin (S.replies f).length) → Payload
   next packet.1 packet.2
 
 /-- A finite observation derivation follows actual typed heads and replies.
-A primitive divergence is a terminal row. An infinite replay has no such
-terminal constructor. -/
+An ordinary-divergence head records no query. A primitive divergence
+records its answer. Both stop the normalized derivation. -/
 inductive FiniteRun (g : Table S R) (caller : Payload (R.get g.entry)) (prim : StatePrimitives Φ σ) :
     Packet R → σ → List (RunRow Φ σ) → RunStop σ → Prop where
   | exit {p s i selected} (head : g.head caller p = .exit i selected) :
       FiniteRun g caller prim p s [] (.exit i selected s)
+  | silent {p s} (head : g.head caller p = .diverge) :
+      FiniteRun g caller prim p s [] .diverge
   | «repeat» {p s f arg next value t rows stop}
       (head : g.head caller p = .request f arg next) (answer : prim f arg s = .ret value t)
       (tail : FiniteRun g caller prim (replyDestination f next value) t rows stop) :

@@ -81,7 +81,7 @@ theorem request_view (run : GuardedReplay g caller prim p s) (i : Nat) :
       replyDestination f next value = (run.point (i + 1)).1 := by
   have step := run.step i
   cases head : g.head caller (run.point i).1 with
-  | exit =>
+  | exit | diverge =>
     rw [head, Head.execute] at step
     cases step
   | request f arg next =>

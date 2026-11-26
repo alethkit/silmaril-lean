@@ -95,6 +95,7 @@ theorem guarded_readback_self {S : RequestSignature Φ} (g : GuardedTable S R) :
     unfold OpenOperands.Table.blocks
     cases g.row i with
     | exit j => exact jump_self _ ((CFG.Dependent.external_type (R := R) (L := Exits) j).trans (exit_type j)) .unit
+    | diverge => simp [OpenOperands.Row.native, CFG.Dependent.Native.diverge, nativeFeedback, jump, sameRegion]
     | request f operand next typed => exact packed_request_self f operand (S.target f) _ _
   simp [OpenOperands.Table.checkNative, OpenOperands.Table.native, nativeFeedback,
     sameRegion, OpenOperands.Table.entryRegion, jump, localSelf]

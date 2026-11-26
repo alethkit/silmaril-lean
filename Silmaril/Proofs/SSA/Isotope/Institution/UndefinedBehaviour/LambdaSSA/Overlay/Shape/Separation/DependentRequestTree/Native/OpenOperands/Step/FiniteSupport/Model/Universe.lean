@@ -27,7 +27,7 @@ private theorem execute_mapped (f : σ → τ) (prim : StatePrimitives Φ σ) (o
     (agree : ∀ op arg s, other op arg (f s) = (prim op arg s).mapState f) (head : Head S R) (s : σ) :
     head.execute other (f s) = (head.execute prim s).mapState f := by
   cases head with
-  | exit => rfl
+  | exit | diverge => rfl
   | request op arg next =>
     simp only [Head.execute, agree]
     cases prim op arg s <;> rfl

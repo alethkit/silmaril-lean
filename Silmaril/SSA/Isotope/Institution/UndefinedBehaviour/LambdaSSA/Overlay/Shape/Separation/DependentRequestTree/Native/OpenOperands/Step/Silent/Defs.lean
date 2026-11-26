@@ -35,6 +35,7 @@ def replacePacket (arg : Syntax.Expr [A, C] B) : (i : Fin 2) → Syntax.Expr [A,
 def specialize (arg : Syntax.Expr [A, C] B) :
     OpenOperands.Row S R [B, C] → OpenOperands.Row S R [A, C]
   | .exit tag => .exit tag
+  | .diverge => .diverge
   | .request f operand next typed => .request f (substitute (Γ := [A, C]) (Δ := [B, C]) (replacePacket arg) operand) next typed
 
 /-- Expose the guarded head in an exact typed environment after resolving
@@ -42,6 +43,7 @@ its pure prefix. Exit selection is retained on the exposed head. -/
 def evalHead (selected : TwoRequest.Tag → Bool) (env : Syntax.Bindings Γ) :
     OpenOperands.Row S R Γ → Head S R
   | .exit i => .exit i (selected i)
+  | .diverge => .diverge
   | .request f arg next typed => .request f (arg.eval env) fun j p =>
     ⟨next j, cast (congrArg Syntax.Payload (typed j).symm) p⟩
 
@@ -97,15 +99,20 @@ def Table.resolve (g : Table S R) :
     | .guarded row => some row
     | .jump j arg => (g.resolve fuel j).map (specialize arg)
 
+/-- Whether every silent scan exposes a row within the label bound. -/
 def Table.normalizes (g : Table S R) : Bool :=
   (List.finRange R.length).all fun i => (g.resolve R.length i).isSome
 
-/-- Normalize every written label within the finite silent-control bound.
-Request backedges are untouched and need no rank. -/
-abbrev Table.normalized (g : Table S R) (ok : g.normalizes = true) : GuardedTable S R where
+/-- Resolve each silent prefix at its exact label. Exhaustion is an
+ordinary-divergence terminal. Request backedges keep their original labels. -/
+abbrev Table.normalize (g : Table S R) : GuardedTable S R where
   entry := g.entry
-  row i := (g.resolve R.length i).get (List.all_eq_true.mp ok i (List.mem_finRange i))
+  row i := (g.resolve R.length i).getD .diverge
   selected := g.selected
+
+/-- The total normalization also serves the previous all-resolved profile. -/
+abbrev Table.normalized (g : Table S R) (_ok : g.normalizes = true) : GuardedTable S R :=
+  g.normalize
 
 noncomputable def Table.feedback (g : Table S R)
     (caller : Syntax.Payload (R.get g.entry)) (prim : Syntax.StatePrimitives Φ σ) :
@@ -124,8 +131,17 @@ def Table.head? [DecidableEq Φ] (g : Table S R)
       | none => .diverge)
   else none
 
-/-- Run the reachable-product comparison only after exact readback and
-successful silent resolution on both sides. -/
+/-- Apply the reachable-pair bound after resolving the silent heads.
+A divergent head creates no successor pair or interpreter query. -/
+def Table.cutoff [DecidableEq Φ] (g : Table S R) (h : Table S T)
+    (callers : CallerEnumeration A)
+    (decodeLeft : Syntax.Payload A → Syntax.Payload (R.get g.entry))
+    (decodeRight : Syntax.Payload A → Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) : Nat :=
+  g.normalize.reachableCutoff h.normalize callers decodeLeft decodeRight replies left right
+
+/-- Run the reachable-product comparison after exact native readback.
+The finite scan classifies exhausted silent control as ordinary divergence. -/
 def Table.checkEntries? [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits)
     (raw' : CFG.Dependent.Native.Typed Φ [T.get h.entry] Exits)
@@ -135,12 +151,8 @@ def Table.checkEntries? [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
     Option Bool :=
   if g.checkNative raw && h.checkNative raw' then
-    if ng : g.normalizes = true then
-      if nh : h.normalizes = true then
-        (g.normalized ng).checkReachableEntries? (h.normalized nh)
-          (g.normalized ng).native (h.normalized nh).native callers decodeLeft decodeRight replies left right
-      else none
-    else none
+    g.normalize.checkReachableEntries? h.normalize
+      g.normalize.native h.normalize.native callers decodeLeft decodeRight replies left right
   else none
 
 /-- Deterministic refinement of the original decorated endpoints. -/

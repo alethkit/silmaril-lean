@@ -31,6 +31,7 @@ private theorem terminal_run {o : Outcome Exits.length Unit σ}
     ∃ rows stop, FiniteRun g caller prim p s rows stop := by
   cases head : g.head caller p with
   | exit j selected => exact ⟨_, _, .exit head⟩
+  | diverge => exact ⟨_, _, .silent head⟩
   | request f arg next =>
     cases reply : prim f arg s with
     | fault t => exact ⟨_, _, .fault head reply⟩
@@ -66,7 +67,7 @@ theorem of_feedback_finite {o : Outcome Exits.length Unit σ}
       obtain ⟨next, t, execution, atNext⟩ := (g.feedback_step_iff caller prim p s mid).mp step
       obtain ⟨rows, stop, rest⟩ := ih next t atNext
       cases head : g.head caller p with
-      | exit j selected =>
+      | exit | diverge =>
         rw [head, Head.execute] at execution
         cases execution
       | request f arg route =>
@@ -84,7 +85,7 @@ theorem of_feedback_finite {o : Outcome Exits.length Unit σ}
 theorem records (run : FiniteRun g caller prim p s rows stop) :
     ∀ r ∈ rows, prim r.op r.arg r.incoming = r.answer := by
   induction run with
-  | exit => simp
+  | exit | silent => simp
   | «repeat» _ reply _ ih =>
     intro r listed
     rcases List.mem_cons.mp listed with rfl | inTail
@@ -109,6 +110,7 @@ theorem covered (run : FiniteRun g caller prim p s rows stop)
     refine ⟨by simp, ?_⟩
     intro t h
     exact (Option.some.inj h) ▸ start
+  | silent => simp [RunStop.final?]
   | @«repeat» p s f arg next value t rows stop _ _ _ ih =>
     have mid : t ∈ support.values := returned (List.mem_cons_self ..)
     obtain ⟨queries, final⟩ := ih mid (fun _ mem => returned (List.mem_cons_of_mem _ mem))
@@ -138,7 +140,7 @@ theorem replay (run : FiniteRun g caller prim p s rows stop)
     (realizes : ∀ r ∈ rows, other r.op r.arg (code r.incoming) = r.answer.mapState code) :
     g.observeAt caller other p (code s) = (stop.mapState code).behaviour := by
   induction run with
-  | exit head => rw [g.observe_state_step, head]; rfl
+  | exit head | silent head => rw [g.observe_state_step, head]; rfl
   | @«repeat» p s f arg next value t rows stop head _ _ ih =>
     have reply := realizes ⟨f, arg, s, .ret value t⟩ (List.mem_cons_self ..)
     rw [g.observe_state_step, head, Head.execute, reply]
