@@ -49,19 +49,19 @@ inductive Evaluates (block : LexicalBlock) :
 /-- Evidence for the actual record reached at a function value. The
 defining frame supplies the addresses and the current heap supplies the
 live cells and still-stored default values. -/
-structure ClosureAt {parent : LexicalBlock} (site : Site parent)
+structure ClosureAt {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords)
     (id : DeclarationId) (defining state : State) (address : Nat) where
   captures : List Lists.Capture
   defaults : List Value
   frozen : Bool
-  length : defaults.length = site.parameters.optional.length
+  length : defaults.length = site.defaultSources.length
   recorded : state.heap[address]? = some ⟨.function ⟨id, captures,
-    (site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip defaults⟩, frozen⟩
+    site.defaultKeys.zip defaults⟩, frozen⟩
   installed : Installs defining site.free captures
   live : Body.CaptureCells state captures
 
 /-- The body proof operates at the callee's reduced declaration set. -/
-abbrev BodyEntry {parent : LexicalBlock} (site : Site parent) (program : Program)
+abbrev BodyEntry {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) (program : Program)
     (available : List DeclarationId) (id : DeclarationId) (bodyRuns : State → Outcome Flow → Prop) : Prop :=
   ∀ (caller defining : State) (captures : List Lists.Capture), Installs defining site.free captures →
     Body.CaptureCells caller captures → ∀ (assigned : List (Binding × Lists.Value)),
@@ -74,7 +74,7 @@ abbrev BindingRule := List Value → Actual → Except Lists.Error (List (Bindin
 /-- The call first reads the local callee and then evaluates its
 explicit operands. Binding consults the reached heap only after all
 operands succeed. A failed bind has no activation premise. -/
-inductive RunsPacked {parent : LexicalBlock} (site : Site parent) (bodyRuns : State → Outcome Flow → Prop)
+inductive RunsPacked {parent : LexicalBlock} {keywords : List PlainKeywordParameter} (site : Site parent keywords) (bodyRuns : State → Outcome Flow → Prop)
     (block : LexicalBlock)
     (id : DeclarationId) (callee : String) (arguments : List NormalizedExpr) (codes : List Lowering.Expr)
     (collect : List Value → Actual) (binds : BindingRule) : State → Outcome Value → Prop where

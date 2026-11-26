@@ -10,7 +10,7 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nes
 
 open Assignment (LexicalBlock)
 open Functions
-open Lists (State)
+open Lists (State Capture)
 
 local notation "Source" => Body.Definition
 
@@ -96,6 +96,32 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Source} (plan : Pla
     (activate caller plan.declaration captures assigned).slots (fileSlot name) = some (.captured address true) :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.activate_forwarded plan installed
     caller assigned name address present forwarded
+
+theorem reached_site_for {parent : LexicalBlock} {name : String} {keys : List Binding} {expressions : List (String × Lowering.Resolve.SourceExpr)}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Lexical.Elaborates parent expressions items)
+    (program : Program) (available : List DeclarationId) (id : DeclarationId)
+    (declaration : Declaration) (found : program[id]? = some declaration)
+    (defaultKeys : declaration.signature.defaulted.map Prod.fst = keys)
+    (codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value)
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor state)
+    (captures : List Capture) (supplied : Installs state declaration.free captures) :
+    ∃ out, Lexical.DefinesFor parent (fileSlot name) id declaration.free keys items state out ∧
+      Exec program available state (.define (fileSlot name) id) out ∧
+      denoteBody program available (.define (fileSlot name) id) state = out ∧
+      SiteResultFor parent name keys items id captures state out :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.reached_site_for
+    target lexical program available id declaration found defaultKeys codes frame captures supplied
+
+theorem site_result_frame_for {parent : LexicalBlock} {name : String} {keys : List Binding} {expressions : List (String × Lowering.Resolve.SourceExpr)}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Lexical.Elaborates parent expressions items) {id : DeclarationId} {captures : List Capture}
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Body.Frame parent free floor state)
+    {out : Lists.Outcome Lists.Iteration.Flow} (result : SiteResultFor parent name keys items id captures state out) :
+    Body.Frame parent free floor (Lists.Iteration.finishState out) ∧
+      Body.Keeps floor state (Lists.Iteration.finishState out) :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.site_result_frame_for
+    target lexical frame result
 
 theorem reached_site {parent : LexicalBlock} {name : String} {parameters : Parameters}
     {items : List PlainPositionalDefault} (target : name ∈ parent.owned)

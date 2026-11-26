@@ -29,11 +29,10 @@ theorem compiles {block : LexicalBlock} {locals : Locals block} {source : Statem
   | assign owned operand _ _ rest =>
     simpa only [List.append_nil, Body.prependSource, Body.prependCode, List.foldr_cons, List.foldr_nil] using
       Body.compile_prefix (.cons owned operand .nil) rest
-  | define site _ _ child rest =>
-    obtain ⟨same, tracked⟩ := Lexical.translates site.lexical
-    have compiled := Body.compile_nested_body site.name site.parameters site.collects site.localOrder
-      site.body site.selects site.defaults same tracked _ _ child
-    exact compileBody_plainSeq _ _ _ _ _ _ _ _ compiled rest
+  | define site kw _ _ child rest =>
+    exact compileBody_plainSeq _ _ _ _ _ _ _ _
+      (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.compile_site site kw child)
+      rest
   | invoke call _ _ _ rest =>
     have called := Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.resolves
       call.calleeLegal call.calleeOwned call.operands call.keywords
@@ -47,7 +46,7 @@ theorem collects {block : LexicalBlock} {locals : Locals block} {source : Statem
   | assign _ _ _ _ rest =>
     obtain ⟨_, binders⟩ := rest
     exact ⟨_, .seq (.assign _ _) binders⟩
-  | define _ _ _ _ rest =>
+  | define _ _ _ _ _ rest =>
     obtain ⟨_, binders⟩ := rest
     exact ⟨_, .seq (.define _ _ _) binders⟩
   | invoke call _ _ _ rest =>
@@ -61,7 +60,7 @@ theorem links {block : LexicalBlock} {locals : Locals block} {source : Statement
   | plain ordinary => exact Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.links ordinary
   | assign _ _ _ _ rest => exact rest
   | invoke _ _ _ _ rest => exact rest
-  | @define block locals rest seed childTable tail final descendants later site _ _ child tailLinks =>
+  | @define block locals rest seed childTable tail final descendants later formals site _ _ _ child tailLinks =>
     have retained : PreservesDeclarations childTable final := by
       intro id entry found
       have below := (Array.getElem?_eq_some_iff.mp found).choose
@@ -93,9 +92,11 @@ theorem selects {block : LexicalBlock} {locals : Locals block} {source : Stateme
   | assign _ operand _ _ rest =>
     intro binding member
     exact (List.mem_append.mp member).elim (Body.operand_origins operand binding) (rest binding)
-  | define site _ _ _ rest =>
+  | define site kw _ _ _ rest =>
     intro binding member
-    exact (List.mem_append.mp member).elim (Nested.definition_read_origins site.selects site.lexical binding) (rest binding)
+    exact (List.mem_append.mp member).elim (Nested.definition_read_origins site.selects
+      (Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.lexical_defaults site kw)
+      binding) (rest binding)
   | invoke call _ _ _ rest =>
     intro binding member
     rcases List.mem_append.mp member with current | later

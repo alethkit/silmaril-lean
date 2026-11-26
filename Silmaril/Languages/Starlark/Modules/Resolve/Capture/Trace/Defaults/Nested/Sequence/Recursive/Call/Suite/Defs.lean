@@ -80,9 +80,9 @@ inductive Runs : LexicalBlock → State → Statement → Functions.Body → Out
       (∀ entered, result = .ok () entered → Runs block entered rest tail out) →
       Runs block state (Body.prependSource leading rest) (Body.prependCode code tail) (result.resume fun _ _ => out)
   | define {block : LexicalBlock} {state : State} {rest : Statement} {tail : Functions.Body} {id : DeclarationId}
-      {site : Site block} {captures : List Lists.Capture} {result out : Outcome Flow} :
+      {formals : List PlainKeywordParameter} {site : Site block formals} {captures : List Lists.Capture} {result out : Outcome Flow} :
       Installs state site.free captures →
-      Nested.SiteResult block site.name site.parameters site.defaults id captures state result →
+      Nested.SiteResultFor block site.name site.defaultKeys site.defaultsInOrder id captures state result →
       (∀ installed, result = .ok .next installed → Runs block installed rest tail out) →
       Runs block state (.seq site.statement rest) (.seq (.define (fileSlot site.name) id) tail)
         (result.resume fun _ _ => out)
@@ -100,7 +100,7 @@ inductive Runs : LexicalBlock → State → Statement → Functions.Body → Out
         (result.resume fun _ _ => out)
 
   | invoke {block : LexicalBlock} {state : State} {rest : Statement} {tail : Functions.Body} {id : DeclarationId}
-      {site : Site block} {callee destination : String} {arguments : List Expr} {codes : List Lowering.Expr}
+      {formals : List PlainKeywordParameter} {site : Site block formals} {callee destination : String} {arguments : List Expr} {codes : List Lowering.Expr}
       {keywords : List (String × Expr)} {compiled : List (String × Lowering.Expr)}
       {result : Outcome Lists.Value} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
       Named.RunsWith site bodyRuns block id callee arguments codes keywords compiled state result →

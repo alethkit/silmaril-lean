@@ -837,6 +837,24 @@ structure PlainPositionalDefault where
 @[expose] def PlainPositionalDefault.resolved (item : PlainPositionalDefault) : Functions.Parameter :=
   ⟨fileSlot item.name, some item.value⟩
 
+/-- One keyword-only formal after the bare-star boundary. The
+defaulted form carries the same plain-expression evidence as a positional default. -/
+inductive PlainKeywordParameter where
+  | required (name : String)
+  | defaulted (item : PlainPositionalDefault)
+
+@[expose] def PlainKeywordParameter.source : PlainKeywordParameter → SourceParameter
+  | .required name => ⟨name, none⟩
+  | .defaulted item => item.parameter
+
+@[expose] def PlainKeywordParameter.resolved : PlainKeywordParameter → Functions.Parameter
+  | .required name => ⟨fileSlot name, none⟩
+  | .defaulted item => item.resolved
+
+@[expose] def PlainKeywordParameter.default : PlainKeywordParameter → Option PlainPositionalDefault
+  | .required _ => none
+  | .defaulted item => some item
+
 private theorem read_plain_positionals (context : Context) (parameters : List PlainPositionalDefault)
     (checked : ∀ item ∈ parameters, resolveTracked context item.source = .ok (item.value, item.reads))
     (program : Program) :
@@ -890,6 +908,92 @@ theorem elaborateCommand_plainPositionalDefinition (block : BlockContext) (name 
     read_required, optionalRead, requiredPlain, optionalPlain, requiredSignature,
     bind, StateT.bind, Except.bind, lift_ok, get_build, set_build, pure, StateT.pure, Except.pure, bodyCode]
 
+private def readPlainKeyword : PlainKeywordParameter → ResolvedParameter
+  | .required name => ⟨fileSlot name, none, []⟩
+  | .defaulted item => ⟨fileSlot item.name, some (.plain item.value), item.reads⟩
+
+private theorem read_plain_keywords (context : Context) (parameters : List PlainKeywordParameter)
+    (checked : ∀ item ∈ parameters.filterMap PlainKeywordParameter.default,
+      resolveTracked context item.source = .ok (item.value, item.reads)) (program : Program) :
+    (parameters.mapM (readParameter context ∘ PlainKeywordParameter.source)) program =
+      .ok (parameters.map readPlainKeyword, program) := by
+  induction parameters with
+  | nil => rfl
+  | cons first rest ih =>
+    have tail := ih (fun item member => by
+      obtain ⟨formal, present, matched⟩ := List.mem_filterMap.mp member
+      exact checked item (List.mem_filterMap.mpr ⟨formal, List.mem_cons_of_mem _ present, matched⟩))
+    have one : readParameter context first.source program = .ok (readPlainKeyword first, program) := by
+      cases first with
+      | required name => rfl
+      | defaulted item =>
+        have head := checked item (List.mem_filterMap.mpr ⟨_, List.mem_cons_self, rfl⟩)
+        change readParameter context item.parameter program =
+          .ok (⟨fileSlot item.name, some (.plain item.value), item.reads⟩, program)
+        simp [readParameter, PlainPositionalDefault.parameter, compileCompExpr.eq_def, readExpr,
+          bind, StateT.bind, Except.bind, lift_ok, head, Except.mapError, pure, StateT.pure, Except.pure]
+    simp only [List.mapM_cons, Function.comp_apply, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure,
+      one, tail, List.map_cons]
+
+private theorem plain_keywords (parameters : List PlainKeywordParameter) :
+    (parameters.map readPlainKeyword).mapM ResolvedParameter.plain =
+      some (parameters.map PlainKeywordParameter.resolved) := by
+  induction parameters with
+  | nil => rfl
+  | cons first rest ih =>
+    cases first <;> simp [List.mapM_cons, ResolvedParameter.plain, PlainKeywordParameter.resolved,
+      readPlainKeyword, PlainPositionalDefault.resolved, ih]
+
+private theorem keyword_reads (parameters : List PlainKeywordParameter) :
+    (parameters.map readPlainKeyword).flatMap ResolvedParameter.reads =
+      (parameters.filterMap PlainKeywordParameter.default).flatMap PlainPositionalDefault.reads := by
+  induction parameters with
+  | nil => rfl
+  | cons first rest ih =>
+    cases first with
+    | required name => exact ih
+    | defaulted item => exact congrArg (item.reads ++ ·) ih
+
+/-- With plain defaults on both sides of the bare star, compilation
+emits a direct definition and retains the defining reads in source order. -/
+theorem compileBody_plainParameterDefinition (block : BlockContext) (name : String) (required : List String)
+    (defaults : List PlainPositionalDefault) (keywords : List PlainKeywordParameter)
+    (body : Statement) (program next : Program) (layout : FunctionLayout) (compiled : ResolvedBody)
+    (closed : ∀ item ∈ defaults ++ keywords.filterMap PlainKeywordParameter.default,
+      resolveTracked block.reads item.source = .ok (item.value, item.reads))
+    (collected : collectFunctionLayout block.reads
+      { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
+        keywordOnly := keywords.map PlainKeywordParameter.source } body = .ok layout)
+    (bodyCode : compileBody layout.block body program = .ok (compiled, next)) :
+    let source : SourceSignature :=
+      { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
+        keywordOnly := keywords.map PlainKeywordParameter.source }
+    let signature : Functions.Signature :=
+      { positional := (requiredSignature required).positional ++ defaults.map PlainPositionalDefault.resolved
+        keywordOnly := keywords.map PlainKeywordParameter.resolved }
+    let captures := captureNames (source.parameterNames ++ layout.locals) compiled.reads
+    compileBody block (.define name source body) program =
+      .ok (⟨.define (fileSlot name) next.size,
+          (defaults ++ keywords.filterMap PlainKeywordParameter.default).flatMap PlainPositionalDefault.reads ++
+            captures.map FreeName.source⟩,
+        next.push ⟨signature, layout.locals.map fileSlot, captures, compiled.code⟩) := by
+  have optionalRead := read_plain_positionals block.reads defaults
+    (fun item member => closed item (List.mem_append_left _ member)) program
+  rw [List.mapM_map] at optionalRead
+  have optionalPlain := plain_optional defaults
+  rw [List.mapM_map] at optionalPlain
+  have keywordRead := read_plain_keywords block.reads keywords
+    (fun item member => closed item (List.mem_append_right _ member)) program
+  have keywordPlain := plain_keywords keywords
+  rw [List.mapM_map] at keywordPlain
+  have reads := keyword_reads keywords
+  rw [List.flatMap_map] at reads
+  simp [compileBody, collected, compileDefinition, List.mapM_append, List.mapM_map,
+    read_required, optionalRead, keywordRead, plain_required, keywordPlain, requiredSignature,
+    required_reads, optionalPlain, bind, StateT.bind, Except.bind, lift_ok, get_build, set_build,
+    pure, StateT.pure, Except.pure, bodyCode]
+  simp [List.flatMap_map, reads]
+
 /-- The same plain defaults in a function body emit a direct definition
 and propagate their defining-scope reads to the containing declaration. -/
 theorem compileBody_plainPositionalDefinition (block : BlockContext) (name : String) (required : List String)
@@ -908,14 +1012,8 @@ theorem compileBody_plainPositionalDefinition (block : BlockContext) (name : Str
     compileBody block (.define name source body) program =
       .ok (⟨.define (fileSlot name) next.size, defaults.flatMap PlainPositionalDefault.reads ++ captures.map FreeName.source⟩,
         next.push ⟨signature, layout.locals.map fileSlot, captures, compiled.code⟩) := by
-  have optionalRead := read_plain_positionals block.reads defaults closed program
-  rw [List.mapM_map] at optionalRead
-  have optionalPlain := plain_optional defaults
-  rw [List.mapM_map] at optionalPlain
-  simp [compileBody, collected, compileDefinition, List.mapM_append, List.mapM_map,
-    read_required, optionalRead, plain_required, requiredSignature, required_reads, optionalPlain,
-    bind, StateT.bind, Except.bind, lift_ok, get_build, set_build, pure, StateT.pure, Except.pure, bodyCode]
-  simp [List.flatMap_map]
+  simpa using compileBody_plainParameterDefinition block name required defaults [] body program next layout
+    compiled (by simpa using closed) collected bodyCode
 
 theorem compileBody_plainAssign (block : BlockContext) (name : String) (source : Lowering.Resolve.SourceExpr)
     (value : Lowering.Expr) (reads : List Binding) (program : Program)

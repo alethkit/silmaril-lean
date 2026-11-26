@@ -177,15 +177,15 @@ theorem activate_forwarded {parent : LexicalBlock} {source : Defaults.Body.Defin
   apply Defaults.Body.declaration_slots
   simpa using congrArg List.length (Defaults.Lexical.translates plan.lexical).1
 
-private theorem installed_record {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+private theorem installed_record_for {parent : LexicalBlock} {name : String} {keys : List Binding} {expressions : List (String × Lowering.Resolve.SourceExpr)}
     {items : List PlainPositionalDefault} (targetOwned : name ∈ parent.owned)
-    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items) {state final : State} {floor : Nat} {parentFree : List FreeName}
+    (lexical : Defaults.Lexical.Elaborates parent expressions items) {state final : State} {floor : Nat} {parentFree : List FreeName}
     (frame : Defaults.Body.Frame parent parentFree floor state) {values : List Silmaril.Languages.Starlark.Lists.Value}
     (evaluated : Defaults.Lexical.Evaluates parent state items (.ok values final))
     (id : DeclarationId) (captures : List Capture) :
-    SiteResult parent name parameters items id captures state
+    SiteResultFor parent name keys items id captures state
       (.ok .next (Defaults.install (fileSlot name) id captures
-        ((parameters.optional.map (fileSlot ∘ Prod.fst)).zip values) final)) := by
+        (keys.zip values) final)) := by
   have kept := Defaults.Lexical.evaluates_keeps lexical evaluated
   obtain ⟨target, before, frozen, _, slot, cell⟩ := frame.owned name targetOwned
   have targetSlot : final.slots (fileSlot name) = some (.owned target) := kept.1 ▸ slot
@@ -193,7 +193,7 @@ private theorem installed_record {parent : LexicalBlock} {name : String} {parame
   have targetCell : final.heap[target]? = some ⟨.binding before, frozen⟩ := kept.2 _ _ oldBound cell
   have finalBound : target < final.heap.size := (Array.getElem?_eq_some_iff.mp targetCell).choose
   let binding := fileSlot name
-  let record := (parameters.optional.map (fileSlot ∘ Prod.fst)).zip values
+  let record := keys.zip values
   let grown := { final with heap := final.heap.push (⟨.function ⟨id, captures, record⟩, false⟩ : Cell) }
   have grownCell : grown.heap[target]? = some ⟨.binding before, frozen⟩ :=
     by simpa [grown, Array.getElem?_push, Nat.ne_of_lt finalBound] using targetCell
@@ -209,11 +209,11 @@ private theorem installed_record {parent : LexicalBlock} {name : String} {parame
     exact (Array.getElem?_setIfInBounds_ne (Nat.ne_of_lt finalBound)).trans Array.getElem?_push_size
   exact .installed evaluated rfl written stored
 
-theorem site_result_frame {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+theorem site_result_frame_for {parent : LexicalBlock} {name : String} {keys : List Binding} {expressions : List (String × Lowering.Resolve.SourceExpr)}
     {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
-    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items) {id : DeclarationId} {captures : List Capture}
+    (lexical : Defaults.Lexical.Elaborates parent expressions items) {id : DeclarationId} {captures : List Capture}
     {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
-    {out : Outcome Flow} (result : SiteResult parent name parameters items id captures state out) :
+    {out : Outcome Flow} (result : SiteResultFor parent name keys items id captures state out) :
     Defaults.Body.Frame parent free floor (finishState out) ∧
       Defaults.Body.Keeps floor state (finishState out) := by
   have extendsHeap {next : State} (preserved : Defaults.Body.Keeps state.heap.size state next) :
@@ -227,11 +227,20 @@ theorem site_result_frame {parent : LexicalBlock} {name : String} {parameters : 
     have kept := extendsHeap (Defaults.Lexical.evaluates_keeps lexical ran)
     have before := Defaults.Body.extend_frame frame kept
     have grown := Defaults.Body.extend_push evaluated
-      ⟨.function ⟨id, captures, (parameters.optional.map (fileSlot ∘ Prod.fst)).zip values⟩, false⟩
+      ⟨.function ⟨id, captures, keys.zip values⟩, false⟩
     have after := Defaults.Body.extend_frame before grown
     obtain ⟨written, retained⟩ := Defaults.Body.written_frame target (.function evaluated.heap.size) after
     exact ⟨written, Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor kept)
       (Defaults.Body.keeps_trans (Defaults.Body.extends_keeps floor grown) retained)⟩
+
+theorem site_result_frame {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Defaults.Lexical.Elaborates parent parameters.optional items) {id : DeclarationId} {captures : List Capture}
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
+    {out : Outcome Flow} (result : SiteResult parent name parameters items id captures state out) :
+    Defaults.Body.Frame parent free floor (finishState out) ∧
+      Defaults.Body.Keeps floor state (finishState out) :=
+  site_result_frame_for target lexical frame result
 
 theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
     (plan : Plan parent source) {id : DeclarationId} {captures : List Capture}
@@ -240,6 +249,29 @@ theorem result_frame {parent : LexicalBlock} {source : Defaults.Body.Definition}
     Defaults.Body.Frame parent free floor (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) ∧
       Defaults.Body.Keeps floor state (Silmaril.Languages.Starlark.Lists.Iteration.finishState out) :=
   site_result_frame plan.target plan.lexical frame result
+
+theorem reached_site_for {parent : LexicalBlock} {name : String} {keys : List Binding} {expressions : List (String × Lowering.Resolve.SourceExpr)}
+    {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
+    (lexical : Defaults.Lexical.Elaborates parent expressions items)
+    (program : Program) (available : List DeclarationId) (id : DeclarationId)
+    (declaration : Declaration) (found : program[id]? = some declaration)
+    (defaultKeys : declaration.signature.defaulted.map Prod.fst = keys)
+    (codes : declaration.signature.defaulted.map Prod.snd = items.map PlainPositionalDefault.value)
+    {state : State} {free : List FreeName} {floor : Nat} (frame : Defaults.Body.Frame parent free floor state)
+    (captures : List Capture) (supplied : Installs state declaration.free captures) :
+    ∃ out, Defaults.Lexical.DefinesFor parent (fileSlot name) id declaration.free keys items state out ∧
+      Exec program available state (.define (fileSlot name) id) out ∧
+      denoteBody program available (.define (fileSlot name) id) state = out ∧
+      SiteResultFor parent name keys items id captures state out := by
+  obtain ⟨out, sourceStep, ran, meaning, saved⟩ := Defaults.Lexical.defines_for_total program available
+    (fileSlot name) id declaration lexical found defaultKeys codes state captures supplied
+  refine ⟨out, sourceStep, ran, meaning, ?_⟩
+  cases sourceStep with
+  | failed evaluated => exact .failed evaluated (Defaults.Lexical.evaluates_keeps lexical evaluated)
+  | @installed final values actual evaluated used =>
+    obtain ⟨reached, savedValues, savedEvaluation, equal⟩ := saved _ rfl
+    rw [equal]
+    exact installed_record_for target lexical frame savedEvaluation id captures
 
 theorem reached_site {parent : LexicalBlock} {name : String} {parameters : Defaults.Parameters}
     {items : List PlainPositionalDefault} (target : name ∈ parent.owned)
@@ -261,7 +293,7 @@ theorem reached_site {parent : LexicalBlock} {name : String} {parameters : Defau
   | @installed final values actual evaluated used =>
     obtain ⟨reached, savedValues, savedEvaluation, equal⟩ := saved _ rfl
     rw [equal]
-    exact installed_record target lexical frame savedEvaluation id captures
+    exact installed_record_for target lexical frame savedEvaluation id captures
 
 theorem reached {parent : LexicalBlock} {source : Defaults.Body.Definition} (plan : Plan parent source)
     {before after : List Binding} {parentFree : List FreeName}

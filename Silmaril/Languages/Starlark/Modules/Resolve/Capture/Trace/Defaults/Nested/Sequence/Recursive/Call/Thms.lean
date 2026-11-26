@@ -123,7 +123,7 @@ theorem runs_installed_alias_preserving {parent : LexicalBlock} (site : Site par
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.runs_installed_alias_preserving
     site profile checked table id found available permitted step receipts cells owned legal frame related
 
-theorem runs_packed {parent block : LexicalBlock} (site : Site parent)
+theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)

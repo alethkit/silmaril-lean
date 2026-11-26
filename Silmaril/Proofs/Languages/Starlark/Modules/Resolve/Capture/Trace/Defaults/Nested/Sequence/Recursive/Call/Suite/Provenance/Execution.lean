@@ -17,7 +17,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall (DistinctOwned)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
-open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site Emissions)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site Emissions site_slots lexical_defaults default_layout)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (BodyEntry)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite (Runs)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
@@ -54,14 +54,12 @@ private abbrev Correspondence (program : Program) (available : List DeclarationI
     ∃ out, Runs block state source code.code out ∧ Body.Frame block free floor (finishState out) ∧
       Body.Keeps floor state (finishState out) ∧ Exec program available state code.code out
 
-private theorem activate_frame {parent : LexicalBlock} (site : Site parent) (caller defining : State)
+private theorem activate_frame {parent : LexicalBlock} {formals : List PlainKeywordParameter}
+    (site : Site parent formals) (caller defining : State)
     (captures : List Capture) (installed : Installs defining site.free captures)
     (live : Body.CaptureCells caller captures) (assigned : List (Binding × Value)) :
-    Body.Frame site.block site.free caller.heap.size (activate caller site.declaration captures assigned) := by
-  have length : (site.defaults.map PlainPositionalDefault.value).length = site.parameters.optional.length := by
-    simpa using congrArg List.length (Lexical.translates site.lexical).1
-  exact Body.selected_frame site.block site.declaration
-    (Body.signature_slots site.parameters site.locals _ length) site.selects caller defining captures installed live assigned
+    Body.Frame site.block site.free caller.heap.size (activate caller site.declaration captures assigned) :=
+  Body.selected_frame site.block site.declaration (site_slots site) site.selects caller defining captures installed live assigned
 
 private theorem distinct_of_slots {state next : State} (same : next.slots = state.slots)
     (distinct : DistinctOwned state) : DistinctOwned next := by
@@ -115,7 +113,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
           (rest := rest) (tail := tail.code) (.cons trace .nil)
           (fun _ same => by cases same; exact tailTrace)
         exact ⟨out, sourceTrace, finalFrame, Body.keeps_trans retained last, .seq (.assignExpr evaluates) tailExec⟩
-    | @define block locals rest seed childTable tail final descendants later site child suffix _ ih =>
+    | @define block locals rest seed childTable tail final descendants later formals site kw child suffix _ ih =>
       have selectedDefinition : Selects block (before ++ site.reads ++ (tail.reads ++ after)) free := by
         simpa only [List.append_assoc] using stateSelection
       have selectedTail : Selects block ((before ++ site.reads) ++ tail.reads ++ after) free := by
@@ -133,7 +131,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
         exact mem_withoutDeclaration.mpr ⟨
           guarded (List.mem_map.mpr ⟨entry, List.mem_append_left _ emitted, rfl⟩),
           Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp ((links child).2 entry emitted)).choose⟩
-      have nextReady : Ready program available (setLocal locals site.name (some ⟨childTable.size, site⟩)) := by
+      have nextReady : Ready program available (setLocal locals site.name (some ⟨childTable.size, formals, site⟩)) := by
         apply ready_updated ready
         intro entry same
         cases same
@@ -153,10 +151,12 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
       obtain ⟨captures, receipts, cells⟩ :=
         Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.installs
           site selectedDefinition frame
+      have lexical := lexical_defaults site kw
+      have ⟨keys, codes⟩ := default_layout site kw
       obtain ⟨result, _, exec, _, step⟩ :=
-        Nested.reached_site site.target site.lexical program available childTable.size site.declaration found rfl
+        Nested.reached_site_for site.target lexical program available childTable.size site.declaration found keys codes
           frame captures receipts
-      have ⟨reached, kept⟩ := Nested.site_result_frame site.target site.lexical frame step
+      have ⟨reached, kept⟩ := Nested.site_result_frame_for site.target lexical frame step
       cases result with
       | error error stopped =>
         exact ⟨_, .define receipts step (out := .error error stopped) (fun _ no => nomatch no), reached, kept, .seqError exec⟩
@@ -166,7 +166,7 @@ private theorem runs_guarded {commands : List Command} {linked : Program} {resol
         have nextDistinct : DistinctOwned installed := distinct_of_slots kept.1 distinct
         obtain ⟨out, trace, finalFrame, last, tailExec⟩ :=
           ih table tailGuard nextReady selectedTail installed reached nextDistinct
-            (installed_live site _ receipts cells step live distinct frame)
+            (installed_live site kw _ receipts cells step live distinct frame)
         exact ⟨out, .define receipts step (fun _ same => by cases same; exact trace),
           finalFrame, Body.keeps_trans kept last, .seq exec tailExec⟩
     | @invoke block locals rest seed tail final emissions call entry tracked _ ih =>
@@ -210,7 +210,7 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
     runs_guarded checked available profile table guarded (fun _ _ no => nomatch no) selected state frame distinct (empty_live _)
   exact ⟨out, trace, lastFrame, kept, exec, (exec_iff_denoteBody _ _ _ _ _).mp exec⟩
 
-theorem runs_activated {parent : LexicalBlock} (site : Site parent) {seed final : Program} {emissions : Emissions}
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)

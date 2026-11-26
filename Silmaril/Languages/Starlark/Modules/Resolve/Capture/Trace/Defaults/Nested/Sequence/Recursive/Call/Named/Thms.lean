@@ -20,19 +20,19 @@ local notation "Positional" =>
   Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Arguments
 local notation "NamedArgs" => Arguments
 
-theorem binds_total (parameters : List Parameter) (saved : Bindings) (actual : Actual) :
-    ∃ result, Binds parameters saved actual result :=
+theorem binds_total (positional named : List Parameter) (saved : Bindings) (actual : Actual) :
+    ∃ result, Binds positional named saved actual result :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binds_total
-    parameters saved actual
+    positional named saved actual
 
-/-- Independent keyword delivery agrees with the shared binder on the plain signature. -/
+/-- Independent keyword delivery agrees with the shared binder for non-variadic signatures. -/
 theorem binding_exact (signature : Signature)
-    (ordinary : signature.keywordOnly = []) (noVarargs : signature.varargs = none) (noKwargs : signature.kwargs = none)
+    (noVarargs : signature.varargs = none) (noKwargs : signature.kwargs = none)
     {saved : Bindings} {actual : Actual} {result : Except Error Bindings}
-    (source : Binds signature.positional saved actual result) :
+    (source : Binds signature.positional signature.named saved actual result) :
     bindArguments signature saved actual = result.map (fun assigned => ⟨assigned, [], []⟩) :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binding_exact
-    signature ordinary noVarargs noKwargs source
+    signature noVarargs noKwargs source
 
 theorem argument_origins {block : LexicalBlock}
     {source : List (String × Lowering.Resolve.SourceExpr)} {codes : List (String × Lowering.Expr)} {reads : List Binding}
@@ -66,7 +66,7 @@ theorem rejects_duplicate (name : String) (positional : List Lowering.Expr)
     name positional keywords duplicate repeated
 
 /-- The reached closure uses its saved defaults and live captures under the same declaration guard. -/
-theorem runs {parent block : LexicalBlock} (site : Site parent)
+theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} (site : Site parent formals)
     (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (id : DeclarationId)

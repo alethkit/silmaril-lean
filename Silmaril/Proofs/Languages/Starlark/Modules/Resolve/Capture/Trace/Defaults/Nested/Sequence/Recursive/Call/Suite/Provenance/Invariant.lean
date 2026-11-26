@@ -17,7 +17,7 @@ open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.RootCall (DistinctOwned)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults
-open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive (Site KeywordLexical lexical_defaults)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call (ClosureAt)
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
 open Silmaril.Languages.Starlark.Functions
@@ -120,21 +120,22 @@ theorem assigned_live {block : LexicalBlock} {locals : Locals block} {state midd
     exact ⟨slot, previous, frozen, address, defining, rfl, owner, stored, record⟩
 
 theorem installed_live {block : LexicalBlock} {locals : Locals block} {state installed : State}
-    (site : Site block) (id : DeclarationId) {captures : List Capture}
+    {formals : List PlainKeywordParameter} (site : Site block formals) (kw : KeywordLexical block formals)
+    (id : DeclarationId) {captures : List Capture}
     (receipts : Installs state site.free captures) (cells : Body.CaptureCells state captures)
-    (step : Nested.SiteResult block site.name site.parameters site.defaults id captures state (.ok .next installed))
+    (step : Nested.SiteResultFor block site.name site.defaultKeys site.defaultsInOrder id captures state (.ok .next installed))
     (live : Live locals state) (distinct : DistinctOwned state)
     {free : List FreeName} {floor : Nat} (frame : Body.Frame block free floor state) :
-    Live (setLocal locals site.name (some ⟨id, site⟩)) installed := by
+    Live (setLocal locals site.name (some ⟨id, formals, site⟩)) installed := by
   cases step with
   | @installed saved next evaluated ran exactState _ _ =>
     rw [exactState]
     let record : Silmaril.Languages.Starlark.Lists.Cell := ⟨.function ⟨id, captures,
-      (site.parameters.optional.map (fileSlot ∘ Prod.fst)).zip saved⟩, false⟩
+      site.defaultKeys.zip saved⟩, false⟩
     let grown : State := { evaluated with heap := evaluated.heap.push record }
     let address := evaluated.heap.size
     change Live _ (grown.write (fileSlot site.name) (.function address))
-    have defaultsKept := Lexical.evaluates_keeps site.lexical ran
+    have defaultsKept := Lexical.evaluates_keeps (lexical_defaults site kw) ran
     have growth : Body.Keeps evaluated.heap.size evaluated grown := by
       refine ⟨rfl, fun index cell below stored => ?_⟩
       simp [grown, Array.getElem?_push, Nat.ne_of_lt below, stored]
@@ -152,7 +153,7 @@ theorem installed_live {block : LexicalBlock} {locals : Locals block} {state ins
       exact ⟨value, frozen, kept.2 _ _ (Array.getElem?_eq_some_iff.mp cell).choose cell⟩
     refine ⟨slot, previous, frozen, address, state, rfl, (congrFun kept.1 _).trans owner,
       kept.2 _ _ (Array.getElem?_eq_some_iff.mp stored).choose stored, ?_⟩
-    exact ⟨⟨captures, saved, false, Lexical.evaluated_length site.lexical ran,
+    exact ⟨⟨captures, saved, false, Lexical.evaluated_length (lexical_defaults site kw) ran,
       Array.getElem?_push_size, receipts, capturesLive⟩⟩
 
 end Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance
