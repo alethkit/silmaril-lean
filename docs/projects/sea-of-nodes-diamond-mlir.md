@@ -3,19 +3,28 @@
 The bridge lowers the existing `Diamond.Graph` through its numbered RVSDG
 graph into the project-defined scoped MLIR dialect. For total source models
 with carrier and opcode types in `Type`, the lowered block denotes a value
-exactly when the diamond has a finite return of that value. The proof
+exactly when the diamond has a finite return of that value. `denote_eq`
+compares the block directly with `Diamond.Graph.denote`. The proof
 uses `Diamond.Graph.lower_returns_iff` for the source return relation and
 `RVSDG.MLIR.Graph.denote_lower` for the target's ordered results, then
 projects the unique result. [Definitions][bridge] · [Theorem][theorem]
+
+For two diamonds with the same ordered entry and result types,
+`lowerEquation` gives an MLIR block equation. The `satisfaction` theorem
+equates validity in `Diamond.MLIR.model m` with agreement of the diamonds'
+native denotations on every typed input. The proof converts between ordered
+source tuples and the target's finite input assignments.
+[Definitions][bridge] · [Theorems][theorem]
 
 ## Scope and region kind
 
 The diamond has one If, a Region with two predecessor slots and one returned
 Phi. The source table is already enumerated in dependency order and admits
 pure total producers. Its dispatch converts the Boolean predicate to a finite
-selector and forwards the two Phi operands in Region order. The two scoped γ
-bodies receive the operands as explicit parameters and each returns the
-capture for its predecessor's Region slot. The target's expressions may
+selector, with true at 0 and false at 1, and forwards the two Phi operands in
+Region order. The two scoped γ bodies receive the operands as explicit
+parameters and each returns the capture for its predecessor's Region slot.
+The target's expressions may
 duplicate a shared producer or omit an unused producer. The observation
 covers the returned value.
 [Diamond source and dispatch][diamond-defs] · [Scoped target model][scoped-model]
@@ -50,9 +59,12 @@ MLIR text require further interfaces and proofs.
   [Definitions][diamond-defs] · [Return theorem][diamond-theorem]
 - #3162 initially used `Empty` at `6c318c923a18b46f6974d0c0564ed9da0310636b`.
   The composition uses `4720c4a7a5479367ac0b35e7b6fc7a975da2002b`, merged
-  at `8ae0dd564b50ce0b1b86082e581cd36608a5e15c`. It uses the same `PEmpty`
-  state alphabet as the diamond. That change lets
-  `denote_lower` accept `Graph.lower` directly.
+  at `8ae0dd564b50ce0b1b86082e581cd36608a5e15c`. At the common universe
+  `Type`, both sides use `PEmpty.{1}` and the same ordered port alphabet.
+  The constructor `source Op := ⟨Opcode Op⟩` checks that alignment.
+  `model m` passes `m.toRVSDG` directly to the scoped model constructor.
+  Its carriers are `Diamond.Val m.value`, and only the positional tuple
+  conversion is needed to pass an input to the MLIR evaluator.
   [Initial alphabet][initial-alphabet] · [Aligned alphabet][aligned-alphabet] ·
   [Scoped theorem][scoped-theorem]
 - The primitive-only regionless bridge #3133 at
@@ -62,21 +74,76 @@ MLIR text require further interfaces and proofs.
   merged at `8fdd2cad831858af0f76c994eac4c0877734aac4`.
   [Regionless profile][regionless] · [Merged MLIR syntax][institution]
 - The scoped dialect's signature functor and renaming laws concern the RVSDG
-  signature category. This Sea of Nodes result supplies a translation and a
-  return-observation theorem for a fixed graph fragment. A registry edge from
-  Sea of Nodes would require source institution data and a corresponding
-  morphism with its satisfaction law.
+  signature category. A Sea of Nodes institution comparison would also need
+  source signature maps, native model reducts and naturality of the sentence
+  and model maps.
   [Scoped signature functor and laws][scoped-theorem]
 
-The regression exercises both predecessor orders and both predicate values,
-with results 5 and 10 for the distinct arms. The larger value uses the same
-producer twice. A second case lets both incoming Phi slots name the same
-result. The diamond interface still returns a single value.
-[Regression][regression]
+## Example
+
+Copy this into a Lean file. The input is a Boolean predicate followed by
+the data value 4. The true arm returns the shared `inc` result and the
+false arm uses that result twice. The example prints `[5, 10, 5, 10]` for
+true then false at each of the two Region orders.
+
+```lean
+module
+
+import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms
+meta import Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Defs
+
+namespace Silmaril.SSA.SeaOfNodes.Diamond.MLIR
+
+open RVSDG (Origin Tuple extend)
+
+private abbrev word : ValueSort Unit := .data ()
+private abbrev inputs : List (ValueSort Unit) := [.predicate, word]
+private abbrev sigs : List (List (Diamond.Ty Unit)) := [[.value word], [.value word]]
+
+private inductive Arithmetic : Diamond.Signature.{0, 0} Unit where
+  | inc : Arithmetic [word] word
+  | add : Arithmetic [word, word] word
+
+private def arithmetic : Model Arithmetic where
+  value _ := Nat
+  run
+    | .inc, .cons n .nil => Nat.succ n
+    | .add, .cons x (.cons y .nil) => Nat.add x y
+
+private abbrev ResultWire := Origin (dataPorts inputs) (extend [] sigs) (.value word)
+
+private def shared : ResultWire := .output (0 : Fin 2) .head
+private def doubled : ResultWire := .output (1 : Fin 2) .head
+
+private def diamond (first : Projection) (onFalse : ResultWire) :
+    Graph Arithmetic inputs sigs word where
+  dataflow :=
+    .cons .inc (.cons (.arg (.tail .head)) .nil)
+      (.cons .add (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) .head) .nil)) .nil)
+  predicate := .arg .head
+  phi := ⟨⟨first⟩, match first with
+    | .onTrue => fun | .first => shared | .second => onFalse
+    | .onFalse => fun | .first => onFalse | .second => shared⟩
+
+private def entry (b : Bool) : Tuple (Val arithmetic.value) (dataPorts inputs) :=
+  .cons ⟨b⟩ (.cons (4 : Nat) .nil)
+
+#eval ([denote arithmetic (diamond .onTrue doubled) (entry true),
+  denote arithmetic (diamond .onTrue doubled) (entry false),
+  denote arithmetic (diamond .onFalse doubled) (entry true),
+  denote arithmetic (diamond .onFalse doubled) (entry false)] : List Nat)
+
+end Silmaril.SSA.SeaOfNodes.Diamond.MLIR
+```
+
+The regression also checks a shared result on both incoming slots, a valid
+equation between the two predecessor orders, and a refuted equation that
+changes the false result. [Regression][regression]
 
 ```sh
-lake build --wfail +Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms \
-  +Silmaril.Proofs.SSA.SeaOfNodes.Diamond.MLIR.Regression
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Diamond.MLIR.Regression'
+SILMARIL_REPLAY_MODULE=Silmaril.SSA.SeaOfNodes.Diamond.MLIR.Thms \
+  lake env lean tools/compiler-explorer/Replay.lean
 ```
 
 [bridge]: ../../Silmaril/SSA/SeaOfNodes/Diamond/MLIR/Defs.lean
