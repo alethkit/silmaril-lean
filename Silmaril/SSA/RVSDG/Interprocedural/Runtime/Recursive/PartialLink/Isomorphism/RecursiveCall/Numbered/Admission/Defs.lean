@@ -134,63 +134,94 @@ def outerProfile (code : OpcodeCode (Instruction Op)) {sigs : List (Ports (Ty V 
     (body : Graph Op args [] sigs outs) : Multiset (LabelCode V S code.Key) :=
   Multiset.ofList (outerLabels code body)
 
-abbrev LambdaSummary (V S : Type u) (Key : Type v) :=
-  Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × Multiset (LabelCode V S Key)
+/-- Observable projections of typed data and state. An omitted projection
+leaves that value inconclusive. Equal runtime values always have equal codes. -/
+structure CaptureCode (m : Machine.{u, v, w} Op) where
+  Key : Type w
+  decideKey : DecidableEq Key
+  data : {t : V} → m.Data t → Option Key
+  state : {t : S} → m.State t → Option Key
+
+def CaptureCode.controlOnly (m : Machine.{u, v, w} Op) : CaptureCode m :=
+  ⟨PUnit, inferInstance, fun _ => none, fun _ => none⟩
+
+/-- Related globals have related payloads even when their addresses differ.
+Callable values contribute no observation. -/
+def CaptureCode.value (code : CaptureCode m) : {port : Ty V S} → m.Val port → Option (Nat ⊕ code.Key)
+  | _, .data value => (code.data value).map Sum.inr
+  | _, .state value => (code.state value).map Sum.inr
+  | _, .control tag => some (.inl tag.val)
+  | _, .global _ _ payload => code.value payload
+  | _, .closure .. | _, .member .. => none
+
+def CaptureCode.tuple (code : CaptureCode m) : {ports : Ports (Ty V S)} →
+    Tuple m.Val ports → List (Option (Nat ⊕ code.Key))
+  | _, .nil => []
+  | _, .cons head tail => code.value head :: code.tuple tail
+
+abbrev LambdaSummary (V S : Type u) (Key : Type v) (Capture : Type w) :=
+  Ports (Ty V S) × Ports (Ty V S) × Ports (Ty V S) × List (Option (Nat ⊕ Capture)) × Multiset (LabelCode V S Key)
 
 /-- Keep the labels as a list for the executable permutation check. -/
-structure LambdaKey (V S : Type u) (Key : Type v) where
+structure LambdaKey (V S : Type u) (Key : Type v) (Capture : Type w) where
   args : Ports (Ty V S)
   results : Ports (Ty V S)
   context : Ports (Ty V S)
+  captures : List (Option (Nat ⊕ Capture))
   labels : List (LabelCode V S Key)
 
-def LambdaKey.summary {Key : Type v} (key : LambdaKey V S Key) : LambdaSummary V S Key :=
-  (key.args, key.results, key.context, Multiset.ofList key.labels)
+def LambdaKey.summary {Key : Type v} {Capture : Type w}
+    (key : LambdaKey V S Key Capture) : LambdaSummary V S Key Capture :=
+  (key.args, key.results, key.context, key.captures, Multiset.ofList key.labels)
 
-def LambdaKey.Fresh {Key : Type v} (key : LambdaKey V S Key) (prior : List (LambdaKey V S Key)) : Prop :=
+def LambdaKey.Fresh {Key : Type v} {Capture : Type w}
+    (key : LambdaKey V S Key Capture) (prior : List (LambdaKey V S Key Capture)) : Prop :=
   key.summary ∉ prior.map LambdaKey.summary
 
-instance [DecidableEq (Ty V S)] {Key : Type v} [DecidableEq Key]
-    (key : LambdaKey V S Key) (prior : List (LambdaKey V S Key)) : Decidable (key.Fresh prior) :=
+instance [DecidableEq (Ty V S)] {Key : Type v} [DecidableEq Key] {Capture : Type w} [DecidableEq Capture]
+    (key : LambdaKey V S Key Capture) (prior : List (LambdaKey V S Key Capture)) : Decidable (key.Fresh prior) :=
   letI : DecidableEq (Ports (Ty V S)) := inferInstance
   letI : DecidableEq (LabelCode V S Key) := inferInstance
+  letI : DecidableEq (List (Option (Nat ⊕ Capture))) := inferInstance
   decidable_of_iff (prior.any (fun old => decide
     (key.args = old.args ∧ key.results = old.results ∧ key.context = old.context ∧
-      key.labels.Perm old.labels)) = false) (by
+      key.captures = old.captures ∧ key.labels.Perm old.labels)) = false) (by
     simp only [List.any_eq_false, decide_eq_true_eq, LambdaKey.Fresh, List.mem_map, not_exists, not_and]
     exact forall_congr' fun old => by
       rw [eq_comm (a := old.summary) (b := key.summary)]
       simp only [LambdaKey.summary, Prod.mk.injEq, Multiset.coe_eq_coe, not_and])
 
-def lambdaKey (code : OpcodeCode (Instruction Op)) {port : Ty V S} :
-    m.Val port → Option (LambdaSummary V S code.Key)
-  | .closure (params := params) (results := results) (context := context) _ body =>
-    some (params, results, context, outerProfile code body)
+def lambdaKey (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) {port : Ty V S} :
+    m.Val port → Option (LambdaSummary V S code.Key captureCode.Key)
+  | .closure (params := params) (results := results) (context := context) captures body =>
+    some (params, results, context, captureCode.tuple captures, outerProfile code body)
   | _ => none
 
-def lambdaBodyKey (code : OpcodeCode (Instruction Op)) {imports : Ports (Ty V S)}
-    {past : List (Ports (Ty V S))} {fn : Function V S} (definition : Lambda Op imports past fn) :
-    LambdaKey V S code.Key :=
-  ⟨fn.args, fn.results, definition.context, outerLabels code definition.body⟩
+def lambdaBodyKey (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m)
+    {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
+    (definition : Lambda Op imports past fn) (entry : Tuple m.Val imports) (locals : Locals m.Val past) :
+    LambdaKey V S code.Key captureCode.Key :=
+  ⟨fn.args, fn.results, definition.context, captureCode.tuple (definition.captures.read entry locals),
+    outerLabels code definition.body⟩
 
 /-- Empty γ rows can be skipped by ordered admission independently on
 either side, so retain the actual profiles of each side. -/
-structure LambdaKeys (V S : Type u) (Key : Type v) where
-  left : List (LambdaKey V S Key)
-  right : List (LambdaKey V S Key)
+structure LambdaKeys (V S : Type u) (Key : Type v) (Capture : Type w) where
+  left : List (LambdaKey V S Key Capture)
+  right : List (LambdaKey V S Key Capture)
 
 /-- A checked finite prefix, indexed by the encoder used throughout its
 λ keys. Fixed φ members do not have λ keys. -/
 structure LinkedFamily (primitives : Primitives m σ) (ids : GlobalRel)
-    (code : OpcodeCode (Instruction Op)) (left right : Family m)
-    (keys : LambdaKeys V S code.Key) : Prop where
+    (code : OpcodeCode (Instruction Op)) (captureCode : CaptureCode m) (left right : Family m)
+    (keys : LambdaKeys V S code.Key captureCode.Key) : Prop where
   checked : CheckedFamily primitives ids left right
   ordinaryL : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → left value
   ordinaryR : ∀ {port : Ty V S} (value : m.Val port), ordinaryPort port = true → right value
-  keysL : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key},
-    left value → lambdaKey code value = some key → key ∈ keys.left.map LambdaKey.summary
-  keysR : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key},
-    right value → lambdaKey code value = some key → key ∈ keys.right.map LambdaKey.summary
+  keysL : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key captureCode.Key},
+    left value → lambdaKey code captureCode value = some key → key ∈ keys.left.map LambdaKey.summary
+  keysR : ∀ {port : Ty V S} {value : m.Val port} {key : LambdaSummary V S code.Key captureCode.Key},
+    right value → lambdaKey code captureCode value = some key → key ∈ keys.right.map LambdaKey.summary
 
 variable {imports : Ports (Ty V S)} {past : List (Ports (Ty V S))}
 
