@@ -59,4 +59,26 @@ theorem sound_bound_simulation
       (fun _ => hq)) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.sound_bound_simulation J M shared hβ hp hq dt square
 
+/-- A semantic equality for the two exactly typed bound local compositions
+suffices to compare the CFG denotations under the value-map witness. -/
+theorem sound_bound_simulation_of_denotations
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (square : ∀ (hl : HasType (A :: Γ)
+      (p.lsubst (liftLSubstVars (boundLocalMap t))) (D :: L))
+      (hr : HasType (A :: Γ)
+        ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) (D :: L)),
+      denoteRegion J M hl = denoteRegion J M hr) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (boundLocalMap_typed ht))
+      (fun _ => hq)) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.sound_bound_simulation_of_denotations
+    J M shared hβ hp hq dt square
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation

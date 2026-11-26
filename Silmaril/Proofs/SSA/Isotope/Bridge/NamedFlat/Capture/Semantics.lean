@@ -138,25 +138,26 @@ theorem entry_eval_iff (h : Closes β input g closed)
   · intro run
     exact .let₁ ((packet _ _).mpr ⟨rfl, rfl⟩) (decode.mpr run)
 
+theorem block_eval_iff (h : Closes β input g closed) (i : Fin blocks) (arg : Value α) :
+    Eval instr (extend env' arg) (closed.block i).erase s out value t ↔
+      Eval instr (extend env arg) (g.block i).erase s out value t := by
+  rw [← h.block i]
+  exact flat_env_iff (Fin.cases rfl (fun i => i.elim0))
+
 theorem graph_eval_iff (h : Closes β input g closed)
     (packet : ∀ v state, ExprEval instr env' (Morphism.CaseSSA.erase input) s v state ↔
       v = packEnv n env ∧ state = s) :
     Eval instr env' closed.erase s out value t ↔ Eval instr env g.erase s out value t := by
-  have blockEval (i : Fin blocks) (arg : Value α) {s' t' : σ} {label : Nat} {v : Value α} :
-      Eval instr (extend env' arg) (closed.block i).erase s' label v t' ↔
-        Eval instr (extend env arg) (g.block i).erase s' label v t' := by
-    rw [← h.block i]
-    exact flat_env_iff (Fin.cases rfl (fun i => i.elim0))
   constructor
   · intro run
     cases run with
     | cfg entry follow =>
       exact .cfg ((entry_eval_iff h packet).mp entry)
-        (follow.map_block fun i arg => (blockEval i arg).mp)
+        (follow.map_block fun i arg => (block_eval_iff h i arg).mp)
   · intro run
     cases run with
     | cfg entry follow =>
       exact .cfg ((entry_eval_iff h packet).mpr entry)
-        (follow.map_block fun i arg => (blockEval i arg).mpr)
+        (follow.map_block fun i arg => (block_eval_iff h i arg).mpr)
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Capture

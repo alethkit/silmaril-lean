@@ -1,0 +1,111 @@
+# Hoisting an invariant producer to the existing preheader
+
+Click's PLDI ’95 scheduling constraints place a producer after its inputs become
+available and where it dominates its uses. Section 2.4 favors the shallowest
+loop nest. This pass applies the checked natural-loop ranking to the typed CFG
+emitted by the existing pure Sea of Nodes loop lowering. It then moves one
+operation into that CFG's existing preheader.
+[PLDI ’95 paper][paper] · [Archived PDF][pdf] · [Loop ranking][forest] ·
+[Existing lowering][lower]
+
+## First header binding
+
+The source has a preheader, one header with a self-backedge, and an exit. The
+pass inspects the first typed binding in the emitted header. Its operands refer
+to the current latch word or captured function inputs. The corresponding
+operand sites are header cut zero for the latch and preheader cut zero for
+the captures. The pass tracks the producer's typed variable index through the
+rest of the header. It records ordinary reads at local cuts and branch
+arguments by exact successor slot and argument number.
+
+`pickAndHoist?` calls `LoopForest.choosePlacement` with those sites on the
+actual source CFG. The supported destination is preheader cut zero. A
+structural capture check translates the producer operands into entry scope
+and rejects any reference to the latch. A successful pass inserts the
+producer there, keeps the existing preheader bindings in order, and removes
+the original header binding. This follows the checked pick-and-emit pattern
+used for the diamond hoist. [Definitions][defs] · [Diamond hoist][diamond]
+
+The preheader passes the saved result before the original latch argument.
+Every true header transfer sends that same result before the next latch
+argument. The new header parameter occupies the old producer's lexical
+position, so the remaining header bindings read the same values. The false
+transfer sends the same result argument to the existing exit. [Definitions][defs]
+
+## Nominated header binding
+
+`pickBindingAndHoist?` takes a zero-based index into the same lowered header.
+The traversal records where each typed variable comes from. At entry to the
+header, the latch is local and the remaining variables are captured function
+inputs. Each earlier binding extends the map with its own definition cut and
+shifts all existing names. The ranker sees a local operand at its exact cut
+and the selected binding's uses at their actual cuts and successor occurrences.
+
+A nominated binding is movable when its operands read the immutable inputs
+directly and the ranker chooses preheader cut zero. The rewrite copies the
+earlier bindings in their original order, shifts their references to the new
+scope, then substitutes the saved header argument for the selected binding.
+The lowering's existing typed block and edge representations carry the result
+through entry and feedback. [Definitions][defs]
+
+`pickBindingAndHoist?_placement` certifies the nominated cut.
+`pickBindingAndHoist?_routes` proves exact entry, feedback, and exit transfers
+with the saved result computed from the captured operands. The proof matches
+each earlier operation's typed operand values before substituting for the
+nominated result. `pickBindingAndHoist?_run_eq`, `pickBindingAndHoist?_budget`,
+and `pickBindingAndHoist?_returns_iff` carry these transfers through CF fuel,
+native backedge budgets, and finite returns. [Theorem header][thms]
+
+The later-binding regression moves the third binding past a latch-dependent
+producer and a second producer that uses its result. Both earlier bindings
+participate in the feedback calculation. The saved result remains `2` as the
+latch advances `3 → 7 → 11`. Both CFGs agree at zero and two backedges. When the
+third binding takes the second binding's result as an operand, the checker
+reports header cut two as the operand site and rejects the preheader.
+[Regression][regression]
+
+## Proofs and scope
+
+- `pickAndHoist?_placement` establishes that the pass used the legal
+  preheader cut selected by the checked natural-loop ranking.
+- `pickAndHoist?_routes` identifies the saved value as the original producer
+  evaluated on captured inputs. It specifies the actual entry, feedback, and
+  exit transfers and preserves the original latch and exit payload values.
+- `pickAndHoist?_run_eq` proves equal CF observations at every fuel budget.
+  `pickAndHoist?_budget` relates native budget `k` to CF fuel `k + 3` in the
+  emitted loop. The preheader, final header test, and exit account for the
+  three extra blocks. `pickAndHoist?_returns_iff` gives the finite return
+  correspondence. [Theorem header][thms]
+
+The profile uses the existing one-word latch and one-word return lowering.
+The moved operation has the total, pure interpretation of the existing
+scalar arithmetic and comparison dialect. The pass uses the source CFG's
+supplied sound dominator certificate. It moves a single producer with direct
+captured operands. Earlier local results are rejected, including a local
+result that could be invariant under a separate dependency analysis. Moving
+closed dependency slices and operations with effects or faults is outside
+the profile. [Existing lowering][lower]
+
+The regression uses a nonempty preheader and tests zero and two backedges.
+Two feedback transfers keep the saved value at `2` as the latch advances
+from `3` to `5` to `7`. A one-backedge budget at the same input returns
+`none`. With a latch-dependent operand, the checker rejects the preheader
+and ranks a header cut. The emitter rejects that move.
+[Regression][regression]
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Regression'
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Defs
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Thms
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Regression
+```
+
+[defs]: ../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Defs.lean
+[thms]: ../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Thms.lean
+[regression]: ../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Regression.lean
+[lower]: ../../Silmaril/SSA/SeaOfNodes/Loop/MLIR/CF/Thms.lean
+[forest]: sea-of-nodes-gcm-loop-forest.md
+[diamond]: sea-of-nodes-gcm-hoist.md
+[paper]: https://doi.org/10.1145/207110.207154
+[pdf]: https://web.archive.org/web/20140908214434id_/https://courses.cs.washington.edu/courses/cse501/06wi/reading/click-pldi95.pdf

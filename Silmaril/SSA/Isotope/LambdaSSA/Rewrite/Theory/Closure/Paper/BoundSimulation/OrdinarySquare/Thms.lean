@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.OrdinarySquare.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundOrdinarySquare
 
 /-! # Transport an ordinary commuting square to the typed feedback labels -/
@@ -19,6 +20,16 @@ open ContinuationContext (single)
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 variable {A B D : τ} {t : Tm Φ} {p q : Region Φ}
+
+/-- Every chosen-sum step has a guarded representative with repeat at label zero. -/
+theorem exists_stepArrow (f : ofType (Φ := Φ) A ⟶ ofType B ⨿ ofType A) :
+    ∃ p : Region Φ, ∃ hp : ValueBranches [A] p [A, B], f = stepArrow hp :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundOrdinarySquare.exists_stepArrow f
+
+/-- Chosen iteration of the packed step runs the corresponding literal CFG. -/
+theorem iterate_stepArrow (hp : ValueBranches [A] p [A, B]) :
+    iterate (stepArrow hp) = ofRegion (stepFeedback_typed hp) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundOrdinarySquare.iterate_stepArrow hp
 
 /-- A guarded singleton return changes the local state. This permits a
 state change that packages its retained input along with the new state. -/

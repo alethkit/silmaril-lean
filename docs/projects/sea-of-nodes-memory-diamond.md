@@ -42,3 +42,106 @@ make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms +Silmaril
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Regression
 ```
+
+## Native equations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms
+```
+
+The native `inst` uses ordered lists of address and word ports as
+signatures. A signature map sends each source input port to a target port
+of the same sort. This allows a rename to redirect a Load or Store to a
+different address input. Load, Store, Return, and the Boolean branch rule
+have their fixed meanings throughout. `mapGraph` preserves the memory
+producer indices and Region predecessor order. Its suffix map also keeps
+the selected arm's exported word at the first port.
+
+A model supplies a cell count and a typed valuation of the scalar entry
+ports. Its reduct looks up those ports along the signature map. At that
+valuation, an equation compares both components of `Model.observe` for
+every Boolean guard and every initial heap. `Model.returns_iff_observe`
+relates this pair to the occurrence-indexed execution rules above.
+`returns_mapGraph` gives the pointwise reindexing law for these rules, and
+`Equation.satisfaction` gives the institution's satisfaction condition.
+These results use the initialized-cell profile described above.
+[Institution API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/Institution/Thms.lean)
+
+The institution regression swaps two address ports. It checks an equation
+that changes only the predecessor order and an equation that removes a
+taken store. The second equation returns equal words on both sides.
+A changed cell in the final heap falsifies it.
+[Institution regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/Institution/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Institution.Regression'
+```
+
+## Two initialized cells in typed MLIR CF
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Thms
+```
+
+`MLIR.lower` compiles the native memory diamond at `Heap 2` to the
+repository's typed `MLIR.CF.Cfg`. Entry receives an `i1` Boolean guard,
+two `i64` cell values, and the original scalar arguments. Each
+`Fin 2` address is an `i1`. A Load uses one scalar `arith.select` to
+read the addressed cell. A Store uses two selects to form the new cell
+values, changing only the addressed one. Every Load and Store in the
+ordered native arms and suffix is supported at this boundary.
+
+The entry's `cf.cond_br` goes to the block for the selected predecessor
+occurrence. Each arm branches to the join with three `i64` operands:
+the exported word, cell zero, and cell one. The shared suffix can use
+these arguments and the dominating scalar inputs. The return tuple
+contains the suffix's word and both final cell values.
+[Typed CF evaluator](../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean) ·
+[Lowering](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Defs.lean)
+
+`lower_run` proves that the existing evaluator returns that tuple at
+every budget of at least three blocks. `returns_iff` preserves and
+reflects the native relation for both guards, with the two output cells
+determining the entire final heap. The profile uses scalar SSA state
+values and the fixed-width interpretation of `arith.select`. It covers
+total access to two initialized cells.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Thms.lean)
+
+The regression runs the emitted CFGs for both guards and both
+predecessor orders. It checks equal returned words with different
+heaps, rejects the heap from an omitted store, and executes a suffix
+that uses the selected export and updated heap.
+[Regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.MLIR.Regression'
+```
+
+### Two-cell equations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.MLIR.Institution.Thms
+```
+
+`translateEquation` keeps both emitted CFGs with their own predecessor
+orders. The canonical observation is the word and both final cells from
+the existing evaluator at a three-block budget. At a two-cell typed
+valuation, `translated_satisfaction` equates the compiled sentence's
+truth with native satisfaction for all guards and initial heaps.
+`behavior_mapGraph` and `satisfaction_reindex` relate re-emission after a
+typed port map to pullback of the entry valuation.
+[Equation API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Thms.lean)
+
+`validity_two_cells` quantifies that satisfaction law over all typed
+valuations at cell count two. Native validity quantifies over every
+cell count. The regression separates them by reversing two swaps
+that share an address. The two orders agree on two cells for every
+valuation, and a valuation with three distinct addresses gives
+different final heaps.
+
+`MLIR.Institution.Backends.Thms` relates the same encoded return to
+the existing λSSA return observation and numbered RVSDG γ tuple. Its
+equation theorems compose with the corresponding backend satisfaction
+laws at the same two-cell valuation.
+[Backend API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Backends/Thms.lean) ·
+[Equation regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/MLIR/Institution/Regression.lean)

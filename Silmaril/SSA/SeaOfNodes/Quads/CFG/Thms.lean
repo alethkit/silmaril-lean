@@ -9,8 +9,9 @@ public section
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.CFG
 
-open RVSDG (Port)
-open Diamond (Ty ValueSort Signature Model dataPorts)
+open RVSDG (Locals Port Tuple Wires)
+open Diamond (Ty ValueSort Signature Model Val dataPorts)
+open Join (Block)
 
 universe u v w
 variable {Data : Type u} {Op : Signature.{u, v} Data}
@@ -23,6 +24,23 @@ theorem Graph.header_phi_iff {t : Ty Data} (prior : Graph Op regs n) (preds : Pr
     (prior.header preds).get p = none ↔
       ∃ pred ∈ preds.rest, (prior.versions pred).get p ≠ (prior.versions preds.first).get p :=
   Proofs.header_phi_iff prior preds p
+
+/-- Reusing a header definition means it is the definition on every incoming occurrence. -/
+theorem Graph.header_reuse {t : Ty Data} (prior : Graph Op regs n) (preds : Predecessors n)
+    (edge : Fin (preds.rest.length + 1)) (p : Port (dataPorts regs) t)
+    (version : Version n) (same : (prior.header preds).get p = some version) :
+    (prior.column preds edge).get p = version :=
+  Proofs.selected_version prior preds edge p version same
+
+/-- The reusable local producer transfer reads the final ordered source bank. -/
+theorem compileBlock_read {args : List (Ty Data)} {past : List (List (Ty Data))}
+    (block : Block Op regs) (m : Model.{u, v, w} Op)
+    (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
+    (current : Wires args past (dataPorts regs)) :
+    (compileBlock block current).outgoing.read entry
+        ((compileBlock block current).flow.eval m entry locals) =
+      block.eval m (current.read entry locals) :=
+  Proofs.compiled_read block m entry locals current
 
 /-- Reading the compiled outgoing map after any checked path recovers the
 complete final bank of ordered quad execution. All those versions are defined. -/

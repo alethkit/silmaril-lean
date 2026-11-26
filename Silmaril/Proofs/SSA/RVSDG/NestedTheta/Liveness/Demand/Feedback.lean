@@ -11,7 +11,7 @@ namespace Silmaril.SSA.RVSDG.NestedTheta.Liveness.Feedback.Proofs
 
 open Silmaril.Semantics.Dataflow
 
-private abbrev DemandLE (left right : Demand) : Prop :=
+abbrev DemandLE (left right : Demand) : Prop :=
   ∀ i, left i = true → right i = true
 
 universe u v
@@ -62,7 +62,7 @@ private theorem close_mono {arity : Nat} {left right : Demand} (exit : DemandLE 
     (fun _ _ h => step_mono (fun _ h => h) body mono h)
     (fun _ => step_mono exit body mono le_rfl) arity ∅
 
-private theorem selectWires_mono {Ty : Type u} {args users : Ports Ty} {past : List (Ports Ty)}
+theorem selectWires_mono {Ty : Type u} {args users : Ports Ty} {past : List (Ports Ty)}
     (wires : Wires args past users) {low high : Ty → Nat → Bool}
     (more : ∀ t, DemandLE (low t) (high t)) :
     selectWires low wires ⊆ selectWires high wires := by
@@ -81,7 +81,7 @@ private theorem selectWires_mono {Ty : Type u} {args users : Ports Ty} {past : L
 variable {V S : Type u} {Op : Dialect.{u, v} V S}
 variable {args outs : Ports (PortType V S)} {past sigs : List (Ports (PortType V S))}
 
-private theorem reads_mono {ins out : Ports (PortType V S)} (kind : Kind Op ins out)
+theorem reads_mono {ins out : Ports (PortType V S)} (kind : Kind Op ins out)
     (wires : Wires args past ins) (pc : Nat) {small large : List Address} (next : small ⊆ large)
     (body : Fin kind.arity → Demand → List Address)
     (mono : ∀ i {a b}, DemandLE a b → body i a ⊆ body i b) :
@@ -151,32 +151,42 @@ private theorem iterate_fixed_at_arity {arity : Nat} (f : Mask arity → Mask ar
 
 attribute [local instance] Fintype.toCompleteLattice
 
+/-- The native solver's bound and leastness apply to any monotone body summary. -/
+theorem close_isLeast {arity : Nat} (exit : Demand) (body : Demand → List Address)
+    (mono : ∀ {a b}, DemandLE a b → body a ⊆ body b) :
+    IsLeast {live : Mask arity | step exit body live = live} (close exit body) := by
+  let f : Mask arity →o Mask arity :=
+    ⟨step exit body, fun _ _ h => step_mono (fun _ h => h) body mono h⟩
+  have fixed : f (f^[arity] ⊥) = f^[arity] ⊥ := iterate_fixed_at_arity f f.monotone
+  have least : close exit body = f.lfp := iterate_eq_lfp_of_isFixedPt f fixed
+  rw [least]
+  exact f.isLeast_lfp
+
+theorem includes_close_iff {Ty : Type u} {carried : Ports Ty} {ty : Ty} (p : Port carried ty)
+    (exit : Demand) (body : Demand → List Address)
+    (mono : ∀ {a b}, DemandLE a b → body a ⊆ body b) :
+    includes (close (arity := carried.length) exit body) p.index = true ↔
+      Address.arg p.index ∈ body (bodyDemand exit (close (arity := carried.length) exit body)) := by
+  let live : Mask carried.length := close exit body
+  have fixed : step exit body live = live := (close_isLeast exit body mono).1
+  have selected :
+      (⟨p.index, port_bound p⟩ : Fin carried.length) ∈ step exit body live ↔
+        Address.arg p.index ∈ body (bodyDemand exit live) := by
+    simp only [step, Finset.mem_filter, Finset.mem_univ, true_and]
+  rw [fixed] at selected
+  exact (includes_port_iff p live).trans selected
+
 theorem feedback_isLeast {carried : Ports (PortType V S)}
     (body : Term Op carried [] sigs (Theta.BodyResults carried)) (exit : Demand) :
     IsLeast {live | step exit (fun demand => (body.demandPlan demand).live) live = live}
-      (body.feedbackLive exit) := by
-  let f : Mask carried.length →o Mask carried.length :=
-    ⟨step exit (fun demand => (body.demandPlan demand).live),
-      fun _ _ h => step_mono (fun _ h => h) _ (plan_mono body) h⟩
-  have fixed : f (f^[carried.length] ⊥) = f^[carried.length] ⊥ :=
-    iterate_fixed_at_arity f f.monotone
-  have least : body.feedbackLive exit = f.lfp := iterate_eq_lfp_of_isFixedPt f fixed
-  rw [least]
-  exact f.isLeast_lfp
+      (body.feedbackLive exit) :=
+  close_isLeast exit _ (plan_mono body)
 
 theorem includes_live_iff {carried : Ports (PortType V S)}
     (body : Term Op carried [] sigs (Theta.BodyResults carried)) (exit : Demand)
     {ty : PortType V S} (p : Port carried ty) :
     includes (body.feedbackLive exit) p.index = true ↔
-      Address.arg p.index ∈ (body.demandPlan (bodyDemand exit (body.feedbackLive exit))).live := by
-  have fixed : step exit (fun demand => (body.demandPlan demand).live) (body.feedbackLive exit) =
-      body.feedbackLive exit := (feedback_isLeast body exit).1
-  have selected :
-      (⟨p.index, port_bound p⟩ : Fin carried.length) ∈
-        step exit (fun demand => (body.demandPlan demand).live) (body.feedbackLive exit) ↔
-        Address.arg p.index ∈ (body.demandPlan (bodyDemand exit (body.feedbackLive exit))).live := by
-    simp only [step, Finset.mem_filter, Finset.mem_univ, true_and]
-  rw [fixed] at selected
-  exact (includes_port_iff p _).trans selected
+      Address.arg p.index ∈ (body.demandPlan (bodyDemand exit (body.feedbackLive exit))).live :=
+  includes_close_iff p exit _ (plan_mono body)
 
 end Silmaril.SSA.RVSDG.NestedTheta.Liveness.Feedback.Proofs

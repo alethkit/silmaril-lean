@@ -12,7 +12,7 @@ namespace Silmaril.SSA.PEG.Simple
 
 open RVSDG (Port Tuple)
 
-universe u v w
+universe u v w x
 
 variable {Data : Type u} {P : InstructionSet.{u,v} Data}
 variable {params nodes vars outs : List (Ty Data)} {result : Ty Data}
@@ -23,6 +23,24 @@ theorem Exec.deterministic {model : Interpretation.{u,v,w} P} {loops : Bool}
     {a b : Option (Tuple model.Value outs)}
     (first : Exec model s store a) (second : Exec model s store b) : a = b :=
   Proofs.deterministic first second
+
+theorem Stmt.runLoopFree_exec {model : Interpretation.{u,v,w} P}
+    (s : Stmt P false vars outs) (store : Tuple model.Value vars) :
+    Exec model s store (s.runLoopFree model store) :=
+  Proofs.runLoopFree_exec s store
+
+theorem Program.runLoopFree_of_returns {model : Interpretation.{u,v,w} P}
+    {p : Program P false vars result} {input : Tuple model.Value vars} {value : model.Value result}
+    (h : p.Returns model input value) : p.runLoopFree model input = some value :=
+  Proofs.runLoopFree_of_returns h
+
+theorem ports_get {t : Ty Data} (p : Port vars t) : (ports vars).get p = p :=
+  Proofs.ports_get p
+
+theorem get_map {F : Ty Data → Type w} {G : Ty Data → Type x} {t : Ty Data}
+    (xs : Tuple F vars) (f : ∀ t, F t → G t) (p : Port vars t) :
+    (xs.map f).get p = f t (xs.get p) :=
+  Proofs.get_map xs f p
 
 /-- A closed builder gives a PEG whose edges lead strictly to earlier emissions. -/
 theorem Code.toGraph_wellFormed (code : Code P params [] nodes) (outputs : Tuple (Port nodes) outs) :

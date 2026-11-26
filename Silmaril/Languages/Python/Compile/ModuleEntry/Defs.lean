@@ -258,6 +258,57 @@ def literalTupleComparison? (left : Expr) (operator : Comparison) (right : Expr)
   | .notIn => (literalTupleMember? left right).map (! ·)
   | _ => none
 
+inductive SequenceKind where
+  | list | tuple
+  deriving DecidableEq
+
+structure ClosedSequence where
+  kind : SequenceKind
+  values : List Core.Module.Value
+
+/-- Source evidence for a flat scalar sequence. A concatenation validates
+both operands and preserves their order and common sequence kind. -/
+inductive ClosedSequence.ValueOf : Expr → ClosedSequence → Prop where
+  | list {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ValueOf (.list_ elements) ⟨.list, values⟩
+  | tuple {elements values} (checked : elements.mapM scalarLiteral? = some values) :
+      ValueOf (.tuple elements) ⟨.tuple, values⟩
+  | append {left right lhs rhs} (first : ValueOf left lhs) (second : ValueOf right rhs)
+      (sameKind : lhs.kind = rhs.kind) :
+      ValueOf (.binary .add left right) ⟨lhs.kind, lhs.values ++ rhs.values⟩
+
+def checkClosedSequence : (source : Expr) → Option {value // ClosedSequence.ValueOf source value}
+  | .list_ elements =>
+    match checked : elements.mapM scalarLiteral? with
+    | none => none
+    | some values => some ⟨⟨.list, values⟩, .list checked⟩
+  | .tuple elements =>
+    match checked : elements.mapM scalarLiteral? with
+    | none => none
+    | some values => some ⟨⟨.tuple, values⟩, .tuple checked⟩
+  | .binary .add left right => do
+    let lhs ← checkClosedSequence left
+    let rhs ← checkClosedSequence right
+    if sameKind : lhs.val.kind = rhs.val.kind then
+      some ⟨⟨lhs.val.kind, lhs.val.values ++ rhs.val.values⟩, .append lhs.property rhs.property sameKind⟩
+    else none
+  | _ => none
+termination_by source => sizeOf source
+
+def ClosedSequence.equal (left right : ClosedSequence) : Bool :=
+  decide (left.kind = right.kind) && left.values.isEqv right.values Core.Module.Value.equal
+
+/-- Equality and inequality compare two checked operands. Tuple membership
+uses the existing literal profile. -/
+def closedSequenceComparison? (left : Expr) (operator : Comparison) (right : Expr) : Option Bool :=
+  match operator with
+  | .eq | .ne => do
+    let lhs ← checkClosedSequence left
+    let rhs ← checkClosedSequence right
+    let equal := lhs.val.equal rhs.val
+    return if let .ne := operator then !equal else equal
+  | _ => literalTupleComparison? left operator right
+
 /-- Deliver a computed Boolean through the existing typed scalar equality. -/
 def Operand.booleanResult {scope : Scope} (value : Bool) : Operand scope :=
   .binary .equal (.boolean value) (.boolean true)
@@ -294,8 +345,8 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | notEqual {left right lhs rhs} (first : OperandTranslation scope left lhs)
       (second : OperandTranslation scope right rhs) :
       OperandTranslation scope (.comparison left [(.ne, right)]) (.binary .notEqual lhs rhs)
-  | literalTupleComparison {left operator right value}
-      (checked : literalTupleComparison? left operator right = some value) :
+  | closedSequenceComparison {left operator right value}
+      (checked : closedSequenceComparison? left operator right = some value) :
       OperandTranslation scope (.comparison left [(operator, right)]) (.booleanResult value)
   | literalComparisonChain {left first second rest value}
       (checked : literalComparisonChain? left (first :: second :: rest) = some value) :
@@ -378,8 +429,8 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
     | none =>
       match first, rest with
       | (operator, right), [] =>
-        match folded : literalTupleComparison? left operator right with
-        | some value => .ok ⟨.booleanResult value, .literalTupleComparison folded⟩
+        match folded : closedSequenceComparison? left operator right with
+        | some value => .ok ⟨.booleanResult value, .closedSequenceComparison folded⟩
         | none =>
           match operator with
           | .eq => do

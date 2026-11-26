@@ -108,6 +108,17 @@ theorem evaluate_checkedBooleanOp {scope : Source.Scope} (session : Core.Module.
   rw [lower_checkedBooleanOp checked]
   simp [Except.map, Run.evaluate_scalarResult, evaluateScalar_scalarResult]
 
+theorem evaluate_closedSequenceComparison {scope : Source.Scope} (session : Core.Module.Functions.Session)
+    (space : Namespace) (context : Bool) {left right : Source.Expr} {operator : Source.Comparison}
+    {value : Bool} (checked : closedSequenceComparison? left operator right = some value) :
+    (lowerOperand scope (.comparison left [(operator, right)])).map
+        (fun operand => Run.evaluate session operand.val) = .ok (.ok (.bool value)) ∧
+      (lowerOperand scope (.comparison left [(operator, right)])).map
+        (fun operand => evaluateScalar space context operand.val) = .ok (.ok (.bool value)) := by
+  rw [lower_closedSequenceComparison checked]
+  simp only [Except.map, Except.ok.injEq]
+  exact ⟨Run.evaluate_scalarResult session (.bool value), evaluateScalar_booleanResult space context value⟩
+
 theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
     (left right : ModuleEntry.Operand scope) :
     evaluateScalar space context (.binary .notEqual left right) = (do
