@@ -13,6 +13,8 @@ import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
+import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
+import Silmaril.SSA.PEG.Projection.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -29,6 +31,8 @@ meta import Silmaril.SSA.Peggy.Optimizer.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 meta import Silmaril.SSA.Peggy.Worked.EvalScale.Defs
+meta import Silmaril.SSA.Peggy.Worked.StrengthReduction.Defs
+meta import Silmaril.SSA.PEG.Projection.Defs
 meta import Mathlib.Tactic.FinCases
 
 namespace Silmaril.SSA.Peggy.Tests
@@ -1287,6 +1291,7 @@ private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | succ : Op [.count] .count
   | exit : Op [.count] .bool
   | mul : Op [.count, .count] .count
+  | add : Op [.count, .count] .count
   deriving DecidableEq
 
 private abbrev result : List (Ty Unit) := [.count, .count, .count, .count]
@@ -1356,6 +1361,7 @@ private def model (failsAtZero : Bool) : Interpretation.{0,0,0} Op where
     | .exit, .cons a .nil => some ⟨decide (3 ≤ a.down)⟩
     | .mul, .cons a (.cons b .nil) =>
       if failsAtZero && b.down == 0 then none else some ⟨a.down * b.down⟩
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
 
 private theorem totalLaw : Law (model false) Op.five Op.mul :=
   ⟨⟨5⟩, rfl, fun _ => rfl⟩
@@ -1473,5 +1479,76 @@ example (idx : Index 1) :
     have defined := ((monotonize_eq_some_iff _ _ _).mp yes).2 0 (by decide)
     rw [unsafeSample, counter] at defined
     cases defined
+
+private def strengthOps : StrengthReduction.Profile Op := ⟨.zero, .five, .succ, .mul, .add⟩
+
+private def reduced : StrengthReduction.Match found.extract 8 strengthOps :=
+  (StrengthReduction.Match.atSite found.extract 8 strengthOps).get (by decide)
+
+private def strengthRank : DemandRank 11 1 :=
+  [.phase fun i => if i.val = 8 ∨ i.val = 10 then 0 else phase i,
+    .counter 0,
+    .phase fun i => if i.val = 2 ∨ i.val = 3 ∨ i.val = 10 then 2
+      else if i.val = 0 ∨ i.val = 8 then 1 else 0]
+
+#guard (reduced.candidate.node 8).label.thetaLoop == some 0
+#guard refNumbers (reduced.candidate.node 8).args == [1, 10]
+#guard refNumbers (reduced.candidate.node 10).args == [6, 8]
+#guard refNumbers (reduced.candidate.node 9).args == [8, 4]
+#guard refNumbers (reduced.candidate.node 4).args == [3]
+#guard refNumbers reduced.candidate.roots == [9, 5, 4, 9]
+#guard strengthRank.check reduced.candidate
+#guard !(DemandRank.check [] reduced.candidate)
+#guard (PEG.Projection.dependencyRows reduced.candidate).map (List.map Fin.val) ==
+  some [0, 1, 2, 3, 4, 5, 6, 8, 9, 10]
+
+private def strengthLaw : StrengthReduction.Law (model false) strengthOps where
+  baseValue := ⟨0⟩
+  factorValue := ⟨5⟩
+  definedBase := rfl
+  definedFactor := rfl
+  fixedBase := rfl
+  feedback a := by
+    change some (ULift.up (5 * (a.down + 1))) = some (ULift.up (5 + 5 * a.down))
+    rw [Nat.mul_succ, Nat.add_comm (5 * a.down) 5]
+
+private def expectedReduced : StrengthReduction.Match expectedMatch.extract 8 strengthOps :=
+  ⟨rfl, 0, ⟨6, rfl⟩, ⟨0, rfl⟩, ⟨1, rfl⟩, ⟨2, rfl⟩,
+    HEq.rfl, HEq.rfl, HEq.rfl, HEq.rfl, HEq.rfl⟩
+
+set_option maxHeartbeats 800000 in
+private theorem strengthRanked : strengthRank.check reduced.candidate = true := by
+  change strengthRank.check expectedReduced.candidate = true
+  apply List.all_eq_true.mpr
+  intro i _
+  fin_cases i <;> decide
+
+example (idx : Index 1) :
+    reduced.candidate.observe (model false)
+      (reduced.candidate.denote (model false) .nil
+        (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx =
+      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) := by
+  have motion := found.extract_sound (m := model false) (env := .nil) wf Classes.discrete_valid totalLaw
+    (rank 10) checked idx
+  have strength := reduced.candidate_sound (env := .nil) strengthLaw
+    ((found.selection (rank 10)).demandWellFounded (Bool.and_eq_true_iff.mp checked).1)
+    strengthRank strengthRanked idx
+  exact (motion.trans strength).symm.trans (observed idx)
+
+private def wrongAdd : Interpretation.{0,0,0} Op where
+  carrier := (model false).carrier
+  run instr args := match instr, args with
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down + 1⟩
+    | instr, args => (model false).run instr args
+
+-- Definedness and invariance still hold, but the feedback law fails at zero.
+example : Law wrongAdd Op.five Op.mul ∧ ¬ Nonempty (StrengthReduction.Law wrongAdd strengthOps) := by
+  refine ⟨⟨⟨5⟩, rfl, fun _ => rfl⟩, ?_⟩
+  rintro ⟨law⟩
+  have factorEquals : law.factorValue = ⟨5⟩ := (Option.some.inj law.definedFactor).symm
+  have step := law.feedback ⟨0⟩
+  rw [factorEquals] at step
+  have different : (5 : Nat) = 6 := congrArg ULift.down (Option.some.inj step)
+  omega
 
 end Silmaril.SSA.Peggy.Worked.EvalScale.Tests

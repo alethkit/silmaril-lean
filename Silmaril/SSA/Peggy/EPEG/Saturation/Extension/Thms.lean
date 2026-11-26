@@ -28,6 +28,12 @@ theorem Row.node_fresh (row : Row g) :
     Rules.HasNode (g := row.append) row.fresh row.label (row.args.map fun _ => row.liftRef) :=
   Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.node_fresh row
 
+theorem Row.lift_hasNode (row : Row g) {inputs : List (Ty Data)} {out : Ty Data}
+    {ref : Ref g.sort out} {label : Label P params (Fin l) inputs out} {args : Tuple (Ref g.sort) inputs}
+    (shape : Rules.HasNode ref label args) :
+    Rules.HasNode (g := row.append) (row.liftRef ref) label (args.map fun _ => row.liftRef) :=
+  Silmaril.Proofs.SSA.Peggy.EPEG.Saturation.Extension.lift_hasNode row shape
+
 /-- Old demands are unchanged under the injection, and every demand of
 the new row goes to the old table, even for an unbounded sampling edge. -/
 theorem Row.demandWellFounded (row : Row g) (wf : WellFounded g.Demand) :
