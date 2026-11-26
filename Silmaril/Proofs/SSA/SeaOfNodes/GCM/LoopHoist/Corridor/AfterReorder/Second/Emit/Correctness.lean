@@ -61,6 +61,25 @@ theorem rewriteAt?_operations {code : Block TargetOp (Label saved carried result
       obtain ⟨next, edited, rfl⟩ := done
       simp only [operations, List.eraseIdx_cons_succ, ih edited]
 
+theorem emitAt?_operations {args : List Width} {index : Nat}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {target : Cfg TargetOp (Label saved carried result (consumer :: extra)) Input [result]}
+    {op : TargetOp args consumer} {operands : Operands ((extra ++ [saved]) ++ Input) args}
+    (emitted : emitAt? cfg index op operands = some target) :
+    operations (target.block .header) = (operations (cfg.block .header)).eraseIdx index := by
+  obtain ⟨⟨leading, tail⟩, _, edited⟩ := Option.bind_eq_some_iff.mp emitted
+  obtain ⟨header, rewrite, edited⟩ := Option.bind_eq_some_iff.mp edited
+  cases exit : cfg.block .exit with
+  | letOp => simp [exit] at edited
+  | terminator term =>
+    cases term with
+    | br => simp [exit] at edited
+    | condBr => simp [exit] at edited
+    | ret returns =>
+      simp only [exit] at edited
+      cases edited
+      exact rewriteAt?_operations rewrite
+
 private theorem liftEdge_eval (rename : Rename Γ Δ) (keep : Var Δ consumer)
     (edge : Edge (Label saved carried result extra) Γ) (source : Env Γ) (target : Env Δ)
     (same : ∀ {w} (ref : Var Γ w), target.get (rename ref) = source.get ref) :

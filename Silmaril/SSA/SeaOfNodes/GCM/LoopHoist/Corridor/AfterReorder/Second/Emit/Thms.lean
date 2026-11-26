@@ -55,6 +55,16 @@ theorem rewriteAt?_operations {Γ Δ extra : List Width} {saved consumer : Width
     operations out = (operations code).eraseIdx index :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.rewriteAt?_operations done
 
+/-- A shared splice removes the selected typed operation and keeps the
+remaining header operations in order for every saved-prefix length. -/
+theorem emitAt?_operations {args extra : List Width} {index : Nat} {saved consumer : Width}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {target : Cfg TargetOp (Label saved carried result (consumer :: extra)) Input [result]}
+    {op : TargetOp args consumer} {operands : Operands ((extra ++ [saved]) ++ Input) args}
+    (emitted : emitAt? cfg index op operands = some target) :
+    operations (target.block .header) = (operations (cfg.block .header)).eraseIdx index :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.AfterReorder.Second.Emit.emitAt?_operations emitted
+
 /-- Replay uses the checked handoff from the exact first emission and then
 edits that CFG. -/
 theorem replay?_spec (accepted : replay? g first consumerOrigin = some moved) :
