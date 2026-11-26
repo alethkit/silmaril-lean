@@ -33,6 +33,30 @@ def eval_ok():
 def eval_fail():
     choose(f, mark(1, 0)); mark(2, 0)
     return 7
+def branch_first():
+    if mark(1, True) or mark(90, False):
+        return mark(2, 7)
+    elif mark(91, True):
+        mark(92, 0)
+    return mark(93, 0)
+def branch_elif():
+    if mark(1, False):
+        mark(90, 0)
+    elif mark(3, True) if mark(2, True) else mark(91, False):
+        return mark(4, 7)
+    elif mark(92, True):
+        mark(93, 0)
+    return mark(94, 0)
+def branch_fail():
+    if mark(1, False):
+        mark(90, 0)
+    elif choose(f, mark(2, 0)):
+        mark(91, 0)
+    elif mark(92, True):
+        mark(93, 0)
+    else:
+        mark(94, 0)
+    return mark(95, 0)
 `
 	cases := []struct {
 		name    string
@@ -60,6 +84,12 @@ def eval_fail():
 		{"conditional-condition-error-masks-arm-effects", "mark(2, 7) if choose(f, mark(1, 0)) else mark(3, 99)",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1]"}},
 		{"conditional-selected-error-masks-other-arm-effects", "mark(3, 99) if mark(1, False) else choose(f, mark(2, 0))",
+			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1, 2]"}},
+		{"if-effects-skip-short-circuit-and-later-elifs", "branch_first()",
+			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2]"}},
+		{"elif-condition-effects-before-suite", "branch_elif()",
+			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4]"}},
+		{"elif-error-retains-effects-and-masks-later-tests", "branch_fail()",
 			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[1, 2]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},

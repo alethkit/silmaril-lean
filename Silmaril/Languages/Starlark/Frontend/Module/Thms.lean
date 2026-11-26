@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Frontend.Module.Defs
 public import Silmaril.Languages.Starlark.Modules.Resolve.Thms
+import Silmaril.Proofs.Languages.Starlark.Frontend.Module.Branch
 import Silmaril.Proofs.Languages.Starlark.Frontend.Module.CallArguments
 
 public section
@@ -103,5 +104,22 @@ theorem denoteConditional_order (program : Functions.Program) (available : List 
       | .error error next => .error error next :=
   Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteConditional_order
     program available bodyMeaning test yes no state
+
+/-- A resolved statement tests its expression once, then executes only the
+selected suite from the resulting state. An `elif` lives in the false suite,
+so an earlier true or failing test skips it. -/
+theorem denoteBranchExpr_order (program : Functions.Program) (available : List Functions.DeclarationId)
+    (test : Functions.Lowering.Expr) (yes no : Functions.Body) (state : Lists.State) :
+    Functions.denoteBody program available (.branchExpr test yes no) state =
+      match denoteExprWith program available
+          (fun plan next => Functions.denoteBody program
+            (Functions.withoutDeclaration available plan.id) plan.body next)
+          test state with
+      | .ok value next =>
+        match Lists.Iteration.truth value next with
+        | .ok flag after => Functions.denoteBody program available (if flag then yes else no) after
+        | .error error after => .error error after
+      | .error error next => .error error next :=
+  Silmaril.Proofs.Languages.Starlark.Frontend.Module.denoteBranchExpr_order program available test yes no state
 
 end Silmaril.Languages.Starlark.Frontend.Module

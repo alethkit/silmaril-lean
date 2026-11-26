@@ -101,13 +101,13 @@ structure LocatedImport where
   exported : LocatedString
   localName : LocatedString
 
-/-- Module function suites retain calls at statement, assignment, and return roots. -/
+/-- Module function suites retain expressions with applications, including branch tests. -/
 inductive FunctionStmt where
   | scalar (stmt : SourceStmt)
   | returnCall (value : CallOperand)
   | assignCall (target : String) (value : CallOperand)
   | evalCall (value : CallOperand)
-  | branch (test : SourceExpr) (yes no : List (LocatedStmt FunctionStmt))
+  | branch (test : CallOperand) (yes no : List (LocatedStmt FunctionStmt))
 
 /-- The source forms consumed by the normalized module adapter. -/
 inductive FileCommand where
@@ -333,18 +333,19 @@ private def finishSmallStmt (s : Stream) : Except Diagnostic (Bool × Stream) :=
   | .symbol ";" => .ok (false, s.pop)
   | _ => expect "a semicolon or end of line" s
 
-private structure SuiteGrammar (Stmt : Type) where
+private structure SuiteGrammar (Stmt Test : Type) where
   small : Nat → Bool → Stream → Except Diagnostic (Stmt × Stream)
-  branch : SourceExpr → List (LocatedStmt Stmt) → List (LocatedStmt Stmt) → Stmt
+  test : Nat → Stream → Except Diagnostic (Test × Stream)
+  branch : Test → List (LocatedStmt Stmt) → List (LocatedStmt Stmt) → Stmt
 
-private def scalarSuite : SuiteGrammar SourceStmt :=
-  ⟨parseSmallStmt, fun test yes no => .branch test (sequence yes) (sequence no)⟩
+private def scalarSuite : SuiteGrammar SourceStmt SourceExpr :=
+  ⟨parseSmallStmt, fun fuel => parseExpr fuel 0, fun test yes no => .branch test (sequence yes) (sequence no)⟩
 
 -- The block loop consumes one statement or newline per iteration. Each descent
 -- into a branch suite consumes the heading and its layout tokens.
 mutual
 
-private def parseBlock {Stmt : Type} (grammar : SuiteGrammar Stmt) (exprFuel : Nat) (inFunction : Bool) :
+private def parseBlock {Stmt Test : Type} (grammar : SuiteGrammar Stmt Test) (exprFuel : Nat) (inFunction : Bool) :
     Nat → Bool → Stream → List (LocatedStmt Stmt) → Except Diagnostic (List (LocatedStmt Stmt) × Stream)
   | 0, _, s, _ => failAt .exhausted s
   | fuel + 1, lineStart, s, statements => do
@@ -366,7 +367,7 @@ private def parseBlock {Stmt : Type} (grammar : SuiteGrammar Stmt) (exprFuel : N
       let (lineStart, next) ← finishSmallStmt rest
       parseBlock grammar exprFuel inFunction fuel lineStart next statements
 
-private def parseSuite {Stmt : Type} (grammar : SuiteGrammar Stmt) (exprFuel : Nat) :
+private def parseSuite {Stmt Test : Type} (grammar : SuiteGrammar Stmt Test) (exprFuel : Nat) :
     Nat → Stream → Except Diagnostic (List (LocatedStmt Stmt) × Stream)
   | 0, s => failAt .exhausted s
   | fuel + 1, s => do
@@ -381,11 +382,11 @@ private def parseSuite {Stmt : Type} (grammar : SuiteGrammar Stmt) (exprFuel : N
       return (body, rest.pop)
     | _ => failAt (.unsupported .inlineSuite) s
 
-private def parseBranch {Stmt : Type} (grammar : SuiteGrammar Stmt) (exprFuel : Nat) :
+private def parseBranch {Stmt Test : Type} (grammar : SuiteGrammar Stmt Test) (exprFuel : Nat) :
     Nat → Stream → Except Diagnostic (Stmt × Stream)
   | 0, s => failAt .exhausted s
   | fuel + 1, s => do
-    let (test, afterTest) ← parseExpr exprFuel 0 s.pop
+    let (test, afterTest) ← grammar.test exprFuel s.pop
     let (yes, rest) ← parseSuite grammar exprFuel fuel (← consumeSymbol ":" afterTest)
     let (no, rest) ← match rest.peek.kind with
       | .keyword "elif" => do
@@ -446,7 +447,7 @@ private def parseParameters (exprFuel : Nat) (allowDefaults : Bool) :
       | .symbol ")" => return (parameters.reverse, rest.pop)
       | _ => expect "',' or ')'" rest
 
-private def parseFunctionAt {Stmt : Type} (grammar : SuiteGrammar Stmt)
+private def parseFunctionAt {Stmt Test : Type} (grammar : SuiteGrammar Stmt Test)
     (fuel : Nat) (allowDefaults : Bool) (s : Stream) :
     Except Diagnostic (LocatedFunction Stmt × Stream) := do
   unless s.peek.kind = .keyword "def" do return ← expect "'def'" s
@@ -645,11 +646,14 @@ termination_by structural fuel _ _ => fuel
 
 end
 
+private def parseModuleExpr (exprFuel : Nat) (s : Stream) : Except Diagnostic (CallOperand × Stream) :=
+  parseCallOperand exprFuel (4 * exprFuel) s
+
 private def parseRootCall (exprFuel : Nat) (s : Stream) :
     Except Diagnostic (Option (CallOperand × Stream)) := do
   match s.peek.kind with
   | .name _ | .integer _ | .symbol "(" | .symbol "+" | .symbol "-" | .keyword "not" =>
-    match parseCallOperand exprFuel (4 * exprFuel) s with
+    match parseModuleExpr exprFuel s with
     | .ok (.scalar _, _) => return none
     | .ok (value, rest) =>
       if hasExprSuffix rest then failAt (.unsupported .call) rest
@@ -675,8 +679,8 @@ private def parseFunctionSmall (exprFuel : Nat) (inFunction : Bool) (s : Stream)
   let (stmt, rest) ← parseSmallStmt exprFuel inFunction s
   return (.scalar stmt, rest)
 
-private def moduleSuite : SuiteGrammar FunctionStmt :=
-  ⟨parseFunctionSmall, .branch⟩
+private def moduleSuite : SuiteGrammar FunctionStmt CallOperand :=
+  ⟨parseFunctionSmall, parseModuleExpr, .branch⟩
 
 private def parseFileSmall (exprFuel : Nat) (s : Stream) : Except Diagnostic (FileCommand × Stream) := do
   match s.remaining with
