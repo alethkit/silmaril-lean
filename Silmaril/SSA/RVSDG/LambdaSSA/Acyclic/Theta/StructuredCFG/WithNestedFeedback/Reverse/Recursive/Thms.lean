@@ -40,6 +40,16 @@ theorem scan_append {args middle outs : Ports (OrderedRuntime.Structured.Ty τ)}
     scan (append next first).1 = (do let xs ← scan p; let ys ← scan q; pure (xs ++ ys)) :=
   Proofs.scan_append first next
 
+omit [DecidableEq τ] [DecidableEq Φ] in
+theorem weight_append (p q : Layout τ Φ) : weight (p ++ q) = weight p + weight q :=
+  Proofs.weight_append p q
+
+omit [DecidableEq τ] [DecidableEq Φ] in
+theorem scan_route_free (n : Normal Φ A X Z L E D sigs) {labels : Layout τ Φ}
+    (scanned : scan n.toSyntax.code.1 = some labels) (h e m d : τ) :
+    Entry.route h e m d ∉ labels :=
+  Proofs.scan_route_free n scanned h e m d
+
 omit [DecidableEq Φ] in
 theorem scan_parse_generated (n : Normal Φ A X Z L E D sigs) (h : n.Supported) :
     ∃ labels, scan n.toSyntax.code.1 = some labels ∧
