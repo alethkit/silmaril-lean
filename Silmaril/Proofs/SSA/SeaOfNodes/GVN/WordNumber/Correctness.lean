@@ -39,6 +39,11 @@ theorem matches_eq {lhs other : Key args} (matched : lhs.matches other = true) :
       rw [of_decide_eq_true matched.1.1, ihL matched.1.2, ihR matched.2]
     | argument _ | literal _ => cases matched
 
+theorem matches_self (key : Key args) : key.matches key = true := by
+  induction key with
+  | argument | literal => simp [Key.matches]
+  | binary op first second ihFirst ihSecond => simp [Key.matches, ihFirst, ihSecond]
+
 private theorem run_agrees {entry : Tuple (Val model.value) args}
     {keys : Tuple (Val (numbering args).value) args}
     {locals : Locals (Val model.value) past} {numbered : Locals (Val (numbering args).value) past}

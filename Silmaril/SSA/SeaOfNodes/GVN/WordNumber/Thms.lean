@@ -18,6 +18,9 @@ producer tree. The check uses no runtime valuation. -/
 theorem Key.eq_of_matches {lhs rhs : Key args} (matched : lhs.matches rhs = true) : lhs = rhs :=
   Proofs.SSA.SeaOfNodes.GVN.WordNumber.matches_eq matched
 
+theorem Key.matches_self (key : Key args) : key.matches key = true :=
+  Proofs.SSA.SeaOfNodes.GVN.WordNumber.matches_self key
+
 /-- Native evaluation by structural keys respects all word reads, including
 when extending a previously numbered prefix. -/
 theorem eval_agrees (flow : Dataflow Opcode args past sigs)
