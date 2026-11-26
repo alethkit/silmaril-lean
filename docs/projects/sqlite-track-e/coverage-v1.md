@@ -31,13 +31,13 @@ recipe. [Source extraction](../sqlite-track-a/header-inventory/README.md)
 | Core | `Silmaril.Machine.SQLite.Core.All` | Re-exports Interface, SQL Command Processor and Virtual Machine. |
 | Interface | `Silmaril.Machine.SQLite.Interface.Thms` | `Interface.Connection`, `Session` and `Prepared` reuse D3 state. `prepare_bind_execute` combines successful text preparation, slot-one binding and compiled execution with the exact D3 prepared result and post-connection. `execute_iff` gives the D3 invocation relation under parsed-text and compatibility premises. `execute_cold_warm` has the additional storage premises below. [Public C API source][api] · [Prepare][prepare] · [Bind and step][vdbeapi] |
 | SQL Command Processor | `Silmaril.Machine.SQLite.CommandProcessor.Execute.Thms` | `CommandProcessor.prepare_iff` characterizes successful preparation through the parser and D3 planner. `execute_iff` relates one complete execution to `CatalogExecutor.denote`, including D3 scope, resolution and bind outcomes. Valid lexical/grammar representation and VM compatibility restrict the theorem. |
-| Virtual Machine | `Silmaril.Machine.SQLite.VirtualMachine.Thms`, `.VirtualMachine.Traced.Thms`, `.VirtualMachine.Mutable.Thms`, `.VirtualMachine.Concurrent.Thms` (same prefix) | `VirtualMachine.step_iff`, `run_trace` and `pointProgram_lookup` cover fixed code and a supplied rowid snapshot. The added views prove ordered trace preservation, preconditions over eligible snapshots, a string-code rewrite simulation, and finite scheduler correspondence. [VDBE source][vdbe] |
+| Virtual Machine | `Silmaril.Machine.SQLite.VirtualMachine.Thms`, `.VirtualMachine.Traced.Thms`, `.VirtualMachine.Mutable.Thms`, `.VirtualMachine.Concurrent.Thms` (same prefix) | `VirtualMachine.step_iff`, `run_trace` and `pointProgram_lookup` cover fixed code and a supplied rowid snapshot. The traced VM records ordered events and `Traced.runWithTrace_result` preserves the fixed-code run result. The other laws cover preconditions over eligible snapshots, a string-code rewrite simulation, and finite scheduler correspondence. [VDBE source][vdbe] |
 | SQL Compiler | `Silmaril.Machine.SQLite.Compiler.All` | Re-exports Tokenizer, Parser and Code Generator. |
 | Tokenizer | `Silmaril.Machine.SQLite.Tokenizer.Thms` | `Tokenizer.tokenize_iff` characterizes complete lexical success for the admitted ASCII tokens. `lexes_render` has a canonical-token premise. [SQLite tokenizer][tokenize] |
 | Parser | `Silmaril.Machine.SQLite.Parser.Thms` | `Parser.parse_iff` checks complete grammar recognition and `represents_print` checks printing for a well-formed two-name AST. [SQLite grammar][grammar] |
 | Code Generator | `Silmaril.Machine.SQLite.CodeGenerator.Bytecode.Thms` | `CodeGenerator.prepare_iff` gives the D3 resolution/admission relation. `run_compile` gives exactly the label and optional looked-up cell, assuming the supplied VM table represents the target when the parameter is bound. An unbound plan yields an empty result without entering the VM. [SELECT lowering][select] · [WHERE lowering][where] |
 | Backend | `Silmaril.Machine.SQLite.Backend.All` | Re-exports B-Tree, Pager and OS Interface. |
-| B-Tree | `Silmaril.Machine.SQLite.BTree.Thms` | `BTree.opened_read` relates the named, live, granted read to both typed interpreters. `catalog_cold_warm` connects one designated leaf's acquired bytes to a numbered-page lookup, D4 batch, and storage-erased D3 result. [SQLite B-tree][btree] |
+| B-Tree | `Silmaril.Machine.SQLite.BTree.Thms` | `BTree.opened_read` relates the named, live, granted read to both typed interpreters. `catalog_cold_warm` connects a caller-designated, admitted packed 512-byte rowid leaf to a numbered-page lookup, ordered D4 batch and storage-erased D3 result. The lookup yields an integer on a hit and no row on a miss. [SQLite B-tree][btree] |
 | Pager | `Silmaril.Machine.SQLite.Pager.Thms` | `Pager.observeInsert_ofAccess`, `commit_reopens` and `sync_failure_preserves_database` describe the admitted one-slot insert and retirement. Re-exports A's handled read agreement. [SQLite Pager][pager] |
 | OS Interface | `Silmaril.Machine.SQLite.VFS.Thms` | `VFS.open_success` identifies the live named handle, mode and file-map frame. `open_error_preserves` preserves the map on rejection. Re-exports the modeled read-only and read-write handler laws. [VFS ABI][api] · [Dispatch][os] |
 | Accessories | `Silmaril.Machine.SQLite.Accessories.All` | Re-exports Utilities and Test Code. |
@@ -68,19 +68,25 @@ or individual checked regressions. **Unmodeled** lists gaps in this integration.
 ### Compiled execution and file reads
 
 `Interface.execute_cold_warm` uses one D3 binding and resolved target. The caller
-supplies `Bridge.Bound` and `Bridge.ColdLeaf`: a classified invocation, successful
-resolution, slot-one signed key, chosen page, live readable range, owned vacant
-slot, image/backing agreement, and successful leaf decoding. `Bridge.Projected`
-requires that the second field read by the D4 path agrees with D3 at the bound
-key. The compiler address must supply that same decoded table, with its ordered
-rowids and present selected cells paired to the D3 rows by
-`CodeGenerator.EntryRepresents`.
+supplies `Bridge.Bound` and `Bridge.ColdLeaf` for a classified invocation,
+successful resolution, slot-one signed key, caller-designated packed 512-byte
+rowid leaf, live readable range, owned vacant slot, image/backing agreement, and
+successful leaf decoding. `Bridge.Projected` requires that the second field read
+by D4 agrees with D3 at the bound key. The leaf decoder admits an integer in
+that field, so this storage profile returns an integer on a hit and no row on a
+miss. The compiler address supplies that same decoded table, with ordered
+rowids and actual selected cells paired to D3 rows by
+`CodeGenerator.EntryRepresents`. The broader compiler snapshot contract
+also covers hits with a present SQL NULL.
+[Leaf decoder](../../../Silmaril/Formats/Sqlite/TableLeaf/Defs.lean) ·
+[Compiler guide](../sqlite-point-select.md)
 
-Under those premises the one-shot VM reply equals the D4 read result and
-post-connection after storage erasure. The two D4 calls keep their actual
-backing, installed slot and single valid full-page exchange. The VM runs on the
-supplied table snapshot. The representative rollback-journal insert is a
-separate Pager observation and has separate write-access premises.
+The VM runs once on the supplied table snapshot. Its reply agrees with each
+D4 call's result and post-connection after storage erasure. The D4 batch
+retains both calls in order, with the actual backing and installed slot, one valid
+full-page exchange on the cold read, and no additional exchange on the warm
+read. The representative rollback-journal insert has separate Pager
+observations and write-access premises.
 [Interface theorem](../../../Silmaril/Machine/SQLite/Interface/Thms.lean) ·
 [Backend theorem](../../../Silmaril/Machine/SQLite/BTree/Thms.lean) ·
 [D4 handoff](../sqlite-track-d/handoff-v1.md)
