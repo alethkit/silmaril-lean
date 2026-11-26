@@ -198,4 +198,178 @@ example (choice : Bool) {dst : Config Nat} : ¬ Step CallFrame.v1NoHost (cfg (se
 example : Sequence.check fn (Prefix.stackTypes fn.initial)
     [seq.first, { segment with site := { second with signature := ⟨[.int .i64], [.int .i32]⟩ } }] = false := rfl
 
+
+namespace EnclosingTail
+
+private def savedPrefix : List Value := [Value.int .i64 42]
+private def nextType : Wasm.V1.FuncType := ⟨[.int .i64, .int .i32], [.int .i32]⟩
+private def nextSite : HostCall.V1.Site Nat := { second with signature := nextType }
+private def entryFn : Function := { fn with initial := savedPrefix, code := [] }
+private def entry : Sequence Nat := ⟨⟨⟨0⟩, rootAddr, entryFn, [.get ⟨0⟩], first⟩, []⟩
+private def scalar : Option NumType := some (.int .i32)
+private def tailRegion : Source Nat := .hosts ⟨[], nextSite⟩ []
+private def arm : Source Nat := .ifThen scalar ⟨0⟩ .root (.hosts ⟨[.get ⟨0⟩], first⟩ []) (.plain [])
+private def body : Source Nat := .blockThen scalar arm tailRegion
+private def allocation : Store Nat :=
+  { funcs := [.host hostType 11, .host nextType 19, .wasm entryFn.declaration.type mod (entry.v1FuncFor body)],
+    memories := [initial] }
+private def stored (bytes : ByteArray) := storeWithBytes allocation slot initial bytes
+private def innerLabel : OpenLabel Nat := ⟨[], scalar, .plain []⟩
+private def outerLabel : OpenLabel Nat := ⟨savedPrefix, scalar, tailRegion⟩
+private def labels := [innerLabel, outerLabel]
+
+private def behavior : HostSemantics Nat := fun id store operands answer =>
+  (id = first.target ∧ store = stored initial.data ∧ operands = rootArgs ∧
+    ((∃ choice : Bool, answer = .returned (stored (firstBytes choice)) (.values [firstValue choice])) ∨
+      answer = .returned (stored (firstBytes true)) .trap)) ∨
+  ∃ choice : Bool, id = nextSite.target ∧ store = stored (firstBytes choice) ∧
+    operands = savedPrefix ++ [firstValue choice] ∧
+    (answer = .returned store (.values [i32 (word choice)]) ∨ answer = .diverged)
+
+private theorem siteOf {site : HostCall.V1.Site Nat} (used : site ∈ entry.sourceSites body) :
+    site = first ∨ site = nextSite := by
+  change site ∈ [first, first, nextSite] at used
+  simpa using used
+
+private theorem admitted : entry.Checked .fixed graph slot .ranked allocation caller rootArgs body where
+  resolved := rfl
+  allocated := rfl
+  parameters := rfl
+  scalar := by decide
+  slot := rfl
+  linkedHosts := by
+    intro site used
+    rcases siteOf used with rfl | rfl <;> exact ⟨rfl, rfl, by decide⟩
+  typedBody := rfl
+  guardedBody := by
+    refine ⟨trivial, ?_, trivial, trivial⟩
+    intro _ member
+    cases member
+  supportedTail := rfl
+  linkedTail := by intro _ used; cases used
+
+private theorem storeLayout : Layout graph allocation slot initial where
+  memory := rfl
+  functions := by intro _ _ found; simp [graph, Program.lookup] at found
+
+private theorem embedding : entry.Contract behavior .fixed slot initial allocation body := by
+  intro site used bytes _ operands _ after result outcome
+  have signature : site.signature.results = [.int .i32] := by rcases siteOf used with rfl | rfl <;> rfl
+  rcases outcome with ⟨_, store, _, ⟨choice, equal⟩ | trap⟩ | ⟨choice, _, store, _, equal | impossible⟩
+  · cases equal
+    rw [store, signature]
+    cases choice
+    · exact ⟨rfl, initial.data, firstBytes false, rfl, rfl, rfl⟩
+    · exact ⟨rfl, initial.data, firstBytes true, rfl, rfl, rfl⟩
+  · cases trap
+    rw [store]
+    exact ⟨trivial, initial.data, firstBytes true, rfl, rfl, rfl⟩
+  · cases equal
+    rw [store, signature]
+    cases choice
+    · exact ⟨rfl, firstBytes false, firstBytes false, rfl, rfl, rfl⟩
+    · exact ⟨rfl, firstBytes true, firstBytes true, rfl, rfl, rfl⟩
+  · cases impossible
+
+private abbrev TailRuns := entry.Runs behavior .fixed graph slot allocation initial initial.data caller rootArgs
+private abbrev renderPhase := entry.render allocation slot initial initial.data caller rootArgs
+private def launch : Config Nat := ⟨stored initial.data, caller, values rootArgs ++ [.source (.call ⟨0⟩)]⟩
+private def inside := entryFn.declaration.frame rootArgs
+
+private theorem tailReady {phase : Phase} (run : TailRuns (.call body) phase) :
+    entry.Ready .fixed graph slot .ranked initial phase body := by
+  induction run with
+  | refl => rfl
+  | tail _ move ih => exact move.ready rfl admitted storeLayout rfl embedding ih
+
+private theorem nativeTail {phase : Phase} (run : TailRuns (.call body) phase) :
+    Steps behavior launch (renderPhase phase) :=
+  (Sequence.v1_call_run_iff rfl admitted storeLayout trivial rfl embedding).mpr ⟨phase, run, tailReady run, rfl⟩
+
+private theorem entersArm :
+    TailRuns (.call body) (.pending initial.data [] rootArgs first [] labels) := by
+  have opens : TailRuns (.call body) (.if_ initial.data [] scalar ⟨0⟩ .root
+      (.hosts ⟨[.get ⟨0⟩], first⟩ []) (.plain []) [outerLabel]) :=
+    ((Relation.ReflTransGen.single .resolve).tail .enter).tail .openBlock
+  have selects : TailRuns (.call body) (.block initial.data [] scalar .root (.plain []) [outerLabel]) :=
+    (opens.tail (.readCondition rfl)).tail .select
+  exact ((selects.tail .openBlock).tail (.numeric (.get rfl))).tail (.hostResolve rfl)
+
+private def nextPending (choice : Bool) : Phase :=
+  .pending (firstBytes choice) [] (savedPrefix ++ [firstValue choice]) nextSite []
+
+private theorem reachesTail (choice : Bool) : TailRuns (.call body) (nextPending choice) := by
+  have returned : behavior first.target (stored initial.data) rootArgs
+      (.returned (stored (firstBytes choice)) (.values [firstValue choice])) :=
+    .inl ⟨rfl, rfl, rfl, .inl ⟨choice, rfl⟩⟩
+  have inner : TailRuns (.call body) (.completed (firstBytes choice) [firstValue choice] innerLabel [outerLabel]) :=
+    entersArm.tail (.returned returned rfl)
+  have outer : TailRuns (.call body) (.completed (firstBytes choice) [firstValue choice] outerLabel []) :=
+    inner.tail (.closeLabel rfl)
+  exact (outer.tail (.closeLabel rfl)).tail
+    (.hostResolve (saved := []) (actual := savedPrefix ++ [firstValue choice]) (site := nextSite) rfl)
+
+-- Both the mixed-width saved prefix and the arm result are consumed by
+-- the distinct host in the enclosing continuation, using the returned bytes.
+example (choice : Bool) : Steps behavior launch
+    ⟨stored (firstBytes choice), caller, [.frame 1 inside
+      [.label 1 [] (values (savedPrefix ++ [firstValue choice]) ++ [.invoke nextSite.address])]]⟩ :=
+  nativeTail (reachesTail choice)
+
+example (choice : Bool) : Steps behavior launch ⟨stored (firstBytes choice), caller, values [i32 (word choice)]⟩ := by
+  have returned : behavior nextSite.target (stored (firstBytes choice)) (savedPrefix ++ [firstValue choice])
+      (.returned (stored (firstBytes choice)) (.values [i32 (word choice)])) :=
+    .inr ⟨choice, rfl, rfl, rfl, .inl rfl⟩
+  have deliver := (reachesTail choice).tail (.returned returned rfl)
+  exact nativeTail ((deliver.tail (.graph (.frame (.pure (.labelDone 1 [] [i32 (word choice)])) 1 caller)))
+    |>.tail (.graph (.pure (.frameDone 1 inside [i32 (word choice)] rfl))))
+
+-- Divergence at the resumed host still steps to the same pending call.
+example (choice : Bool) : Step behavior (renderPhase (nextPending choice)) (renderPhase (nextPending choice)) := by
+  exact .frame (.label (.invokeHostDiverges _ _ nextSite.address nextType nextSite.target
+    (savedPrefix ++ [firstValue choice]) rfl rfl (.inr ⟨choice, rfl, rfl, rfl, .inr rfl⟩)) 1 []) 1 caller
+
+-- In an embedding with no outcome, this pending invocation has no native step.
+example (choice : Bool) {dst : Config Nat} : ¬ Step CallFrame.v1NoHost (renderPhase (nextPending choice)) dst := by
+  intro move
+  have blocked : entry.Contract CallFrame.v1NoHost .fixed slot initial allocation body :=
+    fun _ _ _ _ _ _ _ _ outcome => outcome.elim
+  obtain ⟨_, transition, _, _⟩ :=
+    (Sequence.v1_step_iff rfl admitted storeLayout trivial rfl blocked (tailReady (reachesTail choice))).mp move
+  cases transition with
+  | returned outcome _ => exact outcome
+  | diverged outcome => exact outcome
+
+private def trapped : Phase := .trapped (firstBytes true) [] [] labels
+
+private theorem armTrap : TailRuns (.call body) trapped := by
+  have returned : behavior first.target (stored initial.data) rootArgs (.returned (stored (firstBytes true)) .trap) :=
+    .inl ⟨rfl, rfl, rfl, .inr rfl⟩
+  exact entersArm.tail (.returned returned rfl)
+
+-- The inner label closes, then the outer label closes. This exposes the
+-- saved prefix and the pending host instruction to trap cleanup.
+example : Steps behavior launch
+    ⟨stored (firstBytes true), caller, [.frame 1 inside
+      [.label 1 [] (values savedPrefix ++ [.trap, .source (.call nextSite.index)])]]⟩ :=
+  nativeTail ((armTrap.tail .closeTrap).tail .closeTrap)
+
+example : Steps behavior launch ⟨stored (firstBytes true), caller, [.trap]⟩ := by
+  have discarded : TailRuns (.call body) (.trapped (firstBytes true) [] []) :=
+    ((armTrap.tail .closeTrap).tail .closeTrap).tail
+      (.discard (.cut [] savedPrefix ([.source (.call nextSite.index)] : List Admin) [] (Or.inl (by decide))))
+  exact nativeTail ((discarded.tail .closeTrap).tail (.graph (.pure (.frameTrap 1 inside))))
+
+example (run : TailRuns trapped (nextPending true)) : False := by
+  rcases Sequence.trapped_run run with ⟨_, _, _, impossible⟩ | ⟨_, impossible⟩ <;> cases impossible
+
+-- A mismatched enclosing host signature is rejected before arm selection.
+example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
+    (.blockThen scalar arm (.hosts ⟨[], { nextSite with signature := hostType }⟩ [])) = false := rfl
+
+-- A host-free suffix that would lose the typed reentry stack is also rejected.
+example : entry.checkSource (Prefix.stackTypes savedPrefix) entryFn.declaration.results entryFn.entryLabels
+    (.blockThen scalar (.plain [.ranked (.numeric (.get ⟨0⟩))]) tailRegion) = false := rfl
+
+end EnclosingTail
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Memory32.HostEntry.SequenceExamples

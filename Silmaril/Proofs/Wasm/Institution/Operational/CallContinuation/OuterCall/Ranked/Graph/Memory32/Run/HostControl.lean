@@ -19,11 +19,13 @@ open Execution.Runtime (AdminInstr EvalCtx Frame Value)
 open Computed
 open Wasm.V1.Execution
 
-theorem context_code (fn : Function) (args : List Value) (labels : List OpenLabel) (body : List Admin) :
-    (OpenLabel.context fn args labels).plug value body =
-      [.frame fn.declaration.results.length (fn.declaration.frame args)
-        ((OpenLabel.insert fn labels).plug value [.label (OpenLabel.results fn labels).length [] body])] := by
-  simp only [OpenLabel.context, EvalCtx.plug, EvalCtx.plug_comp]
+variable {H : Type}
+
+theorem context_code (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) (body : List Admin) :
+    (seq.context args labels).plug value body =
+      [.frame seq.root.function.declaration.results.length (seq.root.function.declaration.frame args)
+        ((seq.insert labels).plug value [.label (OpenLabel.results seq.root.function labels).length [] body])] := by
+  simp only [Sequence.context, EvalCtx.plug, EvalCtx.plug_comp]
 
 private theorem composed_frame (left right : EvalCtx Wasm.V1.Instr) (f : Frame) :
     (left.comp right).activeFrame f = right.activeFrame (left.activeFrame f) := by
@@ -33,33 +35,33 @@ private theorem composed_frame (left right : EvalCtx Wasm.V1.Instr) (f : Frame) 
   | label _ _ _ ih => exact ih f
   | frame _ fr _ ih => exact ih fr
 
-theorem active_frame (fn : Function) (args : List Value) (labels : List OpenLabel) (outer : Frame) :
-    (OpenLabel.context fn args labels).activeFrame outer = fn.declaration.frame args := by
-  have preserve (labels : List OpenLabel) (f : Frame) :
-      (OpenLabel.insert fn labels).activeFrame f = f := by
+theorem active_frame (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) (outer : Frame) :
+    (seq.context args labels).activeFrame outer = seq.root.function.declaration.frame args := by
+  have preserve (labels : List (OpenLabel H)) (f : Frame) :
+      (seq.insert labels).activeFrame f = f := by
     induction labels with
     | nil => rfl
     | cons label rest ih =>
-      simp only [OpenLabel.insert, composed_frame, EvalCtx.activeFrame, ih]
-  simp only [OpenLabel.context, EvalCtx.activeFrame, composed_frame, preserve]
+      simp only [Sequence.insert, composed_frame, EvalCtx.activeFrame, ih]
+  simp only [Sequence.context, EvalCtx.activeFrame, composed_frame, preserve]
 
-theorem open_code (fn : Function) (args : List Value) (labels : List OpenLabel)
-    (label : OpenLabel) (body : List Admin) :
-    (OpenLabel.context fn args (label :: labels)).plug value body =
-      (OpenLabel.context fn args labels).plug value
-        (values label.saved ++ .label label.block.result.toList.length [] body :: label.tail) := by
-  simp only [context_code, OpenLabel.insert, EvalCtx.plug_comp, EvalCtx.plug,
+theorem open_code (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
+    (label : OpenLabel H) (body : List Admin) :
+    (seq.context args (label :: labels)).plug value body =
+      (seq.context args labels).plug value
+        (values label.saved ++ .label label.result.toList.length [] body :: (seq.tailCode label)) := by
+  simp only [context_code, Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug,
     OpenLabel.results, List.head?_cons, Option.map_some, Option.getD_some, List.append_assoc, List.singleton_append, values]
 
-private theorem inserted_head (fn : Function) (labels : List OpenLabel) (n : Nat) (body : List Admin) :
-    ∃ m inside, firstRedex ((OpenLabel.insert fn labels).plug value [.label n [] body]) = some (.label m [] inside) := by
+private theorem inserted_head (seq : Sequence H) (labels : List (OpenLabel H)) (n : Nat) (body : List Admin) :
+    ∃ m inside, firstRedex ((seq.insert labels).plug value [.label n [] body]) = some (.label m [] inside) := by
   induction labels generalizing n body with
-  | nil => exact ⟨n, body, by simp [OpenLabel.insert, EvalCtx.plug]⟩
+  | nil => exact ⟨n, body, by simp [Sequence.insert, EvalCtx.plug]⟩
   | cons label rest ih =>
-    simp only [OpenLabel.insert, EvalCtx.plug_comp, EvalCtx.plug]
+    simp only [Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug]
     exact ih _ _
 
-private theorem label_in_sequence {H : Type} {host : HostSemantics H} {s s' : Store H} {f f' : Frame}
+private theorem label_in_sequence {host : HostSemantics H} {s s' : Store H} {f f' : Frame}
     {saved : List Value} {n : Nat} {body tail out : List Admin} :
     Step host ⟨s, f, values saved ++ [.label n [] body] ++ tail⟩ ⟨s', f', out⟩ ↔
       ∃ code, Step host ⟨s, f, [.label n [] body]⟩ ⟨s', f', code⟩ ∧ out = values saved ++ code ++ tail := by
@@ -75,78 +77,78 @@ private theorem label_in_sequence {H : Type} {host : HostSemantics H} {s s' : St
   · rintro ⟨code, move, rfl⟩
     exact .context move saved tail
 
-private theorem insert_step {H : Type} {host : HostSemantics H} {s s' : Store H}
-    {f f' : Frame} (fn : Function) (labels : List OpenLabel) {n : Nat} {body out : List Admin} :
-    Step host ⟨s, f, (OpenLabel.insert fn labels).plug value [.label n [] body]⟩ ⟨s', f', out⟩ ↔
+private theorem insert_step {host : HostSemantics H} {s s' : Store H}
+    {f f' : Frame} (seq : Sequence H) (labels : List (OpenLabel H)) {n : Nat} {body out : List Admin} :
+    Step host ⟨s, f, (seq.insert labels).plug value [.label n [] body]⟩ ⟨s', f', out⟩ ↔
       ∃ code, Step host ⟨s, f, [.label n [] body]⟩ ⟨s', f', code⟩ ∧
-        out = (OpenLabel.insert fn labels).plug value code := by
+        out = (seq.insert labels).plug value code := by
   induction labels generalizing n body with
   | nil => exact ⟨fun move => ⟨out, move, rfl⟩, fun ⟨_, move, rfl⟩ => move⟩
   | cons label rest ih =>
-    simp only [OpenLabel.insert, EvalCtx.plug_comp, EvalCtx.plug]
+    simp only [Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug]
     rw [ih]
     constructor
     · rintro ⟨code, move, eq⟩
       rcases move.label_inv (p := []) (q := []) rfl with ⟨inside, step, codeEq⟩ | ⟨_, pure, _, _, _⟩
-      · obtain ⟨inner, localStep, insideEq⟩ := (label_in_sequence (saved := label.saved) (n := n) (body := body) (tail := label.tail)).mp step
+      · obtain ⟨inner, localStep, insideEq⟩ := (label_in_sequence (saved := label.saved) (n := n) (body := body) (tail := (seq.tailCode label))).mp step
         subst inside
         change code = _ at codeEq
         simp only [values, List.map_nil, List.nil_append] at codeEq
-        exact ⟨inner, localStep, eq.trans (congrArg ((OpenLabel.insert fn rest).plug value) codeEq)⟩
-      · have head : firstRedex (values label.saved ++ [.label n [] body] ++ label.tail) = some (.label n [] body) := by
+        exact ⟨inner, localStep, eq.trans (congrArg ((seq.insert rest).plug value) codeEq)⟩
+      · have head : firstRedex (values label.saved ++ [.label n [] body] ++ (seq.tailCode label)) = some (.label n [] body) := by
           simp
         exact (pure.not_callHead_label rfl head (.label n [] body)).elim
     · rintro ⟨code, move, rfl⟩
-      exact ⟨_, .label (.context move label.saved label.tail) _ [], rfl⟩
+      exact ⟨_, .label (.context move label.saved (seq.tailCode label)) _ [], rfl⟩
 
 /-- Peel the real enclosing labels to use the exact rule of the innermost
 label. Replacing that label retains each enclosing operand prefix and tail. -/
-theorem scoped_step {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel) {body : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value body⟩ dst ↔
+theorem scoped_step {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {body : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, (seq.context args labels).plug value body⟩ dst ↔
       ∃ nextStore nextFrame code,
-        Step host ⟨s, outer, [.frame (OpenLabel.results fn labels).length (fn.declaration.frame args)
-          [.label (OpenLabel.results fn labels).length [] body]]⟩
-          ⟨nextStore, outer, [.frame (OpenLabel.results fn labels).length nextFrame code]⟩ ∧
-        dst = ⟨nextStore, outer, [.frame fn.declaration.results.length nextFrame
-          ((OpenLabel.insert fn labels).plug value code)]⟩ := by
+        Step host ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length (seq.root.function.declaration.frame args)
+          [.label (OpenLabel.results seq.root.function labels).length [] body]]⟩
+          ⟨nextStore, outer, [.frame (OpenLabel.results seq.root.function labels).length nextFrame code]⟩ ∧
+        dst = ⟨nextStore, outer, [.frame seq.root.function.declaration.results.length nextFrame
+          ((seq.insert labels).plug value code)]⟩ := by
   rw [context_code]
   constructor
   · intro step
     obtain ⟨same, within | ⟨_, pure, _, _⟩⟩ := step.frame_inv (p := []) (q := []) rfl
     · obtain ⟨next, body', move, after⟩ := within
-      obtain ⟨code, inner, eq⟩ := (insert_step fn labels).mp move
+      obtain ⟨code, inner, eq⟩ := (insert_step seq labels).mp move
       exact ⟨dst.store, next, code, .frame inner _ outer, by cases dst; simp_all [values]⟩
-    · obtain ⟨n, inside, head⟩ := inserted_head fn labels (OpenLabel.results fn labels).length body
+    · obtain ⟨n, inside, head⟩ := inserted_head seq labels (OpenLabel.results seq.root.function labels).length body
       exact (pure.not_callHead_frame rfl head (.label n [] inside)).elim
   · rintro ⟨s', f', code, move, rfl⟩
     obtain ⟨_, within | ⟨_, pure, _, _⟩⟩ := move.frame_inv (p := []) (q := []) rfl
     · obtain ⟨next, inside, step, eq⟩ := within
       obtain ⟨rfl, rfl⟩ : f' = next ∧ code = inside := by simpa [values] using eq
-      exact .frame ((insert_step fn labels).mpr ⟨code, step, rfl⟩) _ outer
-    · exact (pure.not_callHead_frame rfl (by simp) (.label (OpenLabel.results fn labels).length [] body)).elim
+      exact .frame ((insert_step seq labels).mpr ⟨code, step, rfl⟩) _ outer
+    · exact (pure.not_callHead_frame rfl (by simp) (.label (OpenLabel.results seq.root.function labels).length [] body)).elim
 
-theorem scoped_result {H : Type} {A : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel) {body : List Admin} {dst : Config H}
+theorem scoped_result {A : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {body : List Admin} {dst : Config H}
     (moves : A → Prop) (output : A → List Admin)
-    (atLabel : ∀ target, Step host ⟨s, outer, [.frame (OpenLabel.results fn labels).length
-          (fn.declaration.frame args) [.label (OpenLabel.results fn labels).length [] body]]⟩ target ↔
-      ∃ outcome, moves outcome ∧ target = ⟨s, outer, [.frame (OpenLabel.results fn labels).length
-        (fn.declaration.frame args) (output outcome)]⟩) :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value body⟩ dst ↔
-      ∃ outcome, moves outcome ∧ dst = ⟨s, outer, [.frame fn.declaration.results.length
-        (fn.declaration.frame args) ((OpenLabel.insert fn labels).plug value (output outcome))]⟩ := by
-  rw [scoped_step fn args labels]
+    (atLabel : ∀ target, Step host ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length
+          (seq.root.function.declaration.frame args) [.label (OpenLabel.results seq.root.function labels).length [] body]]⟩ target ↔
+      ∃ outcome, moves outcome ∧ target = ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length
+        (seq.root.function.declaration.frame args) (output outcome)]⟩) :
+    Step host ⟨s, outer, (seq.context args labels).plug value body⟩ dst ↔
+      ∃ outcome, moves outcome ∧ dst = ⟨s, outer, [.frame seq.root.function.declaration.results.length
+        (seq.root.function.declaration.frame args) ((seq.insert labels).plug value (output outcome))]⟩ := by
+  rw [scoped_step seq args labels]
   constructor
   · rintro ⟨next, f, out, step, eq⟩
     obtain ⟨outcome, moved, config⟩ := (atLabel _).mp step
     obtain ⟨rfl, _, same⟩ := Execution.Runtime.Config.mk.inj config
-    obtain ⟨rfl, rfl⟩ : f = fn.declaration.frame args ∧ out = output outcome := by simpa using same
+    obtain ⟨rfl, rfl⟩ : f = seq.root.function.declaration.frame args ∧ out = output outcome := by simpa using same
     exact ⟨outcome, moved, eq⟩
   · rintro ⟨outcome, moved, rfl⟩
     exact ⟨_, _, _, (atLabel _).mpr ⟨outcome, moved, rfl⟩, rfl⟩
 
-private theorem framed_source_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer f : Frame}
+private theorem framed_source_iff {host : HostSemantics H} {s : Store H} {outer f : Frame}
     {n : Nat} {stack : List Value} {instr : Wasm.V1.Instr} {tail after : List Admin} {dst : Config H}
     (nonvalue : asValue? (.source instr) = none) (noBranch : ∀ d, instr ≠ .br d) (noReturn : instr ≠ .return_)
     (localStep : ∀ target, Step host ⟨s, f, values stack ++ .source instr :: tail⟩ target ↔
@@ -164,26 +166,26 @@ private theorem framed_source_iff {H : Type} {host : HostSemantics H} {s : Store
   · rintro rfl
     exact .inl ⟨s, f, after, (localStep _).mpr rfl, rfl⟩
 
-theorem scoped_source_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel)
+theorem scoped_source_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
     {stack : List Value} {instr : Wasm.V1.Instr} {tail after : List Admin} {dst : Config H}
     (nonvalue : asValue? (.source instr) = none) (noBranch : ∀ d, instr ≠ .br d) (noReturn : instr ≠ .return_)
-    (localStep : ∀ target, Step host ⟨s, fn.declaration.frame args, values stack ++ .source instr :: tail⟩ target ↔
-      target = ⟨s, fn.declaration.frame args, after⟩) :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value (values stack ++ .source instr :: tail)⟩ dst ↔
-      dst = ⟨s, outer, (OpenLabel.context fn args labels).plug value after⟩ := by
-  rw [scoped_step fn args labels, context_code]
+    (localStep : ∀ target, Step host ⟨s, seq.root.function.declaration.frame args, values stack ++ .source instr :: tail⟩ target ↔
+      target = ⟨s, seq.root.function.declaration.frame args, after⟩) :
+    Step host ⟨s, outer, (seq.context args labels).plug value (values stack ++ .source instr :: tail)⟩ dst ↔
+      dst = ⟨s, outer, (seq.context args labels).plug value after⟩ := by
+  rw [scoped_step seq args labels, context_code]
   constructor
   · rintro ⟨s', f', code, move, eq⟩
     have same := (framed_source_iff nonvalue noBranch noReturn localStep).mp move
     obtain ⟨rfl, _, frame⟩ := Execution.Runtime.Config.mk.inj same
-    obtain ⟨rfl, rfl⟩ : f' = fn.declaration.frame args ∧ code = [.label (OpenLabel.results fn labels).length [] after] :=
+    obtain ⟨rfl, rfl⟩ : f' = seq.root.function.declaration.frame args ∧ code = [.label (OpenLabel.results seq.root.function labels).length [] after] :=
       by simpa using frame
     exact eq
   · rintro rfl
     exact ⟨_, _, _, (framed_source_iff nonvalue noBranch noReturn localStep).mpr rfl, rfl⟩
 
-private theorem block_step {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+private theorem block_step {host : HostSemantics H} {s : Store H} {f : Frame}
     {saved : List Value} {result : Option NumType} {body : Wasm.V1.Expr}
     {tail : List Admin} {dst : Config H} :
     Step host ⟨s, f, values saved ++ .source (.block result body) :: tail⟩ dst ↔
@@ -208,24 +210,24 @@ private theorem block_step {H : Type} {host : HostSemantics H} {s : Store H} {f 
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context (Step.pure (host := host) s f (.block result body)) saved tail
 
-theorem scoped_block_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel) {stack : List Value}
+theorem scoped_block_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {stack : List Value}
     {result : Option NumType} {body : Wasm.V1.Expr} {tail : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value
+    Step host ⟨s, outer, (seq.context args labels).plug value
       (values stack ++ .source (.block result body) :: tail)⟩ dst ↔
-      dst = ⟨s, outer, (OpenLabel.context fn args labels).plug value
+      dst = ⟨s, outer, (seq.context args labels).plug value
         (values stack ++ .label result.toList.length [] (expression body) :: tail)⟩ :=
-  scoped_source_iff fn args labels rfl (by intro _ h; cases h) (by intro h; cases h) (fun _ => block_step)
+  scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h) (fun _ => block_step)
 
-theorem scoped_get_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel)
+theorem scoped_get_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))
     {stack : List Value} {index : LocalIdx} {v : Value} {tail : List Admin} {dst : Config H}
-    (found : (fn.declaration.frame args).locals[index.toNat]? = some v) :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value (values stack ++ .source (.localGet index) :: tail)⟩ dst ↔
-      dst = ⟨s, outer, (OpenLabel.context fn args labels).plug value (values (stack ++ [v]) ++ tail)⟩ := by
-  apply scoped_source_iff fn args labels rfl (by intro _ h; cases h) (by intro h; cases h)
+    (found : (seq.root.function.declaration.frame args).locals[index.toNat]? = some v) :
+    Step host ⟨s, outer, (seq.context args labels).plug value (values stack ++ .source (.localGet index) :: tail)⟩ dst ↔
+      dst = ⟨s, outer, (seq.context args labels).plug value (values (stack ++ [v]) ++ tail)⟩ := by
+  apply scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
   intro target
-  have exactPrefix := @v1_host_prefix_step_iff H host s (fn.declaration.frame args) stack (.get index) tail target
+  have exactPrefix := @v1_host_prefix_step_iff H host s (seq.root.function.declaration.frame args) stack (.get index) tail target
   constructor
   · intro step
     obtain ⟨answer, reduce, eq⟩ := exactPrefix.mp step
@@ -235,14 +237,14 @@ theorem scoped_get_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer 
   · rintro rfl
     exact exactPrefix.mpr ⟨_, .get found, rfl⟩
 
-theorem scoped_if_iff {H : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
-    (fn : Function) (args : List Value) (labels : List OpenLabel) {stack : List Value} {condition : BitVec 32}
+theorem scoped_if_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {stack : List Value} {condition : BitVec 32}
     {result : Option NumType} {left right : Wasm.V1.Expr} {tail : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, (OpenLabel.context fn args labels).plug value
+    Step host ⟨s, outer, (seq.context args labels).plug value
       (values (stack ++ [Value.int .i32 condition]) ++ .source (.if_ result left right) :: tail)⟩ dst ↔
-      dst = ⟨s, outer, (OpenLabel.context fn args labels).plug value
+      dst = ⟨s, outer, (seq.context args labels).plug value
         (values stack ++ .source (.block result (if condition = 0 then right else left)) :: tail)⟩ := by
-  apply scoped_source_iff fn args labels rfl (by intro _ h; cases h) (by intro h; cases h)
+  apply scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h)
   intro target
   rw [Step.internal_iff_of_not_callout]
   · exact v1_if_select_iff
