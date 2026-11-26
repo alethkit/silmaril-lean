@@ -331,18 +331,23 @@ private theorem base_iso_copies {A B : τ} (e : BaseObj A ≅ BaseObj B)
     simp only [Paper.TypeCategory.pairArrows, whiskerLeft_id, whiskerRight_id, Category.comp_id]
     exact Category.comp_id _
 
-set_option backward.isDefEq.respectTransparency false in
-theorem inverse_mem_iff_pure (X A B : τ) :
-    Mem (guardedDistributorIso pe X A B).hom ↔ ProjectedPureReturn Seed pe (guardedDistributorIso pe X A B).hom := by
-  let e := guardedDistributorIso (Φ := Φ) pe X A B
-  refine ⟨fun h => h.1.1, fun h => ⟨⟨h, ?_⟩, ?_⟩⟩
-  · exact ⟨(distributorIso (Φ := Φ) X A B).hom,
-      base_iso_copies _ (base_distributor_forward_copies X A B), rfl⟩
-  · change e.hom ≫ discardArrow Seed ((X ×ₜ A) ⊕ₜ (X ×ₜ B)) = discardArrow Seed (X ×ₜ (A ⊕ₜ B))
-    apply (cancel_epi e.inv).1
-    rw [← Category.assoc, Iso.inv_hom_id, Category.id_comp]
-    exact (forward_mem pe X A B).2.symm
+theorem inverse_copying_lift (X A B : τ) :
+    ∃ f : BaseObj (X ×ₜ (A ⊕ₜ B)) ⟶ BaseObj ((X ×ₜ A) ⊕ₜ (X ×ₜ B)),
+      CentralCopies f ∧ (P).map f = (guardedDistributorIso pe X A B).hom :=
+  ⟨(distributorIso (Φ := Φ) X A B).hom, base_iso_copies _ (base_distributor_forward_copies X A B), rfl⟩
 
+set_option backward.isDefEq.respectTransparency false in
+theorem inverse_discard (X A B : τ) :
+    (guardedDistributorIso pe X A B).hom ≫ discardArrow Seed ((X ×ₜ A) ⊕ₜ (X ×ₜ B)) =
+      discardArrow Seed (X ×ₜ (A ⊕ₜ B)) := by
+  let e := guardedDistributorIso (Φ := Φ) pe X A B
+  apply (cancel_epi e.inv).1
+  rw [← Category.assoc, Iso.inv_hom_id, Category.id_comp]
+  exact (forward_mem pe X A B).2.symm
+
+theorem inverse_mem_iff_pure (X A B : τ) :
+    Mem (guardedDistributorIso pe X A B).hom ↔ ProjectedPureReturn Seed pe (guardedDistributorIso pe X A B).hom :=
+  ⟨fun h => h.1.1, fun h => ⟨⟨h, inverse_copying_lift pe X A B⟩, inverse_discard pe X A B⟩⟩
 
 open CfgEta.TypeCategory (returnRegion returnRegion_typed)
 open CfgEta.TypeCategory.Retained (distributorRegion)
