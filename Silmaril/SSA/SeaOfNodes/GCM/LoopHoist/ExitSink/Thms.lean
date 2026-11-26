@@ -10,8 +10,8 @@ public section
 namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink
 
 open Silmaril.MLIR.Arith (Env Width)
-open Silmaril.MLIR.CF (Terminator)
-open Loop.MLIR.CF (evalOp)
+open Silmaril.MLIR.CF (Block Terminator)
+open Loop.MLIR.CF (TargetOp evalOp)
 open Corridor.Header.Typed (edgePackets)
 
 variable {Input extra args : List Width} {saved carried result : Width} {index : Nat}
@@ -64,12 +64,22 @@ theorem sink?_legal (accepted : sink? source index = some emission) :
     Legal emission.cfg emission.operandSites [.ordinary ⟨exitId, 1⟩] ⟨exitId, 0⟩ :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink.sink_legal accepted
 
+/-- Retagging an admitted entry leaves its evaluated jump packet unchanged
+for every exit signature. -/
+theorem Entry.code_packet {Γ : List Width}
+    {code : Block TargetOp (Label saved carried result extra) Γ [result]} (entry : Entry code)
+    (exitArgs : List Width) (env : Env Γ) :
+    ∃ packet : Env (SavedBank saved carried extra),
+      code.eval evalOp (fun term vals => Terminator.eval vals term) env = .inl ⟨.header, packet⟩ ∧
+      (entry.code exitArgs).eval evalOp (fun term vals => Terminator.eval vals term) env = .inl ⟨.header, packet⟩ :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink.entry_packet entry exitArgs env
+
 /-- The entry forwards the exact saved and carried packet. -/
 theorem entry_packet (emission : Emission source index) (input : Env Input) :
     ∃ packet : Env (SavedBank saved carried extra),
       source.entry.eval evalOp (fun term vals => Terminator.eval vals term) input = .inl ⟨.header, packet⟩ ∧
       emission.cfg.entry.eval evalOp (fun term vals => Terminator.eval vals term) input = .inl ⟨.header, packet⟩ :=
-  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.ExitSink.entry_packet emission.entry _ input
+  emission.entry.code_packet _ input
 
 /-- Compare both actual outgoing occurrences independently of the branch
 condition. Feedback carries the identical bank and the exit carries the
