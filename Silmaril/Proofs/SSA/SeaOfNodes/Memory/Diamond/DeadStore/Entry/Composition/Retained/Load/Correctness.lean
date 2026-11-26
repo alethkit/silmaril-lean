@@ -104,6 +104,20 @@ private theorem cutWith_preserves {past : List (List ValueSort)} {live version :
           exact ⟨.keep (.store (.arg address) (.arg word)) order,
             fun locals initial => transfer locals (initial.write (cell input address) (input.get word))⟩
 
+theorem cutWith_disjoint_preserves {past : List (List ValueSort)} {live version : Nat}
+    {body retained : Memory.Body args past live} {selected : PrefixStore args}
+    (input : Tuple (Val cells) args)
+    (check : PrefixStore args → {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool)
+    (safe : ∀ {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live)
+      (store : PrefixStore args), check store tail = true → checkTail store input tail = true)
+    (accepted : cutWith check version body = some (selected, retained)) :
+    DeletesStores 1 (operations body) (operations retained) ∧
+      ∀ (locals : Locals (Val cells) past) (initial : Heap cells),
+        let result := retained.denote input locals initial
+        body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) :=
+  cutWith_preserves input check (fun store heap => (store.table.denote input heap).2)
+    (fun tail store checked => tail_transfer tail store input (safe tail store checked)) accepted
+
 theorem cut_preserves {past : List (List ValueSort)} {live version : Nat}
     {body retained : Memory.Body args past live} {selected : PrefixStore args}
     (input : Tuple (Val cells) args) (accepted : cut version input body = some (selected, retained)) :
@@ -111,9 +125,8 @@ theorem cut_preserves {past : List (List ValueSort)} {live version : Nat}
       ∀ (locals : Locals (Val cells) past) (initial : Heap cells),
         let result := retained.denote input locals initial
         body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) :=
-  cutWith_preserves input (fun store {_ _} tail => checkTail store input tail)
-    (fun store heap => (store.table.denote input heap).2)
-    (fun tail store safe => tail_transfer tail store input safe) accepted
+  cutWith_disjoint_preserves input (fun store {_ _} tail => checkTail store input tail)
+    (fun _ _ safe => safe) accepted
 
 theorem overwrite_tail_denote {past : List (List ValueSort)} {live : Nat}
     (tail : Memory.Body args past live) (selected : PrefixStore args)
