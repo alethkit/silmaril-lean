@@ -232,15 +232,37 @@ the component store and clears the active control chain. Supplying
 `none` as an ITree reply resumes the game cursor with a Core trap and
 retains its Core store.
 
-A single-export terminal correspondence still requires connecting stock
-instantiation and export entry to the mapped initial cursor, deriving the
-cut premises at each reachable import, and matching the final lift or trap
-to the chosen hosted observer. The cut theorems are forward simulations
-at a recognized boundary. They leave the converse, failed argument
-lifts, and whole-export silent divergence open.
+### Successful single-export runs
+
+`sees_of_reference_return` starts from a stock `Instantiates` run for
+`SimpleI.toRef` and a stock `Calls` run resolving the selected export with
+values. The component must be start-free, wired as `SimpleI.Inst` specifies,
+and in the flat, float-free fragment described by `Ready`. The host is
+`answerHostS` with `SimpleI.HostOkS`. Successful import rounds supply their
+actual typed replies, with the host state threaded through `HostReplies`.
+The theorem reads each answered dispatcher callout in order, for any finite
+number of such callouts. Its ITree path starts at the instantiated store,
+returns the observed typed values, and carries the reference run's final Core
+store with trampoline host code renamed to import indices.
+[`Reference.SyncImportRun.Thms`](../../Silmaril/Wasm/Component/Reference/SyncImportRun/Thms.lean)
+
+The downstream check instantiates `fwdS` and calls `f(3)` in the stock
+dispatcher. The counter host starts at `10`, the export returns `13`, and
+the host ends at `11`. The matching ITree path has one answered import and
+carries the final mapped Core store.
+[Lean example](../../Silmaril/Wasm/Component/Reference/SyncImportRun/Examples.lean)
+
+This direction is from stock execution to the ITree's typed import path and
+successful return. The observer projects away the machine's internal steps,
+component arena, and scheduler labels. `answerHostS` services imports through
+dispatcher operations, so the proof reads the exchanges from the segmented
+run. Whole-export completeness and an observer for machine traps and
+divergence remain open. Such an observer must account separately for failed
+ABI lifts, host refusal and lockdown, `cannotBlockSync`, a visible pending
+request, and silent Core divergence.
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Wasm.Component.Reference.SyncImportCut.Examples'
+make check CHECK_TARGETS='+Silmaril.Wasm.Component.SyncImportITree.Examples +Silmaril.Wasm.Component.Reference.SyncImportCut.Examples +Silmaril.Wasm.Component.Reference.SyncImportRun.Examples'
 ```
 
 ## What ships
