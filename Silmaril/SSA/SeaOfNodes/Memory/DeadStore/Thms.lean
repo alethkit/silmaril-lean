@@ -30,6 +30,15 @@ theorem readAt_store {past : List (List ValueSort)} {version : Nat}
       readAt rest index input locals (heap.write (readValue address input locals) (readValue word input locals)) :=
   Proofs.readAt_store memory address word rest index input locals heap
 
+/-- Advance the readback index past a Load and pass its word to the later locals. -/
+theorem readAt_load {past : List (List ValueSort)} {version : Nat}
+    (memory : MemoryInput version) (address : Origin args past .address)
+    (rest : Body args ([.word] :: past) version) (index : Nat)
+    (input : Tuple (Val cells) args) (locals : Locals (Val cells) past) (heap : Heap cells) :
+    readAt (.load memory address rest) (index + 1) input locals heap =
+      readAt rest index input (.cons (heap.read (readValue address input locals)) .nil, locals) heap :=
+  Proofs.readAt_load memory address rest index input locals heap
+
 /-- Renumbering the memory edges keeps every Load's observation. -/
 theorem reindexMemory_readAt {past : List (List ValueSort)} {version : Nat}
     (body : Body args past version) (live index : Nat) (input : Tuple (Val cells) args)

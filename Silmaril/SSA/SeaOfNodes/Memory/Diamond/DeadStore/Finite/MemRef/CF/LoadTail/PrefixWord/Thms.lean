@@ -10,6 +10,7 @@ namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Load
 
 open RVSDG (Locals Tuple)
 open Memory.Forwarding.Disjoint (Certificate cell)
+open Memory.DeadStore (readAt throughLoad)
 open Memory.DeadStore.Search.Selection.Readers.Repeat (DeletesStores operations)
 open Silmaril.MLIR.MemRef (Buffer)
 open SeaOfNodes.Memory.MLIR.MemRef (observe)
@@ -29,6 +30,15 @@ theorem cut_preserves {past : List (List ValueSort)} {live : Nat}
         retained.2 = pre.2 ∧
           body.denote input locals initial = (retained.1, pre.2.write (cell input edit.address) pre.1) :=
   Proofs.cut_preserves accepted valid
+
+/-- Deleting the certified Store preserves every ordered entry Load word,
+from the shared prefix through the final suffix. -/
+theorem cut_readbacks {past : List (List ValueSort)} {live : Nat}
+    {body : Memory.Body args past live} {edit : Cut args past live}
+    (accepted : cut facts version body = some edit) (valid : facts.Valid input)
+    (locals : Locals (Val cells) past) (initial : Heap cells) (index : Nat) :
+    readAt body index input locals initial = readAt edit.retained index input locals initial :=
+  Proofs.cut_readbacks accepted valid locals initial index
 
 /-- An admitted arm preserves its ordered readbacks and entire result for
 any incoming write word at the nominated cell. -/
@@ -53,6 +63,16 @@ theorem lower_replay (emitted : lower preds fits entry version arm candidate suf
       programs = ⟨input, lowerBank preds fits cells (some entry) arm suffix,
         lowerBank preds fits cells (some edit.retained) arm suffix⟩ :=
   Proofs.lower_replay emitted
+
+/-- After successful switch emission, the original and retained entries
+give the same word when probed at any Load via the existing MemRef emitter. -/
+theorem lower_readbacks (emitted : lower preds fits entry version arm candidate suffix input facts = some programs)
+    {edit : Cut args [] 0} (accepted : cut facts version entry = some edit)
+    (index : Nat) (initial : Buffer cells) :
+    let probe := fun (graph : Memory.Graph args) => (throughLoad graph index).map fun block =>
+      (observe block programs.input initial).1
+    probe entry = probe edit.retained :=
+  Proofs.lower_readbacks emitted accepted index initial
 
 /-- The emitted entry keeps the suffix word and transfers the exact buffer
 to the selected occurrence, with only the nominated write removed. -/

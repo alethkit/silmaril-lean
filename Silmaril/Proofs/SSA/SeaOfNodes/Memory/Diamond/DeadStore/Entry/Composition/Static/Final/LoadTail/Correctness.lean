@@ -9,15 +9,17 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Forwarding.Disjoint.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.DeadStore.Thms
 
 public section
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.LoadTail.Proofs
 
-open RVSDG (Origin Port Tuple)
+open RVSDG (Locals Origin Port Tuple)
 open Retained.Load.Static.Sequence.Search
 open Discovery.MemRef.CF (entryDestination lowerDiamond lowerDiamond_entryTransition lowerDiamond_run run)
 open Memory.Forwarding.Disjoint (Certificate cell)
+open Memory.DeadStore (readAt readAt_load)
 open Memory.DeadStore.Search.Selection.Readers.Repeat (DeletesStores operations storeCount)
 open Silmaril.MLIR.MemRef (Buffer)
 open SeaOfNodes.Memory.MLIR.MemRef (observe lower_run)
@@ -44,12 +46,13 @@ private theorem readPorts_transfer {past : List (List ValueSort)} {live : Nat}
     {tail : Memory.Body args past live} {readers : List (Port args .address)}
     (address : Port args .address) (word : Word) (listed : readPorts tail = some readers)
     (distinct : ∀ reader ∈ readers, cell input address ≠ cell input reader)
-    (locals : RVSDG.Locals (Val cells) past) (initial : Heap cells) :
+    (locals : Locals (Val cells) past) (initial : Heap cells) :
+    let written := initial.write (cell input address) word
     tail.denote input locals initial = ((tail.denote input locals initial).1, initial) ∧
-      tail.denote input locals (initial.write (cell input address) word) =
-        ((tail.denote input locals initial).1, initial.write (cell input address) word) := by
+      tail.denote input locals written = ((tail.denote input locals initial).1, written) ∧
+      ∀ index, readAt tail index input locals written = readAt tail index input locals initial := by
   induction tail generalizing readers with
-  | ret => exact ⟨rfl, rfl⟩
+  | ret => exact ⟨rfl, rfl, fun _ => rfl⟩
   | store => contradiction
   | load _ reader _ ih =>
     cases reader with
@@ -59,21 +62,48 @@ private theorem readPorts_transfer {past : List (List ValueSort)} {live : Nat}
       cases packed
       have same := initial.read_write_other (cell input address) (cell input reader) word
         (distinct reader (List.mem_cons_self ..)).symm
-      simpa only [Memory.Body.denote, show readValue (.arg reader) input locals = cell input reader from rfl,
-        same] using ih checked (fun port member => distinct port (List.mem_cons_of_mem _ member))
+      obtain ⟨before, after, reads⟩ :=
+        ih checked (fun port member => distinct port (List.mem_cons_of_mem _ member))
           (.cons (initial.read (cell input reader)) .nil, locals)
+      refine ⟨before, ?_, ?_⟩
+      · simpa only [Memory.Body.denote, show readValue (.arg reader) input locals = cell input reader from rfl,
+          same] using after
+      · intro index
+        cases index with
+        | zero => exact congrArg some same
+        | succ index => simpa only [readAt_load, show readValue (.arg reader) input locals = cell input reader from rfl,
+            same] using reads index
 
-theorem checkTailAddress_transfer {past : List (List ValueSort)} {live : Nat}
+private theorem checkTailAddress_observations {past : List (List ValueSort)} {live : Nat}
     (tail : Memory.Body args past live) (address : Port args .address) (word : Word)
     (valid : facts.Valid input) (safe : checkTailAddress facts address tail = true)
-    (locals : RVSDG.Locals (Val cells) past) (initial : Heap cells) :
+    (locals : Locals (Val cells) past) (initial : Heap cells) :
+    let written := initial.write (cell input address) word
     tail.denote input locals initial = ((tail.denote input locals initial).1, initial) ∧
-      tail.denote input locals (initial.write (cell input address) word) =
-        ((tail.denote input locals initial).1, initial.write (cell input address) word) := by
+      tail.denote input locals written = ((tail.denote input locals initial).1, written) ∧
+      ∀ index, readAt tail index input locals written = readAt tail index input locals initial := by
   cases listed : readPorts tail with
   | none => simp [checkTailAddress, listed] at safe
   | some readers =>
     exact readPorts_transfer address word listed (checkTailAddress_readers address valid safe listed) locals initial
+
+theorem checkTailAddress_transfer {past : List (List ValueSort)} {live : Nat}
+    (tail : Memory.Body args past live) (address : Port args .address) (word : Word)
+    (valid : facts.Valid input) (safe : checkTailAddress facts address tail = true)
+    (locals : Locals (Val cells) past) (initial : Heap cells) :
+    tail.denote input locals initial = ((tail.denote input locals initial).1, initial) ∧
+      tail.denote input locals (initial.write (cell input address) word) =
+        ((tail.denote input locals initial).1, initial.write (cell input address) word) :=
+  let observed := checkTailAddress_observations tail address word valid safe locals initial
+  ⟨observed.1, observed.2.1⟩
+
+theorem checkTailAddress_readbacks {past : List (List ValueSort)} {live : Nat}
+    (tail : Memory.Body args past live) (address : Port args .address) (word : Word)
+    (valid : facts.Valid input) (safe : checkTailAddress facts address tail = true)
+    (locals : Locals (Val cells) past) (initial : Heap cells) (index : Nat) :
+    readAt tail index input locals (initial.write (cell input address) word) =
+      readAt tail index input locals initial :=
+  (checkTailAddress_observations tail address word valid safe locals initial).2.2 index
 
 private theorem readPorts_safe {past : List (List ValueSort)} {live : Nat}
     {tail : Memory.Body args past live} {readers : List (Port args .address)}
