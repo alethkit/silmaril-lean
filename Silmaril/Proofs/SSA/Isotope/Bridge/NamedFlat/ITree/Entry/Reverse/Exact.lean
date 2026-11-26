@@ -21,23 +21,23 @@ variable {κ V K : Type (u + 1)} [DecidableEq V] [DecidableEq K]
   {P : FlatInstitution.Signature.{u, v} κ} {I : Interface κ V K}
   {fields : K → List (V × Ty κ)} {blocks : Nat}
   {code : FiniteCFG P.Instr blocks I.exits.length I.slots}
-  {registers : Registers V} {internal : Fin blocks → K} {source : CFG V K P.Instr}
+  {registers : Registers V} {locals : Fin blocks → Nat → V} {internal : Fin blocks → K} {source : CFG V K P.Instr}
 
 omit [DecidableEq V] in
 theorem lower_attached_count (fields : K → List (V × Ty κ))
-    (emitted : lower registers I.names internal (fun i => I.exits[i]) code = some source) :
+    (emitted : lowerWith registers locals I.names internal (fun i => I.exits[i]) code = some source) :
     (withLiveOut fields source).blocks.length = blocks := by
-  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def, Option.some.injEq] at emitted
+  simp only [lowerWith, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def, Option.some.injEq] at emitted
   obtain ⟨_, _, _, _, rfl⟩ := emitted
   simp [withLiveOut, CFG.Cyclic.LiveOut.attach]
 
 variable [DecidableEq P.Instr]
 
 theorem accept_of_readback
-    (emitted : lower registers I.names internal (fun i => I.exits[i]) code = some source)
+    (emitted : lowerWith registers locals I.names internal (fun i => I.exits[i]) code = some source)
     (readback : elaborateAt (withLiveOut fields source) I.exits I.names blocks
       (lower_attached_count fields emitted) = some code) :
-    lowerChecked I fields registers internal code =
+    lowerCheckedWith I fields registers locals internal code =
       some (Lowered.ofReadback source (lower_attached_count fields emitted) readback) := by
   have count := lower_attached_count fields emitted
   have closed : PacketClosed (withLiveOut fields source) :=
@@ -46,17 +46,17 @@ theorem accept_of_readback
       (withLiveOut fields source).blocks[i].2.body.toRegion.fv ⊆
         {(withLiveOut fields source).blocks[i].2.param} :=
     closed _ (List.getElem_mem i.isLt)
-  simp only [lowerChecked, Option.bind_eq_bind, emitted, Option.bind_some, dite_eq_left count,
+  simp only [lowerCheckedWith, Option.bind_eq_bind, emitted, Option.bind_some, dite_eq_left count,
     dite_eq_left atIndex, dite_eq_left readback]
   rfl
 
 theorem exact_of_accept
-    (emitted : lower registers I.names internal (fun i => I.exits[i]) code = some source)
-    (accepted : (lowerChecked I fields registers internal code).isSome = true) :
+    (emitted : lowerWith registers locals I.names internal (fun i => I.exits[i]) code = some source)
+    (accepted : (lowerCheckedWith I fields registers locals internal code).isSome = true) :
     elaborateAt (withLiveOut fields source) I.exits I.names blocks
       (lower_attached_count fields emitted) = some code := by
   have count := lower_attached_count fields emitted
-  simp only [lowerChecked, Option.bind_eq_bind, emitted, Option.bind_some, dite_eq_left count] at accepted
+  simp only [lowerCheckedWith, Option.bind_eq_bind, emitted, Option.bind_some, dite_eq_left count] at accepted
   split at accepted
   · split at accepted
     · assumption
@@ -64,8 +64,8 @@ theorem exact_of_accept
   · contradiction
 
 theorem emitted_of_accept {output : Lowered I fields code}
-    (accepted : lowerChecked I fields registers internal code = some output) :
-    lower registers I.names internal (fun i => I.exits[i]) code = some output.source := by
+    (accepted : lowerCheckedWith I fields registers locals internal code = some output) :
+    lowerWith registers locals I.names internal (fun i => I.exits[i]) code = some output.source := by
   obtain ⟨actual, emitted, checked⟩ := Option.bind_eq_some_iff.mp accepted
   dsimp only at checked
   split at checked <;> try contradiction

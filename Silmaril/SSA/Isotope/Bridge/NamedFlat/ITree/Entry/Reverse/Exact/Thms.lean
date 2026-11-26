@@ -54,4 +54,13 @@ theorem lowerChecked_emitted {output : Lowered I fields code}
     lower registers I.names internal (fun i => I.exits[i]) code = some output.source :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Exact.emitted_of_accept accepted
 
+variable {locals : Fin blocks → Nat → V}
+
+/-- The certificate from the opt-in body-local checker names its actual
+emission using the shared packet parameter. -/
+theorem lowerCheckedWith_emitted {output : Lowered I fields code}
+    (accepted : lowerCheckedWith I fields registers locals internal code = some output) :
+    lowerWith registers locals I.names internal (fun i => I.exits[i]) code = some output.source :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Exact.emitted_of_accept accepted
+
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse

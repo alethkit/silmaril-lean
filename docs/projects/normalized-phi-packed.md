@@ -687,3 +687,30 @@ Allocation and reverse acceptance have separate success criteria. After
 emission at the inferred allocation, acceptance requires exact readback.
 The swap's valid allocation still emits when every internal label is
 assigned the same name, but exact readback rejects that label map.
+
+#### Opt-in body-local reverse allocation
+
+`GeneratedSplit.reverseRelocatedByBody` uses the same numbered capture
+registers and packet parameter throughout the emitted RTL. It solves the
+ordered direct-read requests separately for the entry and each internal
+body, then runs the ordinary reverse emission and exact readback checks
+with those allocations. It also checks injectivity of the combined
+internal and external label map. The existing reverse entry points keep
+the graph-wide allocation policy.
+[Body-local allocation and acceptance](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Split/Relocation/Local/Thms.lean)
+
+The branching split allocates depth eight to register 14 in the entry and
+register 12 in its exit block. Readback recovers the actual typed split
+table, including both declared ordered live-out records. The attached
+RTL is packet-closed. At a fixed label and packet, its next observable
+transfer is independent of the carried mutable store. The store still
+travels with transfers. Re-admission carries the checked capture fields,
+which are separate from body locals and the packet parameter and agree
+with the supplied record through successful internal steps.
+
+Both branching tables re-admit via the uniform-capture constructor. The
+packed regression observes exit 1 with payload and live-out 13 on the
+direct arm, and exit 0 with payload and live-out 7 on the arm that crosses
+the new forwarding block. Both internal label collisions and collisions
+with declared exits are rejected.
+[Branching regression](../../Silmaril/Proofs/SSA/Isotope/Bridge/NamedFlat/Phi/Certified/Entry/OrderedExits/Examples.lean)
