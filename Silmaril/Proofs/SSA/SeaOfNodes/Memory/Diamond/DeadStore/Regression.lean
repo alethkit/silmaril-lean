@@ -4,10 +4,12 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
 
@@ -307,5 +309,39 @@ example : Memory.DeadStore.Search.Selection.Readers.rewrite (lowerRepeatedEntry 
 example : Entry.lowerRepeated (entryEditDiamond .onFalse) entryWithSideStore (input headCell) =
     ⟨entryWithSideStore, 0, Entry.lowerPair (entryEditDiamond .onFalse)
       entryWithSideStore entryWithSideStore (input headCell)⟩ := rfl
+
+private def residualEntry : Memory.Graph args :=
+  .store (.latest 0) (.arg headPort) (.arg entryWord) (.ret (.latest 1) (.arg leftWord))
+
+private def composedEntry : Memory.Graph args :=
+  (⟨headPort, leftWord⟩ : PrefixStore args).prepend residualEntry
+
+private def lowerComposed (rightAddress : Address 4) : Entry.Composition.Result 4 args :=
+  Entry.Composition.lower (source .onFalse).diamond composedEntry (input rightAddress)
+
+-- The residual Return names a different word, and the entry boundary uses its heap.
+example : (Entry.lowerRepeated (source .onFalse).diamond composedEntry input).entry = residualEntry := rfl
+example : Entry.Composition.asPrefixStore residualEntry = some (source .onFalse).store := rfl
+example : Entry.Composition.asPrefixStore entryAfterEdit = none := rfl
+
+private def runComposed (rightAddress : Address 4) (guard : Bool) (fuel : Nat) :
+    Nat × Bool × Option (Word × Word × List Word × List Word) :=
+  let result := lowerComposed rightAddress
+  (result.entryDeleted, result.allPathDeleted, runEntryPrograms result.programs guard fuel)
+
+-- The final observations agree even when the successful all-path step changes the entry buffer.
+/-- info: (1, true, some (99#64, 7#64, [3#64, 33#64, 2#64, 33#64, 55#64], [3#64, 33#64, 2#64, 33#64, 55#64])) -/
+#guard_msgs in
+#eval runComposed rightCell false 3
+
+#guard runComposed rightCell true 3 == (1, true, some (99, 7, [2, 11, 11, 3, 55], [2, 11, 11, 3, 55]))
+#guard runComposed rightCell false 2 == (1, true, none)
+
+-- At this valuation only the false route's reader aliases. The accepted
+-- entry-local edit still supplies the optimized artifact.
+example : Entry.Composition.rewriteResidual (source .onFalse).diamond residualEntry (input headCell) = none := rfl
+example : (lowerComposed headCell).programs =
+    (Entry.lowerRepeated (source .onFalse).diamond composedEntry (input headCell)).programs := rfl
+#guard runComposed headCell false 3 == (1, false, some (99, 99, [99, 33, 2, 3, 55], [99, 33, 2, 3, 55]))
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore
