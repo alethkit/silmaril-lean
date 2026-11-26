@@ -28,7 +28,8 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
     Functor.StrongPremonoidal.tensorIso (J := J) X Y = eqToIso h)
 
 include shared in
-private theorem stepDenotes : Extension.Singleton.SeedDenotes (Seed := Step (τ := τ) (Φ := Φ) pe) J M := by
+/-- The two case/unary generators have a common graph denotation at both typings. -/
+theorem stepDenotes : Extension.Singleton.SeedDenotes (Seed := Step (τ := τ) (Φ := Φ) pe) J M := by
   intro Γ r s L e hr hs
   exact ⟨_, denoteRegion_spec J M hr,
     (eqv_sound pe J M shared (.extra hr hs e) hr hs).symm ▸ denoteRegion_spec J M hs⟩

@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseAndUnaryReturns.Denotation.Defs
-import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Denotation.Functor.Iteration.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Denotation.Preservation.Thms
 
 /-! # Comparing return-quotient denotation on generated arrows -/
 
@@ -29,8 +29,8 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 open Silmaril.Isotope.LambdaSSA.Region
 open Paper.WithCaseAndUnaryReturns
-  (Step TypeCategory denoteFunctor denoteFunctor_map_ofRegion ReturnFragment generated_returnFragment)
-open Paper.Extension.Singleton (ofType ofRegion projection iterateSum iterateSum_map)
+  (Step TypeCategory denoteFunctor denoteFunctor_map_ofRegion stepDenotes ReturnFragment generated_returnFragment)
+open Paper.Extension.Singleton (ofType ofRegion iterateSum)
 open Paper.Extension.Singleton.Generation
 open CfgEta.TypeCategory (returnRegion_typed)
 
@@ -50,18 +50,7 @@ theorem denoteFunctor_map_iterateSum {A B : τ}
     (f : ofType (Seed) A ⟶ ofType (Seed) (coprod B A)) :
     (F).map (iterateSum (Seed) f) =
       CategoryTheory.iterate ((F).map f ≫ ((T).sumIso B A).hom) :=
-  Quot.inductionOn f (fun g => by
-    change (F).map (iterateSum (Seed) ((projection (Seed)).map g)) = _
-    rw [iterateSum_map]
-    let base := Paper.TypeCategory.denoteFunctor (Φ := Φ) J M shared
-    change base.map (Paper.TypeCategory.iterateSum g) =
-      CategoryTheory.iterate (base.map g ≫ ((T).sumIso B A).hom)
-    have comparison :
-        PreservesColimitPair.iso J (M.obj B) (M.obj A) =
-          asIso (coprodComparison J (M.obj B) (M.obj A)) :=
-      Iso.ext (PreservesColimitPair.iso_hom J (M.obj B) (M.obj A))
-    simpa only [Coordinates.ofModel, comparison, Paper.TypeCategory.denoteExactSumIso]
-      using Paper.TypeCategory.denoteFunctor_map_iterateSum J M shared (A := A) (B := B) g)
+  Paper.Extension.Singleton.denoteFunctor_map_iterateSum J M shared (stepDenotes pe J M shared) f
 
 variable (G : TypeCategory (τ := τ) (Φ := Φ) pe ⥤ C)
   (objIso : ∀ A : τ, G.obj (ofType (Seed) A) ≅ J.obj (M.obj A))
