@@ -34,6 +34,14 @@ LetCase operations and reading them back preserves those arrows. -/
     readInstructions J M (freydCaseAlgebra J M I) rfl = I :=
   readInstructions_freyd_proof M I
 
+/-- Readback agrees with the original interpretation along any equality
+presenting the algebra on the chosen arrow carriers. -/
+theorem readInstructions_of_presentation (A : CaseAlgebra P) (h : A.Carrier = freydCaseArrow J M)
+    (I : InstructionModel J M P.Instr) (presentation : freydCaseAlgebra J M I = A) :
+    readInstructions J M A h = I := by
+  subst A
+  exact readInstructions_freyd I
+
 /-- With the arrow carriers fixed, an operation algebra is induced by a Freyd
 interpretation exactly when all operations agree with the readback interpretation.
 This test uses no iteration. -/
