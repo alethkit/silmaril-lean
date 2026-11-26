@@ -12,23 +12,23 @@ namespace Silmaril.Relational
 /-- The choice of collection fixes the equality of materialized rows. A relation
 observes membership, a finite bag also observes multiplicity, and a list also
 observes order. An ordering guarantee can be recorded separately in metadata. -/
-inductive Rows (Row : Type*) where
+inductive ResultRows (Row : Type*) where
   | relation (rows : Set Row)
   | bag (rows : Multiset Row)
   | ordered (rows : List Row)
 
-namespace Rows
+namespace ResultRows
 
 /-- Retain membership and discard multiplicity and position. -/
-def support {Row : Type*} : Rows Row → Set Row
+def support {Row : Type*} : ResultRows Row → Set Row
   | .relation rows => rows
   | .bag rows => {row | row ∈ rows}
   | .ordered rows => {row | row ∈ rows}
 
 /-- Keep the multiplicities of an ordered output while forgetting positions. -/
-def bagOfList {Row : Type*} (rows : List Row) : Rows Row := .bag (rows : Multiset Row)
+def bagOfList {Row : Type*} (rows : List Row) : ResultRows Row := .bag (rows : Multiset Row)
 
-end Rows
+end ResultRows
 
 /-- Schema and client-chosen metadata. The latter can carry an ordering guarantee,
 column labels, or any other information exposed by the engine. -/
@@ -39,7 +39,7 @@ structure ResultMetadata (Schema Annotation : Type*) where
 /-- Successful materialized results. `Except Error (Output …)` also observes
 defined query errors, including any metadata the error type carries. -/
 inductive Output (Row Scalar Schema Annotation : Type*) where
-  | rows (metadata : ResultMetadata Schema Annotation) (data : Rows Row)
+  | rows (metadata : ResultMetadata Schema Annotation) (data : ResultRows Row)
   | scalar (metadata : ResultMetadata Schema Annotation) (value : Scalar)
 
 /-- One streaming step. A skipped step advances the cursor without yielding a

@@ -6,14 +6,15 @@ public import Silmaril.Relational.Query.All
 
 namespace Silmaril.Relational.QueryExamples
 
-example : Rows.support (Rows.bagOfList [1, 1]) = Rows.support (.ordered [1] : Rows Nat) := by
+example : ResultRows.support (ResultRows.bagOfList [1, 1]) =
+    ResultRows.support (.ordered [1] : ResultRows Nat) := by
   ext row
-  simp [Rows.support, Rows.bagOfList]
+  simp [ResultRows.support, ResultRows.bagOfList]
 
-example : Rows.bagOfList [true, false] = Rows.bagOfList [false, true] :=
-  congrArg Rows.bag (Quot.sound (List.Perm.swap false true []))
+example : ResultRows.bagOfList [true, false] = ResultRows.bagOfList [false, true] :=
+  congrArg ResultRows.bag (Quot.sound (List.Perm.swap false true []))
 
-example : (Rows.ordered [true, false] : Rows Bool) ≠ .ordered [false, true] := by
+example : (ResultRows.ordered [true, false] : ResultRows Bool) ≠ .ordered [false, true] := by
   intro eq
   cases eq
 
