@@ -1,4 +1,4 @@
-# Checked replay of two preheader nominations
+# Checked replay of preheader nominations
 
 Click's Schedule Early places definitions before consumers and chooses a block
 dominated by each operand's definition (§2.2). Schedule Late reads a Φ operand
@@ -44,9 +44,9 @@ placement or emission reports rejection. A third nomination reports capacity
 if the first two succeeded. A rejected reorder reports a header error.
 `run_refuses_at` proves that a failing suffix returns only the refusal.
 
-The supported profile is zero, one or two pure total hoists in one typed
-single-latch loop and checks supplied nominations at cuts zero and one. The
-prefix replay and refusal laws already use a list of requests. [API][defs]
+This initial driver supports zero, one or two pure total hoists in one typed
+single-latch loop. The continuation below uses it for the first two moves.
+[API][defs]
 
 ## Saved slots and one-step routing
 
@@ -77,11 +77,42 @@ moves the identity and preserves routing together. `replay_two_invariant`
 ties both packet invariants to the exact reordered CFG, and
 `replay_two_eq` still identifies the actual #4020 emission. [Emitter theorems][emit-thms]
 
-The packet and capture laws are parameterized by the existing saved types.
-Extending executable replay beyond two nominations still requires a checker
-and entry splice that can validate and extend a longer leading preheader
-prefix on the current CFG. The existing entry splice inserts after the single
-producer let.
+## Replay after a longer saved prefix
+
+`Replay.Step.replayAll` accepts a finite list of supplied nominations. It uses
+the initial driver for plans of length zero, one, or two. A longer plan seeds
+`Step.run` with the exact two-save CFG and its remaining origin map. Every
+subsequent request resolves an original identity on the current header, checks
+operand definition cuts and actual ordinary and Φ uses on that CFG, and calls
+the same `Emit.emitAt?` that emits the second move. Errors carry the absolute
+zero-based nomination position and reason. A failed suffix yields no output CFG.
+[Continuation API][step] · [Entry split][prefix]
+
+`Saved.splitPrefix?` checks each actual leading let against its expected width
+and returns the tail in the exact scope for the new operands. The splice wraps
+the inserted let in the original leading lets, lifts the tail, and substitutes
+the new saved parameter for the removed header value in typed reads and edge
+arguments. The checked cut is the end of the current contiguous saved prefix.
+This cut can grow as replay advances. Earlier cuts and cuts inside the remaining
+preheader tail are outside this profile, even when some operands would be
+available there. Subsequent moves in this corridor must read at least one saved
+value and may also read immutable inputs. [Splice and routing theorems][emit-thms]
+
+`emitAt?_step` proves the actual entry and block transfers and the evaluation
+witness for the next prefix. `emit_invariant` applies `Saved.Invariant.extend`
+to the emitted CFG. `run_invariant` uses induction over the request list.
+`replayAll_run_eq`, `replayAll_budget`, and `replayAll_denotePart` transport
+the result to the original lowering with the same CFG fuel and native
+`budget + 3` relationship. This profile covers supplied nominations in the
+pure total typed single-latch loop. [Continuation theorems][step-thms]
+
+The third binding in the extended fixture reads the first two saved results at
+cuts 1 and 2. It moves from current header index 3 to preheader cut 2. The
+entry and two feedback packets become `[5, 3, 2, 3]`, `[5, 3, 2, 7]`, and
+`[5, 3, 2, 11]`. The exit remains `[5]`. The regression also requests the
+third binding too early, reselects a saved origin, and verifies that a repeated
+nomination after the third move reports the fourth position without exposing
+the successful prefix. [Third-move example][step-example] · [Regression][step-regression]
 
 The example shifts both nominations through the reorder and then shifts the
 consumer again when the producer is removed. The third run leaves origins
@@ -106,6 +137,21 @@ LEAN
 lake env lean -DwarningAsError=true /tmp/gcm-replay-example.lean
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Correctness
 lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Thms
+
+lake build --wfail +Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Thms \
+  +Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Regression
+cat >/tmp/gcm-replay-step-example.lean <<'LEAN'
+import Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Example.Defs
+open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Example
+#eval sites
+#eval observe []
+#eval observe [third]
+#eval observe [⟨5, 1⟩, third]
+#eval observe [third, ⟨5, 3⟩]
+LEAN
+lake env lean -DwarningAsError=true /tmp/gcm-replay-step-example.lean
+lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Correctness
+lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Thms
 ```
 
 [paper]: https://doi.org/10.1145/207110.207154
@@ -120,3 +166,8 @@ lake env leanchecker Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Thms
 [saved]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Defs.lean
 [saved-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Thms.lean
 [emit-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/AfterReorder/Second/Emit/Thms.lean
+[prefix]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Saved/Prefix/Defs.lean
+[step]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Defs.lean
+[step-thms]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Thms.lean
+[step-example]: ../../../../Silmaril/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Example/Defs.lean
+[step-regression]: ../../../../Silmaril/Proofs/SSA/SeaOfNodes/GCM/LoopHoist/Corridor/Replay/Step/Regression.lean

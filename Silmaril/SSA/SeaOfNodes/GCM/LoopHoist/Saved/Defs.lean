@@ -48,7 +48,7 @@ def prefixRef (suffix : List Width) : {widths : List Width} → Var widths w →
 /-- In the header environment, the latch is local and all saved slots
 and immutable inputs can be captured into the current preheader. -/
 def origins : (widths : List Width) → {w : Width} →
-    Var (widths ++ carried :: Input) w → Var (widths ++ Input) w ⊕ Nat
+    Var ((widths ++ [carried]) ++ Input) w → Var (widths ++ Input) w ⊕ Nat
   | [], _, ref => match ref with
     | .here => .inr 0
     | .there ref => .inl ref
