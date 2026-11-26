@@ -25,7 +25,14 @@ goes from `S` to `T`, in the direction of execution relabeling. The sentence
 translation goes from `T` to `S` by inverse image. Model categories are
 discrete. Satisfaction means inclusion in the sentence's allowed set.
 [Institution definitions](../../Silmaril/Logic/TrackA/Interaction/Defs.lean)
-[Goguen and Burstall, Institutions](https://doi.org/10.1145/147508.147524)
+
+The satisfaction condition follows Goguen and Burstall (1992), §2.1,
+Definition 1, printed pp. 101–102. The room functors use the category-of-models
+variant of §2.5, Definition 12, printed pp. 109–110. The linked PDF has SHA-256
+`f6715ca333dd03dc153a65907c1c974fa151690bb94eafffc065c363265b634d`.
+[DOI](https://doi.org/10.1145/147508.147524) ·
+[Definition 1, PDF pp. 7–8](https://courses.grainger.illinois.edu/cs522/sp2016/InstitutionsAbstractModelTheory.pdf#page=7) ·
+[Definition 12 and category variant, PDF pp. 15–16](https://courses.grainger.illinois.edu/cs522/sp2016/InstitutionsAbstractModelTheory.pdf#page=15)
 
 | Institution | Models | Model reduct along the underlying `f` |
 | --- | --- | --- |
