@@ -23,6 +23,11 @@ open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
 variable {tests old new : Nat} {fn : Func Reg}
 variable {entrySigs sigs : List (List PortTy)}
 
+/-- A successful flat word packet check preserves the exact ordered RTL operands. -/
+theorem checkPacket_registers {scope regs : List Reg} {width : Nat} {packet : Packet scope width}
+    (checked : checkPacket scope width regs = some packet) : packet.registers = regs :=
+  Proofs.checkPacket_registers checked
+
 /-- A shared header label never identifies two incoming occurrences. -/
 theorem key_injective : Function.Injective (@key tests) :=
   Proofs.key_injective

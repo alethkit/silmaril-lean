@@ -89,9 +89,9 @@ example (lhs rhs : Word) :
 The emitted two-field bank checks the exact header operands and branches.
 It continues on `-1 < 0`, passing the updated and old words, and exercises
 wrapping across the signed boundary in both directions. The resized feedback
-family still needs typed dispatch-block arguments for live header temporaries
-and a proof linking each selected CF edge and whole packet to its RTL and
-explicit-Φ occurrence. [Checked regression][signed-regression] · [RTL family extraction][rtl-phi]
+family uses this arithmetic together with typed dispatch arguments and
+a checked packet readback at each positional RTL edge.
+[Checked regression][signed-regression] · [Typed dispatch transport][cf-dispatch]
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Loop.MLIR.CF.Regression +Silmaril.Proofs.SSA.SeaOfNodes.MLIR.Regression +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.MLIR.CF.Regression'
@@ -101,5 +101,5 @@ SILMARIL_REPLAY_MODULE=Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF.Thms \
 
 [rtl-word-ops]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/MLIR/CF/Thms.lean
 [signed-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/MLIR/CF/Regression.lean
-[rtl-phi]: https://github.com/hiloopai/silmaril-lean/pull/4591
+[cf-dispatch]: sea-of-nodes-guarded-feedback-rows-rtl.md#live-header-values-in-mlir-cf
 [arith-ops]: https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/mlir/include/mlir/Dialect/Arith/IR/ArithOps.td
