@@ -100,6 +100,11 @@ activation's allocation boundary and keep the same slot addresses. -/
   next.slots = first.slots ∧
   ∀ (address : Nat) (cell : Cell), address < floor → first.heap[address]? = some cell → next.heap[address]? = some cell
 
+/-- An escaped closure carries selected addresses into later callers.
+The cells still exist even when the defining activation is inactive. -/
+@[expose] def CaptureCells (state : State) (captures : List Lists.Capture) : Prop :=
+  ∀ capture ∈ captures, ∃ value frozen, state.heap[capture.address]? = some ⟨.binding value, frozen⟩
+
 /-- This definition uses the existing plain positional defaults, with
 the new body elaboration and capture selection. -/
 structure Definition where
@@ -110,19 +115,21 @@ structure Definition where
 @[expose] def Definition.command (definition : Definition) : Command :=
   .define definition.name definition.parameters.source definition.body.source
 
-structure Plan (globals : List String) (definition : Definition) where
+structure Plan (globals : List String) (definition : Definition) (enclosing : List String := []) where
   locals : List String
   code : Functions.Body
   reads : List Binding
   free : List FreeName
   binders : Block.LocalBinders definition.parameters.names definition.body.binders locals
-  elaborates : Elaborates ⟨definition.parameters.names ++ locals, [], globals⟩ definition.body code reads
-  selects : Selects ⟨definition.parameters.names ++ locals, [], globals⟩ reads free
+  elaborates : Elaborates ⟨definition.parameters.names ++ locals, enclosing, globals⟩ definition.body code reads
+  selects : Selects ⟨definition.parameters.names ++ locals, enclosing, globals⟩ reads free
 
-@[expose] def Plan.block {globals : List String} {definition : Definition} (plan : Plan globals definition) : LexicalBlock :=
-  ⟨definition.parameters.names ++ plan.locals, [], globals⟩
+@[expose] def Plan.block {globals : List String} {definition : Definition} {enclosing : List String}
+    (plan : Plan globals definition enclosing) : LexicalBlock :=
+  ⟨definition.parameters.names ++ plan.locals, enclosing, globals⟩
 
-@[expose] def Plan.declaration {globals : List String} {definition : Definition} (plan : Plan globals definition)
+@[expose] def Plan.declaration {globals : List String} {definition : Definition} {enclosing : List String}
+    (plan : Plan globals definition enclosing)
     (codes : List Lowering.Expr) : Declaration :=
   ⟨definition.parameters.signature codes, plan.locals.map fileSlot, plan.free, plan.code⟩
 

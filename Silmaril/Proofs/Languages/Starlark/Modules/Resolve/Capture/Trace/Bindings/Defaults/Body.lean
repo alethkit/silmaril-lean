@@ -45,13 +45,14 @@ theorem define_body {before after : List Command} {definition : Definition} {glo
       (show grown.heap[final.heap.size]? = some cell from Array.getElem?_push_size)
     have valueLength : values.length = definition.parameters.optional.length := by
       simpa only [List.length_map] using Defaults.evaluated_length ran
-    have installed : Installs next plan.free captures :=
-      Defaults.Body.keeps_installation (show next.slots = final.slots from slots_write grown _ _) installs
+    have cells := Defaults.Body.root_capture_cells plan final (kept.layout layout) captures installs
+    have throughPush := Defaults.Body.capture_cells_preserved (Bindings.Preserves.push final cell) cells
+    have current := Defaults.Body.capture_cells_written grown (globalSlot definition.name) (.function final.heap.size) throughPush
     refine ⟨.ok () next, .bodyDefinition plan site found length (.installed ran installs), ?_⟩
     intro finish same
     cases same
-    exact ⟨.commit grown _ keep, ⟨known.1, ⟨⟨id, plan, codes, final.heap.size, values, captures, length,
-      valueLength, found, installed, live⟩⟩⟩⟩
+    exact ⟨.commit grown _ keep, ⟨known.1, ⟨⟨id, [], plan, codes, final.heap.size, values, captures, length,
+      valueLength, found, final, installs, current, live⟩⟩⟩⟩
 
 theorem alias_body {before rest : List Command} {globals : List String} {source destination : String}
     {linked : Program} {resolved : ResolvedModule}
@@ -70,15 +71,14 @@ theorem alias_body {before rest : List Command} {globals : List String} {source 
   have live := commit_cell destinationKnown.1 layout _ _ _ _ saved.live.cell
   exact ⟨_, .ordinary (.setup site (.atom related evaluated)), .commit state _ (.refl _),
     ⟨destinationKnown.1, ⟨{ saved with
-      installed := Defaults.Body.keeps_installation (slots_write _ _ _) saved.installed, live }⟩⟩⟩
+      cells := Defaults.Body.capture_cells_written _ _ _ saved.cells, live }⟩⟩⟩
 
 theorem call_body {before rest : List Command} {globals : List String} {callee destination : String}
     {arguments : List Lowering.Resolve.SourceExpr} {linked : Program} {resolved : ResolvedModule}
     (declared : ModuleBinders (before ++ invocation callee destination arguments :: rest) globals)
     (checked : resolve (before ++ invocation callee destination arguments :: rest) linked = .ok resolved)
     (known : Visible globals callee) (allowed : ∀ operand ∈ arguments, Trace.Operand globals operand)
-    {state : State} {definition : Definition} (saved : SavedBody globals resolved.program state callee definition)
-    (layout : ModuleSlots globals state) :
+    {state : State} {definition : Definition} (saved : SavedBody globals resolved.program state callee definition) :
     ∃ out, Step resolved globals before.length state (invocation callee destination arguments) out ∧
       (∀ next, out = .ok () next → Bindings.Writes state destination next) := by
   obtain ⟨actuals, related⟩ := actuals_related arguments allowed
@@ -93,7 +93,8 @@ theorem call_body {before rest : List Command} {globals : List String} {callee d
         fun _ impossible => nomatch impossible⟩
     | ok assigned =>
       let active := activate state (saved.plan.declaration saved.codes) saved.captures assigned
-      have frame := Defaults.Body.root_frame saved.plan saved.codes saved.codeLength state layout saved.captures saved.installed assigned
+      have frame := Defaults.Body.captured_frame saved.plan saved.codes saved.codeLength state saved.owner saved.captures
+        saved.installed saved.cells assigned
       obtain ⟨out, executed, _, keeps⟩ := Defaults.Body.runs_total saved.plan.elaborates active frame
       refine ⟨_, .bodyCall saved site calleeCode related ran (.entered bound executed), ?_⟩
       intro next success

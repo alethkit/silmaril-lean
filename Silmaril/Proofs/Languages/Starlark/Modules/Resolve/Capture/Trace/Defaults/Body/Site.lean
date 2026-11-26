@@ -106,6 +106,45 @@ private theorem emits {globals : List String} {definition : Definition} (plan : 
   rw [signature, emitted, optional]
   simp [Plan.declaration, Defaults.Parameters.signature, layout, readNames, capture]
 
+theorem compile_nested {globals enclosing : List String} {definition : Definition}
+    (plan : Plan globals definition enclosing)
+    (defaults : List PlainPositionalDefault)
+    (same : defaults.map (fun item => (item.name, item.source)) = definition.parameters.optional)
+    (tracked : ∀ item ∈ defaults, resolveTracked ⟨enclosing, globals⟩ item.source = .ok (item.value, item.reads))
+    (program : Program) :
+    compileBody ⟨⟨enclosing, globals⟩, .local⟩
+        (.define definition.name definition.parameters.source definition.body.source) program =
+      .ok (⟨.define (fileSlot definition.name) program.size,
+          defaults.flatMap PlainPositionalDefault.reads ++ plan.free.map FreeName.source⟩,
+        program.push (plan.declaration (defaults.map PlainPositionalDefault.value))) := by
+  let parent : BlockContext := ⟨⟨enclosing, globals⟩, .local⟩
+  let layout : FunctionLayout := ⟨plan.locals, ⟨plan.block.context, .local⟩⟩
+  have signature : definition.parameters.source =
+      { positional := definition.parameters.required.map (fun name => ⟨name, none⟩) ++
+          defaults.map PlainPositionalDefault.parameter } := by
+    simp [Defaults.Parameters.source, ← same, List.map_map, PlainPositionalDefault.parameter, Function.comp_def]
+  have localNames := Block.localNames_eq (collects definition.body)
+  have localOrder := Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Block.local_names plan.binders
+  have layoutBuilt : collectFunctionLayout parent.reads definition.parameters.source definition.body.source = .ok layout := by
+    simp [collectFunctionLayout, localNames, functionLayout, names_eq, layout, parent, Plan.block,
+      LexicalBlock.context, Except.map]
+    simpa using localOrder
+  rw [signature] at layoutBuilt
+  have compiled := compile_suite plan.elaborates program
+  have emitted := compileBody_plainPositionalDefinition parent definition.name definition.parameters.required
+    defaults definition.body.source program program layout _ tracked layoutBuilt compiled
+  have readNames := names_eq definition.parameters
+  rw [signature] at readNames
+  have capture : captureNames (definition.parameters.names ++ plan.locals) plan.reads = plan.free :=
+    Capture.captureNames_eq plan.selects
+  have optional : defaults.map PlainPositionalDefault.resolved =
+      ((definition.parameters.optional.map (fileSlot ∘ Prod.fst)).zip (defaults.map PlainPositionalDefault.value)).map
+        (fun (slot, code) => (⟨slot, some code⟩ : Parameter)) := by
+    simp [← same, List.map_map, List.zip_map', PlainPositionalDefault.resolved, Function.comp_def]
+  change compileBody parent (.define definition.name definition.parameters.source definition.body.source) program = _
+  rw [signature, emitted, optional]
+  simp [Plan.declaration, Defaults.Parameters.signature, layout, readNames, capture]
+
 private theorem operand_origins {block : LexicalBlock} {source : SourceExpr} {code : Lowering.Expr}
     {reads : List Binding} (related : Operand block source code reads) :
     ∀ binding ∈ reads, ∃ origin, ReadOrigin block binding origin := by
@@ -131,10 +170,11 @@ private theorem body_origins {block : LexicalBlock} {source : Suite}
     exact (List.mem_append.mp member).elim (operand_origins operand binding) (ih binding)
 
 theorem plan_of_suite (globals : List String) (definition : Definition) (locals : List String)
+    (enclosing : List String := [])
     {code : Silmaril.Languages.Starlark.Functions.Body} {reads : List Binding}
     (binders : LocalBinders definition.parameters.names definition.body.binders locals)
-    (related : Elaborates ⟨definition.parameters.names ++ locals, [], globals⟩ definition.body code reads) :
-    Nonempty (Plan globals definition) := by
+    (related : Elaborates ⟨definition.parameters.names ++ locals, enclosing, globals⟩ definition.body code reads) :
+    Nonempty (Plan globals definition enclosing) := by
   obtain ⟨free, selected⟩ := Capture.selects_of_origins _ (body_origins related)
   exact ⟨⟨locals, code, reads, free, binders, related, selected⟩⟩
 
