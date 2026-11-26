@@ -38,6 +38,14 @@ theorem Segment.effect_order (s : Segment Φ ε A P B C) (ids : Fin 3 ≃ Fin 3)
 
 variable [TypeFormers τ] [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
 
+theorem typingAt_denotes (p : TwoBlock.Instruction Φ A C) {Γ : List τ} {i : Nat} (hi : Γ[i]? = some A) :
+    Denotes (m := StateT σ Part.{u}) ε (typingAt p hi) (fun env => TwoBlock.call (ε := ε) p (Env.get env i hi)) :=
+  Proofs.callAt p hi
+
+theorem call_bottom (p : TwoBlock.Instruction Φ A P) (h : (instrEff p.op : ε) = ⊥) (x : TyDen A) :
+    TwoBlock.call (ε := ε) (m := StateT σ Part.{u}) p x = pure (pureCall (σ := σ) p h x) :=
+  Proofs.call_bottom p h x
+
 variable (s : Segment Φ ε A P B C)
 variable (actions : Actions (model (τ := τ) (Φ := Φ) (ε := ε) (σ := σ)))
 

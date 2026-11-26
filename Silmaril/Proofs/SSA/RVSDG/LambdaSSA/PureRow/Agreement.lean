@@ -45,7 +45,7 @@ theorem effect_order (s : Segment Φ ε A P B C) (ids : Fin 3 ≃ Fin 3)
 
 variable [TypeFormers τ] [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
 
-private theorem callAt (p : TwoBlock.Instruction Φ A C) {Γ : List τ} {i : Nat} (hi : Γ[i]? = some A) :
+theorem callAt (p : TwoBlock.Instruction Φ A C) {Γ : List τ} {i : Nat} (hi : Γ[i]? = some A) :
     Denotes (m := StateT σ Part.{u}) ε (typingAt p hi) (fun env => TwoBlock.call (ε := ε) p (Env.get env i hi)) := by
   obtain ⟨op, ha, hc⟩ := p
   subst A
@@ -56,7 +56,7 @@ private theorem callAt (p : TwoBlock.Instruction Φ A C) {Γ : List τ} {i : Nat
   unfold TwoBlock.call
   rw [pure_bind, bind_pure]
 
-private theorem call_bottom (p : TwoBlock.Instruction Φ A P) (h : (instrEff p.op : ε) = ⊥) (x : TyDen A) :
+theorem call_bottom (p : TwoBlock.Instruction Φ A P) (h : (instrEff p.op : ε) = ⊥) (x : TyDen A) :
     TwoBlock.call (ε := ε) (m := StateT σ Part.{u}) p x = pure (pureCall (σ := σ) p h x) := by
   obtain ⟨op, ha, hb⟩ := p
   subst A
