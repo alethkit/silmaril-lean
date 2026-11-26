@@ -236,3 +236,38 @@ Store's value `11` in the final buffer. With a concrete reader alias the
 first deletion is retained and the later one is refused. Both emitted
 CFGs still return `99` and agree on every final cell.
 [Runnable regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+## Follow entry deletion with a two-route overwrite check
+
+`Entry.Composition.lower graph entry input` runs the repeated entry-local
+pass first. The handoff recognizes a residual table consisting of one
+Store with an original address and word argument, followed by Return.
+Its typed adapter preserves the heap at the entry boundary, where the
+entry's returned word is discarded. The all-path checker then discovers
+both overwrite versions and reader certificates on the current entry and
+the actual incoming Region slots. Each route is checked at the same
+scalar input. A residual entry outside this shape, or a refusal on either
+route, keeps the emitted result of the first pass.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Defs.lean) ·
+[Pinned Simple Store rule](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/src/main/java/com/seaofnodes/simple/node/StoreNode.java#L39-L65) ·
+[Pinned Simple memory Φ](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#memory-is-an-ssa-variable)
+
+The result reports the entry-local deletion count and whether the
+all-path deletion succeeded. The actual MemRef CFGs agree on the returned
+word and whole final buffer for either predicate and any initial buffer
+at the checked input. Both return at three CF block steps, and smaller
+budgets have no return observation. A successful all-path deletion can
+change the entry buffer before the selected arm overwrites the cell.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Entry/Composition/Thms.lean)
+
+The runnable disjoint fixture commits both stages and compares every
+final cell under both predicates. At the aliasing input only the false
+route observes the residual Store. The all-path check refuses, and the
+already edited entry still supplies the optimized artifact. That run
+returns `99`. A residual entry containing a Load also fails the adapter's
+shape check.
+[Runnable example](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean)
+
+```sh
+lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Regression.lean
+```
