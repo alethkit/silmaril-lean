@@ -9,7 +9,8 @@ trap 'rm -rf "$oracle"' EXIT
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
-  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks
+  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks
 lake env lean -DautoImplicit=false -DwarningAsError=true --run "$script_dir/Fixtures.lean" \
   "$oracle/fixtures.json"
 

@@ -13,6 +13,8 @@ func checkGoSpreadControls() (int, error) {
 def mark(tag, value):
     events.append(tag)
     return value
+def choose(callable, marker, required):
+    return callable
 def f(a, b, c, d):
     events.append(5)
     return d
@@ -28,6 +30,8 @@ wrong = 0
 	}{
 		{"callee-and-operand-effects", "mark(0, f)(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[0, 1, 2, 3, 4, 5]"}},
+		{"callee-effects-before-callee-error", "choose(f, mark(0, 0))(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
+			moduleControl{Phase: "runtime", Want: "missing 1 argument (required)", Events: "[0]"}},
 		{"operand-effects", "f(mark(1, 1), c=mark(2, 3), *mark(3, xs), **mark(4, kw))",
 			moduleControl{Phase: "publication", Want: "7", Events: "[1, 2, 3, 4, 5]"}},
 		{"effects-before-spread-error", "f(mark(1, 1), c=mark(2, 3), *mark(3, wrong), **mark(4, kw))",

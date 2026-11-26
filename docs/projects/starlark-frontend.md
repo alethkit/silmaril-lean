@@ -55,10 +55,10 @@ retain their existing types. Parser soundness and completeness remain open.
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
 with positional parameters and optional scalar defaults, call assignments
-of the form `name = function(arg, ...)`, and leading load statements.
-Top-level name assignments also accept the collection displays of the call
-profile. The call is the entire right-hand side, and both
-names are bare identifiers. The adapter reuses the logical-line, parameter,
+of the form `name = function(arg, ...)` or `name = factory(...)(...)`, and
+leading load statements. Top-level name assignments also accept the
+collection displays of the call profile. The call occupies the entire
+right-hand side and starts with a bare identifier. The adapter reuses the logical-line, parameter,
 and suite parsers. It emits a normalized declaration for each `def` and a
 normalized `.call` expression for each call assignment. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
@@ -105,7 +105,7 @@ still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
 `**`. At the root of any operand, the parser accepts the admitted scalar
-grammar or a bare-name call whose operands use the same grammar. This admits
+grammar or a call expression whose operands use the same grammar. This admits
 calls such as `f(*identity(xs), **identity(identity(kw)))` and call-free
 expressions such as `f(*(xs if flag else ys), **(False or kw))`. At a spread
 root, `*` also accepts a list or tuple display of scalar operands and `**`
@@ -130,13 +130,10 @@ mapping before the iterable and binds the resulting arguments. An error while
 evaluating an operand preempts later operands and expansion. A collision
 between a named value and an expanded key reaches binding.
 
-Lowered commands retain outer operand spans, including the spread markers,
-and each nested application's full span, callee span, and grouped operand
-spans. The nested span records are in preorder, visiting operands in source
-order. The parser reports a spanned diagnostic where the ordering rules are
-violated. Calls under other expression forms, such as parenthesized calls,
-calls inside displays or conditional branches, and chained or attribute
-calls, remain outside the profile.
+Lowered commands retain every application's full span, callee span, and
+grouped operand spans, including spread markers. The records are in preorder,
+visiting the callee before operands and operands in source order. The parser
+reports a spanned diagnostic where the ordering rules are violated.
 
 The frontend preserves repeated explicit names so normalized validation can
 reject them. It also passes required-after-default signatures to normalized
@@ -160,6 +157,41 @@ UTF-8 inputs. Executable Lean checks cover publication, error precedence, a
 named/expanded binding collision, and the single allocation from evaluating
 `list(xs)` as a spread operand. A general parser or
 source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Call results as callees
+
+A bare-name call can be followed by one additional application. This form
+is available at the root of a module assignment or call operand.
+
+```starlark
+# 雪
+def identity(x):
+  return x
+def choose(callable):
+  return callable
+out = choose(identity)(7)
+```
+
+The inner application returns `identity` and the outer application publishes
+`out = 7`. Both use ordinary normalized call nodes. The outer callee span
+covers all of `choose(identity)`.
+
+`lowerApplication_parts` identifies the lowered callee and relates the
+application and grouped operand spans to the normalized call shape.
+`denoteCall_calleeFirst` unfolds resolved call evaluation into a single
+callee evaluation followed by the operands from its returned state.
+`denoteCall_calleeError` proves that a callee error preserves the error state
+and bypasses operands. A successfully evaluated noncallable value reaches
+the dispatch check after operand evaluation and expansion.
+[Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+The UTF-8 execution fixtures check that a factory allocation occurs once
+before the outer operand allocation, and that a failed factory retains its
+allocation while skipping the outer operand. The kernel checks concrete
+normalized call nodes and original UTF-8 spans. The parser bounds chains
+to two applications and excludes parenthesized callees, attribute calls,
+and calls inside displays or conditional branches.
+[Computed call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ComputedCallChecks.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -270,7 +302,8 @@ length and token count.
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
-  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
@@ -292,8 +325,9 @@ errors show that the callee read precedes operands, the named operand precedes
 show mapping expansion takes precedence when both spread values are invalid.
 Go-only controls use mutation and a call in callee position to observe the
 callee and four operand groups running once in order. Operand effects survive
-reached spread and binding errors. Go-only controls also check the rejection
-of named operands after `*` and `*` after `**`.
+reached spread and binding errors. A failed computed callee retains its own
+effect and prevents outer operand effects. Go-only controls also check the
+rejection of named operands after `*` and `*` after `**`.
 [Shared spread checks](../../Silmaril/Languages/Starlark/Frontend/Module/SpreadChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
