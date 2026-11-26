@@ -92,27 +92,59 @@ private theorem input_rename_env {ports : List (Diamond.Ty Data)} (values : Tupl
       rw [List.length_cons, inputIndex_tail]
       exact ih _ i
 
-variable (g : Sequential.Graph Op inputs middle results firstSigs secondSigs)
+private theorem fromPacked_eval {after : Region (Primitive Op)}
+    (joined : Tuple (Val m.value) (dataPorts middle)) (captured : Env (Atom m))
+    {start finish : σ} {label : Nat} {payload : Value (Atom m)}
+    (run : Semantics.Region.Eval (instruction m) (inputEnv m joined) after start label payload finish) :
+    Semantics.Region.Eval (instruction m) (extend captured (encodeTuple m joined))
+      (fromPacked middle after) start label payload finish := by
+  apply unpack_eval m joined captured
+  exact run.renameVars (by simpa only [dataPorts, List.length_map] using input_rename_env m joined captured)
 
-theorem lower_hasType : (lower g).HasType (initialContext inputs) [resultCode results] := by
-  apply (Diamond.Arms.LambdaSSA.lower_hasType g.first).linkExits
+theorem link_hasType {context exits : List (Code Data)} {first after : Region (Primitive Op)}
+    (beforeTyped : first.HasType context [resultCode middle])
+    (afterTyped : after.HasType (initialContext middle) exits) :
+    (link middle first after).HasType context exits := by
+  apply beforeTyped.linkExits
   intro i A atExit
   cases i with
   | zero =>
     have equal : resultCode middle = A := Option.some.inj atExit
     subst A
-    exact unpack_typed (dataPorts middle) ((Diamond.Arms.LambdaSSA.lower_hasType g.second).renameVars
-      (by simpa only [dataPorts, List.length_map] using input_rename (dataPorts middle) (initialContext inputs)))
+    exact unpack_typed (dataPorts middle) (afterTyped.renameVars
+      (by simpa only [dataPorts, List.length_map] using input_rename (dataPorts middle) context))
   | succ i => simp [At] at atExit
+
+theorem link_eval_iff {first after : Region (Primitive Op)} {captured : Env (Atom m)}
+    {joined : Tuple (Val m.value) (dataPorts middle)} {result : Value (Atom m)}
+    {start between expected : σ}
+    (beforeRun : Semantics.Region.Eval (instruction m) captured first start 0 (encodeTuple m joined) between)
+    (afterRun : Semantics.Region.Eval (instruction m) (inputEnv m joined) after between 0 result expected)
+    (label : Nat) (payload : Value (Atom m)) (finish : σ) :
+    Semantics.Region.Eval (instruction m) captured (link middle first after) start label payload finish ↔
+      label = 0 ∧ payload = result ∧ finish = expected := by
+  have continued := fromPacked_eval m joined captured afterRun
+  have run : Semantics.Region.Eval (instruction m) captured (link middle first after) start 0 result expected :=
+    .cfg beforeRun (.step (next := 1) (Nat.zero_lt_succ 0)
+      (continued.renameLabels (fun i => 1 + i)) (.exit (Nat.le_refl 1)))
+  constructor
+  · intro observed
+    exact observed.deterministic (instruction_deterministic m) run
+  · rintro ⟨rfl, rfl, same⟩
+    subst finish
+    exact run
+
+variable (g : Sequential.Graph Op inputs middle results firstSigs secondSigs)
+
+theorem lower_hasType : (lower g).HasType (initialContext inputs) [resultCode results] :=
+  link_hasType (Diamond.Arms.LambdaSSA.lower_hasType g.first) (Diamond.Arms.LambdaSSA.lower_hasType g.second)
 
 theorem continuation_eval (joined : Tuple (Val m.value) (dataPorts middle)) (captured : Env (Atom m))
     (start : σ) :
     Semantics.Region.Eval (instruction m) (extend captured (encodeTuple m joined)) (continuation g)
-      start 0 (encodeTuple m (g.second.denote m joined)) start := by
-  have second := (Diamond.Arms.LambdaSSA.lower_eval_iff g.second m joined start start 0
-    (encodeTuple m (g.second.denote m joined))).mpr ⟨rfl, rfl, rfl⟩
-  apply unpack_eval m joined captured
-  exact second.renameVars (by simpa only [dataPorts, List.length_map] using input_rename_env m joined captured)
+      start 0 (encodeTuple m (g.second.denote m joined)) start :=
+  fromPacked_eval m joined captured ((Diamond.Arms.LambdaSSA.lower_eval_iff g.second m joined start start 0
+    (encodeTuple m (g.second.denote m joined))).mpr ⟨rfl, rfl, rfl⟩)
 
 variable (entry : Tuple (Val m.value) (dataPorts inputs))
 
@@ -122,9 +154,9 @@ private theorem lower_eval_denote (start : σ) :
   let joined := g.first.denote m entry
   have first := (Diamond.Arms.LambdaSSA.lower_eval_iff g.first m entry start start 0
     (encodeTuple m joined)).mpr ⟨rfl, rfl, rfl⟩
-  have next := continuation_eval m g joined (inputEnv m entry) start
-  exact .cfg first (.step (next := 1) (Nat.zero_lt_succ 0)
-    (next.renameLabels (fun i => 1 + i)) (.exit (Nat.le_refl 1)))
+  have second := (Diamond.Arms.LambdaSSA.lower_eval_iff g.second m joined start start 0
+    (encodeTuple m (g.second.denote m joined))).mpr ⟨rfl, rfl, rfl⟩
+  exact (link_eval_iff m first second _ _ _).mpr ⟨rfl, rfl, rfl⟩
 
 theorem lower_eval_iff (start finish : σ) (label : Nat) (payload : Value (Atom m)) :
     Semantics.Region.Eval (instruction m) (inputEnv m entry) (lower g) start label payload finish ↔

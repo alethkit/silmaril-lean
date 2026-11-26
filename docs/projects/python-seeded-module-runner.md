@@ -140,10 +140,25 @@ factory path for the lambda input.
 | Rank | Pinned shapes | Whole-input outcome and remaining prerequisites |
 | ---: | --- | --- |
 | 1 | `mixed-freevars-and-cellvars.py` and `lambda4.py` each assign the result of a three-integer factory, then call that saved result with three integers to obtain a second closure. | The empty reference raises the missing-helper `NameError` after both writes. Builtin and preamble references finish normally. The named-definition row uses closure multiplication and a final call through a live global. The lambda row lowers three nested function blocks and uses a zero-argument escaped call inside the equality helper. |
-| 2 | `lambda1.py`, `lambda2.py` and `lambda3.py` construct factories with lambdas. | Both supplied references finish normally. The empty reference reaches the missing helper. The first uses a fixed nested lambda chain. The second calls a lambda expression directly. The third passes `None` as a factory argument and needs a compatible fixed argument profile. |
+| 2 | `lambda1.py`, `lambda2.py` and `lambda3.py` construct factories with lambdas. | Both supplied references finish normally. The empty reference reaches the missing helper after binding the resulting closures. The first uses a fixed nested lambda chain. The second uses a checked final call to a lexical lambda and forwards its captured cell. The third needs module call lowering for literal `None` and a seeded factory argument profile that binds it. |
 | 3 | `nesting-plus-free-ref-to-global.py` assigns a declared global in an outer factory. | The two returned closures see the last write. The supplied references finish normally and the empty reference reaches the missing helper. The compiler needs declared-global writes and child lookup of that global. Executor namespace effects must survive return and failure. |
 | 4 | `testfunctions8.py` compares named call results in assertions. `testscope1.py` immediately calls a returned closure inside an assertion. | Both complete normally in every reference. They need checked call results as comparison operands. The first also uses a standalone Boolean assignment in the seeded namespace. The second needs a call-result callee and the assertion-message evaluation rule. |
 | 5 | `testfunctions11.py` omits two trailing literal positional defaults after six supplied values. | All references finish normally. It needs a saved-default positional binder, a conjunctive assertion, and a seeded ordinary discard with the completed argument list. Larger default and unpacking rows also require tuple, mapping or exception semantics. |
+
+The two defaulted lambda rows need saved positional defaults and binding
+of omitted suffix slots. Their full supplied runs also need tuple results
+and tuple equality in the helper, variadic collection, and the
+`___assertRaises(TypeError, ...)` path with positional callback
+arguments. `lambda_stararg.py` additionally expands literal tuples in
+argument order. With the current helper names supplied, CPython first
+stops at the missing `TypeError` name. With that class also supplied,
+both original inputs complete normally.
+
+The decorator row completes normally in CPython with no helpers. Its
+closures require call results as arithmetic operands and subtraction.
+The module also needs inside-out decorator application with callable
+arguments, publication of the final decorated binding, and a call
+result as a comparison operand.
 
 The factory ledger authorizes exact descriptors recorded by a successful
 publication or factory binding in the same run. The separate argument

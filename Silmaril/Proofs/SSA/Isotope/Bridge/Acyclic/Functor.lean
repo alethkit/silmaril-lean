@@ -38,6 +38,10 @@ private instance (P : InstrSig τ ε) : IsDiscrete (ssaRoom J P).Mod where
     congrArg (ShrinkHoms.toShrinkHoms ∘ Discrete.mk)
       (Discrete.eq_of_hom ((ShrinkHoms.inverse.{0} (Discrete (CoherentRegionModel J P))).map f))
 
+theorem ssaModelFunctor_ext_proof {D : Type*} [Category* D]
+    {F G : (ssaRoom J P).Mod ⥤ D} (h : ∀ K, F.obj K = G.obj K) : F = G :=
+  functor_ext_from_discrete h
+
 theorem ssaCorridor_id_proof (P : InstrSig τ ε) :
     ssaCorridor (J := J) (𝟙 P) = 𝟙 (ssaRoom J P) := by
   refine Room.hom_ext (funext mapEquation_id) ?_

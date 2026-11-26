@@ -42,6 +42,11 @@ theorem encode_injective {sort : ValueSort Data} :
     Function.Injective (encode m (sort := sort)) :=
   Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.encode_injective m
 
+/-- Packed tuples distinguish all source vectors of data and predicate sorts. -/
+theorem encodeTuple_injective (sorts : List (ValueSort Data)) :
+    Function.Injective (encodeTuple m (ports := dataPorts sorts)) :=
+  Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.encodeTuple_injective m sorts
+
 theorem instruction_deterministic : Semantics.InstrDeterministic (instruction m (σ := σ)) :=
   Proofs.SSA.SeaOfNodes.Diamond.LambdaSSA.instruction_deterministic m
 

@@ -37,6 +37,14 @@ theorem read_keepOrigin {t : Ty Data} (flow : Dataflow Op args past sigs) (wire 
       Diamond.read m wire entry locals :=
   Silmaril.Proofs.SSA.SeaOfNodes.GVN.read_keep m entry flow wire locals
 
+/-- In the final environment, a producer reads its opcode applied to
+its ordered operand wires, interpreted in that same environment. -/
+theorem Producer.read_key (ref : Producer flow out)
+    (m : Model.{u,v,w} Op) (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past) :
+    let final := flow.eval m entry locals
+    Diamond.read m ref.origin entry final = m.run ref.key.opcode (ref.key.operands.read entry final) :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GVN.read_producer_key m entry ref locals
+
 variable [DecidableEq (ValueSort Data)] [∀ ins out, DecidableEq (Op ins out)]
 
 /-- An accepted representative produces the same typed value in every

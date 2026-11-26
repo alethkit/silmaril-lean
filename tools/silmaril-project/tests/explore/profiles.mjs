@@ -32,10 +32,24 @@ with sqlite3.connect(db) as c:
                          ("fixture.outside", '["Fixture.extra"]')]:
         c.execute("INSERT INTO logic_properties (name, decl, role, statement, axioms, module, origin) VALUES(?, ?, 'consistency', 'Fixture statement', ?, 'Fixture', 'local')",
                   (name, name, axioms))
+    c.executescript("""
+        INSERT INTO ir_families (sid, name, title, module, origin)
+          VALUES ('f', 'fixture.ir', 'Example IR', 'Fixture', 'local');
+        INSERT INTO ir_syntax_kinds (sid, name, title, module, origin)
+          VALUES ('k', 'fixture.syntax', 'Blocks', 'Fixture', 'local');
+        INSERT INTO ir_subsets (sid, name, family, syntax_kind, decl, title, module, origin)
+          VALUES ('s', 'fixture.subset', 'fixture.ir', 'fixture.syntax', 'Fixture.Block', 'Blocks', 'Fixture', 'local');
+        INSERT INTO institutions (sid, name, decl, arity, type, levels, title, module, origin)
+          VALUES ('i', 'fixture.logic', 'Fixture.inst', 0, 'Inst', '', 'Example institution', 'Fixture', 'local');
+        INSERT INTO ir_models (sid, name, subset, semantics, decl, institution, title, module, origin)
+          VALUES ('m', 'fixture.denote', 'fixture.subset', 'denotational', 'Fixture.denote', 'fixture.logic',
+                  'Denotation', 'Fixture', 'local');
+    """)
     with sqlite3.connect(legacy) as old:
         c.commit()
         c.backup(old)
-        old.execute("DROP TABLE answer_axioms")
+        for table in ["answer_axioms", "ir_models", "ir_subsets", "ir_syntax_kinds", "ir_families"]:
+            old.execute(f"DROP TABLE {table}")
 `, db, path.join(site, "legacy.sqlite"), path.join(here, "../project/ok/project.sql")]);
   execFileSync(binary, ["explore", "--db", db, "--out", path.join(site, "index.html")]);
 
@@ -91,6 +105,22 @@ with sqlite3.connect(db) as c:
   assert.equal(await desktop.locator("#nav a[aria-current=page]").innerText(), "Summary");
   assert.equal(await desktop.getByRole("region", { name: "Explore the project" }).getByRole("link", { name: "Formal" }).count(), 1);
   await shot(desktop, "desktop-index");
+
+  await desktop.locator("#nav").getByRole("link", { name: "IR", exact: true }).click();
+  await settle(desktop, "ir");
+  const ir = desktop.locator("#ir-registry tbody tr");
+  assert.equal(await ir.count(), 1);
+  assert.match(await ir.innerText(), /fixture\.ir.*fixture\.subset.*fixture\.denote.*denotational/s);
+  assert.equal(await ir.getByRole("link", { name: "Fixture.Block" }).getAttribute("href"), "#/source/Fixture.Block");
+  await ir.getByRole("link", { name: "Fixture.denote", exact: true }).click();
+  await settle(desktop, "source");
+  assert.match(await desktop.locator("main h2").innerText(), /Fixture\.denote/);
+  await open(desktop, "ir/", "ir");
+  await ir.getByRole("link", { name: "Example institution" }).click();
+  await settle(desktop, "institution");
+  assert.match(await desktop.locator("main").innerText(), /Fixture\.inst/);
+  await open(desktop, "ir/", "ir", "?db=legacy.sqlite");
+  assert.match(await desktop.locator("main").innerText(), /This database predates the IR registry/);
 
   await open(desktop, "problem/ok.a", "problem");
   const standard = answer(desktop, "Ok.a_sol");
@@ -160,7 +190,7 @@ with sqlite3.connect(db) as c:
   assert.ok(!(await details(mobile).isVisible()), "second tap dismisses the details");
 
   assert.deepEqual(errors, []);
-  console.log("Explorer index, deep links, axiom data, hover, focus and touch profiles passed");
+  console.log("Explorer index, deep links, IR registry, axiom data, hover, focus and touch profiles passed");
 } finally {
   if (browser) await browser.close();
   if (server) server.kill();

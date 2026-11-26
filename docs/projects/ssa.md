@@ -79,6 +79,10 @@ bridge relates the two.
 
 ## Main results
 
+See the [pinned LambdaSSA theorem crosswalk](lambdassa-theorem-crosswalk.md)
+for the scope of the paper and Lean results and the conventional φ-node
+to block-argument port plan.
+
 λRTL and λSSA (acyclic), in `Silmaril.SSA.LambdaRTL.Thms`:
 
 - `Region.evalSSA_congr`: the lexical semantics reads only free variables.
@@ -100,6 +104,14 @@ Versioning (`Version.Thms`): `versionTop_isSSA` (every acyclic λRTL region beco
 dominance-scoped SSA), `versionTop_evalSSA` and `versionTop_evalObs`
 (`(versionTop r).evalSSA m ρ = r.evalObs m σ` when `ρ (y, 0) = σ y`), assuming the
 model is pair-lawful (`unpair (pair a b) = pure (a, b)`).
+
+Deversioning (`RoundTrip.Thms`): `roundTrip_evalObs` compares acyclic λRTL with
+its versioned region renamed back to the original register type. Both runs use
+the same initial store and have equal computations of the exit label and
+payload. The theorem assumes a lawful monad, a pair-lawful model, decidable
+register and label equality, and infinitely many register names. Deversioning
+fixes version-zero registers and injectively assigns the remaining versions
+used by the region to fresh names.
 
 Names (`Nameless.Thms`, `LocallyNameless.Thms`, `Nameless.Institution.Thms`):
 `Region.eval_toDB` (adequacy), `DB.Region.toDB_ofDB` (round trip),
@@ -347,16 +359,44 @@ The continuation cannot jump back to its own label.
   and composition, and `ssaSat_map_iff` gives satisfaction invariance.
   `reifyComorphism` bundles reification and the LetCase algebra reduct
   over the identity signature functor. Its model class is the stated
-  coherent region model class; expansion of arbitrary LetCase algebras
+  coherent region model class. Expansion of arbitrary LetCase algebras
   is a separate question.
   [Exact institution and comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Functor/Thms.lean)
+- For type-changing `SignatureMap`s, `pullbackTypes` and
+  `pullbackInstructions` reuse the target's chosen type-former isomorphisms
+  and primitive arrows with equality transport. They preserve identity and
+  composition. The value context tensor and finite coproduct of exits agree
+  with the target interpretations of the mapped contexts.
+  `RegionWitnessPullback` is equivalent to source typing coherence
+  together with preservation of the selected region denotations.
+  [Dependent model pullback](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Thms.lean)
+- `mapTermWitness` and `mapRegionWitness` prove forward relabelling for
+  the existing relational semantics. For a nonempty CFG the proof transports
+  the entry and block witnesses, preserves the two finite-label routing
+  arrows, and checks each summand restriction of the transported collective
+  arrow. This supplies `RegionWitnessPullback` in every supported coherent
+  target, including non-thin computation categories. The Maybe Kleisli
+  case-and-join probe identifies two distinct source payload types.
+  [Witness transport](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/Pullback/Witness/Thms.lean) ·
+  [Case-and-join probe](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Examples/TypeChange/Thms.lean)
+- `TypeSignature` bundles primitive signatures with their type and effect
+  universes. Its maps preserve the full type syntax. `ssaTypeInst` extends
+  `ssaSignatureCorridor` to this category. Its sentence laws retain the exact
+  derivations, with context and result transports justified explicitly.
+  The probe exercises a composite between three type universes.
+  [Exact SSA institution](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Thms.lean)
+- `letCaseTypeInst` uses the existing presentations and operation-algebra
+  reduct. Its initial-algebra fold agrees with `mapCaseSignature`, and the
+  algebra of a coherent SSA pullback is exactly the LetCase reduct.
+  `typeReifyComorphism` bundles the natural satisfaction comparison.
+  On the included primitive maps, both signature actions and the
+  reification components agree with the fixed-type comorphism.
+  The comparison uses forward transport of source witnesses.
+  Reconstruction of arbitrary target witnesses remains separate.
+  [Type-changing comorphism](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Institution/TypeChange/Comparison/Thms.lean)
 - The existing [λSSA observational institution](../../Silmaril/Raw/SSA/Isotope/Institution/Observational/Calculi.lean#L160)
   uses scoped operational sentences over discrete scope signatures.
-  Extending the exact comparison to type-changing maps requires indexing
-  the signature category over type universes and showing that transport
-  of context and label objects preserves region denotation witnesses and
-  the LetCase algebra operations. Soundness of the full exact equational
-  presentation remains separate.
+  Soundness of the full exact equational presentation remains separate.
 
 ## Guarded iteration and resumptions
 
@@ -429,7 +469,9 @@ lake build --wfail Silmaril.SSA.LambdaRTL.Thms Silmaril.SSA.LambdaRTL.CFG.Thms \
   Silmaril.SSA.Thesis.Kleisli.Thms Silmaril.SSA.Isotope.Refinement.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.Thms \
   Silmaril.SSA.Isotope.Bridge.Acyclic.Categorical.Realization.Thms \
-  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.Functor.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Institution.TypeChange.Comparison.Thms \
+  Silmaril.SSA.Isotope.Bridge.Acyclic.Examples.TypeChange.Thms
 ```
 
 The root target `lake build --wfail Silmaril` builds all of them.

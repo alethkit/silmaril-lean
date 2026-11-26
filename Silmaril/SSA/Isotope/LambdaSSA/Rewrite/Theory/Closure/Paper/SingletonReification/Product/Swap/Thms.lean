@@ -119,6 +119,14 @@ theorem denoteSingleton_productFst (A S : τ) :
     denoteSingletonRegion J M (productFstBranches (Φ := Φ) A S).hasType = J.map (fstMap M A S) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_productFst J M A S
 
+/-- Destructure the state pair and send its second coordinate to the repeat tag. -/
+theorem denoteSingleton_snd_repeatTag (A S D : τ) :
+    denoteSingletonRegion J M
+      (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) :
+        HasType (Φ := Φ) [product A S] (.let₂ (.var 0) (.br 0 (.inl (.var 0)))) [packedExitType [S, D]]) =
+      J.map (sndMap M A S ≫ inlMap M S (coprod D Silmaril.empty)) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_snd_repeatTag J M A S D
+
 end Region
 
 section Transport

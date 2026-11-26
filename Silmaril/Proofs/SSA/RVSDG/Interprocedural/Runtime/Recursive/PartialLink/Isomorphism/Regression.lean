@@ -2,7 +2,7 @@ module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.ClosedFamily.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.RecursiveCall.Numbered.Check.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Executable.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
@@ -651,20 +651,24 @@ private def branchBody {sigs : List (Ports T)} (base : RecursiveCall.Code Op cap
   .bind (RecursiveCall.gammaNode (extra := 0) (entry := captured) (outs := [num])
     branchWires (branchSigs sigs)) (branchChildren base) addAfter
 
-private theorem addAfterSchedule {entry : Ports T} :
-    Schedule Op (Equiv.refl Nat) (addAfter (entry := entry)) addAfter :=
-  .bind (.primitive Op.seed) _ _ rfl rfl (.ret _ _ rfl)
+private def baseNumbering : Local.Renaming := .region memberVertices (fun _ _ => .identity)
 
-private theorem bodySchedule :
-    Schedule Op (Equiv.refl Nat) (branchBody baseL) (branchBody baseR) := by
-  refine .gamma branchWires branchWires rfl rfl (arms := Fin.cases memberVertices fun _ => Equiv.refl Nat)
-    ?_ addAfterSchedule
-  intro arm
-  refine Fin.cases ?_ (fun i => ?_) arm
-  · change Schedule Op memberVertices baseL baseR
-    exact .emptyRight _ (.bind (.primitive Op.finish) _ _ rfl rfl (.emptyLeft _ (.ret _ _ rfl)))
-  · change Schedule Op (Equiv.refl Nat) recurArm recurArm
-    exact .bind (.apply branchFn) _ _ rfl rfl addAfterSchedule
+private def branchNumbering : Local.Renaming :=
+  .region (Equiv.refl Nat) (fun _ arm => if arm = 0 then baseNumbering else .identity)
+
+local instance : DecidableEq (Ty Unit Unit) := RecursiveCall.Numbered.decidePort
+
+private def opcodeCode : NestedTheta.Equality.OpcodeCode Op where
+  Key := Nat
+  encode
+    | .seed => 0
+    | .finish => 1
+  injective := by intro _ _ x y _; cases x <;> cases y <;> rfl
+
+private abbrev instructionKeys := RecursiveCall.Numbered.instructionCode opcodeCode
+
+private instance : DecidableEq instructionKeys.Key :=
+  show DecidableEq (Sum Nat (Ports T × Ports T)) from inferInstance
 
 private theorem baseIso : NestedTheta.Graph.Isomorphic (Instruction Op) baseL.toGraph baseR.toGraph := by
   refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
@@ -708,7 +712,8 @@ private theorem branchRefs : ValueRelated machine ids branchRefL branchRefR := b
     (tableR := branchGroupR.toGraph.definitions) (.cons capture .nil) ?_ 0
   exact Fin.cases ⟨⟨rfl, rfl⟩, branchBodyIso⟩ (fun i => i.elim0)
 
-private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
+private theorem checkedBranchFamily :
+    RecursiveCall.Numbered.CheckedFamily primitives ids (Supported branchRefL) (Supported branchRefR) where
   closedL := primitivesClosed branchRefL (by
     intro _ _ _ member
     cases member
@@ -717,13 +722,15 @@ private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL
     intro _ _ _ member
     cases member
     exact ⟨.capture 73 1 8, .self, trivial⟩)
-  schedule := by
+  graphs := by
     intro _ _ _ _ left right _
     cases left
     cases right
-    apply ResolvedSchedule.intro (vertices := Equiv.refl Nat)
-    change Schedule Op (Equiv.refl Nat) (branchBody baseL).toGraph.toTerm (branchBody baseR).toGraph.toTerm
-    simpa only [NestedTheta.Term.toTerm_toGraph] using bodySchedule
+    exact RecursiveCall.Numbered.checkResolved_sound (keys := instructionKeys)
+      (mapping := branchNumbering) (by cbv)
+
+private theorem branchFamily : ClosedFamily primitives ids (Supported branchRefL) (Supported branchRefR) :=
+  checkedBranchFamily.toClosed
 
 private def branchArgs (flag : Nat) : Tuple machine.Val branchFn.args :=
   .cons (.data flag) (.cons (.control 1) (.cons (.control 0) .nil))
@@ -797,5 +804,29 @@ example : ∃ sourceL sourceR endR,
     (Continuation.Partial.Executable.runFor_reachable actions 40 (branchStart branchRefL 0))
     ⟨_, by cbv, by cbv⟩
   exact ⟨_, _, endR, branchLinkedL 0, branchLinkedR 0, pair, blocked⟩
+
+private abbrev seedRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
+  RecursiveCall.simple (.primitive Op.seed) (.cons (.arg (.tail .head)) .nil) (fun i => i.elim0)
+
+private abbrev finishRow {past : List (Ports T)} : NestedTheta.Node (Instruction Op) [global, num] past [num] :=
+  RecursiveCall.simple (.primitive Op.finish)
+    (.cons (.arg .head) (.cons (.arg (.tail .head)) .nil)) (fun i => i.elim0)
+
+private def seedThenFinish : RecursiveCall.Code Op [global, num] [] [[num], [num]] [] :=
+  .bind seedRow (fun i => i.elim0) (.bind finishRow (fun i => i.elim0) (.ret .nil))
+
+private def finishThenSeed : RecursiveCall.Code Op [global, num] [] [[num], [num]] [] :=
+  .bind finishRow (fun i => i.elim0) (.bind seedRow (fun i => i.elim0) (.ret .nil))
+
+-- The graph swap preserves both labels and their independent operands.
+-- It moves the state change across a potentially undefined action.
+example : NestedTheta.Graph.Isomorphic (Instruction Op) seedThenFinish.toGraph finishThenSeed.toGraph := by
+  refine .intro rfl rfl (Equiv.swap (0 : Fin 2) 1) ?_ ?_ rfl ?_
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
+  · exact Fin.cases (fun i => i.elim0) (Fin.cases (fun i => i.elim0) (fun i => i.elim0))
+
+example : (RecursiveCall.Numbered.check instructionKeys baseNumbering
+    seedThenFinish.toGraph finishThenSeed.toGraph).isSome = false := by cbv
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Tests

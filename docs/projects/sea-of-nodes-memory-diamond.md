@@ -42,3 +42,37 @@ make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms +Silmaril
 lake env leanchecker Silmaril.SSA.SeaOfNodes.Memory.Diamond.Thms
 lake env leanchecker Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Regression
 ```
+
+## Native equations
+
+```lean
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms
+```
+
+The native `inst` uses ordered lists of address and word ports as
+signatures. A signature map sends each source input port to a target port
+of the same sort. This allows a rename to redirect a Load or Store to a
+different address input. Load, Store, Return, and the Boolean branch rule
+have their fixed meanings throughout. `mapGraph` preserves the memory
+producer indices and Region predecessor order. Its suffix map also keeps
+the selected arm's exported word at the first port.
+
+A model supplies a cell count and a typed valuation of the scalar entry
+ports. Its reduct looks up those ports along the signature map. At that
+valuation, an equation compares both components of `Model.observe` for
+every Boolean guard and every initial heap. `Model.returns_iff_observe`
+relates this pair to the occurrence-indexed execution rules above.
+`returns_mapGraph` gives the pointwise reindexing law for these rules, and
+`Equation.satisfaction` gives the institution's satisfaction condition.
+These results use the initialized-cell profile described above.
+[Institution API](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/Institution/Thms.lean)
+
+The institution regression swaps two address ports. It checks an equation
+that changes only the predecessor order and an equation that removes a
+taken store. The second equation returns equal words on both sides.
+A changed cell in the final heap falsifies it.
+[Institution regression](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/Institution/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms +Silmaril.Proofs.SSA.SeaOfNodes.Memory.Diamond.Institution.Regression'
+```

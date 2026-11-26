@@ -78,7 +78,7 @@ private theorem compiled_outgoing {args : List (Ty Data)} {past : List (List (Ty
   | nil => rfl
   | cons quad rest ih => exact ih (rebind current quad.dest)
 
-private theorem compiled_read {args : List (Ty Data)} {past : List (List (Ty Data))}
+theorem compiled_read {args : List (Ty Data)} {past : List (List (Ty Data))}
     (block : Block Op regs) (m : Model.{u, v, w} Op)
     (entry : Tuple (Val m.value) args) (locals : Locals (Val m.value) past)
     (current : Wires args past (dataPorts regs)) :
@@ -109,7 +109,7 @@ theorem header_phi_iff {t : Ty Data} (prior : Graph Op regs n) (preds : Predeces
   · simpa using h
   · simpa using h
 
-private theorem selected_version {t : Ty Data} (prior : Graph Op regs n) (preds : Predecessors n)
+theorem selected_version {t : Ty Data} (prior : Graph Op regs n) (preds : Predecessors n)
     (edge : Fin (preds.rest.length + 1)) (p : Port (dataPorts regs) t)
     (version : Version n) (h : (prior.header preds).get p = some version) :
     (prior.column preds edge).get p = version := by

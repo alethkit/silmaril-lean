@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Iteration.Chosen.Laws.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProjectedElgot
 
 /-! # Chosen-coproduct Elgot laws for guarded feedback in a contextual quotient -/
@@ -48,6 +49,12 @@ theorem iterateChosen_roll {X Y Z : Q} (h : X ⟶ Z) (s : Z ⟶ Y ⨿ X) :
       h ≫ iterateChosen Seed (s ≫ coprod.map (𝟙 Y) h) :=
   ProjectedElgot.iterateChosen_roll Seed h s
 
+/-- The inverse chosen coproduct comparison commutes with the images of the two legs. -/
+theorem coprodComparison_inv_map {X Y X' Y' : P} (f : X ⟶ X') (g : Y ⟶ Y') :
+    (PreservesColimitPair.iso (proj) X Y).inv ≫ coprod.map ((proj).map f) ((proj).map g) =
+      (proj).map (coprod.map f g) ≫ (PreservesColimitPair.iso (proj) X' Y').inv :=
+  ProjectedElgot.c_inv_map Seed f g
+
 /-- A commuting square of projected steps means equality of the projected standard Paper composites. -/
 theorem projectSquare_iff {X Y Z : P} (f : X ⟶ Y ⨿ X) (g : Z ⟶ Y ⨿ Z) (h : X ⟶ Z) :
     projectStep Seed f ≫ coprod.map (𝟙 ((proj).obj Y)) ((proj).map h) = (proj).map h ≫ projectStep Seed g ↔
@@ -74,6 +81,47 @@ theorem uniformity_of_constructor_square {A B D : P} {h : A ⟶ D}
     (comm : f ≫ coprod.map (𝟙 B) h = h ≫ g) :
     iterateChosen Seed (projectStep Seed f) = (proj).map h ≫ iterateChosen Seed (projectStep Seed g) :=
   ProjectedElgot.uniformity_of_constructor_square Seed hh f g comm
+
+local notation "I" => iterateChosen Seed
+
+/-- Compose uniformity along two commuting squares with a common intermediate step. -/
+theorem uniformity_of_composed_squares {A D E B : Q}
+    (h : A ⟶ D) (k : D ⟶ E)
+    (f : A ⟶ B ⨿ A) (middle : D ⟶ B ⨿ D) (g : E ⟶ B ⨿ E)
+    (left : f ≫ coprod.map (𝟙 B) h = h ≫ middle)
+    (right : middle ≫ coprod.map (𝟙 B) k = k ≫ g)
+    (uniformLeft : f ≫ coprod.map (𝟙 B) h = h ≫ middle → I f = h ≫ I middle)
+    (uniformRight : middle ≫ coprod.map (𝟙 B) k = k ≫ g → I middle = k ≫ I g) :
+    f ≫ coprod.map (𝟙 B) (h ≫ k) = (h ≫ k) ≫ g ∧
+      I f = (h ≫ k) ≫ I g :=
+  ProjectedElgot.uniformity_of_composed_squares Seed h k f middle g left right uniformLeft uniformRight
+
+/-- Pulling target iteration back along a square solves the source fixpoint equation. -/
+theorem iterate_solution_of_square {A D B : Q} (p : A ⟶ D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    p ≫ I g = f ≫ coprod.desc (𝟙 B) (p ≫ I g) :=
+  ProjectedElgot.iterate_solution_of_square Seed p f g square
+
+/-- For a split projection square, resetting the state on every recursive output yields the target iteration. -/
+theorem iterate_reset_of_square {A D B : Q} (p : A ⟶ D) (i : D ⟶ A) (sectionEq : i ≫ p = 𝟙 D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    I (f ≫ coprod.map (𝟙 B) (p ≫ i)) = p ≫ I g :=
+  ProjectedElgot.iterate_reset_of_square Seed p i sectionEq f g square
+
+/-- With a section, uniformity for the original square is equivalent to invariance under resetting recursive outputs. -/
+theorem uniformity_iff_reset {A D B : Q} (p : A ⟶ D) (i : D ⟶ A) (sectionEq : i ≫ p = 𝟙 D)
+    (f : A ⟶ B ⨿ A) (g : D ⟶ B ⨿ D)
+    (square : f ≫ coprod.map (𝟙 B) p = p ≫ g) :
+    I f = p ≫ I g ↔ I f = I (f ≫ coprod.map (𝟙 B) (p ≫ i)) :=
+  ProjectedElgot.uniformity_iff_reset Seed p i sectionEq f g square
+
+/-- There is a unique iteration result arrow out of a structurally empty singleton state. -/
+theorem uniformity_of_empty_source {A : τ} (hA : Paper.StructurallyEmpty A) {D B : Q}
+    (h : ofType Seed A ⟶ D) (f : ofType Seed A ⟶ B ⨿ ofType Seed A) (g : D ⟶ B ⨿ D) :
+    I f = h ≫ I g :=
+  ProjectedElgot.uniformity_of_empty_source Seed hA h f g
 
 /-- Fixpoint, naturality and codiagonal for the guarded iteration on the chosen computation coproduct. -/
 theorem guardedElgot :

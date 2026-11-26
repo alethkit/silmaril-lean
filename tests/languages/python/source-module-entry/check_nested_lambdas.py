@@ -33,6 +33,20 @@ saved = make(1)
 kept = 9
 """
 
+IMMEDIATE = """offset = 3
+make = lambda x: (lambda y: lambda z: x + y + z)(x + offset)
+a = make(4)
+b = make(4)
+___assertEqual(a(1), 12)
+___assertEqual(b(2), 13)
+after = 9
+"""
+
+IMMEDIATE_FAILURE = """make = lambda x: (lambda y: lambda: x + y)(missing_left + missing_right)
+saved = make(4)
+after = 9
+"""
+
 LEAN = """
 private def addresses (closure : Core.Closure.Function) : List Nat :=
   (closure.captures.toList.map (·.address)).mergeSort
@@ -86,6 +100,65 @@ private def shadow (source : Source.Module) : Bool := Id.run do
       [("make", .ok (.function factory)), ("factory", .ok (.function leaf)),
        ("leaf", .ok (.int 7)), ("___assertEqual", .ok .none)]
 
+private def immediate (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let (_, .finished ordinary (.raised (.nameError "___assertEqual"))) :=
+    runPrefix compiled.table 128 compiled.start | return false
+  let some (.function ca) := ordinary.globals "a" | return false
+  let some (.function cb) := ordinary.globals "b" | return false
+  let ordinaryOK := addresses ca == [0, 1] && addresses cb == [2, 3] &&
+    ca.code == cb.code && heapInts ordinary.heap == [some 4, some 7, some 4, some 7]
+  let seededOK := [Namespace.empty, seed .builtin, seed .preamble].all fun initial => Id.run do
+    let run := Seeded.run initial compiled initialHeap
+    let some (.function factory) := run.residual.lookupGlobal "make" | return false
+    let some (.function a) := run.residual.lookupGlobal "a" | return false
+    let some (.function b) := run.residual.lookupGlobal "b" | return false
+    let enabled := (initial.lookupGlobal "___assertEqual").isSome
+    let completion : Except Seeded.ModuleFailure Unit :=
+      if enabled then .ok () else .error (.raised (.runtime (.nameError "___assertEqual")))
+    let expected := ((initial.bindGlobal "offset" (.int 3)).bindGlobal "make" (.function factory))
+      |>.bindGlobal "a" (.function a) |>.bindGlobal "b" (.function b)
+    let expected := if enabled then expected.bindGlobal "after" (.int 9) else expected
+    let factories : List (String × Result) := [("make", .ok (.function a)), ("make", .ok (.function b))]
+    let calls : List (String × Result) := if enabled then
+      [("a", .ok (.int 12)), ("___assertEqual", .ok .none),
+       ("b", .ok (.int 13)), ("___assertEqual", .ok .none)] else []
+    return a.code == b.code && addresses a == [1, 2] && addresses b == [3, 4] &&
+      run.completion == completion && heapInts run.heap == [some 37, some 4, some 7, some 4, some 7] &&
+      run.residual.moduleGlobals == expected.moduleGlobals && run.residual.builtins == expected.builtins &&
+      run.calls.map (fun call => (call.callee, call.observation.result)) == factories ++ calls &&
+      run.calls.all (fun call => call.observation.caught.isNone)
+  return compiled.linked.map (·.path) == [[0], [0, 0], [0, 0, 0]] && ordinaryOK && seededOK
+
+private def immediateStops (source : Source.Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let initial := seed .builtin
+  let broken : Core.Closure.Executor.CodeTable := fun key =>
+    if key = 1 then none else compiled.table key
+  let fault := Seeded.runInstructions initial compiled.instructions broken initialHeap
+  let noResult (run : Seeded.Observation) :=
+    (run.residual.lookupGlobal "make").isSome && run.residual.lookupGlobal "offset" == some (.int 3) &&
+      run.residual.lookupGlobal "a" == none && run.residual.lookupGlobal "after" == none &&
+      run.residual.builtins == initial.builtins && run.calls.isEmpty
+  return fault.completion == .error (.directCallFault (.missingCode 1)) &&
+    heapInts fault.heap == [some 37, some 4] && noResult fault &&
+    (List.range 12).any (fun fuel =>
+      let run := Seeded.run initial compiled initialHeap fuel
+      run.completion == .error .directCallFuelExhausted && noResult run &&
+        heapInts run.heap == [some 37, some 4, some 7])
+
+private def immediateFailure (source : Source.Module) (error : Core.Closure.RuntimeError) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let (_, .finished ordinary (.raised actual)) := runPrefix compiled.table 128 compiled.start | return false
+  let run := Seeded.run (seed .builtin) compiled initialHeap
+  let raised : Failure := .raised (.runtime error)
+  return actual == error && heapInts ordinary.heap == [some 4] &&
+    (ordinary.globals "saved").isNone && (ordinary.globals "after").isNone &&
+    run.completion == .error (.ofCall raised) && heapInts run.heap == [some 37, some 4] &&
+    run.residual.lookupGlobal "saved" == none && run.residual.lookupGlobal "after" == none &&
+    run.calls.map (fun call => (call.callee, call.observation.result, call.observation.caught)) ==
+      [("make", .error raised, none)]
+
 private def timing (source : Source.Module) (invoke : Bool) : Bool := Id.run do
   let .ok compiled := compile source | return false
   let (_, .finished ordinary ordinaryResult) := runPrefix compiled.table 128 compiled.start | return false
@@ -126,9 +199,30 @@ if __name__ == "__main__":
     invoke = CREATE + "___assertEqual(saved(), 2)\nafter = 11\n"
     assert reference(CREATE, "empty")[0] == "normal"
     assert reference(invoke, "builtin")[0] == "NameError:missing"
+    for placement in ("empty", "builtin", "preamble"):
+        status, namespace = reference(IMMEDIATE, placement)
+        assert status == ("NameError:___assertEqual" if placement == "empty" else "normal")
+        a, b = (namespace[key] for key in ("a", "b"))
+        assert a.__code__ is b.__code__ and a is not b
+        assert a.__code__.co_freevars == ("x", "y")
+        assert [cell.cell_contents for cell in a.__closure__] == [4, 7]
+        assert all(left is not right for left, right in zip(a.__closure__, b.__closure__))
+        assert a(1) == 12 and b(2) == 13
+    right_failure = "missing_left = 1\n" + IMMEDIATE_FAILURE
+    arity = IMMEDIATE_FAILURE.replace("lambda y: lambda: x + y", "lambda: lambda: x").replace(
+        "missing_left + missing_right", "1",
+    )
+    for source, status in ((IMMEDIATE_FAILURE, "NameError:missing_left"),
+                           (right_failure, "NameError:missing_right"), (arity, "TypeError")):
+        actual, namespace = reference(source, "builtin")
+        assert actual == status and "saved" not in namespace and "after" not in namespace
     fixtures = (
         (CHAIN, "#guard chain pythonSource"),
         (SHADOW, "#guard shadow pythonSource"),
+        (IMMEDIATE, "#guard immediate pythonSource && immediateStops pythonSource"),
+        (IMMEDIATE_FAILURE, '#guard immediateFailure pythonSource (.nameError "missing_left")'),
+        (right_failure, '#guard immediateFailure pythonSource (.nameError "missing_right")'),
+        (arity, '#guard immediateFailure pythonSource (.positionalArity 0 1)'),
         (CREATE, "#guard timing pythonSource false"),
         (invoke, "#guard timing pythonSource true"),
         ("make = lambda arg=missing: arg\n",
@@ -137,7 +231,7 @@ if __name__ == "__main__":
          "#guard (match compile pythonSource with | .error (.source (.functionBody .parameterProfile)) => true | _ => false)"),
         ("make = lambda x: x // 2\n",
          "#guard (match compile pythonSource with | .error (.source (.functionBody .expressionShape)) => true | _ => false)"),
-        ("make = lambda x: (lambda arg: arg)(x)\n",
+        ("make = lambda x: 1 + (lambda arg: arg)(x)\n",
          "#guard (match compile pythonSource with | .error (.source (.functionBody (.scopeTree [0]))) => true | _ => false)"),
     )
     with tempfile.TemporaryDirectory() as tmp:
