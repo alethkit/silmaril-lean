@@ -1,8 +1,10 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop.Defs
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Thms
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Thms
+import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop.Common
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop.Lime1
 
@@ -19,11 +21,28 @@ open Wasm.SingleThreaded.Det (noHost)
 variable {entry : Entry} {program : Graph.Program} {tables : Source.Tables} {outerFrame : Runtime.Frame}
   {index : FuncIdx} {args : List Value}
 
+theorem graph_checked (ready : entry.Checked program tables outerFrame index args) :
+    program.checkDirect = true :=
+  Proofs.graph_checked ready
+
+theorem caller_admitted (ready : entry.Checked program tables outerFrame index args)
+    {locals : List Value} (typed : entry.Typed ⟨locals, .caller⟩) :
+    Graph.Admitted program entry.owner (entry.callerPhase locals) :=
+  Proofs.caller_admitted ready typed
+
+
 section Core
 
 open Execution.Core
 
 variable {H : Type} {P : Numerics.Profile} {s : Store H}
+
+/-- Invert a step under the entered loop when its label cannot exit. -/
+theorem core_loop_wrap_step_iff {body dst : Config H}
+    (stays : ∀ out, ¬ LabelExit 0 [entry.coreLoop] body.code out) :
+    Step P noHost (entry.coreLoopWrap outerFrame body) dst ↔
+      ∃ mid, Step P noHost body mid ∧ dst = entry.coreLoopWrap outerFrame mid :=
+  Proofs.Core.loop_wrap_iff stays
 
 /-- Exact native successors before execution reaches the site or the enclosing tail. -/
 theorem core_step_iff (ready : entry.Checked program tables outerFrame index args) {a : State} {dst : Config H}
@@ -76,6 +95,13 @@ section Lime
 open Wasm.Lime1.Execution
 
 variable {H : Type} {s : Store H}
+
+/-- Invert a step under the entered loop when its label cannot exit. -/
+theorem lime_loop_wrap_step_iff {body dst : Config H}
+    (stays : ∀ out, ¬ PureStep body.frame.module.types [.label 0 [entry.limeLoop] body.code] out) :
+    Step CallFrame.limeNoHost (entry.limeLoopWrap outerFrame body) dst ↔
+      ∃ mid, Step CallFrame.limeNoHost body mid ∧ dst = entry.limeLoopWrap outerFrame mid :=
+  Proofs.Lime1.loop_wrap_iff stays
 
 /-- Exact native successors before execution reaches the site or the enclosing tail. -/
 theorem lime_step_iff (ready : entry.Checked program tables outerFrame index args) {a : State} {dst : Config H}

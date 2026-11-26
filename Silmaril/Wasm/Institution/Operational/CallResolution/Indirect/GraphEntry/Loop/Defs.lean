@@ -247,13 +247,19 @@ def Entry.limeLookupResult {H : Type} (entry : Entry) (s : Store H) (outer : Fra
     (active : Source.Activation) (out : Outcome) : Config H :=
   entry.limeLoopWrap outer (active.limeResolved s [entry.armScope] entry.insideTail out)
 
+/-- Readback can replace the native suffix at each reached site with
+a correspondence specialized to that activation. -/
+def ObservationWithSite {C : Type} (entry : Entry) (args : List Value) (render : State → C)
+    (caller site : List Value → C → Prop) (dst : C) : Prop :=
+  (∃ state, Runs entry (entry.initial args) state ∧ dst = render state) ∨
+  (∃ locals, Runs entry (entry.initial args) ⟨locals, .caller⟩ ∧ caller locals dst) ∨
+  (∃ locals, Runs entry (entry.initial args) ⟨locals, .site⟩ ∧ site locals dst)
+
 /-- Every finite native endpoint lies within the recurrent path or extends a
 reached site checkpoint. The caller branch runs the ordinary checked tail. -/
 def Observation {C : Type} (entry : Entry) (args : List Value) (render : State → C)
     (caller : List Value → C → Prop) (native : C → C → Prop) (dst : C) : Prop :=
-  (∃ state, Runs entry (entry.initial args) state ∧ dst = render state) ∨
-  (∃ locals, Runs entry (entry.initial args) ⟨locals, .caller⟩ ∧ caller locals dst) ∨
-  (∃ locals, Runs entry (entry.initial args) ⟨locals, .site⟩ ∧
-    Relation.ReflTransGen native (render ⟨locals, .site⟩) dst)
+  ObservationWithSite entry args render caller
+    (fun locals out => Relation.ReflTransGen native (render ⟨locals, .site⟩) out) dst
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop

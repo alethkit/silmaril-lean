@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Loop.Common
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
@@ -47,7 +48,7 @@ private theorem wrap_iff {body after dst : Config H}
   rw [Context.Resume.core_wrap_step_iff stays]
   simp only [move, exists_eq_left]
 
-private theorem loop_wrap_iff {body dst : Config H}
+theorem loop_wrap_iff {body dst : Config H}
     (stays : ∀ out, ¬ LabelExit 0 [entry.coreLoop] body.code out) :
     Step P noHost (entry.coreLoopWrap outer body) dst ↔
       ∃ mid, Step P noHost body mid ∧ dst = entry.coreLoopWrap outer mid := by
