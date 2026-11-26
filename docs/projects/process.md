@@ -10,6 +10,8 @@ modules (`module_count` in `.process-promotion.json`).
 
 The [typed user/kernel boundary](typed-syscall.md) is a smaller ISA-independent
 pilot over the existing syscall relation, not a replacement for this release.
+Preinstalled files and connected streams also have single-threaded and scheduled
+interaction-tree models. [Abstract Linux I/O](process-abstract-io.md)
 
 ```mermaid
 flowchart LR
