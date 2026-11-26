@@ -768,6 +768,22 @@ The continuation cannot jump back to its own label.
   ordered exit interface.
   [Witness and model obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Thms.lean) ·
   [Existing independence proof](../../Silmaril/SSA/Isotope/LetIter/Categorical/Empty/Thms.lean)
+- At a fixed finite structural primitive signature and structural older
+  context, the native LetCase equation classes at literal packed inputs
+  form a category. The typed input variable is the identity and the typed
+  let is composition. The let weakens its receiver below the bound
+  intermediate result, so every hom keeps the same older captures. The
+  actual ranked emitter and the checked readback are functors between the
+  written linking category and this native category. They compose to the
+  identity functor in both orders, which gives an equivalence of
+  categories with identity unit and counit. Objects are nonempty ordered
+  interfaces, and the native laws are transported along the emission and
+  readback squares. The regression composes independently written terms
+  and graphs under two older captures, takes both round trips, and
+  separates two terms that differ only in the capture they read.
+  [Written category and hom squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/Thms.lean) ·
+  [Native category and equivalence](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Thms.lean) ·
+  [Captured composition and round trips](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Regression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
