@@ -1,0 +1,70 @@
+module
+
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithCaseBind.OpenReplay.RedundantTest.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Values.Discard.Syntax.Defs
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.RedundantSelectedTest
+
+/-! # Removing one redundant selected table test -/
+
+public section
+
+namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay
+
+open Silmaril
+open Paper.WithComputedProductProducers.Intrinsic
+open CaseTree.ReplyAgreement
+open Paper.WithCaseBind.SelectedTerminal (Seed)
+open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper
+open _root_.Silmaril.Isotope.Institution.Acyclic.Captured.Rewrite.Reply.Payload
+
+local instance redundantTestHasTy : HasTy signature.Instr (Ty Empty) := signature.hasTy
+
+local notation "E" => Paper.Extension.Eqv Seed
+
+/-- The selected terminal executes its emits before entering the terminal on
+the original input, in the order of the supplied list. -/
+theorem terminal_prefix {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
+    (e : Finite.Expr n) (pos : Position L) (slots : Fin n → Term signature.Instr X Bit) (bits : List Bool) :
+    E [X] (selectTerminal pos e slots bits).elaborate.val
+      (prependEmits bits (selectTerminal pos e slots []).elaborate.val) L :=
+  RedundantSelectedTest.terminal_prefix e pos slots bits
+
+/-- Opening the packed unit binder over the retained input gives ordinary
+lexical weakening of the selected terminal. -/
+theorem terminal_weakening {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
+    (e : Finite.Expr n) (pos : Position L) (slots : Fin n → Term signature.Instr X Bit) :
+    E [unit, X]
+      (Paper.PackedBody.applyPacked (selectTerminal pos e (fun i => retainSlot (A := unit) (slots i)) []).elaborate.val)
+      ((selectTerminal pos e slots []).elaborate.val.renameVars Nat.succ) L :=
+  RedundantSelectedTest.terminal_weakening e pos slots
+
+/-- An identical-arm test can be removed if the unprefixed discriminator
+return discards in the native quotient. The common emit prefix is retained. -/
+theorem redundant_test {X : Ty Empty} {L : List (Ty Empty)} {n : Nat}
+    (e : Finite.Expr n) (pos : Position L) (slots : Fin (n + 1) → Term signature.Instr X Bit)
+    (bits : List Bool) (drop : Paper.Extension.ReturnDiscards Seed [X] (slots 0).elaborate.val) :
+    selectedEq (selectTerminal pos (.split e e) slots bits)
+      (selectTerminal pos e (fun i => slots i.succ) bits) :=
+  RedundantSelectedTest.redundant_test e pos slots bits drop
+
+/-- Returning the second projection from a product input admits native discard. -/
+theorem snd_discards (X D : Ty Empty) :
+    Paper.Extension.ReturnDiscards Seed [product X D] (Term.snd (Φ := signature.Instr) X D).elaborate.val :=
+  RedundantSelectedTest.snd_discards X D
+
+/-- Quoting the older of two slots gives the same selected terminal as the
+direct read, provided the newest slot admits discard. -/
+theorem second_quote {X : Ty Empty} {L : List (Ty Empty)}
+    (pos : Position L) (slots : Fin 2 → Term signature.Instr X Bit) (bits : List Bool)
+    (drop : Paper.Extension.ReturnDiscards Seed [X] (slots 0).elaborate.val) :
+    selectedEq (selectTerminal pos (.read 1) slots bits)
+      (selectTerminal pos (Finite.Expr.quote 2 (fun env => env 1)) slots bits) :=
+  RedundantSelectedTest.second_quote pos slots bits drop
+
+/-- The direct older-slot read and its full quote give equal packed singleton
+arrows from the two-reply product to the same tagged exit interface. -/
+theorem packed_second_quote {L : List (Ty Empty)} (pos : Position L) (bits : List Bool) :
+    packed (.ret (n := 2) bits pos 1) = packed (.retExpr bits pos (Finite.Expr.quote 2 (fun env => env 1))) :=
+  RedundantSelectedTest.packed_second_quote pos bits
+
+end Silmaril.Isotope.LambdaSSA.Region.Paper.WithCaseBind.OpenReplay
