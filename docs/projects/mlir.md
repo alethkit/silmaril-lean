@@ -5,6 +5,10 @@ LambdaSSA and LetIter, and reason about both targets' results. The source
 constructors and lowering names live in `Silmaril.MLIR.Arith`.
 [`MLIR/Thms.lean`](../../Silmaril/SSA/MLIR/Thms.lean)
 
+The same import provides `MLIR.FuncOf` and `MLIR.FuncModule` for packaging
+these or other typed bodies as named functions.
+[Typed function modules](mlir-function-modules.md)
+
 `Block Γ w` takes an `Env Γ` and denotes a `BitVec w.val`. Contexts are
 newest first. Use `.letOp` and `.yield` for straight-line code. The
 `.letRegion arg body rest` form passes one explicit value to an isolated
@@ -132,6 +136,25 @@ arithmetic blocks above. [Pure MLIR institutions](mlir-institutions.md)
 | Scoped affine | Integer affine maps and bounded single-block loops with typed loop-carried parameters and yields. Begin without mutable memory and relate admitted loops to finite folds. |
 | Minimal LLVM and future x86 validation | Start with pure single-block scalar integers, concrete defined inputs, constants, unflagged modular add/subtract/multiply and a return. Reject every instruction outside the profile. Initially exclude flags, shifts/division, `freeze`, `undef`, poison inputs and instructions that can produce poison, pointers, memory, calls and control flow. Keep unsupported syntax an admission error, immediate UB a separate execution outcome or semantic condition, poison a deferred value state and `undef` a use-dependent choice in extensions. Add one feature at a time and prove semantic refinement on the admitted defined inputs against a specified x86 observation and ABI. |
 | Larger dialects | Add small pure static-shape **StableHLO** operators first. For **Triton/Gluon**, start with layout-indexed pure tensor operations, then specify memory and parallel execution explicitly. For a **C dialect**, start with pure scalar expressions whose C types and definedness preconditions are explicit and relate those to the C semantics. |
+
+## Initialized MemRef execution
+
+The executable `Pure.Code` sequence binds exactly one `Width`-typed
+bitvector per operation. Its evaluator receives the bitvector operands,
+and typed CF passes only those values between blocks. A rank-one
+MemRef load needs a typed buffer reference and access to its cells.
+A store needs an ordered zero-result operation whose effect reaches
+later operations and the final heap observation.
+[Executable code](../../Silmaril/SSA/MLIR/Pure/Defs.lean) ·
+[Typed CF evaluator](../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean)
+
+The equational signature can describe zero results. Its
+`Term.app` must select a result, and its block syntax is a tuple of
+pure expressions. The missing interface is shared typed sequential
+syntax that admits zero-result operations, with a state-threaded
+interpretation for buffer-reference operands.
+[Operation profiles](../../Silmaril/SSA/MLIR/Signature/Defs.lean) ·
+[Equational syntax](../../Silmaril/SSA/MLIR/Institution/Defs.lean)
 
 ## Sources
 

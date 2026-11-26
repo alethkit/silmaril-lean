@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.CartesianBoundary.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Thms
@@ -244,5 +245,27 @@ theorem iterate_uniformity_ofReturnIso (ha : Tm.HasType [A] a D)
   apply iterate_uniformity_ofFactorization ha f g (e.inv ≫ f)
   · rw [← he, Iso.hom_inv_id_assoc]
   · rw [Category.assoc, comm, ← he, Iso.inv_hom_id_assoc]
+
+local notation "U" => (ofType (Φ := Φ) (Silmaril.unit : τ))
+
+private theorem iterate_repeat_eq_discard {X Y : Comp} (h : X ⟶ X)
+    (keepDiscard : PreservesDiscard h) :
+    iterate (h ≫ (coprod.inr : X ⟶ Y ⨿ X)) =
+      discardArrow (show τ from X) ≫ iterate (coprod.inr : U ⟶ Y ⨿ U) := by
+  let d := discardArrow (Φ := Φ) (show τ from X)
+  have dValue : ConstructorReturn d := ⟨.unit, .unit, rfl⟩
+  apply iterate_uniformity_ofConstructorReturn dValue
+  change (h ≫ coprod.inr) ≫ coprod.map (𝟙 Y) d = d ≫ coprod.inr
+  change h ≫ d = d at keepDiscard
+  rw [Category.assoc, coprod.inr_map, ← Category.assoc, keepDiscard]
+
+theorem iterate_double_of_preservesDiscard {X Y : Comp} (h : X ⟶ X)
+    (keepDiscard : PreservesDiscard h) :
+    let g := h ≫ (coprod.inr : X ⟶ Y ⨿ X)
+    iterate (g ≫ coprod.desc coprod.inl g) = iterate g := by
+  dsimp only
+  rw [Category.assoc, coprod.inr_desc, ← Category.assoc h h,
+    iterate_repeat_eq_discard (h ≫ h) ((PreservesDiscard (τ := τ) (Φ := Φ)).comp_mem _ _ keepDiscard keepDiscard),
+    iterate_repeat_eq_discard h keepDiscard]
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReturnUniformity

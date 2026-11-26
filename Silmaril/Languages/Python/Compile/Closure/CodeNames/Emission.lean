@@ -49,6 +49,7 @@ def valueOperations? {layout : Layout} : Body.Expr layout → Option (List Opera
 certifies its nested definitions independently through their code references. -/
 def operations? {layout : Layout} : Link.Code layout → Option (List Operation)
   | .ret value => valueOperations? value
+  | .returnClosure .. => none
   | .assert (.eqInt receiver _) next => do
     let test ← readOperations? receiver
     return test ++ [.assertionFailure] ++ (← operations? next)

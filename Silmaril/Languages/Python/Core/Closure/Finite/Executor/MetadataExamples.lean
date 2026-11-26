@@ -136,7 +136,7 @@ private def checkCellvars (binding : Option Value) (name : String)
   .running (environment binding) (.assertCellvars (cellvars name) returnAlias) stack
 
 private def saved : Call.Saved Closure.Executor.Continuation :=
-  ⟨callerLayout, capturedEnvironment.frame, ⟨.discard, returnAlias⟩⟩
+  ⟨callerLayout, capturedEnvironment.frame, some (.discard, returnAlias)⟩
 
 private def ownedName : State := checkCellvars (some (.function captured)) "own" [saved]
 private def rejected : Result := .error .assertionError

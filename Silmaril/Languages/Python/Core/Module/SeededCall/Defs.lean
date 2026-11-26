@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Python.Core.Closure.Defs
+public import Silmaril.Languages.Python.Core.Module.ListObject.Defs
 
 /-! # Closed callables for explicitly seeded module entry -/
 
@@ -34,7 +35,8 @@ def Raised.classify : Raised → ExceptionClass
   | .assertionError _ | .runtime .assertionError => .assertionError
   | .runtime (.unboundLocal _) | .runtime (.unboundOwned _) => .unboundLocalError
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
-  | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError => .typeError
+  | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError
+  | .runtime .multiplicationTypeError => .typeError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
 
 def ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=
@@ -56,6 +58,7 @@ inductive Builtin where
   | bool
   | callable
   | len
+  | list
   | isinstance
   deriving DecidableEq, Repr
 
@@ -63,6 +66,7 @@ inductive Value where
   | int (value : Int)
   | bool (value : Bool)
   | none
+  | listObject (object : Core.Module.ListObject)
   | exceptionClass (kind : ExceptionClass)
   | helper (descriptor : Helper)
   | builtin (descriptor : Builtin)
@@ -185,7 +189,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
-  | .none, _ | .int _, _ | .bool _, _ => .nonCallable
+  | .none, _ | .int _, _ | .bool _, _ | .listObject _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the

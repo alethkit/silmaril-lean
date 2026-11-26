@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Uniformity.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.CartesianBoundary.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ReturnUniformity
 
 /-! # Uniformity for let-bound returns and factorized squares -/
@@ -83,5 +84,13 @@ theorem iterate_uniformity_ofReturnIso (ha : Tm.HasType [A] a D)
     (comm : f ≫ coprod.map (𝟙 (ofType B)) (returnTerm ha) = returnTerm ha ≫ g) :
     iterate f = returnTerm ha ≫ iterate g :=
   ReturnUniformity.iterate_uniformity_ofReturnIso ha e he f g comm
+
+/-- A repeat-only step that preserves the constructor discard has the
+same iteration when taken twice. The state update may change its payload. -/
+theorem iterate_double_of_preservesDiscard {X Y : Comp} (h : X ⟶ X)
+    (keepDiscard : PreservesDiscard h) :
+    let g := h ≫ (coprod.inr : X ⟶ Y ⨿ X)
+    iterate (g ≫ coprod.desc coprod.inl g) = iterate g :=
+  ReturnUniformity.iterate_double_of_preservesDiscard h keepDiscard
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory

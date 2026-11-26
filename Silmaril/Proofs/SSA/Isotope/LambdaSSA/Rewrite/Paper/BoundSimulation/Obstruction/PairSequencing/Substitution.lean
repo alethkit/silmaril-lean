@@ -19,12 +19,16 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   cfgRun_mapOut finish enter step mapOut mapTerminal shiftOut insideMap enter_insideMap
   finish_mapTerminalOn step_typed enter_typed mapOut_liftN liftLSubstN_local liftLSubstN_out)
 
-variable {observation : TermObservation}
+universe u v
+
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
+
+variable {observation : TermObservation (α := α) Φ}
 
 local notation "evalTerm" => evalTermWith observation
 local notation "evalRegion" => evalRegionWith observation
 
-theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env) :
+theorem evalRegion_renameLabels (r : Region Φ) (ρ : Nat → Nat) (env : Env) :
     evalRegion (r.renameLabels ρ) env = mapOut (fun i v => .jump (ρ i) v) (evalRegion r env) := by
   induction r generalizing ρ env with
   | br i t =>
@@ -49,12 +53,12 @@ theorem evalRegion_renameLabels (r : Region Empty) (ρ : Nat → Nat) (env : Env
     simp only [renameLabels, evalRegionWith, ihe, ihb, mapOut_liftN]
     exact cfgRun_mapOut n _ _ _
 
-theorem eval_liftLSubstVars (σ : Nat → Region Empty) (i : Nat) (env : Env) (u v : Val) :
+theorem eval_liftLSubstVars (σ : Nat → Region Φ) (i : Nat) (env : Env) (u v : Val) :
     evalRegion (liftLSubstVars σ i) (extend (extend env u) v) = evalRegion (σ i) (extend env v) :=
   evalRegion_renameVars (σ i) (ρ := lift Nat.succ)
     (extend_rename (env := env) (env' := extend env u) (ρ := Nat.succ) (fun _ => rfl) v)
 
-theorem mapOut_liftLSubstN (n : Nat) (σ : Nat → Region Empty) (env : Env) (r : Result) :
+theorem mapOut_liftLSubstN (n : Nat) (σ : Nat → Region Φ) (env : Env) (r : Result) :
     mapOut (fun i v => evalRegion (liftLSubstN n σ i) (extend env v)) r =
       insideMap n (fun i v => evalRegion (σ i) (extend env v)) r := by
   cases r with
@@ -77,8 +81,8 @@ set_option linter.concreteInstances false
 
 variable [UnitPayloadPolicy]
 
-theorem evalRegion_lsubst {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty Empty)}
-    (hr : ValueBranches Γ r L) {env : Env} (h : EnvTy Γ env) (σ : Nat → Region Empty) :
+theorem evalRegion_lsubst {Γ : VCtx (Ty α)} {r : Region Φ} {L : LCtx (Ty α)}
+    (hr : ValueBranches Γ r L) {env : Env} (h : EnvTy Γ env) (σ : Nat → Region Φ) :
     evalRegion (r.lsubst σ) env = mapOut (fun i v => evalRegion (σ i) (extend env v)) (evalRegion r env) := by
   induction hr generalizing env σ with
   | br hi ht =>

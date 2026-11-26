@@ -26,13 +26,8 @@ variable {past : List (Ports (OrderedRuntime.Structured.Ty τ))}
 variable {a : Data args} {o : Data outs}
 variable {live : Origin (Threaded args) past runtime}
 
-private def bodyView : {A B : τ} → Body Φ A B → Σ xs, BodyView Φ xs A B
-  | _, _, .instruction p => ⟨_, .call p⟩
-  | _, _, .sequence l r => ⟨_, .sequence (bodyView l).2 (bodyView r).2⟩
-  | _, _, .choice p l r => ⟨_, .gamma p (bodyView l).2 (bodyView r).2⟩
-
-private theorem bodyView_decode (b : Body Φ A B) : (bodyView b).2.decode = b := by
-  induction b <;> simp_all only [bodyView, BodyView.decode]
+private theorem bodyView_decode (b : Body Φ A B) : (BodyView.ofBody b).2.decode = b := by
+  induction b <;> simp_all only [BodyView.ofBody, BodyView.decode]
 
 private theorem read_primitive (i : Data ins) (d : Data out) (op : Instruction (Pure τ) (Effect Φ) ins out)
     (inputs : Wires (Threaded args) past ins) (rest : Code Φ a o (nextRuntime past out)) :
@@ -59,23 +54,23 @@ private theorem read_emit (b : Body Φ A B) (route : Input S A)
     (continuation : ∀ (future : List (Ports (OrderedRuntime.Structured.Ty τ)))
       (token : Origin (Threaded args) future runtime) (value : Origin (Threaded args) future (.value B)),
       read (next future token value).2.1 = suffix) :
-    read (emit b route live source next).2.1 = (bodyView b).1 ++ suffix := by
+    read (emit b route live source next).2.1 = (BodyView.ofBody b).1 ++ suffix := by
   induction b generalizing args outs past S suffix with
   | instruction p =>
-    simp only [emit, read_primitive, primitive, bodyView, continuation, List.cons_append, List.nil_append]
+    simp only [emit, read_primitive, primitive, BodyView.ofBody, continuation, List.cons_append, List.nil_append]
   | sequence l r ihL ihR =>
-    simp only [emit, bodyView]
-    rw [ihL _ _ _ ((bodyView r).1 ++ suffix) (fun _ _ _ => ihR _ _ _ _ continuation)]
+    simp only [emit, BodyView.ofBody]
+    rw [ihL _ _ _ ((BodyView.ofBody r).1 ++ suffix) (fun _ _ _ => ihR _ _ _ _ continuation)]
     rw [List.append_assoc]
   | choice p l r ihL ihR =>
-    simp only [emit, read_primitive, read_choice, primitive, bodyView, continuation,
+    simp only [emit, read_primitive, read_choice, primitive, BodyView.ofBody, continuation,
       List.cons_append, List.nil_append]
     rw [ihL _ _ _ [] (fun _ _ _ => read_finish _), ihR _ _ _ [] (fun _ _ _ => read_finish _)]
     simp only [List.append_nil]
 
 private theorem read_loop (s : Loop Φ A B K E D) :
     read (Wiring.loop s).1 =
-      [.theta [.header s.header, .gamma [[.headerExit], (bodyView s.body).1 ++ [.join s.join]]]] := by
+      [.theta [.header s.header, .gamma [[.headerExit], (BodyView.ofBody s.body).1 ++ [.join s.join]]]] := by
   change [Vertex.theta (read (Wiring.thetaBody s).2.1)] = _
   simp only [Wiring.thetaBody, read_primitive, read_choice, primitive, Wiring.exitArm]
   change [Vertex.theta [.header s.header, .gamma [[.headerExit], read (Wiring.bodyArm s).2.1]]] = _
@@ -83,13 +78,13 @@ private theorem read_loop (s : Loop Φ A B K E D) :
   intro future token value
   rfl
 
-private theorem read_graph (s : Loop Φ A B K E D) :
+theorem read_graph (s : Loop Φ A B K E D) :
     read (graph s).toTerm =
-      [.theta [.header s.header, .gamma [[.headerExit], (bodyView s.body).1 ++ [.join s.join]]]] := by
+      [.theta [.header s.header, .gamma [[.headerExit], (BodyView.ofBody s.body).1 ++ [.join s.join]]]] := by
   rw [graph, NestedTheta.Term.toTerm_toGraph, read_loop]
 
 private def loopView (s : Loop Φ A B K E D) : LoopView Φ (read (graph s).toTerm) A B K E D :=
-  (read_graph s).symm ▸ LoopView.loop s.header (bodyView s.body).2 s.join
+  (read_graph s).symm ▸ LoopView.loop s.header (BodyView.ofBody s.body).2 s.join
 
 private theorem decode_cast {xs ys : List (Vertex τ Φ)} (h : xs = ys) (w : LoopView Φ xs A B K E D) :
     LoopView.decode (h ▸ w : LoopView Φ ys A B K E D) = w.decode := by
@@ -99,7 +94,7 @@ private theorem decode_cast {xs ys : List (Vertex τ Φ)} (h : xs = ys) (w : Loo
 private theorem loopView_decode (s : Loop Φ A B K E D) : (loopView s).decode = s := by
   unfold loopView
   rw [decode_cast]
-  change (⟨s.header, (bodyView s.body).2.decode, s.join⟩ : Loop Φ A B K E D) = s
+  change (⟨s.header, (BodyView.ofBody s.body).2.decode, s.join⟩ : Loop Φ A B K E D) = s
   rw [bodyView_decode]
 
 def canonical (s : Loop Φ A B K E D) : Decomposition (graph s) B K :=

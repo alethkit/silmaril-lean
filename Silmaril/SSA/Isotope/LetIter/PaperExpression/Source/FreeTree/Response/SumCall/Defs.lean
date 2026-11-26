@@ -14,7 +14,7 @@ open Silmaril.Isotope.Semantics Silmaril.Elgot
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall
 
-universe u r
+universe u v r
 
 /-- The additional instructions take atomic tuples and return one of two
 atomic payloads. The ordinary signature supplies all atomic operations. -/
@@ -54,6 +54,15 @@ def atomLabel {X : Type (u + 1)} : Event S T slots X → Option (Request S slots
 def sumLabel {X : Type (u + 1)} : Event S T slots X → Option (SumRequest S T slots)
   | .atom _ _ => none
   | .sum g args => some ⟨g, args⟩
+
+/-- Recover the symbol and full sorted arguments of a visible request.
+A returned value has no request label. -/
+noncomputable def headRequest {B : Type v} (t : ITree.Tree (Event S T slots) B) :
+    _root_.Part (Option (Request S slots ⊕ SumRequest S T slots)) :=
+  (ITree.out t).map (fun
+    | .ret _ => none
+    | .vis (.atom f args) _ => some (.inl ⟨f, args⟩)
+    | .vis (.sum g args) _ => some (.inr ⟨g, args⟩))
 
 /-- A sum response retains its constructor and its sorted payload. -/
 def responseValue {g : Ψ} (r : SumResponse S T slots g) :

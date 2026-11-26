@@ -8,8 +8,8 @@ import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Respo
 
 public section
 
-open Silmaril Silmaril.Isotope Silmaril.Isotope.Semantics
-open Silmaril.Isotope.LetIter.LocallyNameless (AbortEquiv Derivation)
+open Silmaril Silmaril.Isotope Silmaril.Isotope.Semantics Silmaril.Elgot
+open Silmaril.Isotope.LetIter.LocallyNameless (Tm AbortEquiv Derivation)
 open Silmaril.Isotope.LetIter.PaperExpression
 open Silmaril.Isotope.LetIter.PaperExpression.Source
 open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
@@ -21,6 +21,15 @@ open SumCall (SumSignature endpoints effects)
 universe u r
 
 variable {α Φ Ψ : Type u} (S : Signature α Φ) (T : SumSignature α Ψ) {c : α}
+
+theorem tuple_lowers {k n : Nat} (a : Fin k → Expr (Φ ⊕ Ψ)) (t : Fin k → Tm Empty (Φ ⊕ Ψ) n)
+    (h : ∀ i, (a i).toLetIter n = some (t i)) :
+    (sourceTuple k a).toLetIter n = some (nativeTuple k t) :=
+  Proofs.tuple_lowers a t h
+
+theorem tree_lowers {n : Nat} {ss : Fin n → α} {a : α} (p : Tree S ss a) :
+    (SumCall.treeSource (Ψ := Ψ) S p).toLetIter n = some (SumCall.treeNative (Ψ := Ψ) S p) :=
+  Proofs.tree_lowers S p
 
 theorem lowers {n : Nat} {slots : Fin n → α} (p : Program S T c slots) :
     p.source.toLetIter n = some p.native :=
@@ -81,6 +90,53 @@ theorem source_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i
     letI : HasEff (Φ ⊕ Ψ) ε := effects
     Wf Γ p.source (.base c) e :=
   Proofs.source_wf S T hΓ hslots e p hp
+
+section Requests
+
+variable {m : Nat} (modelSlots : Fin m → α)
+
+local notation "Γ₀" => (Ctx.nil : Ctx Empty (Ty α))
+local notation "D" => Ty.denote (Atom S modelSlots)
+local notation "M" => SumCall.instructions (ε := ε) S T modelSlots
+
+omit [HasEff Ψ ε] in
+/-- A pure atomic tree evaluates to its free-algebra value at any sorted valuation. -/
+theorem eval_tree_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {a : α} (p : Tree S slots a) (hp : DeclaredPure (ε := ε) S p) :
+    letI := endpoints S T
+    ∃ d : Derivation (Φ ⊕ Ψ) Γ₀ Γ.toBoundCtx (SumCall.treeNative S p) (.base a),
+      ∀ vars : (i : Fin Γ.length) → Tree S modelSlots (slots i),
+        d.denote D M (fun x => x.elim) (variableEnv S modelSlots hslots vars) =
+          ITree.ret ⟨p.interpret S (Tree S modelSlots) Tree.op vars⟩ :=
+  Proofs.eval_tree_exists S T modelSlots hslots p hp
+
+omit [HasEff Ψ ε] in
+/-- Evaluate the entire tuple of pure operands before issuing a request. -/
+theorem eval_args_exists (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {k : Nat} {as : Fin k → α} (args : (i : Fin k) → Tree S slots (as i))
+    (hp : ∀ i, DeclaredPure (ε := ε) S (args i)) :
+    letI := endpoints S T
+    ∃ d : Derivation (Φ ⊕ Ψ) Γ₀ Γ.toBoundCtx (nativeTuple k (fun i => SumCall.treeNative S (args i))) (input k as),
+      ∀ vars : (i : Fin Γ.length) → Tree S modelSlots (slots i),
+        d.denote D M (fun x => x.elim) (variableEnv S modelSlots hslots vars) =
+          ITree.ret (packArgs S modelSlots k as (fun i => (args i).interpret S _ Tree.op vars)) :=
+  Proofs.eval_args_exists S T modelSlots hslots args hp
+
+omit [HasEff Ψ ε] in
+theorem eval_atom_visible (f : Φ) (args : Args S modelSlots f) (hf : ¬ IsPure (⊥ : ε) f) :
+    letI := endpoints S T
+    (M).eval (.inl f) (packArgs S modelSlots (S.arity f) (S.arg f) args) =
+      ITree.vis (.atom f args) (fun r => ITree.ret ⟨r⟩) :=
+  Proofs.eval_atom_visible S T modelSlots f args hf
+
+omit [HasEff Ψ ε] in
+theorem eval_sum_request (g : Ψ) (args : SumCall.SumArgs S T modelSlots g) :
+    letI := endpoints S T
+    (M).eval (.inr g) (packArgs S modelSlots (T.arity g) (T.arg g) args) =
+      ITree.vis (.sum g args) (fun r => ITree.ret (SumCall.responseValue S T modelSlots r)) :=
+  Proofs.eval_sum_request S T modelSlots g args
+
+end Requests
 
 /-- Native evaluation follows the request tree at every sorted valuation,
 binding each actual reply before evaluating the corresponding child. -/

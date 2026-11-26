@@ -15,8 +15,14 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Value
 
-universe u r
+universe u v r
 variable {α Φ : Type u} (S : Signature α Φ) {n : Nat} {sorts : Fin n → α}
+
+/-- Products and tagged sums preserve injectivity of the atomic observation. -/
+theorem denoteWith_injective {F : α → Type v} (atom : ∀ {a}, Tree S sorts a → F a)
+    (hinj : ∀ a, Function.Injective (@atom a)) {A : Ty α} :
+    Function.Injective (denoteWith S atom (A := A)) :=
+  Proofs.denoteWith_injective S atom hinj
 
 /-- The set interpretation distinguishes all normal values at a fixed type. -/
 theorem denote_injective {A : Ty α} :

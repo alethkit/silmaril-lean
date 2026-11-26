@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Swap.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Producer.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Braid.Defs
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.ProductEta.Thms
@@ -23,7 +24,7 @@ open CfgEta.TypeCategory (productFstBranches productSndBranches)
 open Paper.SingletonReification (ModelComparisons packedPair packedWhiskerRight reindexValueHom
   reindexValueHom_pair_of_producer packedSwap swapTerm)
 open Paper.RetainedCase (reindexHom)
-open CfgEta.TypeCategory.ConstructorReification (fstMap sndMap)
+open CfgEta.TypeCategory.ConstructorReification (fstMap sndMap inlMap inrMap)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open SingletonDispatcher (labelInject_payload)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel extend_map pair_maps_eq_map_lift)
@@ -223,6 +224,72 @@ theorem denoteSingleton_firstTerm (A B : τ) :
     have eq := congrArg J.map (Category.assoc (snd (𝟙_ V) (M.obj (product A B)))
       (fstMap M A B) (labelInject M 0 (rfl : At [A] 0 A)))
     exact eq ▸ returnOnce_map_denotes J M (firstTerm_denotes J M (Φ := Φ) A B))
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem denoteSingleton_let₂_var_branch_of_map (A S D : τ) {a : Tm Φ}
+    {ha : Tm.HasType [S, A, product A S] a D}
+    {g : ctxObj M [S, A, product A S] ⟶ M.obj D}
+    (da : Denotes J M ha (J.map g)) :
+    denoteSingletonRegion J M (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl ha) :
+      HasType [product A S] (.let₂ (.var 0) (.br 0 a)) [D]) =
+        J.map ((λ_ (M.obj (product A S))).inv ≫ unpackCtx M A S ≫ g) := by
+  have graph := RegionDenotes.let₂ (J := J) (M := M)
+    (.var (rfl : At [product A S] 0 (product A S)))
+    (RegionDenotes.br (h := (rfl : At [D] 0 D)) da)
+  rw [← J.map_comp, bindProduct J M] at graph
+  rw [denoteSingletonRegion, ← graph.eq_denote J M, ← J.map_comp_assoc, ← J.map_comp]
+  simp only [Category.assoc, labelInject_payload M D, Category.comp_id]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem exists_denoteSingleton_let₂_var_branch (A S D : τ) {a : Tm Φ}
+    (ha : Tm.BranchValue [S, A, product A S] a D) :
+    ∃ f : M.obj (product A S) ⟶ M.obj D,
+      denoteSingletonRegion J M (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl ha.hasType) :
+        HasType [product A S] (.let₂ (.var 0) (.br 0 a)) [D]) = J.map f := by
+  obtain ⟨g, dg⟩ := ha.denotes_map J M
+  exact ⟨_, denoteSingleton_let₂_var_branch_of_map J M A S D dg⟩
+
+set_option backward.isDefEq.respectTransparency false in
+theorem denoteSingleton_let₂_resultTag (A S D : τ) {a : Tm Φ}
+    (ha : Tm.BranchValue [S, A, product A S] a D) :
+    denoteSingletonRegion J M
+        (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inr (.inl ha.hasType))) :
+          HasType [product A S] (.let₂ (.var 0) (.br 0 (.inr (.inl a)))) [packedExitType [S, D]]) =
+      denoteSingletonRegion J M
+        (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl ha.hasType) :
+          HasType [product A S] (.let₂ (.var 0) (.br 0 a)) [D]) ≫
+        J.map (inlMap M D Silmaril.empty ≫ inrMap M S (coprod D Silmaril.empty)) := by
+  obtain ⟨g, dg⟩ := ha.denotes_map J M
+  have tag := Denotes.inr (A := S) (Denotes.inl (B := Silmaril.empty) dg)
+  rw [Category.assoc] at tag
+  change Denotes J M (.inr (.inl ha.hasType))
+    (J.map g ≫ J.map (inlMap M D Silmaril.empty) ≫ J.map (inrMap M S (coprod D Silmaril.empty))) at tag
+  rw [← J.map_comp_assoc, ← J.map_comp] at tag
+  rw [denoteSingleton_let₂_var_branch_of_map J M A S _ tag, denoteSingleton_let₂_var_branch_of_map J M A S D dg,
+    ← J.map_comp]
+  simp only [Category.assoc]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem denoteSingleton_productFst (A S : τ) :
+    denoteSingletonRegion J M (productFstBranches (Φ := Φ) A S).hasType = J.map (fstMap M A S) := by
+  rw [denoteSingleton_let₂_var_branch_of_map J M A S A
+      (Denotes.var (J := J) (M := M) (Φ := Φ) (i := 1) (rfl : At [S, A, product A S] 1 A)),
+    unpack_fst, CartesianMonoidalCategory.leftUnitor_inv_snd_assoc]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem denoteSingleton_snd_repeatTag (A S D : τ) :
+    denoteSingletonRegion J M
+      (.let₂ (.var (i := 0) rfl) (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl))) :
+        HasType (Φ := Φ) [product A S] (.let₂ (.var 0) (.br 0 (.inl (.var 0)))) [packedExitType [S, D]]) =
+      J.map (sndMap M A S ≫ inlMap M S (coprod D Silmaril.empty)) := by
+  have tag := Denotes.inl (B := coprod D Silmaril.empty)
+    (Denotes.var (J := J) (M := M) (Φ := Φ) (i := 0) (rfl : At [S, A, product A S] 0 S))
+  change Denotes J M (.inl (.var (i := 0) rfl))
+    (J.map (lookup M 0 (rfl : At [S, A, product A S] 0 S)) ≫
+      J.map (inlMap M S (coprod D Silmaril.empty))) at tag
+  rw [← J.map_comp] at tag
+  rw [denoteSingleton_let₂_var_branch_of_map J M A S _ tag, reassoc_of% (unpack_snd M A S),
+    CartesianMonoidalCategory.leftUnitor_inv_snd_assoc]
 
 end Region
 

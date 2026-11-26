@@ -198,4 +198,35 @@ theorem native_steps {C : Type} {native frameStep : C → C → Prop}
   · exact (chain_member chain entry).trans (lift frame)
   · exact ((chain_member chain entry).trans (lift frame)).trans trap
 
+theorem linked_runs {C : Type} {program : Program} {fn : Graph.Function}
+    {address : Execution.Runtime.FuncAddr} (checked : program.checkDirect = true)
+    (found : program.lookup address = some fn) (render : Graph.Phase → C) (native : C → C → Prop)
+    (step : ∀ {a b}, Graph.Admitted program fn a → (∀ args, a ≠ .call args ∧ a ≠ .invoke args) →
+      (native (render a) b ↔ ∃ out, program.FrameEdge address a out ∧ b = render out))
+    {a : Graph.Phase} {b : C} (admitted : Graph.Admitted program fn a) (live : a.LabelOutcome) :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, program.FrameRuns address a out ∧ Graph.Admitted program fn out ∧ b = render out := by
+  have preserve {p q} (ready : Graph.Admitted program fn p ∧ Entered p)
+      (move : program.FrameEdge address p q) : Graph.Admitted program fn q ∧ Entered q := by
+    rcases ready.2 with live | ⟨result, rfl⟩
+    · exact ⟨program.frame_admitted_step checked found ready.1 move, frame_entered found live move⟩
+    · cases (program.frameEdge_iff found).mp move
+  have one {p q} (ready : Graph.Admitted program fn p ∧ Entered p) :
+      native (render p) q ↔ ∃ out, program.FrameEdge address p out ∧ q = render out := by
+    apply step ready.1
+    intro args
+    constructor <;> rintro rfl <;> rcases ready.2 with impossible | ⟨_, eq⟩
+    all_goals contradiction
+  refine (lift_runs (fun q => Graph.Admitted program fn q ∧ Entered q) render preserve one
+    (a := a) (b := b) ⟨admitted, .inl live⟩).trans ⟨?_, ?_⟩
+  · rintro ⟨out, run, ready, rfl⟩
+    exact ⟨out, run, ready.1, rfl⟩
+  · rintro ⟨out, run, admittedOut, rfl⟩
+    clear admittedOut
+    have ready : Graph.Admitted program fn out ∧ Entered out := by
+      induction run with
+      | refl => exact ⟨admitted, .inl live⟩
+      | tail _ move ih => exact preserve ih move
+    exact ⟨out, run, ready, rfl⟩
+
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Proofs

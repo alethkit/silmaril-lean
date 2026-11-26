@@ -21,10 +21,10 @@ private def heap : HeapTable := HeapTable.empty.reserve 1
 private def frame : Frame callerLayout :=
   ⟨fun _ => none, fun _ => ⟨0⟩, Fin.elim0⟩
 private def caller : Call.Saved Closure.Executor.Continuation :=
-  ⟨callerLayout, frame, ⟨.store output, rest⟩⟩
+  ⟨callerLayout, frame, some (.store output, rest)⟩
 private abbrev olderLayout : Layout := ⟨1, 0, 0⟩
 private def older : Call.Saved Closure.Executor.Continuation :=
-  ⟨olderLayout, ⟨fun _ => none, Fin.elim0, Fin.elim0⟩, ⟨.store (.local 0), .ret (.read (.local 0))⟩⟩
+  ⟨olderLayout, ⟨fun _ => none, Fin.elim0, Fin.elim0⟩, some (.store (.local 0), .ret (.read (.local 0)))⟩
 private def ref : CodeRef := ⟨17, calleeLayout⟩
 
 private def code (result : Closure.Executor.Operand calleeLayout) : CodeRows :=
@@ -157,7 +157,7 @@ example :
 private def ownedOutput : Slot callerLayout := .owned 0
 
 private def assertionCaller : Call.Saved Closure.Executor.Continuation :=
-  ⟨callerLayout, frame, ⟨.store ownedOutput, .ret (.read ownedOutput)⟩⟩
+  ⟨callerLayout, frame, some (.store ownedOutput, .ret (.read ownedOutput))⟩
 
 private def assertionEnvironment : Snapshot calleeLayout :=
   ⟨residual, ⟨fun _ => none, Fin.elim0, fun _ => ⟨0⟩⟩⟩
@@ -250,6 +250,27 @@ example : ∃ next, advanceIn table globals
     (returningOperand (.addInt (.literal .none) (.readGlobal "argument"))) = some (none, next) ∧
     next.project = .delivering residual.project [assertionCaller] (.error .additionTypeError) :=
   stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
+
+private def returnGlobal : State :=
+  .running assertionEnvironment
+    (.returnCall (.readGlobal "target")
+      [.binaryInt .mul (.read (.capture 0)) (.literal (.int 3))])
+    [assertionCaller]
+
+private def returnGlobalLookup : Closure.Executor.GlobalLookup := fun name =>
+  if name == "target" then some (.function (Function.ofCaptureList ref [⟨0⟩] rfl)) else none
+
+#guard
+  match runPrefixIn (code (.read (.capture 0))) returnGlobalLookup 16 returnGlobal with
+  | ([.enter _, .resume (.ok (.int 21)), .resume (.ok (.int 21)), .complete (.ok (.int 21))],
+      .finished finalHeap (.ok (.int 21))) =>
+    match finalHeap.rows.lookup 0 with
+    | some (.int 21) => finalHeap.next == 1
+    | _ => false
+  | _ => false
+
+example : advanceIn table globals returnGlobal =
+    some (none, .delivering residual [assertionCaller] (.error (.nameError "target"))) := rfl
 
 private def missingEquality : State := asserting (.eqInt (.global "missing") 0)
 private def missingResult : Result := .error (.nameError "missing")

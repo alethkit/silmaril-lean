@@ -1,0 +1,586 @@
+module
+
+import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Thms
+meta import Silmaril.SSA.Isotope.Types.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Fork.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Reverse.Defs
+meta import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.StructuredCFG.WithNestedFeedback.Defs
+
+namespace Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
+
+open Isotope.LetIter.ProofRelevant.Semantics
+open Isotope.LambdaSSA.Semantics.Monadic
+open Isotope.LambdaSSA.Semantics.Agreement (RegionCoherent)
+open TwoBlock.TwoExit (callCase)
+open Silmaril.Elgot (iter)
+
+set_option backward.isDefEq.respectTransparency false
+set_option backward.isDefEq.respectTransparency.types false
+set_option backward.dsimp.instances true
+
+private abbrev Ty := Silmaril.Ty Unit
+private abbrev number : Ty := .base ()
+private abbrev innerPayload : Ty := .product number number
+
+@[reducible] private def Value : Ty → Type
+  | .base _ => Nat
+  | .product a b => Value a × Value b
+  | .unit => PUnit
+  | .coprod a b => Value a ⊕ Value b
+  | .empty => PEmpty
+
+private def coerceValue {A B : Ty} : Isotope.Ty.Subty A B → Value A → Value B
+  | .refl _ => id
+  | .trans f g => coerceValue g ∘ coerceValue f
+  | .product f g => fun (a,b) => (coerceValue f a, coerceValue g b)
+  | .coprod f g => Sum.map (coerceValue f) (coerceValue g)
+  | .empty _ => PEmpty.elim
+  | .unit _ => fun _ => PUnit.unit
+
+local instance : TypeModel Ty where
+  interp := Value
+  productEquiv _ _ := Equiv.refl _
+  unitEquiv := ⟨fun _ => (), fun _ => PUnit.unit, fun x => by cases x; rfl, fun x => by cases x; rfl⟩
+  coprodEquiv _ _ := Equiv.refl _
+  emptyEquiv := ⟨PEmpty.elim, Empty.elim, fun x => PEmpty.elim x, fun x => Empty.elim x⟩
+  coe := coerceValue
+
+private inductive Op | enter | inner | finish | tailHeader | tailBody | forkGate
+  deriving DecidableEq
+
+local instance : HasTy Op Ty :=
+  ⟨fun | .inner => innerPayload | _ => number,
+   fun | .enter => innerPayload | .inner => .coprod number innerPayload
+       | .finish | .tailHeader => .coprod number number | .tailBody => number
+       | .forkGate => .coprod (.coprod number number) number⟩
+
+local instance : HasEff Op Bool := ⟨fun _ => true⟩
+
+private abbrev Runtime := StateT Nat Part
+private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (instrTrg op))
+  | .enter, n => StateT.mk fun token => Part.some ((n, (0 : Nat)), 10 * token + 1)
+  | .inner, (n, step) => StateT.mk fun token =>
+    Part.some (if (show Nat from n) = 99 ∨ (show Nat from step) = 0 then .inr (n, (1 : Nat)) else .inl n,
+      10 * token + 2)
+  | .finish, n => StateT.mk fun token =>
+    Part.some (if (show Nat from n) = 0 then .inr (1 : Nat) else .inl token, 10 * token + 3)
+  | .tailHeader, n => StateT.mk fun token =>
+    Part.some (.inl ((show Nat from n) + token), 10 * token + 4)
+  | .tailBody, n => pure n
+  | .forkGate, n => pure (if (show Nat from n) = 1 then .inl (.inl (7 : Nat)) else .inr n)
+
+local instance : InstructionModel Op Ty Bool Runtime where
+  denote := instruction
+  denotePure _ h := False.elim (by change true = false at h; cases h)
+  denote_pure _ h _ := False.elim (by change true = false at h; cases h)
+
+private def op (f : Op) : TwoBlock.Instruction Op (instrSrc (τ := Ty) f) (instrTrg (τ := Ty) f) :=
+  ⟨f, rfl, rfl⟩
+
+private def program : Loop Op number innerPayload number number :=
+  ⟨op .enter, op .inner, op .finish⟩
+
+private def lowered := lower program
+private abbrev Coherent := RegionCoherent (τ := Ty) (Φ := Op) (ε := Bool) (m := Runtime)
+
+private theorem call_eq (f : Op) (x : Value (instrSrc f)) :
+    TwoBlock.call (ε := Bool) (m := Runtime) (op f) x = instruction f x := by
+  unfold TwoBlock.call
+  change instruction f x >>= pure = _
+  exact bind_pure _
+
+private abbrev innerAction := callCase (ε := Bool) (m := Runtime) program.inner
+
+private theorem inner_step (n step token : Nat) :
+    Elgot.StateT.body innerAction ((n,step),token) =
+      Part.some (if n = 99 ∨ step = 0 then .inr ((n,1),10 * token + 2) else .inl (n,10 * token + 2)) := by
+  have action : innerAction = instruction .inner := by
+    funext x
+    change callCase (ε := Bool) (m := Runtime) (op .inner) x = instruction .inner x
+    unfold callCase
+    exact (congrArg (fun (v : Runtime (Value (.coprod number innerPayload))) => v >>= pure)
+      (call_eq .inner x)).trans (bind_pure _)
+  rw [action]
+  by_cases repeatStep : n = 99 ∨ step = 0 <;>
+    simp [repeatStep, instruction, Elgot.StateT.body, Elgot.StateT.distribute, Part.pure_eq_some]
+
+private theorem inner_returns (n token : Nat) (allowed : n ≠ 99) :
+    (iter innerAction ((n,0) : Value innerPayload)).run token =
+      Part.some (n, 100 * token + 22) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.more (a' := ((n,1), 10 * token + 2))
+  · rw [inner_step]
+    simp
+  · apply Elgot.Part.Runs.done
+    rw [inner_step]
+    simp [allowed]
+    omega
+
+private theorem inner_noReturn (step token : Nat) :
+    (iter innerAction ((99,step) : Value innerPayload)).run token = Part.none := by
+  have impossible {input : (Nat × Nat) × Nat} {out : Nat × Nat}
+      (h : Elgot.Part.Runs (Elgot.StateT.body innerAction) input out) : input.1.1 ≠ 99 := by
+    induction h with
+    | @done current out result =>
+      rcases current with ⟨⟨n, step⟩, token⟩
+      intro eq
+      change n = 99 at eq
+      subst n
+      rw [inner_step] at result
+      simp at result
+    | @more current next out result run ih =>
+      rcases current with ⟨⟨n, step⟩, token⟩
+      intro eq
+      change n = 99 at eq
+      subst n
+      rw [inner_step] at result
+      have nextEq : next = ((99,1),10 * token + 2) := by simpa using result
+      exact ih (congrArg (fun p : (Nat × Nat) × Nat => p.1.1) nextEq)
+  rw [Elgot.StateT.run_iter, Part.eq_none_iff]
+  intro out h
+  exact impossible ((Elgot.Part.mem_iter_iff _ _ _).mp h) rfl
+
+private noncomputable abbrev roundAction := round (ε := Bool) (m := Runtime) program
+
+private theorem round_run (n token : Nat) :
+    (roundAction n).run token =
+      if n = 99 then Part.none
+      else Part.some ((if n = 0 then Sum.inr (1 : Nat) else Sum.inl (1000 * token + 122)),
+        10000 * token + 1223) := by
+  unfold roundAction round
+  rw [show TwoBlock.call (ε := Bool) (m := Runtime) program.enter n =
+    instruction .enter n from call_eq .enter _]
+  have finish_eq (k : Nat) : callCase (ε := Bool) (m := Runtime) program.finish k = instruction .finish k := by
+    unfold callCase
+    rw [show TwoBlock.call (ε := Bool) (m := Runtime) program.finish k =
+      instruction .finish k from call_eq .finish _]
+    exact bind_pure _
+  simp only [finish_eq, StateT.run_bind, Part.bind_eq_bind]
+  change (((Part.some (((n,0) : Value innerPayload),10 * token + 1)).bind _).bind _) = _
+  rw [Part.bind_some]
+  change (((iter innerAction ((n,0) : Value innerPayload)).run (10 * token + 1)).bind _) = _
+  by_cases blocked : n = 99
+  · subst n
+    rw [inner_noReturn]
+    simp
+  · rw [inner_returns _ _ blocked]
+    simp only [blocked, ite_false, Part.bind_some]
+    have beforeFinish : 100 * (10 * token + 1) + 22 = 1000 * token + 122 := by omega
+    rw [beforeFinish]
+    have afterFinish : 10 * (1000 * token + 122) + 3 = 10000 * token + 1223 := by omega
+    change Part.some ((if n = 0 then Sum.inr (1 : Nat) else Sum.inl (1000 * token + 122)),
+      10 * (1000 * token + 122) + 3) = _
+    rw [afterFinish]
+
+private theorem returning :
+    (iter roundAction (0 : Nat)).run 0 = Part.some ((1223122 : Nat),12231223) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.more (a' := ((1 : Nat),1223))
+  · apply Part.eq_some_iff.mp
+    unfold Elgot.StateT.body
+    simp [round_run, Elgot.StateT.distribute]
+  · apply Elgot.Part.Runs.done
+    apply Part.eq_some_iff.mp
+    unfold Elgot.StateT.body
+    simp [round_run, Elgot.StateT.distribute]
+
+private theorem noReturn : (iter roundAction (99 : Nat)).run 0 = Part.none := by
+  rw [Elgot.StateT.run_iter, Part.eq_none_iff]
+  intro out h
+  rw [Elgot.Part.mem_iter_iff] at h
+  have noStep : Elgot.StateT.body roundAction ((99 : Nat),0) = Part.none := by
+    unfold Elgot.StateT.body
+    simp [round_run]
+  cases h with
+  | done h | more h _ => rw [noStep] at h; exact Part.notMem_none _ h
+
+private theorem graph_returns (coherent : Coherent) :
+    returns (ε := Bool) lowered.1 (0 : Nat) 0 (1223122 : Nat) 12231223 := by
+  apply (lowered.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (1223122 : Nat) 0 12231223).mpr
+  rw [show lowered.2.typing = regionTyping program from rfl,
+    denote_rounds program coherent (PUnit.unit, (0 : Nat)), StateT.run_bind, returning]
+  simp only [StateT.run_pure, Part.bind_eq_bind, Part.bind_some, Part.pure_eq_some]
+
+private theorem graph_undefined (coherent : Coherent) : observe (ε := Bool) lowered.1 (99 : Nat) 0 = Part.none := by
+  apply (lowered.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr
+  rw [show lowered.2.typing = regionTyping program from rfl,
+    denote_rounds program coherent (PUnit.unit, (99 : Nat)), StateT.run_bind, noReturn]
+  exact Part.bind_none _
+
+private def recovered : Reverse.Fibre lowered.1 :=
+  (Reverse.recover lowered.1).get (by
+    change (Reverse.recover (graph program)).isSome = true
+    rw [Reverse.recover_generated]
+    rfl)
+
+example : recovered.source = region program := by
+  unfold recovered
+  have h : Reverse.recover lowered.1 =
+      some ⟨innerPayload, number, region program, lowered.2⟩ := Reverse.recover_generated program
+  exact congrArg Reverse.Fibre.source (Option.get_of_eq_some _ h)
+
+example (coherent : Coherent) :
+    ((Region.denote (ε := Bool) (m := Runtime) recovered.witness.typing (PUnit.unit, (0 : Nat))).run 0) =
+      Part.some (.inl (1223122 : Nat),12231223) :=
+  (Reverse.fibre_returns_iff recovered coherent (PUnit.unit, (0 : Nat)) (1223122 : Nat) 0 12231223).mp
+    (graph_returns coherent)
+
+example (coherent : Coherent) :
+    ((Region.denote (ε := Bool) (m := Runtime) recovered.witness.typing (PUnit.unit, (99 : Nat))).run 0) =
+      Part.none :=
+  (Reverse.fibre_undefined_iff recovered coherent (PUnit.unit, (99 : Nat)) 0).mp (graph_undefined coherent)
+
+open OrderedTheta (carried)
+open OrderedRuntime.Structured (Threaded runtime runtimePort)
+
+private abbrev Boundary := Threaded (carried (Carrier number number))
+private abbrev BodyResult := Threaded (OrderedTheta.results (Carrier number number))
+
+private def useEntryToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty} (wire : Origin Boundary past t) : Origin Boundary past t :=
+  if token : runtime = t then token ▸ (.arg (.tail .head) : Origin Boundary past runtime) else wire
+
+/-- Leave the payload wire from the inner θ in place and substitute the outer
+activation's entry token for the token returned by the inner θ. -/
+private def staleBody :
+    NestedTheta.Term (NestedFeedback.Op Op) Boundary [] (Wiring.BodySigs number innerPayload number number)
+      BodyResult :=
+  match (Wiring.outerBody program).1 with
+  | .bind enter entries (.bind inner children (.bind finish leaf rest)) =>
+    let inputs := finish.inputs.map (fun _ wire => useEntryToken wire)
+    .bind enter entries (.bind inner children (.bind {finish with inputs} leaf rest))
+
+private def stale : Graph Op number number :=
+  let term : NestedTheta.Term (NestedFeedback.Op Op) Boundary [] [Boundary] Boundary :=
+    .bind (NestedTheta.ExplicitRuntime.thetaNode (ins := carried (Carrier number number))
+      (.arg (runtimePort (carried (Carrier number number)))) (.cons (.arg .head) .nil)
+      (Wiring.BodySigs number innerPayload number number)) (fun _ => staleBody)
+      (.ret (.cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)))
+  term.toGraph
+
+private theorem staleParses : Reverse.candidate stale = some ⟨innerPayload, number, program⟩ := by
+  have reads : Reverse.read stale = Reverse.read (graph program) := by
+    simp only [Reverse.read, stale, graph, NestedTheta.Term.toTerm_toGraph]
+    rfl
+  unfold Reverse.candidate
+  rw [reads]
+  exact Reverse.candidate_generated program
+
+private def finishAddresses (g : Graph Op number number) : List Address :=
+  match g.toTerm with
+  | .bind outer body (.ret _) =>
+    (Reverse.readTheta outer.kind body (fun child => match child with
+      | .bind _ _ (.bind _ _ (.bind finish _ _)) => some finish.inputs.addresses
+      | _ => none)).getD []
+
+private theorem staleDifferent : graph program ≠ stale := by
+  intro same
+  have addresses := congrArg finishAddresses same
+  have correct : finishAddresses (graph program) = [Address.output 1 0, Address.output 1 1] := rfl
+  have wrong : finishAddresses stale = [Address.output 1 0, Address.arg 1] := rfl
+  rw [correct, wrong] at addresses
+  cases addresses
+
+example : Reverse.recognize stale = none :=
+  Reverse.reject_wiring ⟨innerPayload, number, program⟩ staleParses staleDifferent
+
+#eval show IO Unit from do
+  unless (Reverse.recover lowered.1).isSome do
+    throw (IO.userError "could not reverse the nested feedback graph")
+  unless (Reverse.candidate stale).isSome && (Reverse.recover stale).isNone do
+    throw (IO.userError "the nested feedback recognizer accepted a stale token")
+
+section Composition
+
+open Acyclic.Theta
+open Acyclic.Theta.StructuredCFG
+open Acyclic.Theta.Sequential
+
+private def tailLoop : Acyclic.Theta.Loop Op number number number number number :=
+  ⟨op .tailHeader, .instruction (op .tailBody), op .finish⟩
+
+private def tailNormal : StructuredCFG.Reverse.Normal Op number number number number number number
+    [Flat.Serial.WirePorts number number number] := .loop tailLoop
+
+private def composed :=
+  WithNestedFeedback.Syntax.link (.nested program) (.structured tailNormal.toSyntax)
+
+private def mixed := WithNestedFeedback.lower composed
+
+private theorem tailReturns (input token : Nat) :
+    (iter (ExplicitRuntime.round (ε := Bool) (m := Runtime) tailLoop) input).run token =
+      Part.some ((.inl (input + token) : LabelDen [number,number]), 10 * token + 4) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  apply Elgot.Part.Runs.done
+  have header : callCase (ε := Bool) (m := Runtime) tailLoop.header input =
+      instruction .tailHeader input := by
+    unfold callCase
+    refine (congrArg (fun (x : Runtime (Value (.coprod number number))) => x >>= pure) ?_).trans
+      (bind_pure _)
+    exact call_eq .tailHeader _
+  simp [Elgot.StateT.body, Elgot.StateT.distribute, ExplicitRuntime.round, header, instruction]
+
+private theorem composedReturns (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (0 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, returning]
+  simp only [StateT.run_pure, Part.bind_eq_bind, Part.pure_eq_some, Part.bind_some]
+  rw [Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+  exact tailReturns 1223122 12231223
+
+private theorem composedUndefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) mixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none := by
+  change (Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (WithNestedFeedback.Leaf.source program) (Flat.Fragment.loop tailLoop)).typing
+      (PUnit.unit, (99 : Nat))).run 0 = _
+  rw [Flat.denote_link _ _ coherent, StateT.run_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+    StateT.run_bind, noReturn]
+  simp only [Part.bind_eq_bind, Part.bind_none]
+
+private theorem mixedReturn (coherent : Coherent) :
+    Flat.Serial.returns (ε := Bool) mixed.1 (0 : Nat) 0 (.inl (13454345 : Nat)) 122312234 :=
+  (mixed.2.region_returns_iff coherent (PUnit.unit, (0 : Nat)) (.inl (13454345 : Nat)) 0 122312234).mpr
+    (composedReturns coherent)
+
+private theorem mixedUndefined (coherent : Coherent) :
+    Flat.Serial.observe (ε := Bool) mixed.1 (99 : Nat) 0 = Part.none :=
+  (mixed.2.region_undefined_iff coherent (PUnit.unit, (99 : Nat)) 0).mpr (composedUndefined coherent)
+
+private theorem tailSupported : StructuredCFG.Reverse.Supported tailNormal :=
+  .instruction (op .tailBody)
+
+private theorem cutAccepted :
+    WithNestedFeedback.Reverse.recover mixed.1 = some ⟨composed.source.region, mixed.2⟩ :=
+  WithNestedFeedback.Reverse.recover_generated program tailNormal tailSupported
+
+private def recoveredMixed : WithNestedFeedback.Fibre mixed.1 :=
+  (WithNestedFeedback.Reverse.recover mixed.1).get (by rw [cutAccepted]; rfl)
+
+private theorem recoveredAccepted : WithNestedFeedback.Reverse.recover mixed.1 = some recoveredMixed :=
+  (Option.some_get _).symm
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : LabelDen [number,number]), 122312234) :=
+  (WithNestedFeedback.Reverse.recover_returns_iff recoveredAccepted
+    coherent (PUnit.unit, (0 : Nat)) _ 0 122312234).mp (mixedReturn coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredMixed.2.typing (PUnit.unit, (99 : Nat))).run 0 = Part.none :=
+  (WithNestedFeedback.Reverse.recover_undefined_iff recoveredAccepted
+    coherent (PUnit.unit, (99 : Nat)) 0).mp (mixedUndefined coherent)
+
+private abbrev MixedGraph := Flat.Serial.Graph Op number number number number number number
+  (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+    [Flat.Serial.WirePorts number number number])
+
+private def staleLinkToken {past : List (Ports (OrderedRuntime.Structured.Ty Ty))}
+    {t : OrderedRuntime.Structured.Ty Ty}
+    (wire : Origin (Flat.Serial.WirePorts number number number) past t) :
+    Origin (Flat.Serial.WirePorts number number number) past t :=
+  if token : runtime = t then token ▸ (.arg (.tail .head) :
+    Origin (Flat.Serial.WirePorts number number number) past runtime) else wire
+
+private abbrev MixedTerm :=
+  NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number number number) []
+    (Flat.Serial.Joined number number number (WithNestedFeedback.Leaf.Sigs number number)
+      [Flat.Serial.WirePorts number number number]) (Flat.Serial.WirePorts number number number)
+
+-- Retain the exit adapter's payload. Read the original input token at the
+-- connector instead of the token returned by that adapter.
+private def staleMixedTerm (term : MixedTerm) : MixedTerm :=
+  match term with
+  | .bind enter entries (.bind nested body (.bind exit exits (.bind cut children rest))) =>
+    let inputs := cut.inputs.map (fun _ wire => staleLinkToken wire)
+    .bind enter entries (.bind nested body (.bind exit exits (.bind {cut with inputs} children rest)))
+
+private def staleMixed : MixedGraph := (staleMixedTerm mixed.1.toTerm).toGraph
+
+private theorem staleRead (term : MixedTerm) :
+    WithNestedFeedback.Reverse.readTerm (staleMixedTerm term) = WithNestedFeedback.Reverse.readTerm term := by
+  cases term with
+  | bind _ _ term =>
+    cases term with
+    | bind _ _ term =>
+      cases term with
+      | bind _ _ term =>
+        cases term with
+        | bind cut _ _ => cases cut; rfl
+
+private theorem staleMixedParses : WithNestedFeedback.Reverse.candidate staleMixed = some composed := by
+  have same : WithNestedFeedback.Reverse.read staleMixed = WithNestedFeedback.Reverse.read mixed.1 := by
+    simp only [WithNestedFeedback.Reverse.read, staleMixed, NestedTheta.Term.toTerm_toGraph, staleRead]
+  unfold WithNestedFeedback.Reverse.candidate
+  rw [same]
+  exact WithNestedFeedback.Reverse.candidate_generated program tailNormal tailSupported
+
+private def cutAddresses (g : MixedGraph) : List Address :=
+  match g.toTerm with
+  | .bind _ _ (.bind _ _ (.bind _ _ (.bind cut _ _))) => cut.inputs.addresses
+
+example : WithNestedFeedback.Reverse.recover staleMixed = none := by
+  apply WithNestedFeedback.Reverse.reject_wiring composed staleMixedParses
+  intro eq
+  have addresses := congrArg cutAddresses eq
+  change [Address.output 2 0, Address.output 2 1] = [Address.output 2 0, Address.arg 1] at addresses
+  cases addresses
+
+#eval show IO Unit from do
+  unless (WithNestedFeedback.Reverse.recover mixed.1).isSome do
+    throw (IO.userError "could not recover the mixed serial graph without supplied views")
+  unless (WithNestedFeedback.Reverse.candidate staleMixed).isSome &&
+      (WithNestedFeedback.Reverse.recover staleMixed).isNone do
+    throw (IO.userError "the mixed serial recognizer failed to certify the cross-cut token")
+
+private def forkGate : TwoBlock.Instruction Op number (StructuredCFG.ChoiceCarrier number number) :=
+  op .forkGate
+
+private def forkShape : WithNestedFeedback.Syntax Op number number number number number number
+    (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number]) :=
+  .branch forkGate (.structured tailNormal.toSyntax) (.nested program) (.structured tailNormal.toSyntax)
+
+private def fork := WithNestedFeedback.lower forkShape
+
+private theorem gateAction (n : Nat) :
+    callCase (ε := Bool) (m := Runtime) forkGate n =
+      pure (if n = 1 then .inl (.inl (7 : Nat)) else .inr n) := by
+  have h : TwoBlock.call (ε := Bool) (m := Runtime) forkGate n = instruction .forkGate n :=
+    call_eq .forkGate n
+  unfold callCase
+  exact (congrArg (fun (x : Runtime (Value (.coprod (.coprod number number) number))) => x >>= pure) h).trans
+    (bind_pure _)
+
+private abbrev Exits := LabelDen [number,number]
+
+private theorem fork_run (coherent : Coherent) (n : Nat) :
+    Region.denote (ε := Bool) (m := Runtime) fork.2.typing (PUnit.unit,n) =
+      (if n = 1 then iter (ExplicitRuntime.round (ε := Bool) tailLoop) (7 : Nat)
+       else iter (round (ε := Bool) program) n >>= fun r => pure (Sum.inl r)) >>= fun r : Exits =>
+      iter (ExplicitRuntime.round (ε := Bool) tailLoop) (merge r) := by
+  change Region.denote (ε := Bool) (m := Runtime)
+    (Flat.link (Flat.fork (Flat.Fragment.loop tailLoop) (WithNestedFeedback.Leaf.source program) forkGate)
+      (Flat.Fragment.loop tailLoop)).typing (PUnit.unit,n) = _
+  rw [Flat.denote_link _ _ coherent, Flat.denote_fork _ _ _ coherent, gateAction]
+  by_cases left : n = 1
+  · simp only [left, ite_true, pure_bind, Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+    rfl
+  · simp only [left, ite_false, pure_bind, WithNestedFeedback.Leaf.source_rounds _ coherent,
+      Flat.Fragment.loop_denote, ExplicitRuntime.denote_rounds _ coherent]
+
+private theorem forkLeft (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) fork.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (11 : Nat) : Exits),44) := by
+  rw [fork_run coherent]
+  simp only [ite_true, StateT.run_bind, Part.bind_eq_bind]
+  rw [tailReturns 7 0, Part.bind_some]
+  exact tailReturns 7 4
+
+private theorem forkRight (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) fork.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : Exits),122312234) := by
+  rw [fork_run coherent]
+  simp only [Nat.zero_ne_one, ite_false, StateT.run_bind, Part.bind_eq_bind, returning,
+    StateT.run_pure, Part.pure_eq_some, Part.bind_some]
+  exact tailReturns 1223122 12231223
+
+private theorem forkUndefined (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) fork.2.typing (PUnit.unit,(99 : Nat))).run 0 = Part.none := by
+  rw [fork_run coherent]
+  simp only [show (99 : Nat) ≠ 1 from by decide, ite_false, StateT.run_bind, Part.bind_eq_bind, noReturn, Part.bind_none]
+
+open WithNestedFeedback.Reverse
+
+private theorem forkAccepted : Fork.recover fork.1 = some ⟨forkShape.source.region, fork.2⟩ :=
+  Fork.recover_generated forkGate tailNormal program tailNormal tailSupported tailSupported
+
+private def recoveredFork : WithNestedFeedback.Fibre fork.1 :=
+  (Fork.recover fork.1).get (by rw [forkAccepted]; rfl)
+
+private theorem recoveredForkAccepted : Fork.recover fork.1 = some recoveredFork :=
+  (Option.some_get _).symm
+
+private theorem forkRoundTrip (coherent : Coherent) (input payload token : Nat)
+    (h : (Region.denote (ε := Bool) (m := Runtime) fork.2.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token)) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredFork.2.typing (PUnit.unit,input)).run 0 =
+      Part.some ((.inl payload : Exits),token) :=
+  (Fork.recover_returns_iff recoveredForkAccepted coherent (PUnit.unit,input) (.inl payload) 0 token).mp
+    ((fork.2.region_returns_iff coherent (PUnit.unit,input) (.inl payload) 0 token).mpr h)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredFork.2.typing (PUnit.unit,(1 : Nat))).run 0 =
+      Part.some ((.inl (11 : Nat) : Exits),44) :=
+  forkRoundTrip coherent 1 11 44 (forkLeft coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredFork.2.typing (PUnit.unit,(0 : Nat))).run 0 =
+      Part.some ((.inl (13454345 : Nat) : Exits),122312234) :=
+  forkRoundTrip coherent 0 13454345 122312234 (forkRight coherent)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredFork.2.typing (PUnit.unit,(99 : Nat))).run 0 = Part.none :=
+  (Fork.recover_undefined_iff recoveredForkAccepted coherent (PUnit.unit,(99 : Nat)) 0).mp
+    ((fork.2.region_undefined_iff coherent (PUnit.unit,(99 : Nat)) 0).mpr (forkUndefined coherent))
+
+private abbrev ForkGraph := Flat.Serial.Graph Op number number number number number number
+  (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number])
+
+private abbrev ForkTerm :=
+  NestedTheta.Term (Wires.Op Op) (Flat.Serial.WirePorts number number number) []
+    (StructuredCFG.Selection number number number number ++ [Flat.Serial.WirePorts number number number])
+    (Flat.Serial.WirePorts number number number)
+
+-- The continuation still reads the selected arm's payload through the γ.
+-- Replace its token with the original input token.
+private def staleForkTerm (term : ForkTerm) : ForkTerm :=
+  match term with
+  | .bind gate op (.bind fork arms (.bind tail body rest)) =>
+    let inputs := tail.inputs.map (fun _ wire => staleLinkToken wire)
+    .bind gate op (.bind fork arms (.bind {tail with inputs} body rest))
+
+private def staleFork : ForkGraph := (staleForkTerm fork.1.toTerm).toGraph
+
+private theorem staleForkRead (term : ForkTerm) :
+    Fork.readFork (staleForkTerm term) = Fork.readFork term := by
+  cases term with
+  | bind _ _ term =>
+    cases term with
+    | bind _ _ term =>
+      cases term with
+      | bind tail _ _ => cases tail; rfl
+
+private theorem staleForkParses : Fork.candidate staleFork = some forkShape := by
+  have same : Fork.read staleFork = Fork.read fork.1 := by
+    simp only [Fork.read, staleFork, NestedTheta.Term.toTerm_toGraph, staleForkRead]
+  unfold Fork.candidate
+  rw [same]
+  exact Fork.candidate_generated forkGate tailNormal program tailNormal tailSupported tailSupported
+
+private def sharedAddresses (g : ForkGraph) : List Address :=
+  match g.toTerm with
+  | .bind _ _ (.bind _ _ (.bind tail _ _)) => tail.inputs.addresses
+
+example : Fork.recover staleFork = none := by
+  apply Fork.reject_wiring forkShape staleForkParses
+  intro eq
+  have addresses := congrArg sharedAddresses eq
+  change [Address.output 1 0, Address.output 1 1] = [Address.output 1 0, Address.arg 1] at addresses
+  cases addresses
+
+#eval show IO Unit from do
+  unless (Fork.recover fork.1).isSome do
+    throw (IO.userError "could not recover the mixed fork without component views")
+  unless (Fork.candidate staleFork).isSome && (Fork.recover staleFork).isNone do
+    throw (IO.userError "the mixed fork recognizer failed to certify the shared continuation token")
+
+end Composition
+
+end Silmaril.SSA.RVSDG.LambdaSSA.NestedFeedback.Regression
