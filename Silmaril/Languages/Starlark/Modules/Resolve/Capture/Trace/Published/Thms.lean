@@ -135,6 +135,15 @@ theorem written_cell {state : State} {binding : Binding} {address : Nat} {old : 
     (state.write binding value).heap[address]? = some ⟨.binding (some value), frozen⟩ :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.written_cell value owned stored
 
+theorem publish_record {source : Modules.Source} {callee : Callable} {name : String}
+    {state defining : State} {address : Nat} (caller : State) (member : name ∈ source.globals)
+    (publicName : Modules.isPublic name = true) (loaded : state.bindingValue (globalSlot name) = .ok (.function address))
+    (record : ClosureAt callee.site callee.id defining state address) :
+    (Modules.publish source state).1.exports.lookup name = some (.function address) ∧
+      ∃ published : ClosureAt callee.site callee.id defining
+        (Modules.restoreThread caller (Modules.publish source state).2) address, published.frozen = true :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.publish_record caller member publicName loaded record
+
 theorem keep_record {callee : Callable} {defining state next : State} {address : Nat}
     (record : ClosureAt callee.site callee.id defining state address)
     (kept : Defaults.Body.Keeps state.heap.size state next) : Nonempty (ClosureAt callee.site callee.id defining next address) :=

@@ -2,6 +2,8 @@ module
 
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Thms
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Thms
+import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Thms
+meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Chain.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Wrapper.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Defs
 meta import Silmaril.Languages.Starlark.Modules.Loader.Defs
@@ -670,5 +672,213 @@ example {producer importer : ResolvedModule} (prod : resolve (commands false) #[
     | _, _ => false
   | _ => false
 
+
+private def middleGlobals : List String := ["relay", "before", "reexport"]
+
+private def middleWrapper : Imports.WrapperDeclaration "loaded" middleGlobals where
+  name := "relay"
+  target := by decide
+  legalAlias := by decide
+  arguments := [starlark%[17]]
+  codes := [int 17]
+  reads := []
+  operands := .cons (.int 17) .nil
+  keywords := .empty
+  selects := .enclosing (.enclosing (by decide) (by decide)) .nil
+
+private def middleConsumer : Consumer where
+  label := "prodé.star"
+  name := "escaped"
+  alias := "loaded"
+  publicName := by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]
+  globals := middleGlobals
+  body :=
+    [.define middleWrapper,
+     .invoke { callee := "relay", declared := .inr (by decide), legal := by decide
+               destination := "before", destinationGlobal := by decide
+               arguments := [], codes := [], reads := [], operands := .nil, keywords := .empty },
+     .assign "reexport" (by decide) (.read (by decide) (.owned (by decide)) (.owned (by decide)))
+       (.name "loaded")]
+  declared := rfl
+  separate := by decide
+
+private def lastGlobals : List String := ["held", "first", "marker", "answer", "after"]
+
+private def lastMapping (bad : Bool) : Mapping (block "transferred" lastGlobals) :=
+  if bad then ⟨[(.string "key", starlark%[8])], [(.atom (.string "key"), int 8)], [],
+    .entry (.string "key") (.plain (.int 8)) .empty⟩
+  else ⟨[(.string "key", starlark%[[72]])], [(.atom (.string "key"), boxed 72)], [],
+    .entry (.string "key") (.plain (.list (.int 72))) .empty⟩
+
+private def lastCall (second bad : Bool) : Imports.Invocation "transferred" lastGlobals where
+  callee := "held"
+  declared := .inr (by decide)
+  legal := by decide
+  destination := if second then "answer" else "first"
+  destinationGlobal := by cases second <;> decide
+  arguments := []
+  codes := []
+  reads := []
+  operands := .nil
+  keywords := ⟨[("another", starlark%[[71]])], [("another", boxed 71)], [],
+    .cons (.list (.int 71)) .nil, by decide⟩
+  star := some (.list (.cons (.int 17) (.cons (.int 18) .nil)))
+  mapping := if second then some (lastMapping bad) else none
+
+private def lastConsumer (bad : Bool) : Consumer where
+  label := "middle.star"
+  name := "reexport"
+  alias := "transferred"
+  publicName := by simp [Modules.isPublic, String.startsWith_string_eq_false_iff]
+  globals := lastGlobals
+  body :=
+    [.assign "held" (by decide) (.read (by decide) (.owned (by decide)) (.owned (by decide))) (.name "transferred"),
+     .invoke (lastCall false bad),
+     .assign "marker" (by decide) (.list (.int 88)) .forget,
+     .invoke (lastCall true bad),
+     .assign "after" (by decide) (.list (.int 199)) .forget]
+  declared := rfl
+  separate := by decide
+
+private def chainManifest (producer middle last : ResolvedModule) : Loader.Manifest :=
+  #[⟨producer.source, []⟩, ⟨middle.source, [("prodé.star", 0)]⟩, ⟨last.source, [("middle.star", 1)]⟩]
+
+private def chainExports (producer middle : Program) (bad : Bool) : Nat → Environment
+  | 0 => exports
+  | 1 => Imports.Chain.exportsOf middleConsumer producer (.nested returned)
+  | _ => Imports.Chain.exportsOf (lastConsumer bad) middle (.nested returned)
+
+private def checkedChain (bad : Bool) {producer middle last : ResolvedModule}
+    (producerChecked : resolve (commands false) #[] = .ok producer)
+    (middleChecked : resolve middleConsumer.commands producer.program = .ok middle)
+    (lastChecked : resolve (lastConsumer bad).commands middle.program = .ok last) :
+    Imports.Chain.Graph producer.program (chainManifest producer middle last) where
+  commands := (lastConsumer bad).commands
+  seed := middle.program
+  linked := last
+  checked := lastChecked
+  includesOrigin := fun index entry seen =>
+    consumer_preserves (lastConsumer bad) lastChecked index entry (consumer_preserves middleConsumer middleChecked index entry seen)
+  exports := chainExports producer.program middle.program bad
+  nodes := by
+    intro id bound
+    have range : id = 0 ∨ id = 1 ∨ id = 2 := by
+      change id < 3 at bound
+      omega
+    rcases range with rfl | rfl | rfl
+    · exact .root (commands := commands false) (plan false) producerChecked (fun _ _ seen => seen) rfl
+    · apply Imports.Chain.Node.importer middleConsumer (show 0 < 1 by decide)
+        middleChecked (fun _ _ seen => seen) (consumer_preserves (lastConsumer bad) lastChecked) rfl rfl
+      exact .found (.nested returned) rfl ⟨.wrapper middleWrapper producer.program.size, rfl, trivial⟩
+    · apply Imports.Chain.Node.importer (lastConsumer bad) (show 1 < 2 by decide)
+        lastChecked (consumer_preserves middleConsumer middleChecked) (fun _ _ seen => seen) rfl rfl
+      exact .found (.nested returned) rfl ⟨.regular (.nested returned), rfl, ⟨.regular (.nested returned), rfl, trivial⟩⟩
+
+example (bad : Bool) {producer middle last : ResolvedModule}
+    (prod : resolve (commands false) #[] = .ok producer)
+    (mid : resolve middleConsumer.commands producer.program = .ok middle)
+    (checked : resolve (lastConsumer bad).commands middle.program = .ok last)
+    (caller : Lists.State) (history : List Nat) (bounded : ∀ id ∈ history, id < 3) :
+    let graph := checkedChain bad prod mid checked
+    ∃ entered out, Imports.Chain.Requests graph history ⟨caller, []⟩ entered ∧
+      Imports.Chain.TraceRun (chainManifest producer middle last) 2 entered out ∧
+      Loader.load last.program (chainManifest producer middle last) 2 entered = out ∧
+      Imports.Chain.Cache producer.program (chainManifest producer middle last) graph.exports (Imports.Chain.resultSession out) := by
+  intro graph
+  have empty : Imports.Chain.Cache producer.program (chainManifest producer middle last) graph.exports ⟨caller, []⟩ := by
+    intro id published seen
+    cases seen
+  obtain ⟨entered, preload, cache⟩ := Imports.Chain.requests graph history bounded ⟨caller, []⟩ empty
+  obtain ⟨out, source, _, meaning, reached⟩ := Imports.Chain.agrees graph 2 (by change 2 < 3; decide) entered cache
+  exact ⟨entered, out, preload, source, meaning, reached.cache⟩
+
+private def runChainCommands (source : List Resolve.Command) (preload : Option Nat) :
+    Option (Loader.Result Modules.Published × Lists.State) := do
+  let producer ← (resolve (commands false)).toOption
+  let middle ← (resolve middleConsumer.commands producer.program).toOption
+  let last ← (resolve source middle.program).toOption
+  let manifest := chainManifest producer middle last
+  let cold : Loader.Session := { runtime := {iterators := [123]} }
+  let ready ← match preload with
+    | none => some cold
+    | some id =>
+      match Loader.load last.program manifest id cold with
+      | .ok _ state => some state
+      | .error .. => none
+  some (Loader.load last.program manifest 2 ready, enter last.source ready.runtime)
+
+private def runChain (bad : Bool) : Option Nat → Option (Loader.Result Modules.Published × Lists.State) :=
+  runChainCommands (lastConsumer bad).commands
+
+private def chainOK (preload : Option Nat) : Bool :=
+  match runChain false preload with
+  | some (.ok published final, _) =>
+    match final.cache.lookup 0, final.cache.lookup 1 with
+    | some producer, some middle =>
+      match producer.exports.lookup "escaped", producer.exports.lookup "late",
+        producer.exports.lookup "data", middle.exports.lookup "relay" with
+      | some (.function address), some (.list late), some (.list data), some (.function wrapper) =>
+        match final.runtime.heap[address]?, final.runtime.heap[wrapper]? with
+        | some ⟨.function closure, true⟩, some ⟨.function linked, true⟩ =>
+          closure.declaration == 0 && linked.declaration == 2 &&
+          closure.defaults == [(fileSlot "key", .list data)] &&
+          (match closure.captures, linked.captures with
+           | [_, global], [capturedImport] =>
+             final.runtime.heap[global.address]? == some ⟨.binding (some (.list late)), false⟩ &&
+             final.runtime.heap[capturedImport.address]? == some ⟨.binding (some (.function address)), true⟩
+           | _, _ => false) &&
+          middle.exports.lookup "reexport" == some (.function address) &&
+          middle.exports.lookup "before" == some (.list late) &&
+          published.exports.lookup "held" == some (.function address) &&
+          published.exports.lookup "first" == some (.list late) &&
+          published.exports.lookup "answer" == some (.list late) &&
+          final.runtime.heap[late]? == some ⟨.list [.scalar (.int 83)], true⟩ &&
+          final.cache.map Prod.fst == [2, 1, 0] && final.runtime.iterators == [123]
+        | _, _ => false
+      | _, _, _, _ => false
+    | _, _ => false
+  | _ => false
+
+private def chainError (preload : Option Nat) : Bool :=
+  match runChain true preload with
+  | some (.error (.initialization 2 (.runtime .indexTarget)) final, entered) =>
+    let cell name := (entered.slots (globalSlot name)).bind (fun slot => final.runtime.heap[slot.address]?)
+    let marker := match cell "marker" with
+      | some ⟨.binding (some (.list address)), false⟩ =>
+        final.runtime.heap[address]? == some ⟨.list [.scalar (.int 88)], false⟩
+      | _ => false
+    match final.cache.lookup 0 with
+    | some producer =>
+      marker && cell "held" == some ⟨.binding (producer.exports.lookup "escaped"), false⟩ &&
+      cell "first" == some ⟨.binding (producer.exports.lookup "late"), false⟩ &&
+      cell "answer" == some ⟨.binding none, false⟩ && cell "after" == some ⟨.binding none, false⟩ &&
+      (final.runtime.slots (fileSlot "transferred")).isNone && final.runtime.iterators == [123] &&
+      final.cache.map Prod.fst == [1, 0]
+    | none => false
+  | _ => false
+
+#guard chainOK none
+#guard chainOK (some 0)
+#guard chainOK (some 1)
+#guard chainError none
+#guard chainError (some 0)
+#guard chainError (some 1)
+
+
+-- The resolved loader also dispatches a published wrapper across the next
+-- module edge. The independent chain theorem above tracks regular re-exports.
+private def callPublishedWrapper : List Resolve.Command :=
+  [.load "middle.star" [⟨"relay", "wrapped"⟩], .assign "result"
+    (.call (.scalar (.read "wrapped")) [] [] none none)]
+
+#guard
+  match runChainCommands callPublishedWrapper (some 1) with
+  | some (.ok published final, _) =>
+    match final.cache.lookup 0 with
+    | some producer =>
+      published.exports.lookup "result" == producer.exports.lookup "late" &&
+      final.cache.map Prod.fst == [2, 1, 0] && final.runtime.iterators == [123]
+    | none => false
+  | _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
