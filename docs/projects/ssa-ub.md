@@ -1334,6 +1334,27 @@ request-guarded cycles with different entry labels by checking a closed
 product certificate on every finite carrier.
 [Finite-model property][ssa-ub-open-guarded-finite-model]
 
+The entry-ranked subclass has a single executable cutoff.
+`Table.checkRankedEntries?` checks both native readbacks and the existing
+entry-rank certificates, then compares on `Fin (min leftRank rightRank + 1)`.
+Every successful reply in a common distinguishing prefix takes a
+rank-decreasing local edge. The prefix therefore uses at most the smaller
+entry rank many transfers, and the extra store supplies its terminal
+test. This counts successful replies, so a pending request with no
+successful reply still fits the cutoff.
+
+An arbitrary-store refutation first gives a finite rejection at the same
+caller by the finite-model proof. Rank-certified extraction gives a
+bounded prefix countermodel at the two original endpoints. State
+embedding enlarges its rejecting carrier to the computed size. The
+single-size verdict is equivalent to arbitrary-store deterministic
+refinement under the two checks. Failed rank or readback produces
+`none`. A regression compares different entry labels and types, with
+one request on the left and two on the right. Size one accepts and the
+computed size two rejects when the second request sees the changed
+store. This cutoff applies to the entry-ranked subclass.
+[Ranked carrier cutoff][ssa-ub-open-guarded-ranked-cutoff]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1505,6 +1526,7 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-finite-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Thms.lean
 [ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
 [ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
+[ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 
