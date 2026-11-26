@@ -56,13 +56,6 @@ example : (handledFunctor (model Op) (scripted Op) input).Faithful ∧
 The reply is the current state and each exchange flips the state. This
 policy never repeats a reply, so it cannot replay the separating history. -/
 
-private def replyBit : (f : Op) → Value (instrTrg f) → Bool
-  | .ask, .inl _ => false
-  | .ask, .inr _ => true
-
-private def alternating : Handler Bool (Events Op)
-  | ⟨_, .call f _⟩, state, reply, next => replyBit f reply = state ∧ next = !state
-
 example (state : Bool) : ¬ Replay alternating state (history repeated finish) := by
   rintro ⟨_, first, _, second, -⟩
   have flipped : state = !state := by
@@ -77,41 +70,6 @@ example : ¬ Exposes alternating := fun exposes => by
     rw [first.2] at second
     exact first.1.symm.trans second.1
   cases state <;> cases flipped
-
-private theorem alternating_vis {R : Type} (e : Events Op R) {k l : R → Tree (Events Op) Packed} (state : Bool)
-    (admitted : ∀ reply next, alternating ⟨R, e⟩ state reply next →
-      HandledTraceLE alternating next (k reply) (l reply)) :
-    HandledTraceLE alternating state (vis e k) (vis e l) := by
-  rintro trace ⟨seen, replay⟩
-  cases trace with
-  | «prefix» => exact ⟨trivial, trivial⟩
-  | request d => exact ⟨(hasTrace_vis_request_iff e l d).mpr ((hasTrace_vis_request_iff e k d).mp seen), trivial⟩
-  | result value =>
-    have returned : out (vis e k) = Part.some (.ret value) := seen
-    rw [out_vis] at returned
-    cases Part.some_injective returned
-  | exchange d reply tail =>
-    obtain ⟨sameType, sameEvent, inner⟩ := (hasTrace_vis_exchange e k d reply tail).mp seen
-    subst sameType
-    subst sameEvent
-    obtain ⟨next, step, rest⟩ := replay
-    have below := admitted reply next step tail ⟨inner, rest⟩
-    exact ⟨(hasTrace_vis_exchange_iff d l reply tail).mpr below.1, next, step, below.2⟩
-
-private theorem opposite {first second : Value Bit} {state : Bool}
-    (one : replyBit Op.ask first = state) (two : replyBit Op.ask second = !state) :
-    packet second = other (packet first) := by
-  subst one
-  rcases first with _ | _ <;> rcases second with _ | _ <;> first | rfl | cases two
-
-private theorem alternating_collapses (state : Bool) (capture : Val Bit) (x : Val Packet) :
-    HandledTraceLE alternating state (twice capture x) (crossed capture x) ∧
-      HandledTraceLE alternating state (crossed capture x) (twice capture x) := by
-  constructor <;>
-  · refine alternating_vis _ state fun first next step => ?_
-    obtain ⟨one, rfl⟩ := step
-    refine alternating_vis _ _ fun second _ step => ?_
-    rw [opposite one step.1]
 
 example : (handledFunctor (model Op) alternating input).map both =
     (handledFunctor (model Op) alternating input).map mixed :=
