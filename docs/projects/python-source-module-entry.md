@@ -255,19 +255,22 @@ callee. Allocated descriptors must resolve in the reached closure heap.
 Stock `tuple(existing)` and module aliases retain the original descriptor,
 so two tracked tuples with the same contents can still have distinct
 identities. Two reads of the same live tuple binding also establish identity.
-Distinct bindings carrying only a closed nonempty tuple payload give no
-identity evidence.
+A module with a checked tuple identity operand retains an origin witness
+when binding a closed nonempty display. The witness occupies a slot in the
+same closure heap and follows the descriptor through assignment and stock
+`tuple(existing)`. Equal witnesses prove positive identity. Different
+closed origins leave both identity operators undefined in this profile,
+since CPython can share a constant across literal sites.
 
 The opt-in `legacyTupleIdentitySeed` supplies the Boolean `___assertTrue`
 helper. The helper's receipt records `None` on success and
 `AssertionError(False)` on a false result. A failed callee or operand read
 preserves the reached heaps and prior receipts. In the unchanged
 `tuple-constructors.py`, lowering now reaches the list argument at line 6.
-Execution of the exact four-statement prefix with the stock helper reaches
-the untracked closed tuple aliases on line 5. CPython preserves the exact
-object on that call, while the current runtime needs a saved origin for that
-binding. The tuple-chain regression checks this prefix and the tracked alias
-and canonical empty controls.
+The exact four-statement prefix completes with the stock constructor and
+helper, including the positive identity on line 5. The tuple-chain regression
+checks the retained descriptor, exact helper receipts, rebound aliases,
+independent equal-content closed origins, and the canonical empty case.
 
 
 A scalar comparison chain has at least two links. Every link uses one of

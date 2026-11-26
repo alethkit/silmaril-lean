@@ -15,6 +15,11 @@ theorem identify_allocation (heap : Heap) (head : Core.Module.Value) (tail : Lis
     identify reached (.tupleObject ⟨some cell.address, head :: tail⟩) = some (.allocated cell.address) := by
   simp [identify, Heap.allocate, Heap.lookup, Heap.reserve]
 
+theorem identify_savedOrigin (heap : Heap) (head : Core.Module.Value) (tail : List Core.Module.Value) :
+    let (descriptor, reached) := heap.saveTupleOrigin head tail
+    identify reached (.tupleObject descriptor) = some (.origin heap.next) := by
+  simp [Heap.saveTupleOrigin, identify, Heap.allocate, Heap.lookup, Heap.reserve]
+
 theorem identify_missing {heap : Heap} {address : Nat} (head : Core.Module.Value) (tail : List Core.Module.Value)
     (missing : heap.lookup ⟨address⟩ = none) :
     identify heap (.tupleObject ⟨some address, head :: tail⟩) = none := by
@@ -24,8 +29,19 @@ theorem compare_identified (heap : Heap) (left right : Operand) (operator : Core
     {first second : Value} {one two : Identity}
     (identifiedFirst : identify heap first = some one) (identifiedSecond : identify heap second = some two) :
     (Test.mk left operator right).compare heap first second =
-      some (match operator with | .is_ => decide (one = two) | .isNot => !decide (one = two)) := by
+      (one.sameObject two).map (fun same => match operator with | .is_ => same | .isNot => !same) := by
   cases operator <;> simp [Test.compare, identifiedFirst, identifiedSecond]
+
+theorem differentOrigins_unknown {first second : Nat} (different : first ≠ second) :
+    (Identity.origin first).sameObject (.origin second) = none := by
+  simp [Identity.sameObject, different]
+
+theorem evaluate_same_origin {ε : Type} (heap : Heap) (lookup : String → Except ε (Option Value))
+    (unsupported : ε) (left right : Operand) {value : Value} {address : Nat}
+    (first : left.read lookup = .ok (some value)) (second : right.read lookup = .ok (some value))
+    (found : identify heap value = some (.origin address)) :
+    (Test.mk left .is_ right).evaluate heap lookup unsupported = .ok true := by
+  simp [Test.evaluate, first, second, Bind.bind, Except.bind, Test.compare, found, Identity.sameObject]
 
 theorem evaluate_left_failure {ε : Type} (test : Test) (heap : Heap)
     (lookup : String → Except ε (Option Value)) (unsupported : ε) {error : ε}

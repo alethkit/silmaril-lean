@@ -49,17 +49,26 @@ def checkArgument (scope : Scope) : (arguments : List (Source.ArgumentKind × So
 inductive Identity where
   | empty
   | allocated (address : Nat)
+  | origin (address : Nat)
   deriving DecidableEq
 
-/-- The reference must resolve against the heap paired with the live namespace.
-The payload check validates a descriptor. Identity compares only its address. -/
+/-- The live heap certifies which kind of witness was retained. A
+fresh allocation stores its payload. A closed origin stores its descriptor. -/
 def identify (heap : Heap) : Value → Option Identity
   | .tuple [] | .tupleObject ⟨none, []⟩ => some .empty
-  | .tupleObject ⟨some address, first :: rest⟩ =>
+  | .tupleObject (descriptor@⟨some address, first :: rest⟩) =>
     match heap.lookup ⟨address⟩ with
     | some (some (.tuple stored)) => if stored = first :: rest then some (.allocated address) else none
+    | some (some (.tupleObject saved)) => if saved = descriptor then some (.origin address) else none
     | _ => none
   | _ => none
+
+/-- A saved origin proves only positive identity. Separate origin
+allocations may describe one CPython object. -/
+def Identity.sameObject : Identity → Identity → Option Bool
+  | .origin first, .origin second => if first = second then some true else none
+  | .origin _, _ | _, .origin _ => none
+  | first, second => some (decide (first = second))
 
 /-- Repeated reads of the same binding have one object even when the tuple
 only carries its contents. Different bindings need persistent identity. -/
@@ -70,7 +79,7 @@ def sameOpaqueRead (test : Test) (left right : Value) : Bool :=
 
 def Test.compare (test : Test) (heap : Heap) (left right : Value) : Option Bool :=
   let same := match identify heap left, identify heap right with
-    | some first, some second => some (decide (first = second))
+    | some first, some second => first.sameObject second
     | _, _ => if sameOpaqueRead test left right then some true else none
   same.map fun equal => match test.operator with
     | .is_ => equal

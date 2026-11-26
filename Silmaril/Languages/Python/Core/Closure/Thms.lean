@@ -47,6 +47,12 @@ theorem Heap.moduleTuple_empty (heap : Heap) (items : List GlobalTupleItem) :
 theorem Heap.moduleTuple_closed (heap : Heap) (items : List GlobalTupleItem)
     (values : List Core.Module.Value) (closed : items.any GlobalTupleItem.isRead = false) :
     heap.materializeModuleTuple items values = (.tuple values, heap) := by
+  cases values <;> simp [Heap.materializeModuleTuple, closed]
+
+theorem Heap.moduleTuple_closedOrigin (heap : Heap) (items : List GlobalTupleItem)
+    (head : Core.Module.Value) (tail : List Core.Module.Value) (closed : items.any GlobalTupleItem.isRead = false) :
+    heap.materializeModuleTuple items (head :: tail) true =
+      (.tupleObject (heap.saveTupleOrigin head tail).1, (heap.saveTupleOrigin head tail).2) := by
   simp [Heap.materializeModuleTuple, closed]
 
 theorem Heap.moduleTuple_fresh (heap : Heap) (items : List GlobalTupleItem)
