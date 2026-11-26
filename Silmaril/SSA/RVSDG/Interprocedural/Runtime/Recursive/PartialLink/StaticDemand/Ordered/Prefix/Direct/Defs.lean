@@ -22,17 +22,57 @@ def capturePort {Ty : Type u} {params : Ports Ty} {ty : Ty} :
   | _ :: _, .head => some .head
   | _ :: rest, .tail p => (capturePort rest p).map Port.tail
 
-/-- Compose capture edges with the actual linker wires. Formals and
-outputs of local bindings have no direct source in the captures. -/
-def project {Ty : Type u} {imports context params : Ports Ty} {past localSigs : List (Ports Ty)}
-    (wires : Wires imports past context) : {users : Ports Ty} →
-      Wires (context ++ params) localSigs users → Option (Wires imports past users)
+/-- A region entry port may come from an exact typed linker origin. -/
+abbrev Boundary {Ty : Type u} (imports entry : Ports Ty) (past : List (Ports Ty)) :=
+  {ty : Ty} → Port entry ty → Option (Origin imports past ty)
+
+/-- The enclosing λ's capture wires define the initial boundary map.
+Formal parameters have no tracked linker origin. -/
+def captureBoundary {Ty : Type u} {imports context params : Ports Ty} {past : List (Ports Ty)}
+    (wires : Wires imports past context) : Boundary imports (context ++ params) past :=
+  fun p => (capturePort context p).map fun q => wires.get q
+
+/-- Follow the actual γ boundary wires into the enclosing entry. Outputs
+of earlier local bindings have no tracked linker origin. -/
+def Boundary.forward {Ty : Type u} {imports entry child : Ports Ty} {outer past : List (Ports Ty)}
+    (source : Boundary imports entry outer) (wires : Wires entry past child) : Boundary imports child outer :=
+  fun p => match wires.get p with
+    | .arg q => source q
+    | .output _ _ => none
+
+/-- Project the requested operands through the boundary map. Untracked
+ports elsewhere on the boundary do not prevent projection. -/
+def Boundary.project {Ty : Type u} {imports entry : Ports Ty} {outer past : List (Ports Ty)}
+    (source : Boundary imports entry outer) : {users : Ports Ty} →
+    Wires entry past users → Option (Wires imports outer users)
   | _, .nil => some .nil
   | _, .cons (.arg p) rest => do
-    let captured ← capturePort context p
-    let tail ← project wires rest
-    pure (.cons (wires.get captured) tail)
+    let origin ← source p
+    let tail ← Boundary.project source rest
+    pure (.cons origin tail)
   | _, .cons (.output _ _) _ => none
+
+/-- Compose capture edges with the actual linker wires. -/
+def project {Ty : Type u} {imports context params users : Ports Ty} {past localSigs : List (Ports Ty)}
+    (wires : Wires imports past context) (requested : Wires (context ++ params) localSigs users) :
+    Option (Wires imports past users) := Boundary.project (captureBoundary wires) requested
+
+/-- Every tracked port agrees with the value read at its linker origin. -/
+def Boundary.Reads {Ty : Type u} {F : Ty → Type w} {imports entry : Ports Ty} {outer : List (Ports Ty)}
+    (source : Boundary imports entry outer) (inputs : Tuple F imports) (locals : Locals F outer)
+    (values : Tuple F entry) : Prop :=
+  ∀ {ty} (p : Port entry ty) {origin}, source p = some origin →
+    values.get p = (Wires.read (.cons origin .nil : Wires imports outer [ty]) inputs locals).get .head
+
+/-- Syntax depth of the region fragment inspected by direct resolution. -/
+def checkDepth : {entry outs : Ports (Ty V S)} → {past sigs : List (Ports (Ty V S))} →
+    {loops : Bool} → {member : Option (MemberSummaries V S)} →
+    Code Op entry past sigs outs loops member → Nat
+  | _, _, _, _, _, _, .primitive _ _ rest => checkDepth rest + 1
+  | _, _, _, _, _, _, .familyCall _ _ _ _ rest => checkDepth rest + 1
+  | _, _, _, _, _, _, .gamma 0 _ _ _ arms rest =>
+    max (checkDepth (arms 0)) (max (checkDepth (arms 1)) (checkDepth rest)) + 1
+  | _, _, _, _, _, _, _ => 0
 
 def widen {args users head : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     (wires : Wires args past users) : Wires args (past ++ [head]) users :=

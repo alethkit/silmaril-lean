@@ -809,19 +809,31 @@ that takes its callable from a formal input.
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local
-`ResolvedWith` proofs for straight-line bodies. The checker projects the
-typed call operand and capture witnesses through the λ's capture wiring.
+`ResolvedWith` proofs for direct captured calls. The checker projects the
+typed call operand and capture witnesses through the λ's capture wiring
+and through one level of binary γ boundaries.
 It compares their linker addresses with the stored sources for the
 specified slot and checks callable membership at the actual position
 in both runs. Matching typed addresses imply equality of the wires.
-Primitive bindings and returns use the usual shared syntax.
+At a γ, the checker follows the actual argument wires and certifies both
+arms for every prior local tuple. Untracked child ports can still carry
+ordinary inputs and results.
 
 The φ seed can describe member capture witnesses that project directly
 through its outer context. The checker rejects missing source descriptions,
-formal callees, local outputs, inline closure descriptions, and γ or θ
-forwarding. The explicit plan constructors remain available for bodies
-with supplied resolution proofs. Invocation uses the same linked runner.
+formal callees, and local outputs as origins for callees or capture
+witnesses. Inline closure descriptions, nested or wider γ, and θ use
+the explicit plan constructors with supplied resolution proofs. Invocation
+uses the same linked runner.
 [Direct resolution API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Direct/Thms.lean)
+
+The binary γ fixture forwards reordered captures. One arm calls the
+earlier λ and the other calls a φ member, leaving the spare formal dead.
+Both arms return, block on a typed probe, and resume the saved suffixes
+with exact stores. Substituting a checked same-signature φ witness from a
+different linker position rejects the plan even when that arm would be
+unselected.
+[Linked γ fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
 ### Single-call admission
 
