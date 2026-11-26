@@ -532,3 +532,32 @@ after a completed feedback iteration with a linked return.
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms'
 ```
+
+## Demand through a static linked application
+
+`DirectCall` admits a two-λ module by construction. Its exported caller
+captures the linked callee and invokes it at an actual application node. The
+callee executes one primitive before returning through wired results. The
+caller forwards selected results and may also return its own arguments.
+The admission uses only λ vertices and this single static application.
+Dynamic targets, recursive calls and partial initializers are outside it.
+[API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Thms.lean)
+
+The requested caller results select the callee result demand. The shared
+least may solution identifies the live entry ports of that callee. The
+analysis maps them through the actual capture and argument wires, and keeps
+the caller arguments read directly by a demanded result.
+
+Agreement on those imports and arguments, with the same initial store,
+preserves demanded returns and exact store after ten invocation microsteps.
+A block retains the exact typed primitive site, operands, and attempt store.
+The saved stacks are related by what their two return suffixes do when
+supplied a common hypothetical primitive result and store. Those stacks can
+contain different dead values. The regression resumes a suspended invocation
+and checks a block with two saved frames. Changing the live capture at that
+same call makes the primitive return and change the store.
+[Regression](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Demand/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Demand.Regression
+```
