@@ -1247,6 +1247,19 @@ changed bit and machine state around a backedge before taking the second
 ordered exit.
 [Recognized packet-local live-outs][ssa-ub-recognized-liveout]
 
+The two-field profile projects an ordered pair of `Bit` registers beside
+the old unit payload. At the bit-packet terminal, either slot may read
+the packet parameter. At either terminal, a slot may use a pure literal
+assignment from the supplied table. Exact readback checks the resulting
+record order and the literal prefix in slot order. The unit-packet
+terminal requires both assignments. The observer validates the packed
+constructor value at the native exit type and reuses the dependent
+packet decoder. The named decision uses the same complete packet and
+selected-exit rule as the native decision. The regression holds the
+first field, exit position, and final state equal while the second
+field witnesses a negative verdict.
+[Ordered two-field live-outs][ssa-ub-ordered-liveout]
+
 `Table.compareEntries?` lifts the fixed-carrier comparison to the
 existing exhaustive `CallerEnumeration` of a shared typed domain. Each
 caller is decoded separately into the exact entry type of each original
@@ -1545,5 +1558,6 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
 
 [ssa-ub-open-guarded-payload]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Payload/Thms.lean
+[ssa-ub-ordered-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Thms.lean
 [ssa-ub-recognized-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Recognize/Thms.lean
 [ssa-ub-named-guarded-payload]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Thms.lean
