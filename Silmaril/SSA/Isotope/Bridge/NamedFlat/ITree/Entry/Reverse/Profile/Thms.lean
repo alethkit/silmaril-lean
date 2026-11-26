@@ -16,6 +16,13 @@ open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
 universe u v w
 
+/-- A row read back with only its packet parameter in scope is packet-closed. -/
+theorem block_packetClosed {V K : Type w} {F : Type v} [DecidableEq V] {n labels : Nat}
+    {index : K → Option (Fin labels)} (block : CFG.Block V K F) {flat : LambdaSSA.Flat F labels (n + 1)}
+    (read : body index (blockNames block.param) block.body = some flat) :
+    block.body.toRegion.fv ⊆ {block.param} :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.block_packetClosed block read
+
 /-- Successful scoped readback already certifies packet closure, since
 each block is elaborated with only its packet parameter in scope. -/
 theorem elaborateAt_packetClosed {V K : Type w} {F : Type v}

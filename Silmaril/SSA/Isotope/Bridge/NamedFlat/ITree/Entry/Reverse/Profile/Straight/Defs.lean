@@ -29,6 +29,24 @@ def sourceCheck (index : K → Option (Fin labels)) (types : Fin labels → Ty B
     (names : Names V n) (ctx : BoundCtx (Ty Base) n) (src : CFG.Body V K F) : Bool :=
   ((NamedFlat.body index names src).map (checkBody types ctx)).getD false
 
+/-- Check a named entry and every row against a supplied label numbering. -/
+def checkSourceRows (graph : CFG V K F) {count : Nat} (order : graph.blocks.length = count)
+    (names : Fin n → V) (ctx : BoundCtx (Ty Base) n) (R : Fin count → Ty Base)
+    {exits : Nat} (external : Fin exits → Ty Base) (index : K → Option (Fin (count + exits))) : Bool :=
+  let types := SSA.FiniteSum.append R external
+  sourceCheck index types (first names) ctx graph.entry &&
+    (List.finRange count).all fun i =>
+      let b := graph.blocks[Fin.cast order.symm i].2
+      sourceCheck index types (blockNames b.param) (.snoc ctx (R i)) b.body
+
+/-- Check the original arguments, captures and exits at the packet-local
+versioner's label numbering. Each row starts with only its parameter in scope. -/
+def packetLocalSourceChecks [DecidableEq K] (graph : CFG V K F) (names : Fin n → V)
+    (ctx : BoundCtx (Ty Base) n) (exits : List K) (external : Fin exits.length → Ty Base)
+    (R : Fin (Versioning.compilePacketLocal graph).blocks.length → Ty Base) : Bool :=
+  checkSourceRows graph (List.length_map _).symm names ctx R external
+    (labelIndex (Versioning.compilePacketLocal graph).blocks exits)
+
 variable {κ K : Type (u + 1)} [DecidableEq K] [DecidableEq κ]
   {n blocks : Nat} {P : FlatInstitution.Signature.{u, v} κ}
   {context : BoundCtx (Ty κ) n} {exits : List K} {external : Fin exits.length → Ty κ}
@@ -45,11 +63,7 @@ local notation "exitTypes" => Interface.external
 /-- Check the source rows against a label numbering with the same row count. -/
 def checkRows {count : Nat} (order : (attached).blocks.length = count)
     (R : Fin count → Ty κ) (index : K → Option (Fin (count + exits.length))) : Bool :=
-  let types := SSA.FiniteSum.append R exitTypes
-  sourceCheck index types (first fun i : Fin n => (⟨i.val⟩ : Register)) context (attached).entry &&
-    (List.finRange count).all fun i =>
-      let b := (attached).blocks[Fin.cast order.symm i].2
-      sourceCheck index types (blockNames b.param) (.snoc context (R i)) b.body
+  checkSourceRows attached order (fun i => (⟨i.val⟩ : Register)) context R exitTypes index
 
 /-- Check the original entry and every original block with their original
 packet types. Use the versioned label order, which retains the written
@@ -73,8 +87,8 @@ def packetLocalProfile (R : Fin blocks → Ty κ)
 /-- Check the original bodies at the opt-in compiler's label numbering,
 using the original argument and exit types. -/
 def packetLocalChecks (R : Fin blocks → Ty κ) : Bool :=
-  checkRows a (List.length_map _).symm (fun i => R (Fin.cast (packetLocalCount a) i))
-    (labelIndex (packetLocal).blocks exits)
+  packetLocalSourceChecks attached (fun i : Fin n => (⟨i.val⟩ : Register)) context exits exitTypes
+    (fun i => R (Fin.cast (packetLocalCount a) i))
 
 /-- The selected input register has no assignment or case binder in the
 attached entry or block bodies. Packet parameters are checked by the actual
