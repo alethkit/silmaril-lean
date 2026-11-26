@@ -33,20 +33,37 @@ def model : Model Opcode where
 
 def rules : Scan.Rules model :=
   fun op => match op with
-  | .arithmetic arith =>
-    match arithmeticRules arith with
-    | .literal original => .literal (Opcode.arithmetic original)
-    | .operation opcode encode read_encode =>
-      .operation (Opcode.arithmetic opcode) (fun value => Opcode.arithmetic (encode value)) read_encode
+  | .arithmetic arith => liftArithmeticRule (arithmeticRules arith)
   | .boolean value => .literal (Opcode.boolean value)
-  | .eq => .binary Opcode.eq (fun value => Opcode.boolean value.down) (fun _ => rfl)
-  | .slt => .binary Opcode.slt (fun value => Opcode.boolean value.down) (fun _ => rfl)
-  | .sle => .binary Opcode.sle (fun value => Opcode.boolean value.down) (fun _ => rfl)
+  | .eq => comparisonRule .eq true (by
+    change ∀ value : BitVec 64, ULift.up (value == value) = ULift.up true
+    intro value
+    simp)
+  | .slt => comparisonRule .slt false (by
+    change ∀ value : BitVec 64, ULift.up (value.slt value) = ULift.up false
+    intro value
+    simp [BitVec.slt_eq_decide])
+  | .sle => comparisonRule .sle true (by
+    change ∀ value : BitVec 64, ULift.up (value.sle value) = ULift.up true
+    intro value
+    simp [BitVec.sle_eq_decide])
   | .not => .operation Opcode.not (fun value => Opcode.boolean value.down) (fun _ => rfl)
+where
+  liftArithmeticRule :
+      {ins : List (ValueSort Unit)} → {out : ValueSort Unit} → {op : SubZero.Opcode ins out} →
+        Scan.Rule SubZero.model op → Scan.Rule model (.arithmetic op)
+    | _, _, _, .literal original => .literal (Opcode.arithmetic original)
+    | _, _, _, .operation opcode encode read_encode =>
+      .operation (Opcode.arithmetic opcode) (fun value => Opcode.arithmetic (encode value)) read_encode
+    | _, _, _, .sameWord opcode result read_same fallback =>
+      .sameWord (Opcode.arithmetic opcode) (.arithmetic result) read_same (liftArithmeticRule fallback)
+  comparisonRule (op : Opcode [word, word] .predicate) (same : Bool)
+      (read_same : ∀ value, model.run op (.cons value (.cons value .nil)) = ⟨same⟩) : Scan.Rule model op :=
+    .sameWord op (.boolean same) read_same (.binary op (fun value => .boolean value.down) (fun _ => rfl))
 
 variable {inputs : List (ValueSort Unit)} {out : ValueSort Unit}
 
-/-- Fold literal arithmetic, comparisons, and negation in dependency order. -/
+/-- Fold literal operations and repeated-source comparisons in dependency order. -/
 def fold (program : Program Opcode inputs out) : Program Opcode inputs out :=
   Scan.fold rules program
 
