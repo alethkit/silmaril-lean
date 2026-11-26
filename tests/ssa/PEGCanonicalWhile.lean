@@ -2,6 +2,7 @@ module
 
 import Silmaril.SSA.PEG.Simple.Revert.While.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Mathlib.Data.Fin.Embedding
@@ -13,6 +14,7 @@ meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Defs
 
 namespace Silmaril.SSA.PEG.Simple.Revert.While.Tests
 
@@ -855,3 +857,106 @@ example : model.run Op.positivePred (.cons ⟨0⟩ .nil) = none := rfl
 #eval ((extract graph 7 5).isNone, run 1 1)
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Tests
+
+open RVSDG (Tuple)
+
+private inductive Op : InstructionSet Unit where
+  | guard : Op [.count] .bool
+  | not : Op [.bool] .bool
+  | large : Op [.count] .bool
+  | larger : Op [.count] .bool
+  | positivePred : Op [.count] .count
+  | copy : Op [.count] .count
+  | zeroLike : Op [.count] .count
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .guard, .cons n .nil => some ⟨n.down != 0⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+    | .large, .cons n .nil => some ⟨3 ≤ n.down⟩
+    | .larger, .cons n .nil => some ⟨4 ≤ n.down⟩
+    | .positivePred, .cons n .nil => if n.down = 0 then none else some ⟨n.down - 1⟩
+    | .copy, .cons n .nil => some n
+    | .zeroLike, .cons _ .nil => some ⟨0⟩
+
+private def sort : Fin 15 → Ty Unit
+  | 4 | 5 | 12 | 13 => .bool
+  | _ => .count
+
+-- The outer arms are separate lazy branches. Both strictly need row 1
+-- regardless of their choice, while both may skip row 6.
+private def raw : RawGraph Op [.count] [.count] 15 1 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node
+    | 0 => ⟨_, .eval 0, [3, 14]⟩
+    | 1 => ⟨_, .op .positivePred, [3]⟩
+    | 2 => ⟨_, .param .head, []⟩
+    | 3 => ⟨_, .theta 0, [2, 11]⟩
+    | 4 => ⟨_, .op .large, [3]⟩
+    | 5 => ⟨_, .op .larger, [3]⟩
+    | 6 => ⟨_, .op .positivePred, [1]⟩
+    | 7 => ⟨_, .op .copy, [1]⟩
+    | 8 => ⟨_, .phi, [5, 6, 7]⟩
+    | 9 => ⟨_, .op .zeroLike, [1]⟩
+    | 10 => ⟨_, .phi, [5, 6, 9]⟩
+    | 11 => ⟨_, .phi, [4, 8, 10]⟩
+    | 12 => ⟨_, .op .guard, [3]⟩
+    | 13 => ⟨_, .op .not, [12]⟩
+    | 14 => ⟨_, .pass 0, [13]⟩
+  roots := [0]
+
+private def graph : Graph Op [.count] [.count] 15 1 := raw.check.get (by decide)
+
+private def checked := extract graph
+
+private def run (fuel n : Nat) : Option Nat := do
+  let a ← checked
+  (a.region.runFuel model fuel (.cons ⟨n⟩ .nil)).map ULift.down
+
+-- Require a single placed binding in the update prefix with both
+-- nested branches still in their respective outer arms.
+private def nestedBranch {vars outs : List (Ty Unit)} : Stmt Op false vars outs → Bool
+  | .seq (.assign (.op .larger _)) (.seq (.branch (.var _) _ _) (.project _)) => true
+  | _ => false
+
+private def shares {vars outs : List (Ty Unit)} : Stmt Op false vars outs → Bool
+  | .seq (.assign (.op .large _))
+      (.seq (.assign (.op .positivePred _))
+        (.seq (.branch (.var _) yes no) (.project _))) => nestedBranch yes && nestedBranch no
+  | _ => false
+
+private def rejectsUnsafe : Bool :=
+  match Automatic.inferBoundary graph with
+  | none => false
+  | some d =>
+    let depth := Figure19.inferDepth graph.forest 1
+    let table := Figure19.MustEval.analyze graph
+    (Candidate.check d depth table 11 6).isNone
+
+set_option interpreter.prefer_native false
+
+/-- info: (true, some (11, 1, true)) -/
+#guard_msgs in
+#eval ((Placement.extract graph 11 1).isNone,
+  checked.map fun a => (a.candidate.branch.val, a.candidate.shared.val, shares a.region.update.lower))
+
+-- The continuing iterations visit both inner outcomes in the outer
+-- true arm, then run the outer false arm. The zero-trip case never runs row 1.
+/-- info: (some 0, none, some 0) -/
+#guard_msgs in
+#eval (run 3 5, run 2 5, run 0 0)
+
+-- At old = 1, shared row 1 returns zero and row 6 would fail if placed
+-- eagerly. Both outer arms can reach row 6 but neither requires it.
+example : model.run Op.positivePred (.cons ⟨0⟩ .nil) = none := rfl
+
+/-- info: (true, some 0) -/
+#guard_msgs in
+#eval (rejectsUnsafe, run 1 1)
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Tests

@@ -116,11 +116,15 @@ theorem defined (path : StrictPath g target i) (solves : g.Solves m env values)
       dsimp only [read] at hit
       exact (refDefined _).symm ▸ hit
 
-theorem defined_of_phi {flag : Ref g.sort .bool} {yes no : Ref g.sort (g.sort i)}
-    (row : g.node i = .ofLabel .phi (.cons flag (.cons yes (.cons no .nil))))
-    (trueUse : StrictPath g target yes.id) (falseUse : StrictPath g target no.id)
+theorem phi_demands {args : Tuple (Ref g.sort) [.bool, g.sort i, g.sort i]}
+    (row : g.node i = .ofLabel .phi args)
     (solves : g.Solves m env values) (start : (values (i, idx)).isSome) :
-    (values (target, idx)).isSome := by
+    (values ((args.get .head).id, idx)).isSome ∧
+      ((values ((args.get (.tail .head)).id, idx)).isSome ∨
+       (values ((args.get (.tail (.tail .head))).id, idx)).isSome) := by
+  let flag := args.get .head
+  let yes := args.get (.tail .head)
+  let no := args.get (.tail (.tail .head))
   rw [solves (i, idx)] at start
   change (let node := g.node i; node.label.interpret m env idx fun slot j _ =>
     (node.arg slot).read m.carrier (values ((node.arg slot).id, j))).isSome at start
@@ -130,9 +134,22 @@ theorem defined_of_phi {flag : Ref g.sort .bool} {yes no : Ref g.sort (g.sort i)
   cases h : read flag with
   | none => simp [h] at start
   | some b =>
+    have flagDefined : (values (flag.id, idx)).isSome := by
+      rw [← refDefined flag]
+      change (read flag).isSome
+      rw [h]
+      rfl
     rw [h, Option.elim] at start
+    refine ⟨flagDefined, ?_⟩
     split at start
-    · exact defined trueUse solves ((refDefined yes).symm ▸ start)
-    · exact defined falseUse solves ((refDefined no).symm ▸ start)
+    · exact .inl ((refDefined yes).symm ▸ start)
+    · exact .inr ((refDefined no).symm ▸ start)
+
+theorem defined_of_phi {flag : Ref g.sort .bool} {yes no : Ref g.sort (g.sort i)}
+    (row : g.node i = .ofLabel .phi (.cons flag (.cons yes (.cons no .nil))))
+    (trueUse : StrictPath g target yes.id) (falseUse : StrictPath g target no.id)
+    (solves : g.Solves m env values) (start : (values (i, idx)).isSome) :
+    (values (target, idx)).isSome :=
+  (phi_demands row solves start).2.elim (defined trueUse solves) (defined falseUse solves)
 
 end Silmaril.SSA.PEG.Figure19.Placement.Proofs
