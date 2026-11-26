@@ -40,13 +40,19 @@ structure SumCase (Φ : Type v) [HasTy Φ τ] (X : τ) (L : LCtx τ) where
 
 variable {X A : τ} {L : LCtx τ}
 
+omit [TypeFormers τ] in
+/-- Send a singleton return to its selected position in the outward context. -/
+theorem singletonExitRen {D : τ} {exit : Nat} (atExit : At L exit D) :
+    Ren [D] L (fun _ => exit) := by
+  intro i E hi
+  cases i with
+  | zero => exact Option.some.inj hi ▸ atExit
+  | succ i => simp [At] at hi
+
 /-- Move the singleton return to this arm's chosen outward label. -/
 theorem CaseArm.exitRen (arm : CaseArm Φ X A L) :
-    Ren [arm.result] L (fun _ => arm.exit) := by
-  intro i D hi
-  cases i with
-  | zero => exact Option.some.inj hi ▸ arm.atExit
-  | succ i => simp [At] at hi
+    Ren [arm.result] L (fun _ => arm.exit) :=
+  singletonExitRen arm.atExit
 
 /-- Supply the actual retained input and payload to the guarded body, then
 retarget its singleton exit. -/
