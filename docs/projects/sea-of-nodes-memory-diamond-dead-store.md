@@ -376,6 +376,39 @@ refuses. Run the fixture with
 `lake env lean -DautoImplicit=false -DwarningAsError=true Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Regression.lean`.
 [Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Regression.lean)
 
+### Replay and rediscover cuts on the mixed finite-switch entry
+
+`MixedTail.Replay.lower` checks each request against the current typed
+entry and reruns the mixed finder at the original saved input. A
+`discover` request accepts the finder's first eligible version.
+An `expect` request also requires that version to match the supplied
+one-based number. The replay trace equates each emitted source with the
+previous optimized CFG and validates one ordered overwrite and reader
+record per original predecessor occurrence. Refusal keeps the exact
+current artifact and returns the remaining request suffix.
+[Definitions](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Defs.lean) ·
+[Pinned Simple memory model](https://github.com/SeaOfNodes/Simple/blob/f0a6c6757a795b8e186de0076836a87acef59fa7/chapter10/README.md#one-memory-value)
+
+`MixedTail.Replay.discover` uses the original Store count as its bound.
+Each admitted cut deletes one Store. Exhaustion ranges over every
+surviving version under the existing mixed checker and its inferred
+facts. Replaying the admitted versions gives the identical CFG chain.
+The endpoint laws preserve all entry Load words, the entry Return word,
+selected occurrence, complete join packet, returned word and full final
+buffer at every common CF budget and for every initialized buffer at the
+saved input. Reapplying the removed writes in reverse, using each
+stage's actual prefix-produced word, reconstructs the original entry
+buffer from the retained one.
+[Theorems](../../Silmaril/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Thms.lean)
+
+The fixture removes two Stores from an interleaved entry while a
+retained Load still supplies a later Store. It records different
+overwrite versions across three occurrences, including duplicate
+predecessor IDs. At the aliasing input the first cut succeeds and the
+second refuses because the retained Load would observe it. A stale
+version also keeps the first artifact.
+[Runnable fixture](../../Silmaril/Proofs/SSA/SeaOfNodes/Memory/Diamond/DeadStore/Finite/MemRef/CF/MixedTail/Replay/Regression.lean)
+
 ## Bypass a single-user Store inside one arm
 
 `DeadStore.SingleUser.rewrite graph slot version` applies Simple chapter
