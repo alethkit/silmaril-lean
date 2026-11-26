@@ -783,6 +783,28 @@ returns `41` at store `66`, blocks at store `24`, and resumes through
 both λ suffixes and both φ suffixes to store `90`.
 [Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
 
+### Checking a whole linked demand prefix
+
+`Ordered.Prefix.Plan` follows the typed module tail after a checked φ
+seed. It admits selected λ bindings with `addLambda` and leaves skipped
+positions empty in the existing typed linker table. The plan supplies
+local body-resolution proofs. The fold constructs the intermediate
+membership tables, attaches the computed summaries, and uses the existing
+linker equations to identify both successful link results and the final
+export's captures. `Export.linked_prefixes_agree` consumes that result
+directly.
+[Whole-prefix API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Thms.lean)
+
+This slice compares two links of the same φ/λ module with a common
+initial store and exports the last checked λ. Static resolution
+remains explicit, including for direct captured calls. The
+λ→λ→φ regression uses the fold for both checked bindings and retains
+its demand, return, block, and resumption checks. A second plan links
+a same-signature copy of the first λ at a skipped position and
+redirects the last λ's capture there. The runner can call that copy,
+while admission rejects the unchecked position.
+[Linked fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Family/Regression.lean)
+
 ### Single-call admission
 
 `DirectCall` admits a two-λ module by construction. Its exported caller
