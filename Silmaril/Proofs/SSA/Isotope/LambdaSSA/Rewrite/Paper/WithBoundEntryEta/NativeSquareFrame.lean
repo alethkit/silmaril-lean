@@ -72,17 +72,12 @@ theorem linear_composite {work : Region Φ} {state reply : Tm Φ}
   simp only [Category.assoc, coprod.inr_map]
   rw [← Category.assoc next, recurs]
 
-theorem split_composite {work : Region Φ} {state reply : Tm Φ}
-    (hw : ValueBranches [D] work [E]) (ha : Tm.BranchValue [State] state D)
-    (hb : Tm.BranchValue [E] reply D) (nextLeft nextRight : Obj E ⟶ Obj State)
-    (leftRecurs : nextLeft ≫ ofRegion (.br (ℓ := 0) rfl ha) = ofRegion (.br (ℓ := 0) rfl hb))
-    (rightRecurs : nextRight ≫ ofRegion (.br (ℓ := 0) rfl ha) = ofRegion (.br (ℓ := 0) rfl hb)) :
-    let h := ofRegion (.br (ℓ := 0) rfl ha)
-    split (B := B) h (ofRegion hw) nextLeft nextRight ≫ coprod.map (𝟙 (Obj B)) h =
-      ofRegion (specialize_guarded ha (repeating_guarded (B := B) hw hb)) ≫ (sumIso B D).hom := by
-  dsimp only
-  let h : Obj State ⟶ Obj D := ofRegion (.br (ℓ := 0) rfl ha)
-  let tail : Obj D ⟶ Obj B ⨿ Obj D := ofRegion hw ≫ ofRegion (.br (ℓ := 0) rfl hb) ≫ coprod.inr
+theorem split_post (h : Obj State ⟶ Obj D) (work : Obj D ⟶ Obj E)
+    (nextLeft nextRight : Obj E ⟶ Obj State) (reply : Obj E ⟶ Obj D)
+    (leftRecurs : nextLeft ≫ h = reply) (rightRecurs : nextRight ≫ h = reply) :
+    split (B := B) h work nextLeft nextRight ≫ coprod.map (𝟙 (Obj B)) h =
+      h ≫ work ≫ reply ≫ coprod.inr := by
+  let tail : Obj D ⟶ Obj B ⨿ Obj D := work ≫ reply ≫ coprod.inr
   let l : Obj X ⟶ Obj State := (sumCofan X Y).inl
   let r : Obj Y ⟶ Obj State := (sumCofan X Y).inr
   have il : l ≫ (sumIso X Y).hom = coprod.inl := Paper.TypeCategory.sumCofan_inl_sumIso_hom X Y
@@ -93,8 +88,6 @@ theorem split_composite {work : Region Φ} {state reply : Tm Φ}
     · rw [coprod.inr_desc, ← ir, Category.assoc, Iso.hom_inv_id_assoc]
   have partition : (sumIso X Y).hom ≫ coprod.desc (l ≫ h) (r ≫ h) = h := by
     rw [collapse, Iso.hom_inv_id_assoc]
-  rw [← WithEntryLet.ofRegion_comp_constructor ha (repeating_guarded (B := B) hw hb)
-    (specialize_guarded ha (repeating_guarded (B := B) hw hb)), Category.assoc, repeating_composite (B := B) hw hb]
   unfold split
   rw [Category.assoc, coprod.desc_comp]
   simp only [Category.assoc, coprod.inr_map]
@@ -105,5 +98,18 @@ theorem split_composite {work : Region Φ} {state reply : Tm Φ}
   have right : (sumCofan X Y).inr ≫ h ≫ tail = ((sumCofan X Y).inr ≫ h) ≫ tail :=
     (Category.assoc _ _ _).symm
   rw [left, right, ← coprod.desc_comp, ← Category.assoc, partition]
+
+theorem split_composite {work : Region Φ} {state reply : Tm Φ}
+    (hw : ValueBranches [D] work [E]) (ha : Tm.BranchValue [State] state D)
+    (hb : Tm.BranchValue [E] reply D) (nextLeft nextRight : Obj E ⟶ Obj State)
+    (leftRecurs : nextLeft ≫ ofRegion (.br (ℓ := 0) rfl ha) = ofRegion (.br (ℓ := 0) rfl hb))
+    (rightRecurs : nextRight ≫ ofRegion (.br (ℓ := 0) rfl ha) = ofRegion (.br (ℓ := 0) rfl hb)) :
+    let h := ofRegion (.br (ℓ := 0) rfl ha)
+    split (B := B) h (ofRegion hw) nextLeft nextRight ≫ coprod.map (𝟙 (Obj B)) h =
+      ofRegion (specialize_guarded ha (repeating_guarded (B := B) hw hb)) ≫ (sumIso B D).hom := by
+  dsimp only
+  rw [← WithEntryLet.ofRegion_comp_constructor ha (repeating_guarded (B := B) hw hb)
+    (specialize_guarded ha (repeating_guarded (B := B) hw hb)), Category.assoc, repeating_composite (B := B) hw hb]
+  exact split_post _ _ nextLeft nextRight _ leftRecurs rightRecurs
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithBoundEntryEta.NativeSquareFrame

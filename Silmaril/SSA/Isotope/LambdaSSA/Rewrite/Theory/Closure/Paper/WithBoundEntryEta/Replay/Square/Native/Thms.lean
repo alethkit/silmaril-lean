@@ -60,6 +60,16 @@ theorem linear_composite {work : Region Φ} {state reply : Tm Φ}
       ofRegion (specialize_guarded ha (repeating_guarded (B := B) hw hb)) ≫ (sumIso B D).hom :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithBoundEntryEta.NativeSquareFrame.linear_composite hw ha hb next recurs
 
+/-- Postcompose the recursive routes armwise before choosing a syntactic
+representative for the state map. -/
+theorem split_post (h : Obj State ⟶ Obj D) (work : Obj D ⟶ Obj E)
+    (nextLeft nextRight : Obj E ⟶ Obj State) (reply : Obj E ⟶ Obj D)
+    (leftRecurs : nextLeft ≫ h = reply) (rightRecurs : nextRight ≫ h = reply) :
+    split (B := B) h work nextLeft nextRight ≫ coprod.map (𝟙 (Obj B)) h =
+      h ≫ work ≫ reply ≫ coprod.inr :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithBoundEntryEta.NativeSquareFrame.split_post
+    h work nextLeft nextRight reply leftRecurs rightRecurs
+
 /-- Each input arm may supply its own next state. The native composite uses the common specialized round when the two next-state arrows agree after the state map. -/
 theorem split_composite {work : Region Φ} {state reply : Tm Φ}
     (hw : ValueBranches [D] work [E]) (ha : Tm.BranchValue [State] state D)
