@@ -70,35 +70,44 @@ read the same pure value. The tree representation and replay can repeat
 work, with exponential expansion in the number of shared graph nodes.
 They carry no sharing or resource bounds.
 
-## Cyclic merges and extraction
+## Figure 11 correspondence
 
-A cyclic E-PEG should keep graph node identities and establish equality of
-their denotations at all required iteration indices using a separate
-well-founded demand proof. The corresponding state invariant can then
-justify existing Egg premises and union steps where sorted equations apply.
-Replaying cyclic merge or rule receipts requires loop-aware rules and an
-invariant that covers θ, eval and pass. A later Fig. 11 correspondence
-theorem can restrict the loop-aware evaluator to ranked zero-loop graphs
-and identify its pointwise node results with `Acyclic.Ranked.eval`.
+[`Bridge.Figure11.Thms`](../../Silmaril/SSA/Peggy/Bridge/Figure11/Thms.lean)
+relates this bridge to the [guarded native PEG denotation](peg-semantics.md).
+The graph rank makes native demands well founded. The adapter retains
+every data carrier, relates Bool and Nat to their lifted versions, and
+injects each defined Figure 11 input as `some` at the same parameter slot.
+It preserves strict primitive application and lazy φ. `denote_eq_valuation` proves exact agreement at every node
+by showing that the lifted bridge evaluation solves the native equations
+and using their uniqueness. This includes `none` and uses any proof of
+well-founded native demands.
 
-For a proposed extraction in the current fragment, check the candidate's
-wiring and rank, then use `checkOutputs` with receipts tied to the actual
-source and candidate roots. Extraction with feedback also needs an
-independent admissibility and scope check, a correspondence between the
-selected representatives and the extracted graph, and a reversion theorem
-for the target observation. Saturation, representative selection,
-CFG reversion and cost optimization are outside this bridge's scope.
+`checkOutputs_figure11_sound` applies the existing Egg soundness theorem
+to that adapter and proves equality of the actual ordered
+`PEG.Graph.observe` tuples. Rule satisfaction still ranges over all
+partial Egg variable valuations, even though Figure 11 takes defined
+parameters. The auxiliary bridge can still be used with undefined
+parameters. The Figure 11 correspondence is on its defined-input
+boundary.
+
+For a candidate in the loop-free fragment, check its wiring and rank,
+then bind its actual roots to accepted receipts. For a guarded cyclic
+candidate, the [E-PEG certificate kernel](peggy-epeg.md) works directly
+with the native streams and the candidate's equations.
 
 ## Checks
 
 ```sh
-lake build --wfail +Silmaril.SSA.PEG.Thms +Silmaril.SSA.Peggy.Bridge.Egg.Thms PEGCoreTests PeggyEggTests
+lake build --wfail +Silmaril.SSA.PEG.Semantics.Thms +Silmaril.SSA.Peggy.Bridge.Figure11.Thms PEGCoreTests PeggyEggTests
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/PeggyEgg.lean
 lake env leanchecker Silmaril.Logic.Egg.Core.Replay.Defs
 lake env leanchecker Silmaril.SSA.Peggy.Acyclic.Defs
 lake env leanchecker Silmaril.SSA.Peggy.Bridge.Egg.Defs
 lake env leanchecker Silmaril.Proofs.SSA.Peggy.Bridge.Egg.Sound
 lake env leanchecker Silmaril.SSA.Peggy.Bridge.Egg.Thms
+lake env leanchecker Silmaril.SSA.Peggy.Bridge.Figure11.Defs
+lake env leanchecker Silmaril.Proofs.SSA.Peggy.Bridge.Figure11.Correspondence
+lake env leanchecker Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 lake env leanchecker tests.ssa.PeggyEgg
 scripts/check-layout.sh
 ```
@@ -107,4 +116,7 @@ The [regression fixture](../../tests/ssa/PeggyEgg.lean) checks replay of a
 guarded φ simplification under a primitive with shared operands, rejection
 of a wrong guard, a broken transitivity join, swapped roots and a
 well-typed cycle, and evaluation with partial inputs and an undefined
-unselected arm. `PeggyEggTests` is included in `make check`.
+unselected arm. The native fixture checks both branch choices and bottom
+control directly from the guarded equations, and uses the correspondence
+theorem to lift receipt soundness to the whole native observation.
+`PeggyEggTests` is included in `make check`.
