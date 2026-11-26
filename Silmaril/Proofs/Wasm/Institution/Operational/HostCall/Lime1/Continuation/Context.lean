@@ -3,13 +3,14 @@ module
 public import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Defs
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
+import Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Thms
 import Silmaril.Wasm.Lime1.Execution.Callout.Properties
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proofs
 
-open Execution.Runtime (EvalCtx Frame Value)
+open Execution.Runtime (Callout EvalCtx Frame Value)
 open Wasm.Lime1.Execution
 open CallContinuation.OuterCall
 
@@ -67,5 +68,47 @@ theorem body_cases
       · exact .inl ⟨after, step, by simp only [framed, List.append_assoc, List.singleton_append]⟩
       · exact .inr ⟨out, pop, rfl⟩
     · exact (Computed.lime_label_stays (stack := saved) rfl (by simp) (by simp) (by simp) pop).elim
+
+/-- The decomposer retains the sequence wrappers around labels and frames. -/
+private def scopedLabelContext (active : Frame) : Scope → Nat → Wasm.Lime1.Expr → EvalCtx Wasm.Lime1.Instr
+  | .function arity, n, cont => .seq [] (.frame arity active (.seq [] (.label n cont .hole) [])) []
+  | .label arity cont saved tail outer, n, innerCont =>
+      (scopedLabelContext active outer arity cont).comp (.seq saved (.label n innerCont .hole) tail)
+
+private theorem plug_scopedLabelContext (scope : Scope) :
+    (scopedLabelContext active scope n cont).plug value body = framed active [.label n cont body] scope := by
+  induction scope generalizing n cont body with
+  | function => rfl
+  | label _ _ _ _ _ ih =>
+    rw [scopedLabelContext, EvalCtx.plug_comp, ih]
+    rfl
+
+private theorem comp_assoc {I : Type} (outer middle inner : EvalCtx I) :
+    (outer.comp middle).comp inner = outer.comp (middle.comp inner) := by
+  induction outer <;> simp only [EvalCtx.comp, *]
+
+private theorem decompose_scoped_label (scope : Scope) :
+    Execution.Runtime.decomposeFrom? coding s [] (framed active [.label n cont body] scope) =
+      (Execution.Runtime.decomposeFrom? coding s [] body).map
+        (fun c => { c with context := (scopedLabelContext active scope n cont).comp c.context }) := by
+  induction scope generalizing n cont body with
+  | function => simp [framed, scopedLabelContext, EvalCtx.comp, Option.map_map, Function.comp_def]
+  | label arity enclosing saved tail scope ih =>
+    rw [framed, ih, scopedLabelContext]
+    simp only [List.append_assoc, List.singleton_append, decomposeFrom?_label_cons, decomposeFrom?_values_append, List.nil_append,
+      Option.map_map, Function.comp_def, comp_assoc]
+    rfl
+
+theorem answer_under_label {call : Callout H Wasm.Lime1.Instr}
+    (located : CalloutAt ⟨s, outer, framed active [.label n cont body] scope⟩ call)
+    (answer : Answer host ⟨s, outer, framed active [.label n cont body] scope⟩ call dst) :
+    ∃ mid, Step host ⟨s, active, body⟩ mid ∧
+      dst = ⟨mid.store, outer, framed mid.frame [.label n cont mid.code] scope⟩ := by
+  obtain ⟨inner, mid, here, outcome, eq⟩ := answer_under (inner := ⟨s, active, body⟩)
+    (wrapped := ⟨s, outer, framed active [.label n cont body] scope⟩)
+    (context := scopedLabelContext active scope n cont) (plug_scopedLabelContext scope).symm rfl
+    (decompose_scoped_label scope) located answer
+  have sameFrame : mid.frame = active := by cases outcome <;> rfl
+  exact ⟨mid, outcome.step here, by rw [eq, sameFrame, plug_scopedLabelContext]⟩
 
 end Silmaril.Wasm.Institution.Operational.HostCall.Lime1.Continuation.Proofs
