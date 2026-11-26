@@ -77,6 +77,14 @@ theorem pickAndHoist?_returns_iff (picked : pickAndHoist? g tree = some (cut, ou
 
 variable {index : Nat}
 
+/-- Translating captured operands to the entry scope preserves their values. -/
+theorem evalCaptureOrigins {Γ args : List Width} (origins : Origins Input Γ)
+    (operands : Operands Γ args) {captured : Operands Input args}
+    (found : captureOrigins? origins operands = some captured)
+    (env : Env Γ) (input : Env Input) (agree : CapturesAgree origins env input) :
+    operands.eval env = captured.eval input :=
+  Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.evalCaptureOrigins origins operands found env input agree
+
 /-- Successful emission consumes the selected preheader cut and the
 actual current binding with captured operands. -/
 theorem hoistCodeWith?_spec
