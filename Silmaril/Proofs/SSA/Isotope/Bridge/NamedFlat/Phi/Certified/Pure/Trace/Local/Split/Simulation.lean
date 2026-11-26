@@ -44,7 +44,7 @@ private theorem map_vis {R : Type u} (event : E R)
   simp only [mapBody, ← bind_pure_comp, vis_bind]
 
 omit [DecidableEq V] in
-private theorem forward_cases (checked : plan.hasBackedge source = true)
+private theorem forward_cases (checked : plan.hasEdge source = true)
     (p : Pending V K (Value α)) :
     routed plan p = aligned plan p ∨
       stepTree instr (plan.rewrite source) (routed plan p) = pure (.inr (aligned plan p)) := by
@@ -58,7 +58,7 @@ private theorem forward_cases (checked : plan.hasBackedge source = true)
       simpa [routed, aligned, Plan.rekey, Plan.selected] using step_forward plan instr source checked store
     · exact .inl (by simp [routed, aligned, Plan.rekey, selected])
 
-private def forwardSimulation (checked : plan.hasBackedge source = true) :
+private def forwardSimulation (checked : plan.hasEdge source = true) :
     Simulation instr instr source (plan.rewrite source) where
   boundary l r := r = aligned plan l
   residual l r := r = mapBody plan l
@@ -89,7 +89,7 @@ private def Reverse (r : Right (E := E) (W := W) (J := J) (α := α))
     (l : Left (E := E) (V := V) (K := K) (α := α)) : Prop :=
   r = mapBody plan l ∨ ∃ p, r = pure (.inr (aligned plan p)) ∧ l = pure (.inr p)
 
-private def backwardSimulation (checked : plan.hasBackedge source = true) :
+private def backwardSimulation (checked : plan.hasEdge source = true) :
     Simulation instr instr (plan.rewrite source) source where
   boundary r l := r = aligned plan l
   residual := Reverse plan
@@ -120,8 +120,8 @@ def buildWitness {target : Graph W J F} (checked : Checked plan source target) :
     Witness plan instr source target := by
   obtain rfl := checked.rewritten
   exact
-    { forward := forwardSimulation plan instr source checked.backedge
-      backward := backwardSimulation plan instr source checked.backedge
+    { forward := forwardSimulation plan instr source checked.edge
+      backward := backwardSimulation plan instr source checked.edge
       enterForward := entry_routed plan instr source
       enterBackward := fun store => by
         rw [entry_routed]
