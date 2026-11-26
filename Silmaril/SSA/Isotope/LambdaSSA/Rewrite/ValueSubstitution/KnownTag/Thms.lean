@@ -1,9 +1,8 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Trim.Thms
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag
 
 /-! # Exact witnesses for a let followed by a known-tag case -/
@@ -80,14 +79,6 @@ theorem UnusedSummand.Program.denotes_eq_let_inl_case_entry
       (.case (.var 0) (left.renameVars (Silmaril.DeBruijn.lift Nat.succ)) right')) (n + 1) blocks) L}
     (d : RegionDenotes J M h f) (e : RegionDenotes J M h' g) : f = g :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.KnownTag.cfg_agree J M p roll determined shape d e
-
-/-- Constructor tests on already-bound variables may select either tag.
-The transport keeps the original computation arrow and exact exit context. -/
-theorem _root_.Silmaril.Isotope.LambdaSSA.Region.PruneConstructorTests.denotes
-    {r s : Region Φ} (steps : Region.PruneConstructorTests r s) {h : r.HasType Γ L}
-    (d : RegionDenotes J M h f) :
-    ∃ hs : s.HasType Γ L, RegionDenotes J M hs f :=
-  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.KnownTag.prune_denotes J M steps d
 
 /-- Restore the constructor on the already-bound payload, then prune the
 certified tests. Effectful initializers retained by the certificate run in

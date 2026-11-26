@@ -2,11 +2,16 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.UnusedSummand.Readback.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandTyping
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical.UnusedSummandFamily
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.CfgReadback.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Coherence.Live.Square.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.KnownTag.Pruning.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.ReplaceNewest.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Renaming.Product.Thms
@@ -244,6 +249,79 @@ variable {k : Nat} {P : Fin (k + 1) → Ty κ} {K : LCtx (Ty κ)} {Γ : VCtx (Ty
 local notation "Env" => ctxObj M Γ
 local notation "Result" => labelObj M K
 local notation "Local" => labelObj M (List.ofFn P)
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem taken_tag_row (D : Fin (k + 1) → Ty κ) (i : Fin (k + 1))
+    (row : Row (Φ := Φ) P K (P i :: Γ)) {raw : Region Φ}
+    (prune : Region.PruneConstructorTests (raw.substVars (Tm.replaceNewest (.inl (.var 0))))
+      (row.region true id))
+    {ts : (row.region false id).HasType (P i :: Γ) (List.ofFn P ++ K)}
+    {tw : raw.HasType (family P (some D) i :: Γ) (List.ofFn (family P (some D)) ++ K)}
+    {f : J.obj (ctxObj M (P i :: Γ)) ⟶ J.obj (labelObj M (List.ofFn P ++ K))}
+    {g : J.obj (ctxObj M (family P (some D) i :: Γ)) ⟶
+      J.obj (labelObj M (List.ofFn (family P (some D)) ++ K))}
+    (small : RegionDenotes J M ts f) (wide : RegionDenotes J M tw g) :
+    J.map (Env ◁ tag M P D i) ≫ g ≫ J.map (labelAppendSplit M (List.ofFn (family P (some D))) K) =
+      f ≫ J.map (labelAppendSplit M (List.ofFn P) K) ≫
+        J.map (coprod.map (𝟙 Result) (embedLabels M P D)) := by
+  have da : Denotes J M (.inl (.var rfl) (B := D i) :
+      (Tm.inl (.var 0) : Tm Φ).HasType (P i :: Γ) (Silmaril.coprod (P i) (D i)))
+      (J.map (snd Env (M.obj (P i)) ≫ tag M P D i)) := by
+    rw [J.map_comp]
+    simpa only [tag, lookup] using
+      (Denotes.inl (J := J) (M := M) (B := D i)
+        (Denotes.var (J := J) (M := M) (show At (P i :: Γ) 0 (P i) from rfl)))
+  obtain ⟨_, restricted⟩ := wide.replaceNewest J M da
+  obtain ⟨_, selected⟩ := prune.denotes J M restricted
+  have compared := row_comparison J M (Ren.id _) (𝟙 _) (fun _ _ _ => Category.id_comp _)
+    D row small selected
+  rw [J.map_id, Category.id_comp, Category.assoc] at compared
+  exact compared
+
+theorem taken_tag_agreement (D : Fin (k + 1) → Ty κ) (entry : Row (Φ := Φ) P K Γ)
+    (rows : ∀ i, Row (Φ := Φ) P K (P i :: Γ)) (raw : Fin (k + 1) → Region Φ)
+    (prune : ∀ i, Region.PruneConstructorTests
+      ((raw i).substVars (Tm.replaceNewest (.inl (.var 0)))) ((rows i).region true id))
+    {f g : J.obj Env ⟶ J.obj Result}
+    (small : CfgDenotesAt J M P (entry.region false id) (fun i => (rows i).region false id) f)
+    (wide : CfgDenotesAt J M (family P (some D)) (entry.region true id) raw g) : f = g := by
+  let S := family P (some D)
+  let h := embedLabels M P D
+  let hf := finiteEmbedding M P D
+  let cut := labelAppendSplit M (List.ofFn P) K
+  let cut' := labelAppendSplit M (List.ofFn S) K
+  obtain ⟨_, _, e, b, all, se, sb, sc, rfl⟩ := small
+  obtain ⟨_, _, e', b', all', we, wb, wc, rfl⟩ := wide
+  have entry_eq : e' ≫ J.map cut' = e ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := by
+    simpa only [J.map_id, Category.id_comp] using
+      row_comparison J M (Ren.id _) (𝟙 _) (fun _ _ _ => Category.id_comp _) D entry se we
+  have row_eq : J.map (Env ◁ hf) ≫ all' ≫ J.map cut' =
+      all ≫ J.map cut ≫ J.map (coprod.map (𝟙 Result) h) := by
+    apply collective_ext J M k Γ P
+    intro i
+    rw [MonoidalCategory.id_tensorHom]
+    have sh := sc.restrict i
+    have wh := wc.restrict i
+    rw [MonoidalCategory.id_tensorHom] at sh wh
+    have slide : J.map (Env ◁ finiteLabelInject M P i) ≫ J.map (Env ◁ hf) =
+        J.map (Env ◁ tag M P D i) ≫ J.map (Env ◁ finiteLabelInject M S i) := by
+      rw [← J.map_comp, ← J.map_comp, ← MonoidalCategory.whiskerLeft_comp,
+        ← MonoidalCategory.whiskerLeft_comp, finite_embed]
+    rw [← Category.assoc, slide, Category.assoc, ← Category.assoc _ all', wh,
+      ← Category.assoc _ all, sh]
+    exact taken_tag_row J M D i (rows i) (prune i) (sb i) (wb i)
+  have square :
+      (J.map (Env ◁ labelObjToFinite M P) ≫ all ≫ J.map cut) ≫
+          J.map (coprod.map (𝟙 Result) h) =
+        J.map (Env ◁ h) ≫ J.map (Env ◁ labelObjToFinite M S) ≫ all' ≫ J.map cut' := by
+    rw [← Category.assoc (J.map (Env ◁ h)), ← J.map_comp,
+      ← MonoidalCategory.whiskerLeft_comp, embedding_toFinite, MonoidalCategory.whiskerLeft_comp,
+      J.map_comp]
+    simp only [Category.assoc]
+    rw [← row_eq]
+  unfold cfgDispatchArrow
+  rw [MonoidalCategory.id_tensorHom, MonoidalCategory.id_tensorHom, entry_eq]
+  simpa only [Category.assoc] using cfgDispatch_of_state_square J h (e ≫ J.map cut) _ _ square
 
 private theorem dispatch_of_rows (roll : IterationRolling C)
     (p : Program (Φ := Φ) P K Γ) (tails : Option (Fin (k + 1) → Ty κ))
