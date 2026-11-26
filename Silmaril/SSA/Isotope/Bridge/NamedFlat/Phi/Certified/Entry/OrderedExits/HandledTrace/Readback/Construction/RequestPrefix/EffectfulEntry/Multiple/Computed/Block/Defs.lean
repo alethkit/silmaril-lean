@@ -27,20 +27,22 @@ structure ScheduledTransfer (sig : PrimitiveSignature F) (packets : Fin blocks �
   tree : EntryTree sig packets outputs [input] count
   tree_eq : boundary.lower = tree.written
 
-/-- Check a direct transfer operand at the original destination's packet
-type, using exactly the slots in the incoming packet scope. -/
+/-- Check the operand at an original destination's type, using only
+the incoming packet's slots. -/
+def readJump [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
+    (outputs : Fin exits → PacketType) (input : PacketType) (label : Fin (blocks + exits))
+    (original : LambdaSSA.Tm F) : Option (ScheduledTransfer sig packets outputs input (.br label.val original)) := do
+  let ⟨arg, exactArg⟩ ← readArgument sig [input] (SSA.FiniteSum.append packets outputs label) original
+  let boundary : Boundary sig (.snoc .nil input) (SSA.FiniteSum.append packets outputs) := .jump label arg
+  let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] boundary.lower
+  let exact ← commonRow (blocks + exits) boundary.lower tree.written
+  return ⟨boundary, congrArg (Region.br label.val) exactArg, count, tree,
+    exact.property.1.trans exact.property.2.symm⟩
+
 def readTransfer [DecidableEq F] (sig : PrimitiveSignature F) (packets : Fin blocks → PacketType)
     (outputs : Fin exits → PacketType) (input : PacketType) {n : Nat} :
     (row : Flat F (blocks + exits) n) → Option (ScheduledTransfer sig packets outputs input row.erase)
-  | .br label original => do
-    let ⟨arg, exactArg⟩ ← readArgument sig [input] (SSA.FiniteSum.append packets outputs label) (erase original)
-    let boundary : Boundary sig (.snoc .nil input) (SSA.FiniteSum.append packets outputs) := .jump label arg
-    let ⟨count, tree⟩ ← Multiple.read sig packets outputs [input] boundary.lower
-    let exact ← commonRow (blocks + exits) boundary.lower tree.written
-    return ⟨boundary, by
-      change Region.br label.val (erase original) = _
-      rw [exactArg]
-      rfl, count, tree, exact.property.1.trans exact.property.2.symm⟩
+  | .br label original => readJump sig packets outputs input label (erase original)
   | _ => none
 
 /-- The selected row uses only its incoming packet. Captures used in the
