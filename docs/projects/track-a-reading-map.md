@@ -68,10 +68,11 @@ the statements and checks.
 
 ## Review status
 
-The local integration checked the open read in #3572 and the handled
-adapter draft in #3583 together. The replacement plan is pending. The
-immutable #3572 links preserve the revision used by downstream work.
-[Open typed read][pr-typed-read] · [Handled read adapter draft][pr-read-adapter]
+The local integration checked all ten pinned components. After the
+interaction foundation (#3543) and the concrete read (#3555), the checked
+order takes `Read.Interaction` from #3572 and then the distinct
+`Read.Adapter` from #3583. It applies the concrete read patch once.
+[Open typed read][pr-typed-read] · [Handled read adapter][pr-read-adapter]
 
 The linked source revisions are immutable because the component changes
 are under review, with some based on other component branches. The map
