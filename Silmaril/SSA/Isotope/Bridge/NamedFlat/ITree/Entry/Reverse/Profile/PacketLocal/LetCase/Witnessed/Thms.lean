@@ -30,34 +30,56 @@ local notation "B" => Region.packedExitType exitList
 local notation "C" => AtomValues.carrier (κ := κ)
 
 variable {source : Operand P.Instr context (Region.packedExitType
-    (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source} {slot : Option (Fin n)}
+    (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source} {slots : List (Fin n)}
 
 omit [DecidableEq K] [AtomValues κ] in
 /-- The pre-reversion table is typed at the original entry and exit
-interfaces. A carried slot changes only the internal packet family. -/
+interfaces. Carrying caller slots changes only the internal packet family. -/
+theorem flatList_hasType (g : ResultGrammar source) (slots : List (Fin n)) :
+    (flatList g slots).HasType context (packetTypesList g slots) exitTypes :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.flatList_hasType g slots
+
+omit [DecidableEq K] [AtomValues κ] in
 theorem flat_hasType (g : ResultGrammar source) (slot : Option (Fin n)) :
     (flat g slot).HasType context (packetTypes g slot) exitTypes :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.flat_hasType g slot
+  flatList_hasType g slot.toList
 
 /-- Run the emitted mutable table at the original typed caller record and
 observe the same tagged result, including the specified final-store fields. -/
-theorem Compiled.named_tree (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) (x : Record.Input context) :
+theorem CompiledList.named_tree (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots) (x : Record.Input context) :
     (sourceTree M source x >>= fun b => pure (0, encodeValue C B b)) =
       LiveOut.observe M ports fields c.lowered.source x :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.named_tree M c x
 
 /-- The packed interpreter of the actual versioned named table agrees
 with native evaluation of the original written LetCase term. -/
-theorem Compiled.packed_tree (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot)
+theorem CompiledList.packed_tree (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots)
     (x : Record.Input context) (ambient : Env (Sigma C)) :
     region M.raw (extend ambient (encodeValue C A x)) c.admission.program.code =
       (sourceTree M source x >>= fun b => pure (0, encodeValue C B b)) :=
   (c.admission.packed_tree M x ambient).trans (c.named_tree M x).symm
 
 /-- The same reversion equation in the existing typed packed denotations. -/
-theorem Compiled.packed_eq (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+theorem CompiledList.packed_eq (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots) :
     (Program.ofCFGEntry (g.toTable.toFlat_hasType (D := exitTypes))).denote M = c.admission.program.denote M :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.packed_eq M c
+
+variable {slot : Option (Fin n)}
+
+theorem Compiled.named_tree (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) (x : Record.Input context) :
+    (sourceTree M source x >>= fun b => pure (0, encodeValue C B b)) =
+      LiveOut.observe M ports fields c.lowered.source x :=
+  CompiledList.named_tree M c x
+
+theorem Compiled.packed_tree (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot)
+    (x : Record.Input context) (ambient : Env (Sigma C)) :
+    region M.raw (extend ambient (encodeValue C A x)) c.admission.program.code =
+      (sourceTree M source x >>= fun b => pure (0, encodeValue C B b)) :=
+  CompiledList.packed_tree M c x ambient
+
+theorem Compiled.packed_eq (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+    (Program.ofCFGEntry (g.toTable.toFlat_hasType (D := exitTypes))).denote M = c.admission.program.denote M :=
+  CompiledList.packed_eq M c
 
 section Equation
 
@@ -65,13 +87,17 @@ open Isotope.Institution.LetCase.WeakITree (algebra equationRoom)
 
 variable {P : FlatInstitution.Signature.{u, u+1} κ}
   {source : Operand P.Instr context (Region.packedExitType
-    (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source} {slot : Option (Fin n)}
+    (List.ofFn (LiveOut.exitInterface (numberedInterface context exits external) fields).external))} {g : ResultGrammar source} {slots : List (Fin n)}
 
 /-- Validate the exact equation from the written term to the re-expanded
 actual admission, in every compatible weak-tree model. -/
-theorem Compiled.satisfies (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+theorem CompiledList.satisfies (M : Model (κ := κ) Events P.Instr) (c : CompiledList g slots) :
     (equationRoom P).Sat (algebra (P := P) M) c.equation :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.satisfies M c
+
+theorem Compiled.satisfies (M : Model (κ := κ) Events P.Instr) (c : Compiled g slot) :
+    (equationRoom P).Sat (algebra (P := P) M) c.equation :=
+  CompiledList.satisfies M c
 
 end Equation
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed

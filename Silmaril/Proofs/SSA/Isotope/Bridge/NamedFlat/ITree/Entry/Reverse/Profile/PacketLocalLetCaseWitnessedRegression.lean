@@ -94,8 +94,10 @@ private def grammar : ResultGrammar (L := List.ofFn D) written :=
 
 private def labels (i : Fin (grammar.toTable.size + 1)) : Label := ⟨7 + i.val⟩
 
+private theorem compiled_ok : (compile? (fields := fields) grammar labels).isSome = true := by decide +kernel
+
 private def compiled : Compiled (fields := fields) grammar :=
-  (compile? (fields := fields) grammar labels).get (by decide)
+  (compile? (fields := fields) grammar labels).get compiled_ok
 
 example : grammar.toTable.size + 1 = 3 := rfl
 
@@ -219,5 +221,75 @@ example (x : Atom) (ambient : Env Runtime) :
 
 example : (equationRoom sig).Sat (algebra (P := sig) model) unitCompiled.equation :=
   unitCompiled.satisfies model
+
+-- Carry two differently typed older inputs through a unit row and then
+-- a number row. The selected registers and second outward position are fixed.
+private abbrev mixedContext : BoundCtx (Ty SortName) 2 := .snoc context choice
+private def mixedFields (_ : Label) : List (Register × Ty SortName) := [(⟨6⟩, num), (⟨4⟩, choice)]
+private abbrev mixedPorts := numberedInterface mixedContext exits external
+private abbrev mixedExits := (LiveOut.exitInterface mixedPorts mixedFields).external
+private abbrev MixedOutput := Region.packedExitType (List.ofFn mixedExits)
+
+private def mixedWritten : Operand sig.Instr mixedContext MixedOutput :=
+  ⟨.let₁ .unit (.let₁ (.bv 2)
+      (.let₁ (.pair .unit (.pair (.bv 3) (.pair (.bv 2) .unit))) (.inr (.inl (.bv 0))))),
+    .let₁ .unit (.let₁ .bv (.let₁ (.pair .unit (.pair .bv (.pair .bv .unit))) (.inr (.inl .bv))))⟩
+
+private def mixedGrammar : ResultGrammar (L := List.ofFn mixedExits) mixedWritten :=
+  ⟨⟨.unit, ⟨.unit, .unit⟩,
+    .jump (B := num) ⟨.bv 2, .bv⟩ (.local
+      (.jump ⟨.pair .unit (.pair (.bv 2) (.pair (.bv 1) .unit)), .pair .unit (.pair .bv (.pair .bv .unit))⟩
+        (.exit (i := 1) rfl)))⟩, rfl⟩
+
+private def mixedLabels (i : Fin (mixedGrammar.toTable.size + 1)) : Label := ⟨7 + i.val⟩
+private def mixedSlots : List (Fin 2) := [1, 0]
+private def mixedRegisters : Registers Register := freshRegisters 2
+
+private theorem mixedCompiled_ok :
+    (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).isSome = true := by
+  decide +kernel
+
+private def mixedCompiled : CompiledList (fields := mixedFields) mixedGrammar mixedSlots :=
+  (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).get mixedCompiled_ok
+
+example : packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 0 = .product (.product .unit num) choice ∧
+    packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 1 = .product (.product num num) choice := by decide
+
+example : (flatList (fields := mixedFields) mixedGrammar mixedSlots).entry =
+    .br 0 (.pair (.pair .unit (.bv 1)) (.bv 0)) := by decide
+
+example : (flatList (fields := mixedFields) mixedGrammar mixedSlots).block 0 =
+    .let₂ (.bv 0) (.let₂ (.bv 1) (.br 1 (.pair (.pair (.bv 0) (.bv 0)) (.bv 2)))) := by decide
+
+example : (compileCarryList? (fields := mixedFields) mixedGrammar [1] mixedRegisters mixedLabels).isNone = true := by decide
+
+example : (compileCarryList? (fields := mixedFields) mixedGrammar [0, 1] mixedRegisters mixedLabels).isNone = true := by decide
+
+private def mixedPacket (x : Atom) (b : Atom ⊕ Atom) : Value Runtime :=
+  .pair .unit (.pair (.atom ⟨⟨()⟩, x⟩) (.pair (encodeValue C choice b) .unit))
+
+private theorem mixed_result (x : Atom) (b : Atom ⊕ Atom) :
+    (sourceTree (fields := mixedFields) model mixedWritten ((PUnit.unit, x), b) >>=
+      fun y => pure (0, encodeValue C MixedOutput y)) = pure (0, .inr (.inl (mixedPacket x b))) := by
+  simp only [sourceTree, mixedWritten, LetCase.LocallyNameless.Derivation.denote, pure_bind]
+  repeat' (first | rfl | erw [pure_bind])
+
+example (x : Atom) (b : Atom ⊕ Atom) :
+    LiveOut.observe model mixedPorts mixedFields mixedCompiled.lowered.source ((PUnit.unit, x), b) =
+      pure (0, .inr (.inl (mixedPacket x b))) :=
+  (mixedCompiled.named_tree model ((PUnit.unit, x), b)).symm.trans (mixed_result x b)
+
+example (x : Atom) (b : Atom ⊕ Atom) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C (Region.packedInputType mixedContext.toList)
+      ((PUnit.unit, x), b))) mixedCompiled.admission.program.code =
+        pure (0, .inr (.inl (mixedPacket x b))) :=
+  (mixedCompiled.packed_tree model ((PUnit.unit, x), b) ambient).trans (mixed_result x b)
+
+example : (Program.ofCFGEntry mixedGrammar.toTable.toFlat_hasType).denote model =
+    mixedCompiled.admission.program.denote model :=
+  mixedCompiled.packed_eq model
+
+example : (equationRoom sig).Sat (algebra (P := sig) model) mixedCompiled.equation :=
+  mixedCompiled.satisfies model
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.Tests

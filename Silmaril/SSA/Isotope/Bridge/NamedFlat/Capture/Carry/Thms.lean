@@ -10,8 +10,8 @@ public section
 namespace Silmaril.Isotope.Bridge.NamedFlat.Capture.Carry
 
 open LambdaSSA (FiniteCFG)
-open LambdaSSA.Semantics (Env)
-open LambdaSSA.Semantics.Interaction (Primitive region)
+open LambdaSSA.Semantics (Env extend)
+open LambdaSSA.Semantics.Interaction (Primitive region BlockInput splitTransfer)
 
 universe u v w x
 variable {F : Type v} {blocks exits n : Nat}
@@ -29,5 +29,30 @@ theorem graph_tree {Events : Type w → Type w} {α : Type x}
     (raw : Primitive Events F α) (g : FiniteCFG F blocks exits n) (slot : Fin n) (env : Env α) :
     region raw env (graph g slot).erase = region raw env g.erase :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graph_tree raw g slot env
+
+/-- Iterated product typing keeps the caller context and ordered exits. -/
+theorem graphList_hasType {τ : Type u} [TypeFormers τ] [HasTy F τ]
+    {β : BoundCtx τ n} {R : Fin blocks → τ} {D : Fin exits → τ}
+    {g : FiniteCFG F blocks exits n} (typed : g.HasType β R D) (slots : List (Fin n)) :
+    (graphList g slots).HasType β (packetTypesList R β slots) D :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graphList_hasType typed slots
+
+/-- The actual row decoders project the supplied fields out of the ordered
+packet. The row preserves outward transfers and re-encodes internal ones. -/
+theorem graphList_row_tree {Events : Type w → Type w} {α : Type x}
+    (raw : Primitive Events F α) (g : FiniteCFG F blocks exits n)
+    (slots : List (Fin n)) (env : Env α) (p : BlockInput α blocks) :
+    (region raw (extend env (packValue env slots p.2)) ((graphList g slots).block p.1).erase >>=
+      fun out => pure (splitTransfer blocks out)) =
+    ((region raw (extend env p.2) (g.block p.1).erase >>= fun out => pure (splitTransfer blocks out)) >>=
+      fun out => pure (out.map id (fun q => (q.1, packValue env slots q.2)))) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graphList_row_tree raw g slots env p
+
+/-- Composing the single-packet simulations preserves the existing weak
+ITree for the actual table at every caller environment. -/
+theorem graphList_tree {Events : Type w → Type w} {α : Type x}
+    (raw : Primitive Events F α) (g : FiniteCFG F blocks exits n) (slots : List (Fin n)) (env : Env α) :
+    region raw env (graphList g slots).erase = region raw env g.erase :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graphList_tree raw g slots env
 
 end Silmaril.Isotope.Bridge.NamedFlat.Capture.Carry

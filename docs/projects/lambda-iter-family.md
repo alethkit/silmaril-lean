@@ -1071,17 +1071,23 @@ positional row reads slot one, while the attached live-out register
 reads slot zero, the incoming packet. Literal readback rejects that
 allocation even when the two values happen to agree.
 
-`PacketLocal.Witnessed.compileCarry?` accepts a caller-selected slot and
-an explicit register plan. It pairs every internal argument with that
-unchanged caller field and inserts a typed product decoder in each row.
-`Capture.Carry.graph_tree` uses weak ITree iterator uniformity to show
-that the changed internal packets preserve execution and all outward
-tags and payloads. The existing exact readback still checks name reuse,
-packet closure and ordered live-out reattachment. The existing opt-in
-reversion checks typing and entry-reachable rank. A successful run
-keeps the caller record, external interface and live-out register
-selection. This form carries one slot and still requires operands,
-remaining row reads and the allocation to pass the named checks.
+`PacketLocal.Witnessed.compileCarryList?` accepts an ordered list of
+caller slots and an explicit register plan. The types come from the
+original caller context. For selected values `a, b` and a destination
+argument `p`, the internal packet is `((p, a), b)`. Each row projects
+the added fields from the outside in with ordinary product decoders.
+`Capture.Carry.graphList_hasType` tracks the resulting heterogeneous
+internal families. `graphList_row_tree` compares the actual rows on
+these packets, re-encoding internal transfers and preserving outward
+transfers. `graphList_tree` preserves the whole weak ITree at the same
+caller environment. The original single-slot entry point is the
+singleton specialization.
+
+Literal readback checks the register plan, packet closure, and ordered
+live-out reattachment. The actual opt-in reversion still checks typing
+and entry-reachable rank. The caller supplies all selected slots and the
+register plan. Used register collisions, unsupported operands, and
+remaining ambient reads can cause the checks to reject.
 
 On success, the original written LetCase tree agrees at every caller
 record with the actual named run and its packed LambdaSSA reversion.
@@ -1094,7 +1100,11 @@ checks the returned live-out while the original payload is unit.
 The carried-slot regression admits the formerly rejected row and
 a second row whose original incoming argument is unit. Both keep
 live-out register 1. In the second row the actual named and packed
-runs return the supplied number at the first ordered exit.
+runs return the supplied number at the first ordered exit. The two-slot
+regression carries a number and a sum through rows with unit and number
+arguments. Both runners return the same selected fields at the second
+ordered exit. Omitting the sum or reversing the list with the same
+register plan fails admission.
 
 [Captured table adapter](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Reverse/Flat/Tree/Thms.lean)
 · [Named and institutional round trip](../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/Reverse/Profile/PacketLocal/LetCase/Witnessed/Thms.lean)

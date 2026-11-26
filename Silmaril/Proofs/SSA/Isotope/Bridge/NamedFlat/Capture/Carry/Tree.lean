@@ -77,6 +77,18 @@ private theorem split_carried (v : Value α) (p : Transfer α) :
       (splitTransfer blocks p).map id (fun q => (q.1, .pair q.2 v)) := by
   by_cases inside : p.1 < blocks <;> simp [splitTransfer, carried, inside]
 
+private theorem row_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
+    (slot : Fin m) (env : Env α) (p : BlockInput α blocks) :
+    (region raw (extend env (.pair p.2 (env slot.val))) ((graph g slot).block p.1).erase >>=
+      fun out => pure (splitTransfer blocks out)) =
+    ((region raw (extend env p.2) (g.block p.1).erase >>= fun out => pure (splitTransfer blocks out)) >>=
+      fun out => pure (out.map id (fun q => (q.1, .pair q.2 (env slot.val))))) := by
+  simp only [graph, Flat.erase, region, erase, term, pure_bind]
+  change (region raw (extend (extend (extend env (.pair p.2 (env slot.val))) p.2)
+    (env slot.val)) (body (g.block p.1) (decodedIndex slot) 0).erase >>= _) = _
+  rw [body_tree raw _ _ _ (decoded_agree env slot p.2), bind_assoc, bind_assoc]
+  simp only [pure_bind, Fin.val_zero, extend_zero, split_carried]
+
 theorem graph_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
     (slot : Fin m) (env : Env α) :
     region raw env (graph g slot).erase = region raw env g.erase := by
@@ -87,12 +99,8 @@ theorem graph_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m
       pure (splitTransfer blocks out)
   let inject : BlockInput α blocks → BlockInput α blocks := fun p => (p.1, .pair p.2 (env slot.val))
   have row (p : BlockInput α blocks) :
-      newStep (inject p) = (oldStep p >>= fun out => pure (out.map id inject)) := by
-    simp only [oldStep, newStep, inject, graph, Flat.erase, region, erase, term, pure_bind]
-    change (region raw (extend (extend (extend env (.pair p.2 (env slot.val))) p.2)
-      (env slot.val)) (body (g.block p.1) (decodedIndex slot) 0).erase >>= _) = _
-    rw [body_tree raw _ _ _ (decoded_agree env slot p.2), bind_assoc, bind_assoc]
-    simp only [pure_bind, Fin.val_zero, extend_zero, split_carried]
+      newStep (inject p) = (oldStep p >>= fun out => pure (out.map id inject)) :=
+    row_tree raw g slot env p
   have uniform := iterate_uniformity oldStep newStep inject (by
     funext p
     change (oldStep p >>= fun out => pure (out.map id inject)) = (pure (inject p) >>= newStep)
@@ -112,5 +120,34 @@ theorem graph_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m
     change Silmaril.Elgot.iter oldStep q = (pure (inject q) >>= Silmaril.Elgot.iter newStep) at loop
     rw [pure_bind] at loop
     exact loop.symm
+
+theorem graphList_row_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
+    (slots : List (Fin m)) (env : Env α) (p : BlockInput α blocks) :
+    (region raw (extend env (packValue env slots p.2)) ((graphList g slots).block p.1).erase >>=
+      fun out => pure (splitTransfer blocks out)) =
+    ((region raw (extend env p.2) (g.block p.1).erase >>= fun out => pure (splitTransfer blocks out)) >>=
+      fun out => pure (out.map id (fun q => (q.1, packValue env slots q.2)))) := by
+  induction slots generalizing g p with
+  | nil =>
+    simp only [graphList, packValue, List.foldl_nil, bind_assoc, pure_bind]
+    congr 1
+    funext out
+    cases splitTransfer blocks out <;> rfl
+  | cons slot rest ih =>
+    simp only [graphList, packValue, List.foldl_cons]
+    have tail := ih (graph g slot) (p.1, .pair p.2 (env slot.val))
+    rw [graphList, packValue] at tail
+    rw [tail, row_tree raw g slot env p]
+    simp only [bind_assoc, pure_bind]
+    congr 1
+    funext out
+    cases splitTransfer blocks out <;> rfl
+
+theorem graphList_tree (raw : Primitive Events F α) (g : FiniteCFG F blocks exits m)
+    (slots : List (Fin m)) (env : Env α) :
+    region raw env (graphList g slots).erase = region raw env g.erase := by
+  induction slots generalizing g with
+  | nil => rfl
+  | cons slot rest ih => exact (ih (graph g slot)).trans (graph_tree raw g slot env)
 
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry

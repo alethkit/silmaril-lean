@@ -58,4 +58,10 @@ theorem graph_hasType {g : FiniteCFG F blocks exits m} (typed : g.HasType β R D
   ⟨body_hasType typed.entry (.id β) slot rfl, fun i =>
     .let₂ .bv (body_hasType (typed.block i) (decodedRenaming β slot (R i)) 0 rfl)⟩
 
+theorem graphList_hasType {g : FiniteCFG F blocks exits m} (typed : g.HasType β R D)
+    (slots : List (Fin m)) : (graphList g slots).HasType β (packetTypesList R β slots) D := by
+  induction slots generalizing g R with
+  | nil => exact typed
+  | cons slot rest ih => exact ih (graph_hasType typed slot)
+
 end Silmaril.Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry
