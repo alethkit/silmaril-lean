@@ -122,7 +122,7 @@ private theorem profile (mode : Mode) (seed : Program) :
     (.assign (name := "copy") (by decide) (.read (by decide) (.owned child.target) (.owned child.target))
       (.copy child.target rfl)
       (.assign (name := "marker") (by decide) (.list (.int 17)) .forget
-        (.invoke (invocation mode) ⟨seed.size, childFormals, some "rest", child⟩ rfl
+        (.invoke (invocation mode) ⟨seed.size, childFormals, some "rest", none, child⟩ rfl
           (.plain (.straight ending)))))
   have name : child.name = "child" := rfl
   simpa [source, setup, resolvedBody, readLocal, boxed, scalar, fileSlot, Body.prependSource, Body.prependCode, name]

@@ -972,8 +972,8 @@ caller on failure.
 
 Callable provenance from parameters, captures, module names, heap
 reads or returned values, calls through untracked values, other
-expression positions, spreads, keyword collection, general dispatch,
-loads, text parsing and module publication remain outside the profile.
+expression positions, spreads, general dispatch, loads, text parsing
+and module publication remain outside the profile.
 [Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ### Explicit named arguments at tracked local calls
@@ -989,14 +989,14 @@ cells. Its body runs under the existing declaration guard.
 
 For a signature without a positional collector, the independent
 binder checks positional overflow before delivering keyword values
-to formal slots in source order. An unknown
-name or a parameter already filled by another operand ends delivery.
-Saved defaults fill the remaining slots and the binder then reports
-missing required parameters in declaration order. Agreement with
-`bindArguments` is exact for the admitted signatures without
-keyword collection. Binding failure
-allocates no activation. A reached operand failure takes precedence
-over any binding failure and preserves earlier allocations.
+to formal slots in source order. A parameter already filled by another
+operand ends delivery. An unknown name also ends delivery when the
+signature has no keyword collector. Saved defaults fill the remaining
+slots and the binder then reports missing required parameters in
+declaration order. Agreement with `bindArguments` is exact for the
+admitted signatures. Binding failure allocates no activation. A
+reached operand failure takes precedence over any binding failure
+and preserves earlier allocations.
 
 Repeated names in the explicit syntax fail validation even when an
 operand would fail at runtime. Supplying an ordinary parameter
@@ -1077,9 +1077,49 @@ cover omitted binding, a reached operand failure and a reached body
 failure. Lean checks ordered retained allocations, the empty tuple key,
 the exact packed contents and restored caller state. The requirements
 and Go differences for bare `*` and nullary calls remain as documented
-above. Keyword collection, call-site spreads, general dispatch and
-module publication remain outside this proof.
+above. Keyword collection composes with this profile as described below.
 [Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/VarargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal keyword collection in checked local suites
+
+A checked nested definition can declare terminal `**kwargs` with or
+without named `*args`. The independent header emits the keyword
+collector at the final parameter slot, after all ordinary slots and any
+positional collector. Definition-time defaults keep their existing order
+and scope.
+
+The independent binder first delivers explicit names to matching
+ordinary positional or keyword-only formals and rejects a second value
+for an already supplied formal. It records unmatched names and values
+in encounter order, fills omitted ordinary formals with saved defaults,
+and checks required formals before packing. The exact surplus theorem
+identifies the unmatched subsequence of the explicit operands, including
+the original references. On success the keyword collector receives a
+fresh unfrozen dictionary, including when that subsequence is empty.
+When both collectors exist, the tuple is allocated first and the
+dictionary occupies the next address.
+
+The guarded suite theorem agrees exactly with resolved execution and
+denotation. Operand and binding errors leave the reached state before
+packing. A reached body error retains both packs and earlier body
+effects, restores the caller, and skips the destination and suite tail.
+The Lean controls check those states and the resolved collector slot.
+Pinned Go checks ordered dictionary items, aliased values, distinct
+empty dictionaries, saved defaults and an explicit override with
+`*args`, and errors before the continuation. Repeated explicit names
+are rejected statically, including when they would be unmatched. A
+positional and named actual for the same ordinary parameter conflict
+at runtime, before a missing-formal error.
+
+Pinned Go creates its private collector objects during binding, with
+the dictionary first when both are present. The Lean heap commits the
+tuple and dictionary only after successful binding. The differential
+checks compare visible results and errors. Allocation order and the
+absence of packs in the residual Lean heap are properties of the Lean
+model. The earlier bare-star and nullary diagnostic differences still
+apply. Call-site spreads, arbitrary dispatch and module publication
+remain outside this checked suite theorem.
+[Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/KwargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Pinned Go binder](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1418-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
 
 ## Finite-manifest loader
 

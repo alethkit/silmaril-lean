@@ -20,31 +20,31 @@ local notation "Positional" =>
   Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Arguments
 local notation "NamedArgs" => Arguments
 
-theorem binds_total (positional named : List Parameter) (varargs : Option Binding) (saved : Bindings)
-    (actual : Actual) : ∃ result, Binds positional named varargs saved actual result :=
+theorem binds_total (positional named : List Parameter) (varargs kwargs : Option Binding)
+    (saved : Bindings) (actual : Actual) : ∃ result, Binds positional named varargs kwargs saved actual result :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binds_total
-    positional named varargs saved actual
+    positional named varargs kwargs saved actual
 
-/-- Independent binding agrees with the native binder when there is no keyword collector. -/
-theorem binding_exact (signature : Signature) (noKwargs : signature.kwargs = none)
+/-- Independent binding agrees with the native binder including both collectors. -/
+theorem binding_exact (signature : Signature)
     {saved : Bindings} {actual : Actual} {result : Except Error BoundArguments}
-    (source : Binds signature.positional signature.named signature.varargs saved actual result) :
+    (source : Binds signature.positional signature.named signature.varargs signature.kwargs saved actual result) :
     bindArguments signature saved actual = result :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binding_exact
-    signature noKwargs source
+    signature source
 
-/-- Successful binding can pack the surplus tuple while retaining the reached caller and cells. -/
-theorem packs_total (signature : Signature) (noKwargs : signature.kwargs = none)
+/-- Successful binding packs the declared collectors while retaining the reached caller and cells. -/
+theorem packs_total (signature : Signature)
     (caller : State) (bound : BoundArguments) :
-    ∃ assigned packed, Packs signature.varargs caller bound assigned packed ∧
+    ∃ assigned packed, Packs signature.varargs signature.kwargs caller bound assigned packed ∧
       Body.Keeps caller.heap.size caller packed ∧ packed.bindings = caller.bindings ∧
       packArgs signature bound caller = .ok assigned packed :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packs_total
-    signature noKwargs caller bound
+    signature caller bound
 
 /-- The collector gets the exact ordered surplus at a fresh tuple address. -/
 theorem packed_tuple {slot : Binding} {caller packed : State} {bound : BoundArguments} {assigned : Bindings}
-    (packing : Packs (some slot) caller bound assigned packed) :
+    (packing : Packs (some slot) none caller bound assigned packed) :
     assigned = (slot, .tuple caller.heap.size) :: bound.named ∧
       Lists.tupleElements caller.heap.size packed = .ok bound.surplusPositional packed :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_tuple
@@ -52,10 +52,37 @@ theorem packed_tuple {slot : Binding} {caller packed : State} {bound : BoundArgu
 
 /-- The empty collector tuple uses the ordinary canonical empty tuple key. -/
 theorem packed_empty_key {slot : Binding} {caller packed : State} {bound : BoundArguments} {assigned : Bindings}
-    (packing : Packs (some slot) caller bound assigned packed) (empty : bound.surplusPositional = []) :
+    (packing : Packs (some slot) none caller bound assigned packed) (empty : bound.surplusPositional = []) :
     packed.heap[caller.heap.size]? = some ⟨.tuple [] (some [.openTuple, .closeTuple]), false⟩ :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_empty_key
     packing empty
+
+/-- Collection preserves exactly the unmatched explicit names and their original values in encounter order. -/
+theorem binding_surplus {positional named : List Parameter} {varargs kwargs : Option Binding} {saved : Bindings}
+    {actual : Actual} {bound : BoundArguments}
+    (source : Binds positional named varargs kwargs saved actual (.ok bound)) :
+    bound.surplusKeywords =
+      actual.keywords.filter (fun (name, _) => (named.find? (fun formal => formal.slot.name == name)).isNone) :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.binding_surplus
+    source
+
+/-- The terminal collector receives a fresh unfrozen dictionary even for an empty surplus. -/
+theorem packed_dictionary {varargs : Option Binding} {slot : Binding} {caller packed : State}
+    {bound : BoundArguments} {assigned : Bindings} (packing : Packs varargs (some slot) caller bound assigned packed) :
+    assigned.head? = some (slot, .dict (caller.heap.size + varargs.isSome.toNat)) ∧
+      packed.heap[caller.heap.size + varargs.isSome.toNat]? =
+        some ⟨.dict (keywordEntries bound.surplusKeywords), false⟩ :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_dictionary
+    packing
+
+/-- When both slots are present, the tuple occupies the first fresh address and the dictionary the next. -/
+theorem packed_both {positional keyword : Binding} {caller packed : State} {bound : BoundArguments}
+    {assigned : Bindings} (packing : Packs (some positional) (some keyword) caller bound assigned packed) :
+    assigned = (keyword, .dict (caller.heap.size + 1)) :: (positional, .tuple caller.heap.size) :: bound.named ∧
+      Lists.tupleElements caller.heap.size packed = .ok bound.surplusPositional packed ∧
+      packed.heap[caller.heap.size + 1]? = some ⟨.dict (keywordEntries bound.surplusKeywords), false⟩ :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named.packed_both
+    packing
 
 theorem argument_origins {block : LexicalBlock}
     {source : List (String × Lowering.Resolve.SourceExpr)} {codes : List (String × Lowering.Expr)} {reads : List Binding}
@@ -89,8 +116,8 @@ theorem rejects_duplicate (name : String) (positional : List Lowering.Expr)
     name positional keywords duplicate repeated
 
 /-- The reached closure uses its saved defaults and live captures under the same declaration guard. -/
-theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent formals varargs)
+theorem runs {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent formals varargs kwargs)
     (bodyRuns : State → Outcome Flow → Prop)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (id : DeclarationId)

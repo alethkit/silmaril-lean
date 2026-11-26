@@ -37,7 +37,8 @@ private theorem positioned {codes : List Lowering.Expr} {values : List Value} (s
   simpa only [List.append_nil] using Lowering.Expands.success (args := ⟨values, [], none, none⟩) (keys := [])
     (values := []) (next := state) rfl .empty
 
-private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String} {site : Site parent formals varargs} {id : DeclarationId}
+private def keep_record {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
+    {site : Site parent formals varargs kwargs} {id : DeclarationId}
     {defining state next : State} {address : Nat} (record : ClosureAt site id defining state address)
     (kept : Body.Keeps state.heap.size state next) : ClosureAt site id defining next address :=
   { record with
@@ -74,8 +75,8 @@ theorem callee_error {parent block : LexicalBlock} (site : Site parent) (id : De
       Lowering.EvaluatesManyWith.headError (tail := codes) (Body.evaluates_with program available _ read)
   exact ⟨.calleeError read, agreement native⟩
 
-theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent formals varargs)
+theorem runs_packed {parent block : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent formals varargs kwargs)
     (bodyRuns : State → Outcome Flow → Prop)
     (program : Program) (id : DeclarationId) (available : List DeclarationId) (permitted : id ∈ available)
     (enterBody : BodyEntry site program available id bodyRuns)

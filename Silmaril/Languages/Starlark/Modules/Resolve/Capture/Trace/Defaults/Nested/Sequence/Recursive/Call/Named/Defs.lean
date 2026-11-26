@@ -16,25 +16,41 @@ local notation "Value" => Lists.Value
 
 abbrev Bindings := List (Binding × Value)
 
-/-- Keywords are delivered to formal slots in source order. The initial
-assignments are the positional prefix and saved defaults are still absent. -/
-inductive BindsNames (parameters : List Parameter) :
-    Bindings → List (String × Value) → Except Lists.Error Bindings → Prop where
-  | done (bound : Bindings) : BindsNames parameters bound [] (.ok bound)
-  | unknown {bound : Bindings} {name : String} {value : Value} {rest : List (String × Value)} :
+abbrev Keywords := List (String × Value)
+
+/-- Each explicit keyword is delivered to a named formal if one exists.
+Unmatched values go to the keyword collector in encounter order. -/
+inductive BindsNames (parameters : List Parameter) (kwargs : Option Binding) :
+    Bindings × Keywords → Keywords → Except Lists.Error (Bindings × Keywords) → Prop where
+  | done (bound : Bindings × Keywords) : BindsNames parameters kwargs bound [] (.ok bound)
+  | unknown {bound : Bindings × Keywords} {name : String} {value : Value} {rest : Keywords} :
+      kwargs = none →
       parameters.find? (fun formal => formal.slot.name == name) = none →
-      BindsNames parameters bound ((name, value) :: rest) (.error (.unexpectedKeyword name))
-  | conflict {bound : Bindings} {name : String} {value previous : Value} {formal : Parameter}
-      {rest : List (String × Value)} :
+      BindsNames parameters kwargs bound ((name, value) :: rest) (.error (.unexpectedKeyword name))
+  | conflict {bound : Bindings × Keywords} {name : String} {value previous : Value} {formal : Parameter}
+      {rest : Keywords} :
       parameters.find? (fun item => item.slot.name == name) = some formal →
-      List.lookup formal.slot bound = some previous →
-      BindsNames parameters bound ((name, value) :: rest) (.error (.multipleArgumentValues name))
-  | deliver {bound : Bindings} {name : String} {value : Value} {formal : Parameter}
-      {rest : List (String × Value)} {result : Except Lists.Error Bindings} :
+      List.lookup formal.slot bound.1 = some previous →
+      BindsNames parameters kwargs bound ((name, value) :: rest) (.error (.multipleArgumentValues name))
+  | deliver {bound : Bindings × Keywords} {name : String} {value : Value} {formal : Parameter}
+      {rest : Keywords} {result : Except Lists.Error (Bindings × Keywords)} :
       parameters.find? (fun item => item.slot.name == name) = some formal →
-      List.lookup formal.slot bound = none →
-      BindsNames parameters ((formal.slot, value) :: bound) rest result →
-      BindsNames parameters bound ((name, value) :: rest) result
+      List.lookup formal.slot bound.1 = none →
+      BindsNames parameters kwargs ((formal.slot, value) :: bound.1, bound.2) rest result →
+      BindsNames parameters kwargs bound ((name, value) :: rest) result
+  | repeated {bound : Bindings × Keywords} {name : String} {value previous : Value} {slot : Binding}
+      {rest : Keywords} :
+      kwargs = some slot →
+      parameters.find? (fun item => item.slot.name == name) = none →
+      List.lookup name bound.2 = some previous →
+      BindsNames parameters kwargs bound ((name, value) :: rest) (.error (.multipleArgumentValues name))
+  | collect {bound : Bindings × Keywords} {name : String} {value : Value} {slot : Binding}
+      {rest : Keywords} {result : Except Lists.Error (Bindings × Keywords)} :
+      kwargs = some slot →
+      parameters.find? (fun item => item.slot.name == name) = none →
+      List.lookup name bound.2 = none →
+      BindsNames parameters kwargs (bound.1, bound.2 ++ [(name, value)]) rest result →
+      BindsNames parameters kwargs bound ((name, value) :: rest) result
 
 @[expose] def withDefaults (parameters : List Parameter) (bound saved : Bindings) :
     List (Binding × Option Value) :=
@@ -45,33 +61,51 @@ inductive BindsNames (parameters : List Parameter) :
 @[expose] def Fits (varargs : Option Binding) (parameters : List Parameter) (actual : Actual) : Prop :=
   varargs = none → actual.positional.length ≤ parameters.length
 
-/-- Named delivery can use both classes of ordinary formal. Surplus
-positionals are recorded in source order for packing after successful binding. -/
-inductive Binds (positional named : List Parameter) (varargs : Option Binding) (saved : Bindings) (actual : Actual) :
-    Except Lists.Error BoundArguments → Prop where
+/-- Both surpluses are recorded during binding. Missing required
+parameters reject before either collector can allocate. -/
+inductive Binds (positional named : List Parameter) (varargs kwargs : Option Binding) (saved : Bindings)
+    (actual : Actual) : Except Lists.Error BoundArguments → Prop where
   | surplus : varargs = none → positional.length < actual.positional.length →
-      Binds positional named varargs saved actual (.error (.arity positional.length actual.positional.length))
+      Binds positional named varargs kwargs saved actual (.error (.arity positional.length actual.positional.length))
   | rejected {error : Lists.Error} : Fits varargs positional actual →
-      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.error error) →
-      Binds positional named varargs saved actual (.error error)
-  | missing {bound : Bindings} : Fits varargs positional actual →
-      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
+      BindsNames named kwargs ((positional.map Parameter.slot).zip actual.positional, [])
+        actual.keywords (.error error) →
+      Binds positional named varargs kwargs saved actual (.error error)
+  | missing {bound : Bindings} {extras : Keywords} : Fits varargs positional actual →
+      BindsNames named kwargs ((positional.map Parameter.slot).zip actual.positional, [])
+        actual.keywords (.ok (bound, extras)) →
       missingNames (withDefaults named bound saved) ≠ [] →
-      Binds positional named varargs saved actual
+      Binds positional named varargs kwargs saved actual
         (.error (.missingArguments (missingNames (withDefaults named bound saved))))
-  | assigned {bound : Bindings} : Fits varargs positional actual →
-      BindsNames named ((positional.map Parameter.slot).zip actual.positional) actual.keywords (.ok bound) →
+  | assigned {bound : Bindings} {extras : Keywords} : Fits varargs positional actual →
+      BindsNames named kwargs ((positional.map Parameter.slot).zip actual.positional, [])
+        actual.keywords (.ok (bound, extras)) →
       missingNames (withDefaults named bound saved) = [] →
-      Binds positional named varargs saved actual
-        (.ok ⟨savedValues (withDefaults named bound saved), actual.positional.drop positional.length, []⟩)
+      Binds positional named varargs kwargs saved actual
+        (.ok ⟨savedValues (withDefaults named bound saved),
+          actual.positional.drop positional.length, extras⟩)
 
-/-- Only successful binding reaches packing. The collector binds the
-tuple allocated from precisely the recorded surplus values. -/
-inductive Packs : Option Binding → State → BoundArguments → Bindings → State → Prop where
-  | ordinary (caller : State) (bound : BoundArguments) : Packs none caller bound bound.named caller
+@[expose] def keywordEntries (keywords : Keywords) : List Lists.Entry :=
+  keywords.map fun (name, value) => ⟨.string name, [.string name], value⟩
+
+inductive PacksPositionals : Option Binding → State → BoundArguments → Bindings → State → Prop where
+  | ordinary (caller : State) (bound : BoundArguments) : PacksPositionals none caller bound bound.named caller
   | tuple {slot : Binding} {caller packed : State} {bound : BoundArguments} {tuple : Value} :
       Lists.allocateTuple bound.surplusPositional caller = .ok tuple packed →
-      Packs (some slot) caller bound ((slot, tuple) :: bound.named) packed
+      PacksPositionals (some slot) caller bound ((slot, tuple) :: bound.named) packed
+
+inductive PacksKeywords : Option Binding → State → Keywords → Bindings → Bindings → State → Prop where
+  | ordinary (caller : State) (extras : Keywords) (assigned : Bindings) :
+      PacksKeywords none caller extras assigned assigned caller
+  | dict {slot : Binding} {caller packed : State} {extras : Keywords} {assigned : Bindings} {dictionary : Value} :
+      Lists.allocateDict (keywordEntries extras) caller = .ok dictionary packed →
+      PacksKeywords (some slot) caller extras assigned ((slot, dictionary) :: assigned) packed
+
+/-- The positional pack precedes the keyword pack and both precede activation. -/
+abbrev Packs (varargs kwargs : Option Binding) (caller : State) (bound : BoundArguments)
+    (assigned : Bindings) (packed : State) : Prop :=
+  ∃ positional middle, PacksPositionals varargs caller bound positional middle ∧
+    PacksKeywords kwargs middle bound.surplusKeywords positional assigned packed
 
 /-- Names are preserved by lexical operand resolution. -/
 inductive Arguments (block : LexicalBlock) : List (String × Expr) →
@@ -99,16 +133,18 @@ syntactic positional count and paired with the original keyword names. -/
 @[expose] def collect (positional : Nat) (keywords : List String) (values : List Value) : Actual :=
   ⟨values.take positional, keywords.zip (values.drop positional)⟩
 
-abbrev SiteBinding {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent formals varargs) : Call.BindingRule BoundArguments :=
+abbrev SiteBinding {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent formals varargs kwargs) : Call.BindingRule BoundArguments :=
   fun defaults => Binds site.declaration.signature.positional site.declaration.signature.named
-    site.declaration.signature.varargs (site.defaultKeys.zip defaults)
+    site.declaration.signature.varargs site.declaration.signature.kwargs (site.defaultKeys.zip defaults)
 
-abbrev RunsWith {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String} (site : Site parent formals varargs) (bodyRuns : State → Lists.Outcome Flow → Prop)
+abbrev RunsWith {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent formals varargs kwargs) (bodyRuns : State → Lists.Outcome Flow → Prop)
     (block : LexicalBlock) (id : DeclarationId) (name : String)
     (arguments : List Expr) (codes : List Lowering.Expr) (keywords : List (String × Expr))
     (compiled : List (String × Lowering.Expr)) :=
   Call.RunsPacked site bodyRuns block id name (arguments ++ keywords.map Prod.snd) (codes ++ compiled.map Prod.snd)
-    (collect codes.length (compiled.map Prod.fst)) (SiteBinding site) (Packs site.declaration.signature.varargs)
+    (collect codes.length (compiled.map Prod.fst)) (SiteBinding site)
+    (Packs site.declaration.signature.varargs site.declaration.signature.kwargs)
 
 end Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Named
