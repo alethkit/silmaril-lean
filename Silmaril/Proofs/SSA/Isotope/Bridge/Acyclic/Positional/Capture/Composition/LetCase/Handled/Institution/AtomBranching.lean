@@ -138,26 +138,37 @@ theorem ret_eq_of_run_proof {L : List (Ty α)} {A B : Ty α} (e : ExitAt L A) (e
   obtain ⟨rfl, value, position⟩ := exit_value_index_proof e e' _ _ (Prod.mk.inj values).1
   exact ⟨rfl, arg_inj sep value, position⟩
 
-/-- The continuation of a request node on a tagged reply. -/
-private def arms {L : List (Ty α)} (f : Φ) {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
-    Value (instrTrg (τ := Ty α) f) → Trace α Φ (Value (packedExitType L))
-  | .inl x => run left.typing (ρ.snoc x)
-  | .inr y => run right.typing (ρ.snoc y)
-
 private theorem run_ask {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
-    {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
-    run (CaseTree.ask f argument left right).typing ρ =
-      (model (α := α)).eval f (argument.value ρ) >>= arms f left right ρ := by
+    {k : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (reply : CaseTree (.tags (replyTags f)) (β.snoc (tagsTy (replyTags f))) L k) (ρ : BoundEnv Value β) :
+    run (CaseTree.ask f argument reply).typing ρ =
+      (model (α := α)).eval f (argument.value ρ) >>= fun v => run reply.typing (ρ.snoc v) := by
   have h := run_arg (Φ := Φ) argument ρ
   unfold run at h
   simp only [run, CaseTree.typing, Derivation.denote, h, pure_bind]
-  congr 1
-  funext x
-  cases x <;> rfl
+
+private theorem run_split {L : List (Ty α)} (atoms next : List α) (rest : List (List α))
+    {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (left : CaseTree (.tuple atoms) ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tupleTy atoms)) L l)
+    (right : CaseTree (.tags (next :: rest))
+      ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tagsTy (next :: rest))) L r)
+    (ρ : BoundEnv Value β) (w : Value (tagsTy (atoms :: next :: rest))) :
+    run (CaseTree.split atoms next rest left right).typing (ρ.snoc w) =
+      Sum.elim (fun x => run left.typing ((ρ.snoc w).snoc x)) (fun y => run right.typing ((ρ.snoc w).snoc y)) w := by
+  simp only [run, CaseTree.typing, Derivation.denote]
+  erw [pure_bind]
+  cases w <;> rfl
+
+private theorem run_pair {L : List (Ty α)} (a b : α) (rest : List α)
+    {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1)}
+    (later : CaseTree (.tuple (b :: rest))
+      (((β.snoc (tupleTy (a :: b :: rest))).snoc (.base a)).snoc (tupleTy (b :: rest))) L t)
+    (ρ : BoundEnv Value β) (w : Value (tupleTy (a :: b :: rest))) :
+    run (CaseTree.pair a b rest later).typing (ρ.snoc w) =
+      run later.typing (((ρ.snoc w).snoc (A := Ty.base a) w.1).snoc w.2) := by
+  simp only [run, CaseTree.typing, Derivation.denote]
+  erw [pure_bind]
+  rfl
 
 private theorem mem_ask {A : Type} {f : Φ} {x : Value (instrSrc (τ := Ty α) f)}
     {k : Value (instrTrg (τ := Ty α) f) → Trace α Φ A} {z : A} {w : Log α Φ} :
@@ -221,31 +232,64 @@ theorem separable_atoms_proof {β : BoundCtx (Ty α) n} (atoms : AtomContext β)
     obtain ⟨ρ, k, sep⟩ := ih
     exact ⟨ρ.snoc (A := Ty.base a) (k : Nat), k + 1, separates_fresh sep a⟩
 
-private theorem tree_nonempty {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree β L t) :
-    ∀ ρ : BoundEnv Value β, (run tree.typing ρ).outcomes.Nonempty := by
+omit [TaggedSignature α Φ] in
+/-- A separating environment stays separating under a new slot that is
+not an atom. -/
+private theorem separates_other {ρ : BoundEnv Value β} {used : Set Nat} (sep : Separates ρ used) {X : Ty α}
+    (other : ∀ a, X ≠ .base a) (x : Value X) : Separates (ρ.snoc x) used where
+  injective b := by
+    rintro ⟨i, hi⟩ ⟨j, hj⟩
+    revert hi hj
+    refine Fin.cases (fun hi => (other b hi).elim) (fun i hi => ?_) i
+    refine Fin.cases (fun hj => (other b hj).elim) (fun j hj eq => ?_) j
+    have same := sep.injective b (a₁ := ⟨i, hi⟩) (a₂ := ⟨j, hj⟩) eq
+    exact Subtype.ext (congrArg Fin.succ (congrArg Subtype.val same))
+  allocated b := by
+    rintro ⟨i, hi⟩
+    revert hi
+    refine Fin.cases (fun hi => (other b hi).elim) (fun j hj => ?_) i
+    exact sep.allocated b ⟨j, hj⟩
+
+private theorem tree_nonempty {pending : Pending α} {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n}
+    (tree : CaseTree pending β L t) : ∀ ρ : BoundEnv Value β, (run tree.typing ρ).outcomes.Nonempty := by
   induction tree with
-  | ret s =>
+  | ret exit payload =>
     intro ρ
     rw [run_ret]
     exact ⟨(_, 1), rfl⟩
-  | ask f argument left right ihl ihr =>
+  | ask f argument reply ih =>
     intro ρ
     rw [run_ask]
-    obtain ⟨⟨z, w⟩, h⟩ := ihl (ρ.snoc (A := Ty.base (TaggedSignature.left f)) (0 : Nat))
-    exact ⟨(z, _), mem_ask.mpr ⟨.inl (0 : Nat), w, h, rfl⟩⟩
+    obtain ⟨⟨z, w⟩, h⟩ := ih (ρ.snoc (firstReply (TaggedSignature.first f) (TaggedSignature.others f)))
+    exact ⟨(z, _), mem_ask.mpr ⟨firstReply (TaggedSignature.first f) (TaggedSignature.others f), w, h, rfl⟩⟩
+  | only atoms payload ih => exact ih
+  | split atoms next rest left right ihl ihr =>
+    intro ρ
+    have env : ρ = BoundEnv.snoc (fun i => ρ i.succ) (ρ 0) := by
+      funext i
+      refine Fin.cases rfl (fun j => rfl) i
+    rw [env, run_split]
+    cases ρ 0 with
+    | inl x => exact ihl _
+    | inr y => exact ihr _
+  | unit body ih => exact ih
+  | atom a body ih => exact ih
+  | pair a b rest later ih =>
+    intro ρ
+    have env : ρ = BoundEnv.snoc (fun i => ρ i.succ) (ρ 0) := by
+      funext i
+      refine Fin.cases rfl (fun j => rfl) i
+    rw [env, run_pair]
+    exact ih _
 
-private theorem arms_eq_iff {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
-    {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
-    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l')
-    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r') (ρ : BoundEnv Value β) :
-    ((model (α := α)).eval f (argument.value ρ) >>= arms f left right ρ) =
-        ((model (α := α)).eval f (argument.value ρ) >>= arms f left' right' ρ) ↔
-      (∀ x : Nat, run left.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x) =
-        run left'.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x)) ∧
-      (∀ y : Nat, run right.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y) =
-        run right'.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y)) := by
+/-- At a request with the same primitive and argument, the runs agree
+exactly when the continuations agree at every reply. -/
+theorem ask_run_eq_iff_proof {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
+    {k k' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (reply : CaseTree (.tags (replyTags f)) (β.snoc (tagsTy (replyTags f))) L k)
+    (reply' : CaseTree (.tags (replyTags f)) (β.snoc (tagsTy (replyTags f))) L k') (ρ : BoundEnv Value β) :
+    run (CaseTree.ask f argument reply).typing ρ = run (CaseTree.ask f argument reply').typing ρ ↔
+      ∀ w : Value (tagsTy (replyTags f)), run reply.typing (ρ.snoc w) = run reply'.typing (ρ.snoc w) := by
   have determined : PrefixDetermined ((model (α := α)).eval f (argument.value ρ)) := by
     have pd : PrefixDetermined (run (Derivation.op (f := f) (argTyping (Φ := Φ) argument)) ρ) :=
       run_prefix_determined _ ρ
@@ -255,40 +299,49 @@ private theorem arms_eq_iff {L : List (Ty α)} (f : Φ) (argument : Assembly β 
       unfold run at value
       simp only [run, Derivation.denote, value, pure_bind]
     rwa [evaluated] at pd
-  rw [bind_eq_iff_for_replies determined]
-  constructor
-  · intro agree
-    exact ⟨fun x => agree (.inl x) _ ⟨.inl x, rfl⟩, fun y => agree (.inr y) _ ⟨.inr y, rfl⟩⟩
-  · rintro ⟨hl, hr⟩ reply w -
-    cases reply with
-    | inl x => exact hl x
-    | inr y => exact hr y
+  rw [run_ask, run_ask, bind_eq_iff_for_replies determined]
+  exact ⟨fun agree w => agree w _ ⟨w, rfl⟩, fun agree w _ _ => agree w⟩
 
-/-- At a request node with the same primitive and argument, the runs agree
-exactly when the arms agree at every payload token. -/
-theorem ask_run_eq_iff_proof {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
-    {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
-    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l')
-    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r') (ρ : BoundEnv Value β) :
-    run (CaseTree.ask f argument left right).typing ρ = run (CaseTree.ask f argument left' right').typing ρ ↔
-      (∀ x : Nat, run left.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x) =
-        run left'.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x)) ∧
-      (∀ y : Nat, run right.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y) =
-        run right'.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y)) := by
-  rw [run_ask, run_ask]
-  exact arms_eq_iff f argument left right left' right' ρ
+/-- A case split on a pending reply runs the arm of the tag of the reply. -/
+theorem run_split_proof {L : List (Ty α)} (atoms next : List α) (rest : List (List α))
+    {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (left : CaseTree (.tuple atoms) ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tupleTy atoms)) L l)
+    (right : CaseTree (.tags (next :: rest))
+      ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tagsTy (next :: rest))) L r)
+    (ρ : BoundEnv Value β) (w : Value (tagsTy (atoms :: next :: rest))) :
+    run (CaseTree.split atoms next rest left right).typing (ρ.snoc w) =
+      Sum.elim (fun x => run left.typing ((ρ.snoc w).snoc x)) (fun y => run right.typing ((ρ.snoc w).snoc y)) w :=
+  run_split atoms next rest left right ρ w
 
-/-- Two case trees with the same run at an environment that separates the
-atom slots are the same term. A request node allocates the next token as
-the payload of both tags. -/
-theorem caseTree_eq_of_run_proof {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree β L t) :
-    ∀ {u : LetCase.LocallyNameless.Tm Empty Φ n} (q : CaseTree β L u) (ρ : BoundEnv Value β) (k : Nat),
-      Separates ρ (Set.Iio k) → run p.typing ρ = run q.typing ρ → t = u := by
+/-- Unpacking a pending tuple binds its first atom and the rest. -/
+theorem run_pair_proof {L : List (Ty α)} (a b : α) (rest : List α)
+    {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1)}
+    (later : CaseTree (.tuple (b :: rest))
+      (((β.snoc (tupleTy (a :: b :: rest))).snoc (.base a)).snoc (tupleTy (b :: rest))) L t)
+    (ρ : BoundEnv Value β) (w : Value (tupleTy (a :: b :: rest))) :
+    run (CaseTree.pair a b rest later).typing (ρ.snoc w) =
+      run later.typing (((ρ.snoc w).snoc (A := Ty.base a) w.1).snoc w.2) :=
+  run_pair a b rest later ρ w
+
+omit [TaggedSignature α Φ] in
+/-- A separating environment stays separating under a new slot that is
+not an atom. -/
+theorem separates_other_proof {ρ : BoundEnv Value β} {used : Set Nat} (sep : Separates ρ used) {X : Ty α}
+    (other : ∀ a, X ≠ .base a) (x : Value X) : Separates (ρ.snoc x) used :=
+  separates_other sep other x
+
+/-- Two case trees with the same pending state whose runs agree at the
+environments of the token induction are the same term. A newly bound atom
+gets the next unused token. A newly bound reply is compared at every
+value. -/
+theorem caseTree_eq_of_witness_proof {pending : Pending α} {L : List (Ty α)}
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree pending β L t) :
+    ∀ {u : LetCase.LocallyNameless.Tm Empty Φ n} (q : CaseTree pending β L u) (k : Nat),
+      TokenWitness pending β k (fun ρ => run p.typing ρ = run q.typing ρ) → t = u := by
   induction p with
   | @ret _ β L A exit s =>
-    intro u q ρ k sep h
+    intro u q k witness
+    obtain ⟨ρ, sep, h⟩ := witness
     have mem : (exit.value (s.value ρ), (1 : Log α Φ)) ∈
         Finite.outcomes (pure (exit.value (s.value ρ))) := rfl
     rw [← run_ret (Φ := Φ), h] at mem
@@ -299,12 +352,13 @@ theorem caseTree_eq_of_run_proof {L : List (Ty α)} {t : LetCase.LocallyNameless
       obtain ⟨rfl, value, terms⟩ := exit_value_inj (Φ := Φ) exit exit' _ _ (Prod.mk.inj same).1
       cases arg_inj sep value
       exact terms _
-    | ask g b left right =>
+    | ask g b reply' =>
       rw [run_ask] at mem
       obtain ⟨reply, tail, -, log⟩ := mem_ask.mp mem
       exact (log_cons_ne_one _ _ log).elim
-  | @ask _ β L f argument l r left right ihl ihr =>
-    intro u q ρ k sep h
+  | @ask _ β L f argument k₁ reply ih =>
+    intro u q k witness
+    obtain ⟨ρ, sep, h⟩ := witness
     cases q with
     | ret exit' s' =>
       have mem : (exit'.value (s'.value ρ), (1 : Log α Φ)) ∈
@@ -312,25 +366,76 @@ theorem caseTree_eq_of_run_proof {L : List (Ty α)} {t : LetCase.LocallyNameless
       rw [← run_ret (Φ := Φ), ← h, run_ask] at mem
       obtain ⟨reply, tail, -, log⟩ := mem_ask.mp mem
       exact (log_cons_ne_one _ _ log).elim
-    | ask g b left' right' =>
-      rw [run_ask, run_ask] at h
-      obtain ⟨⟨z, w⟩, hz⟩ := tree_nonempty left (ρ.snoc (A := Ty.base (TaggedSignature.left f)) (k : Nat))
-      have mem : (z, FreeMonoid.of ⟨f, argument.value ρ, .inl (k : Nat)⟩ * w) ∈
-          ((model (α := α)).eval f (argument.value ρ) >>= arms f left right ρ).outcomes :=
-        mem_ask.mpr ⟨.inl (k : Nat), w, hz, rfl⟩
-      rw [h] at mem
-      obtain ⟨reply, tail, -, log⟩ := mem_ask.mp mem
+    | ask g b reply' =>
+      obtain ⟨⟨z, w⟩, hz⟩ := tree_nonempty reply
+        (ρ.snoc (firstReply (TaggedSignature.first f) (TaggedSignature.others f)))
+      have mem : (z, FreeMonoid.of ⟨f, argument.value ρ,
+            firstReply (TaggedSignature.first f) (TaggedSignature.others f)⟩ * w) ∈
+          (run (CaseTree.ask f argument reply).typing ρ).outcomes := by
+        rw [run_ask]
+        exact mem_ask.mpr ⟨_, w, hz, rfl⟩
+      rw [h, run_ask] at mem
+      obtain ⟨answer, tail, -, log⟩ := mem_ask.mp mem
       have head := (log_cons_inj log).1
       have generator : g = f := congrArg Event.generator head
       subst g
       have fields := Event.mk.inj head
       cases arg_inj sep (eq_of_heq fields.2.1)
-      have agree := (arms_eq_iff f argument left right left' right' ρ).mp h
-      have hl := ihl left' (ρ.snoc (A := Ty.base (TaggedSignature.left f)) (k : Nat)) (k + 1)
-        (separates_fresh sep _) (agree.1 k)
-      have hr := ihr right' (ρ.snoc (A := Ty.base (TaggedSignature.right f)) (k : Nat)) (k + 1)
-        (separates_fresh sep _) (agree.2 k)
+      have agree := (ask_run_eq_iff_proof f argument reply reply' ρ).mp h
+      rw [ih reply' k ⟨fun _ => ρ, fun _ => sep, agree⟩]
+  | only atoms payload ih =>
+    intro u q k witness
+    obtain ⟨R, seps, h⟩ := witness
+    cases q with
+    | only _ payload' => exact ih payload' k ⟨R (freshTuple atoms k), _, seps _, HEq.rfl, h _⟩
+  | split atoms next rest left right ihl ihr =>
+    intro u q k witness
+    obtain ⟨R, seps, h⟩ := witness
+    have other : ∀ a, tagsTy (atoms :: next :: rest) ≠ .base a := fun _ e => by cases e
+    cases q with
+    | split _ _ _ left' right' =>
+      have hl := ihl left' k ⟨(R (.inl (freshTuple atoms k))).snoc (.inl (freshTuple atoms k)), _,
+        separates_other (seps _) other _, HEq.rfl, by
+          have same := h (.inl (freshTuple atoms k))
+          beta_reduce at same
+          rw [run_split, run_split] at same
+          exact same⟩
+      have hr := ihr right' k ⟨fun w => (R (.inr w)).snoc (.inr w),
+        fun w => separates_other (seps _) other _, fun w => by
+          have same := h (.inr w)
+          beta_reduce at same
+          rw [run_split, run_split] at same
+          exact same⟩
       rw [hl, hr]
+  | unit body ih =>
+    intro u q k witness
+    obtain ⟨ρ, x, sep, -, h⟩ := witness
+    cases q with
+    | unit body' => exact ih body' k ⟨ρ.snoc x, separates_other sep (fun _ e => by cases e) x, h⟩
+  | atom a body ih =>
+    intro u q k witness
+    obtain ⟨ρ, x, sep, fresh, h⟩ := witness
+    cases eq_of_heq fresh
+    cases q with
+    | atom _ body' => exact ih body' (k + 1) ⟨_, separates_fresh sep a, h⟩
+  | pair a b rest later ih =>
+    intro u q k witness
+    obtain ⟨ρ, x, sep, fresh, h⟩ := witness
+    cases eq_of_heq fresh
+    cases q with
+    | pair _ _ _ later' =>
+      have same := h
+      beta_reduce at same
+      rw [run_pair, run_pair] at same
+      rw [ih later' (k + 1) ⟨_, _, separates_fresh (separates_other sep (fun _ e => by cases e) _) a,
+        HEq.rfl, same⟩]
+
+/-- Two case trees with the same run at one environment that separates the
+atom slots are the same term. -/
+theorem caseTree_eq_of_run_proof {L : List (Ty α)} {t u : LetCase.LocallyNameless.Tm Empty Φ n}
+    (p : CaseTree .body β L t) (q : CaseTree .body β L u) (ρ : BoundEnv Value β) (k : Nat)
+    (sep : Separates ρ (Set.Iio k)) (same : run p.typing ρ = run q.typing ρ) : t = u :=
+  caseTree_eq_of_witness_proof p q k ⟨ρ, sep, same⟩
 
 /-- The ordered trace interpretation with atoms reflects native equality
 of branching operands over a separable bound context. -/

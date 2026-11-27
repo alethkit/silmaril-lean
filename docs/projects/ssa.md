@@ -1006,9 +1006,10 @@ The continuation cannot jump back to its own label.
   [Captured atoms and two translations](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTraceRegression.lean)
 - The same completeness holds for one branching class with atoms. In a
   tagged signature every primitive takes an argument built from atoms,
-  unit and ordered products and replies with one atom under one of two
-  tags. A case tree asks a primitive with an argument assembled from the
-  atom slots in scope and cases on the reply. Each arm binds the payload
+  unit and ordered products and replies under one of its ordered tags;
+  in the first instance, with one atom under one of two tags. A case
+  tree asks a primitive with an argument assembled from the atom slots
+  in scope, binds the reply and cases on it. Each arm binds the payload
   atom and keeps the older slots. A leaf returns one atom slot at an
   exit. At an environment that gives distinct tokens to the atom
   slots, two case trees with the same ordered traces are the same term:
@@ -1020,8 +1021,7 @@ The continuation cannot jump back to its own label.
   supported models exactly when the emitted operands are natively equal.
   On graphs read back from two case trees that is equality of the trees.
   The ordered trace model with atoms is now defined for every signature
-  typed over atoms. Sequencing without a case, cases on other
-  scrutinees and payloads that are not atoms are outside the class. The
+  typed over atoms. Cases on other scrutinees are outside the class. The
   one-exit regression tells apart exchanged arms, the atom
   returned under one tag, the older capture used as the request
   argument, the order of two requests, and a payload used as the next
@@ -1059,14 +1059,40 @@ The continuation cannot jump back to its own label.
   same payload tree. The separation of case trees, the completeness
   theorem and the equality of ordered-exit arrows hold at any exit list.
   The atom exits above are the case of atom payloads. Returned payloads
-  that contain sums, and reply payloads that are not atoms, are outside
-  the class. The regression has four exits, with the same product type
+  that contain sums are outside the class. The regression has four exits, with the same product type
   at the first and third. A changed exit alone and a changed product
   alone are each told apart, at a leaf and in a nested arm whose product
   pairs a fresh reply atom with an older capture.
   [Payload exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
   [Leaf reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
   [Product payloads at four exits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomProductExitRegression.lean)
+- The replies of the case trees have finitely many ordered tags with
+  tuple payloads. A reply has at least one tag, and each tag carries its
+  own ordered tuple of atoms, which may be empty and may differ from tag
+  to tag. A request binds the reply, cases on it tag by tag in order, and
+  in the arm of each tag unpacks the tuple into atom slots in order. The
+  case chain and the unpacking are forced by the reply type, so a tree
+  has one shape; a reply with one tag is a request without a case. The
+  token induction runs over the tree with the reply or tuple pending at
+  the newest slot. A bound reply is compared at every value, and the two
+  arms of a case split at the replies of their own tags. A tuple is
+  compared at consecutive unused tokens, so every newly bound atom slot
+  gets a token that no older slot has. Slots holding a bound reply or a
+  longer tuple are not atom slots and do not affect the separation. The
+  separation of case trees, the completeness theorem at the original
+  product-valued exits and the equality of ordered-exit arrows hold for
+  these replies. The two-tag atom replies above are the case of two tags
+  with one atom each. Reply payloads with nested products or sums,
+  partial or reordered unpacking, and cases on other scrutinees are
+  outside the class. The regression has a reply with three tags, an
+  atom, nothing and a pair, and a reply with two tags, a pair and an
+  atom. It tells apart what is returned under one of three tags, the
+  assignment of two behaviours to two tags, the order of the reply atoms
+  of a pair, and, in a nested request on a pair component and an older
+  capture, which component is used and in which order.
+  [Tagged tuple replies and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Token induction over pending replies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Three tags and pair payloads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomReplyRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

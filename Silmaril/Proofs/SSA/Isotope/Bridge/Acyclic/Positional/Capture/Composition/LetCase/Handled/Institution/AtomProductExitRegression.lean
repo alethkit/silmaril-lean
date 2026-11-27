@@ -16,15 +16,16 @@ open scoped LetSeq.StraightLine.Structural Tagged
 /-! ## Four ordered exits with product payloads
 
 There is one atom. The primitive takes one atom and replies with one atom
-under the left or the right tag. Two older atoms are captured. The exits
+under the first or the second tag. Two older atoms are captured. The exits
 are a pair of atoms, one atom, a pair of atoms again, and the unit. The
 first and the third exit have the same product type. -/
 
 private inductive Probe | probe
 
-local instance : TaggedSignature Unit Probe := ⟨fun _ => .atom (), fun _ => (), fun _ => ()⟩
+local instance : TaggedSignature Unit Probe := ⟨fun _ => .atom (), fun _ => [()], fun _ => [[()]]⟩
 
 private abbrev tok : Ty Unit := .base ()
+private abbrev replyTy : Ty Unit := .coprod tok tok
 private abbrev pairTy : Ty Unit := .product tok tok
 private abbrev older : BoundCtx (Ty Unit) 2 := (BoundCtx.snoc .nil tok).snoc tok
 private abbrev Term (n : Nat) := LetCase.LocallyNameless.Tm Empty Probe n
@@ -47,80 +48,78 @@ example (x y : Nat × Nat) : pairFirst.value x ≠ pairLater.value y := fun same
 
 private abbrev earlier : Slot older tok := ⟨1, rfl⟩
 private abbrev later : Slot older tok := ⟨0, rfl⟩
-private abbrev armCtx : BoundCtx (Ty Unit) 3 := older.snoc tok
+private abbrev armCtx : BoundCtx (Ty Unit) 4 := (older.snoc replyTy).snoc tok
 private abbrev payload : Slot armCtx tok := ⟨0, rfl⟩
-private abbrev innerCtx : BoundCtx (Ty Unit) 4 := armCtx.snoc tok
+private abbrev innerCtx : BoundCtx (Ty Unit) 6 := (armCtx.snoc replyTy).snoc tok
 private abbrev fresh : Slot innerCtx tok := ⟨0, rfl⟩
-private abbrev outer : Slot innerCtx tok := ⟨1, rfl⟩
-private abbrev earlierDeep : Slot innerCtx tok := ⟨3, rfl⟩
+private abbrev outer : Slot innerCtx tok := ⟨2, rfl⟩
+private abbrev earlierDeep : Slot innerCtx tok := ⟨5, rfl⟩
+
+/-- The forced case split and unpacking of a reply, from the two arms. -/
+private def arms {n : Nat} {β : BoundCtx (Ty Unit) n} {L : List (Ty Unit)} {l r : Term (n + 2)}
+    (first : CaseTree .body ((β.snoc replyTy).snoc tok) L l)
+    (second : CaseTree .body ((β.snoc replyTy).snoc tok) L r) :
+    CaseTree (.tags [[()], [()]]) (β.snoc replyTy) L (.case (.bv 0) l r) :=
+  .split [()] [()] [] (.atom () first) (.only [()] (.atom () second))
+
+/-- A request: bind the reply and continue with the two arms. -/
+private def probe {n : Nat} {β : BoundCtx (Ty Unit) n} {L : List (Ty Unit)} (argument : Slot β tok)
+    {l r : Term (n + 2)} (first : CaseTree .body ((β.snoc replyTy).snoc tok) L l)
+    (second : CaseTree .body ((β.snoc replyTy).snoc tok) L r) :
+    CaseTree .body β L (.let₁ (.op Probe.probe (.bv argument.1)) (.case (.bv 0) l r)) :=
+  .ask Probe.probe (.atom argument) (arms first second)
 
 /-! ## Leaves -/
 
 /-- Return the two captures, in their order, at the first product exit. -/
-private def both : CaseTree older exits (.inl (.pair (.bv 1) (.bv 0)) : Term 2) :=
+private def both : CaseTree .body older exits (.inl (.pair (.bv 1) (.bv 0)) : Term 2) :=
   .ret pairFirst (.pair (.atom earlier) (.atom later))
 
 /-- The same product at the later exit of the same type. -/
-private def bothLater : CaseTree older exits (.inr (.inr (.inl (.pair (.bv 1) (.bv 0)))) : Term 2) :=
+private def bothLater : CaseTree .body older exits (.inr (.inr (.inl (.pair (.bv 1) (.bv 0)))) : Term 2) :=
   .ret pairLater (.pair (.atom earlier) (.atom later))
 
 /-- The same exit with the two components in the other order. -/
-private def swapped : CaseTree older exits (.inl (.pair (.bv 0) (.bv 1)) : Term 2) :=
+private def swapped : CaseTree .body older exits (.inl (.pair (.bv 0) (.bv 1)) : Term 2) :=
   .ret pairFirst (.pair (.atom later) (.atom earlier))
 
 /-- The same exit with the second component changed. -/
-private def doubled : CaseTree older exits (.inl (.pair (.bv 1) (.bv 1)) : Term 2) :=
+private def doubled : CaseTree .body older exits (.inl (.pair (.bv 1) (.bv 1)) : Term 2) :=
   .ret pairFirst (.pair (.atom earlier) (.atom earlier))
 
 /-! ## A nested request returning a product
 
-Probe the earlier capture, then under the left tag probe the payload. The
-inner left arm returns, at the first product exit, the fresh reply atom
+Probe the earlier capture, then under the first tag probe the payload. The
+inner first arm returns, at the first product exit, the fresh reply atom
 paired with the earlier capture. The other arms leave by the atom exit
 and the unit exit. -/
 
-private def deep : CaseTree older exits
-    (.case (.op Probe.probe (.bv 1))
-      (.case (.op Probe.probe (.bv 0)) (.inl (.pair (.bv 0) (.bv 3))) (.inr (.inl (.bv 1))))
-      (.inr (.inr (.inr (.inl .unit)))) : Term 2) :=
-  .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret pairFirst (.pair (.atom fresh) (.atom earlierDeep)))
-      (.ret single (.atom outer)))
+private def deep :=
+  probe (L := exits) earlier
+    (probe payload (.ret pairFirst (.pair (.atom fresh) (.atom earlierDeep))) (.ret single (.atom outer)))
     (.ret finished .unit)
 
 /-- The same tree with the two components of the product exchanged. -/
-private def deepOrder : CaseTree older exits
-    (.case (.op Probe.probe (.bv 1))
-      (.case (.op Probe.probe (.bv 0)) (.inl (.pair (.bv 3) (.bv 0))) (.inr (.inl (.bv 1))))
-      (.inr (.inr (.inr (.inl .unit)))) : Term 2) :=
-  .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret pairFirst (.pair (.atom earlierDeep) (.atom fresh)))
-      (.ret single (.atom outer)))
+private def deepOrder :=
+  probe (L := exits) earlier
+    (probe payload (.ret pairFirst (.pair (.atom earlierDeep) (.atom fresh))) (.ret single (.atom outer)))
     (.ret finished .unit)
 
 /-- The same tree with the fresh reply atom replaced by the outer payload. -/
-private def deepComponent : CaseTree older exits
-    (.case (.op Probe.probe (.bv 1))
-      (.case (.op Probe.probe (.bv 0)) (.inl (.pair (.bv 1) (.bv 3))) (.inr (.inl (.bv 1))))
-      (.inr (.inr (.inr (.inl .unit)))) : Term 2) :=
-  .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret pairFirst (.pair (.atom outer) (.atom earlierDeep)))
-      (.ret single (.atom outer)))
+private def deepComponent :=
+  probe (L := exits) earlier
+    (probe payload (.ret pairFirst (.pair (.atom outer) (.atom earlierDeep))) (.ret single (.atom outer)))
     (.ret finished .unit)
 
 /-- The same tree with the same product returned at the later product exit. -/
-private def deepExit : CaseTree older exits
-    (.case (.op Probe.probe (.bv 1))
-      (.case (.op Probe.probe (.bv 0)) (.inr (.inr (.inl (.pair (.bv 0) (.bv 3))))) (.inr (.inl (.bv 1))))
-      (.inr (.inr (.inr (.inl .unit)))) : Term 2) :=
-  .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret pairLater (.pair (.atom fresh) (.atom earlierDeep)))
-      (.ret single (.atom outer)))
+private def deepExit :=
+  probe (L := exits) earlier
+    (probe payload (.ret pairLater (.pair (.atom fresh) (.atom earlierDeep))) (.ret single (.atom outer)))
     (.ret finished .unit)
 
 /-! ## The ranked sentences are at the four original exits -/
 
-private abbrev sentence {t u : Term 2} (p : CaseTree older exits t) (q : CaseTree older exits u) :
+private abbrev sentence {t u : Term 2} (p : CaseTree .body older exits t) (q : CaseTree .body older exits u) :
     RankedEquation (atomSig Unit Probe) :=
   sentenceOf (entryOf p.graph) (entryOf q.graph)
 
@@ -152,7 +151,7 @@ example : ¬ (Silmaril.Isotope.Institution.Acyclic.Captured.rankedRoom (traceJ (
 /-- In the nested arm: the same product at the later exit of its type. -/
 example : ¬ RankedValid false (sentence deep deepExit) := fun valid => by
   have same := (rankedValid_caseTree_iff separable deep deepExit).mp valid
-  simp at same
+  simp [ExitAt.term, argTerm] at same
 
 /-! ## A changed product alone, at an unchanged exit -/
 
@@ -169,19 +168,19 @@ example : ¬ RankedValid false (sentence both doubled) := fun valid => by
 /-- In the nested arm: the order of the fresh reply atom and the capture. -/
 example : ¬ RankedValid false (sentence deep deepOrder) := fun valid => by
   have same := (rankedValid_caseTree_iff separable deep deepOrder).mp valid
-  simp at same
+  simp [ExitAt.term, argTerm] at same
 
 /-- In the nested arm: the fresh reply atom replaced by the outer payload. -/
 example : ¬ RankedValid false (sentence deep deepComponent) := fun valid => by
   have same := (rankedValid_caseTree_iff separable deep deepComponent).mp valid
-  simp at same
+  simp [ExitAt.term, argTerm] at same
 
 /-- The ordered-exit arrows differ for the changed order as well. -/
 example : denoteRanked (traceJ (α := Unit) (Φ := Probe)) (atomTraceModel Unit Probe) (entryOf deep.graph) ≠
     denoteRanked (traceJ (α := Unit) (Φ := Probe)) (atomTraceModel Unit Probe) (entryOf deepOrder.graph) :=
   fun same => by
     have terms := (denoteRanked_caseTree_iff separable deep deepOrder).mp same
-    simp at terms
+    simp [ExitAt.term, argTerm] at terms
 
 /-! ## The leaf reflection at one environment
 
