@@ -961,6 +961,22 @@ The continuation cannot jump back to its own label.
   operands differ at the ordered trace model.
   [Pullback law and restricted corridor](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Thms.lean) ·
   [An atom sent to a structural type](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedPullbackRegression.lean)
+- The supported rooms are packaged over type-changing signatures with a
+  chosen effect marker. A morphism is an existing type-changing signature
+  morphism whose effect map sends the source marker to the target marker.
+  The supported corridor along the identity is the identity, and along a
+  composite it is the composite, starting the second corridor at the image
+  of the marker. Both laws come from the laws of the existing ranked
+  corridor, because support of a model is a proposition. The supported
+  rooms are a functor from marked signatures to rooms. Forgetting the
+  marker and taking the existing ranked room is another, and the inclusion
+  of supported models is a natural transformation between them. This adds
+  no reflection of validity and no completeness. The regression composes
+  an effect map from counts to Booleans with a type map sending an atom to
+  the two-tag sum, and carries a captured sentence through both.
+  [Marked signatures](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Defs.lean) ·
+  [Functor and comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Thms.lean) ·
+  [Composable effect and type changes](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/MarkedSupportedRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
