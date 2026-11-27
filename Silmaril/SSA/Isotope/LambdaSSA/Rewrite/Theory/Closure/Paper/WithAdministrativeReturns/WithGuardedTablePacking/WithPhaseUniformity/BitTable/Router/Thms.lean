@@ -61,9 +61,9 @@ Replay from a bisimulation needs no liveness.
 complete run. `dead_observations`, `dead_no_bisimulation`: two one-state
 tables whose every reply repeats, with different labels, have the same
 complete runs and are not bisimilar. So complete runs do not reflect
-bisimulation at dead states. Whether those two loops are equal in the
-quotient is not decided here; it would need a model that observes
-requests of runs that do not return.
+bisimulation at dead states. The two loops are separated in
+`BitTable/Router/Prefix/Thms.lean`, with the request-prefix model, where
+the liveness hypothesis is also removed.
 
 ## Regression
 
@@ -77,8 +77,8 @@ it that returns `false` (`hub_trace_not_spread`).
 
 ## Not proved
 
-* The converse for rows that are not single labelled requests, and for
-  tables that are not live.
+* The converse for rows that are not single labelled requests. Tables
+  that are not live are handled in `BitTable/Router/Prefix/Thms.lean`.
 * Rows with several requests per round, and the relay rows.
 * Nothing is claimed about packed dispatchers in general. The interpreter
   is used for the converse and for separation only.
