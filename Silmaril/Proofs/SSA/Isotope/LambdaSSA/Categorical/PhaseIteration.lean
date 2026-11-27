@@ -24,11 +24,15 @@ variable {C : Type u} [Category.{v} C] [HasBinaryCoproducts C] (S : PhaseSystem 
 /-- Eliminate the later phases of a two-part system. The state runs `a`
 and moves to the later phases. They run `c`, which may stay there, return
 to the state, or exit. -/
-theorem eliminate_right (k : Nat) {Y : C} (a : S.obj 0 ⟶ Y ⨿ S.obj k)
+theorem eliminate_both (k : Nat) {Y : C} (a : S.obj 0 ⟶ Y ⨿ S.obj k)
     (c : S.obj k ⟶ (Y ⨿ S.obj 0) ⨿ S.obj k) :
     S.inl k ≫ S.iter (S.desc k (a ≫ coprod.map (𝟙 Y) (S.inr k))
       (c ≫ coprod.desc (coprod.map (𝟙 Y) (S.inl k)) (S.inr k ≫ coprod.inr))) =
-      S.iter (a ≫ coprod.desc coprod.inl (S.iter c)) := by
+      S.iter (a ≫ coprod.desc coprod.inl (S.iter c)) ∧
+    S.inr k ≫ S.iter (S.desc k (a ≫ coprod.map (𝟙 Y) (S.inr k))
+      (c ≫ coprod.desc (coprod.map (𝟙 Y) (S.inl k)) (S.inr k ≫ coprod.inr))) =
+      S.iter c ≫ coprod.desc (𝟙 Y) (S.inl k ≫ S.iter (S.desc k (a ≫ coprod.map (𝟙 Y) (S.inr k))
+        (c ≫ coprod.desc (coprod.map (𝟙 Y) (S.inl k)) (S.inr k ≫ coprod.inr)))) := by
   let f : S.obj (k + 1) ⟶ (Y ⨿ S.obj (k + 1)) ⨿ S.obj (k + 1) :=
     S.desc k (a ≫ coprod.desc (coprod.inl ≫ coprod.inl) (S.inr k ≫ coprod.inr))
       (c ≫ coprod.desc (coprod.desc (coprod.inl ≫ coprod.inl) (S.inl k ≫ coprod.inr ≫ coprod.inl))
@@ -69,7 +73,25 @@ theorem eliminate_right (k : Nat) {Y : C} (a : S.obj 0 ⟶ Y ⨿ S.obj k)
     · simp only [coprod.inr_desc_assoc, Category.assoc, coprod.inr_desc, coprod.inr_desc]
       exact second
   have outer := S.uniform_inl k (a ≫ coprod.desc coprod.inl (S.iter c)) (S.iter f) first.symm
-  rw [outer, S.codiagonal, flat]
+  have joined : S.iter (S.iter f) = S.iter (S.desc k (a ≫ coprod.map (𝟙 Y) (S.inr k))
+      (c ≫ coprod.desc (coprod.map (𝟙 Y) (S.inl k)) (S.inr k ≫ coprod.inr))) := by
+    rw [S.codiagonal, flat]
+  refine ⟨?_, ?_⟩
+  · rw [outer, joined]
+  · rw [← joined]
+    conv_lhs => rw [S.fixpoint (S.iter f)]
+    rw [reassoc_of% second]
+    congr 1
+    apply coprod.hom_ext <;> simp
+
+/-- Entered at the state, the two-part system is the state's row with the
+later phases eliminated. -/
+theorem eliminate_right (k : Nat) {Y : C} (a : S.obj 0 ⟶ Y ⨿ S.obj k)
+    (c : S.obj k ⟶ (Y ⨿ S.obj 0) ⨿ S.obj k) :
+    S.inl k ≫ S.iter (S.desc k (a ≫ coprod.map (𝟙 Y) (S.inr k))
+      (c ≫ coprod.desc (coprod.map (𝟙 Y) (S.inl k)) (S.inr k ≫ coprod.inr))) =
+      S.iter (a ≫ coprod.desc coprod.inl (S.iter c)) :=
+  (eliminate_both S k a c).1
 
 /-- A chain of `k + 1` phases, each running `h`, with its entry. -/
 structure Chain {Y : C} (h : S.obj 0 ⟶ Y ⨿ S.obj 0) (k : Nat) where
