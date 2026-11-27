@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Reverse.Flat.Thms
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.Defs
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.Flat.Defs
 public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Institution.Defs
 
 /-! # Admit an independently witnessed LetCase term as named packet-local RTL -/
@@ -63,10 +63,7 @@ abbrev Compiled (g : ResultGrammar (L := exitList) source) (slot : Option (Fin n
 def checkListAdmission [DecidableEq κ] (g : ResultGrammar (L := exitList) source)
     {slots : List (Fin n)} (lowered : Lowered ports fields (flatList g slots)) :
     Option (CompiledList g slots) :=
-  if checked : Straight.packetLocalChecks lowered (packetTypesList g slots) = true then
-    let admission := admit lowered (packetTypesList g slots) checked
-    if ranked : admission.acyclicCheck = true then some ⟨lowered, admission, ranked⟩ else none
-  else none
+  (checkRanked lowered (packetTypesList g slots)).map (fun c => ⟨c.lowered, c.admission, c.ranked⟩)
 
 abbrev checkAdmission [DecidableEq κ] (g : ResultGrammar (L := exitList) source)
     {slot : Option (Fin n)} (lowered : Lowered ports fields (flat g slot)) :
@@ -84,15 +81,28 @@ running the same emitter and checkers. The register plan must reproduce the
 selected live-out reads exactly after the row's product decoders. -/
 def compileCarryList? [DecidableEq κ] [DecidableEq P.Instr] (g : ResultGrammar (L := exitList) source)
     (slots : List (Fin n)) (registers : Registers Register) (labels : Fin (g.toTable.size + 1) → K) :
-    Option (CompiledList g slots) := do
-  let lowered ← lowerChecked ports fields registers labels (flatList g slots)
-  checkListAdmission g (slots := slots) lowered
+    Option (CompiledList g slots) :=
+  (compileFlatCarry? (context := context) (external := external) (fields := fields) (flat g none) g.toTable.table.types slots registers labels).map
+    (fun c => ⟨c.lowered, c.admission, c.ranked⟩)
 
 /-- Specialize the ordered adapter to one caller slot. -/
 def compileCarry? [DecidableEq κ] [DecidableEq P.Instr] (g : ResultGrammar (L := exitList) source)
     (slot : Fin n) (registers : Registers Register) (labels : Fin (g.toTable.size + 1) → K) :
     Option (Compiled g (some slot)) :=
   compileCarryList? g [slot] registers labels
+
+/-- Infer the shared layout from the numbered typed table, including any
+reads in discriminator expressions and outward live-out payloads. -/
+def inferredSlots (g : ResultGrammar (L := exitList) source) : List (Fin n) :=
+  Capture.Carry.inferSlots (flat g none)
+
+/-- Lower with the inferred list. Labels and registers are still supplied
+by the caller, and the existing checker decides admission. -/
+def compileInferred? [DecidableEq κ] [DecidableEq P.Instr] (g : ResultGrammar (L := exitList) source)
+    (registers : Registers Register) (labels : Fin (g.toTable.size + 1) → K) :
+    Option (CompiledList g (inferredSlots g)) :=
+  (compileFlatInferred? (context := context) (external := external) (fields := fields) (flat g none) g.toTable.table.types registers labels).map
+    (fun c => ⟨c.lowered, c.admission, c.ranked⟩)
 
 variable [AtomValues κ] {Events : Type u → Type u}
 

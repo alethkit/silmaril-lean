@@ -39,7 +39,8 @@ theorem rewriteWith_replay (accepted : rewriteWith source candidate = some rewri
     simp [empty]
   have slots : DeadStore.rewriteSlot source candidate input = rewriteSlot source candidate := by
     funext arrival
-    simp [DeadStore.rewriteSlot, rewriteSlot, Memory.DeadStore.rewrite, Certificate.check, empty arrival]
+    simp [DeadStore.rewriteSlot, DeadStore.rewriteArm, rewriteSlot, Memory.DeadStore.rewrite, Certificate.check,
+      empty arrival]
   simpa only [rewriteWith, ite_eq_left checked, DeadStore.rewrite, slots] using accepted
 
 theorem rewrite_replay (accepted : rewrite source = some result) (input : Tuple (Val cells) args) :

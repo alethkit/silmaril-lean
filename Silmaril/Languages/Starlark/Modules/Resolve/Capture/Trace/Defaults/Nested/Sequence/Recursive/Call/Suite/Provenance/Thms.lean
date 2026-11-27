@@ -12,34 +12,48 @@ namespace Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nes
 open Silmaril.Languages.Starlark.Modules.Resolve.Assignment (LexicalBlock)
 open RootCall (DistinctOwned)
 open Functions
-open Lists (State Capture)
-open Lists.Iteration (finishState)
+open Lists (State Capture Outcome)
+open Lists.Iteration (Flow finishState)
 
 /-- The independent suite and lexical read order agree with normalized compilation. -/
 theorem compiles {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
-    {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block locals source seed code final emissions) :
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned) :
     compileBody ⟨block.context, .local⟩ source seed = .ok (code, final) :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.compiles profile
 
 theorem collects {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
-    {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block locals source seed code final emissions) :
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned) :
     ∃ names, Block.BodyBinders source names :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.collects profile
 
 /-- Each emitted declaration keeps its actual table index. -/
 theorem links {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
-    {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block locals source seed code final emissions) :
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned) :
     PreservesDeclarations seed final ∧ ∀ entry ∈ emissions, final[entry.1]? = some entry.2 :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.links profile
 
 theorem selects {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final : Program}
-    {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block locals source seed code final emissions) :
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned) :
     ∃ free, Selects block code.reads free :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.selects profile
 
+theorem return_link {block : LexicalBlock} {locals : Locals block} {source : Statement}
+    {seed final program : Program} {code : ResolvedBody} {emissions : Emissions}
+    {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned)
+    (table : PreservesDeclarations final program)
+    (known : ∀ name entry, locals name = some entry → entry.Linked program) :
+    ∀ entry, returned = some entry → entry.Linked program :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.return_link profile table known
+
 /-- A suite entered under the full table with its own ID removed has all its child IDs. -/
 theorem entry_guard {block : LexicalBlock} {locals : Locals block} {source : Statement} {seed final program : Program}
-    {code : ResolvedBody} {emissions : Emissions} (profile : Elaborates block locals source seed code final emissions)
+    {code : ResolvedBody} {emissions : Emissions} {returned : Option (Entry block)}
+    (profile : Elaborates block locals source seed code final emissions returned)
     (table : PreservesDeclarations final program) :
     List.Subset (emissions.map Prod.fst) (withoutDeclaration (List.range program.size) final.size) :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.entry_guard profile table
@@ -81,8 +95,38 @@ theorem runs {block : LexicalBlock} {source : Statement} {seed final : Program}
       denoteBody resolved.program available code.code state = out :=
   Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.runs profile checked table available guarded selected state frame distinct
 
+/-- A successful checked invocation retains the returned closure's record
+after restoring the caller, independently of its argument and packing rules. -/
+theorem invoked_value_at {parent block : LexicalBlock} {formals : List PlainKeywordParameter}
+    {varargs kwargs : Option String} {scope : Scope} {site : Site parent formals varargs kwargs scope}
+    {entry : Entry site.block} {bodyRuns : State → Outcome Flow → Prop} {id : DeclarationId} {name : String}
+    {slot : Binding} {Bound : Type} {actuals : State → Outcome Actual → Prop}
+    {binds : Call.BindingRule Bound} {packs : Call.PackRule Bound} {state reached : State} {value : Lists.Value}
+    (ran : Call.RunsActual site (fun active out => bodyRuns active out ∧ Returns (some entry) out)
+      block id name slot actuals binds packs state (.ok value reached)) :
+    ValueAt entry value reached :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.invoked_value_at ran
+
+theorem runs_activated_for {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
+    {returned : Option (Entry site.block)}
+    (profile : Elaborates site.block empty site.source seed site.body final emissions returned)
+    {commands : List Command} {linked : Program} {resolved : ResolvedModule}
+    (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)
+    (available : List DeclarationId) (guarded : List.Subset (emissions.map Prod.fst) available)
+    (caller defining : State) (captures : List Capture) (installed : Installs defining site.free captures)
+    (live : Body.CaptureCells caller captures) (assigned : List (Binding × Lists.Value)) :
+    let active := activate caller site.declaration captures assigned
+    ∃ out, Runs site.block active site.source site.body.code out ∧
+      Body.Frame site.block site.free caller.heap.size (finishState out) ∧
+      Body.Keeps caller.heap.size active (finishState out) ∧
+      Exec resolved.program available active site.body.code out ∧
+      denoteBody resolved.program available site.body.code active = out ∧ Returns returned out :=
+  Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.Call.Suite.Provenance.runs_activated_for site profile checked table available guarded caller defining captures installed live assigned
+
 /-- The reached activation provides fresh distinct locals and the original live capture cells. -/
-theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs : Option String} (site : Site parent formals varargs) {seed final : Program} {emissions : Emissions}
+theorem runs_activated {parent : LexicalBlock} {formals : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent formals varargs kwargs scope) {seed final : Program} {emissions : Emissions}
     (profile : Elaborates site.block empty site.source seed site.body final emissions)
     {commands : List Command} {linked : Program} {resolved : ResolvedModule}
     (checked : resolve commands linked = .ok resolved) (table : PreservesDeclarations final resolved.program)

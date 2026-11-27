@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Correctness
+import Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.BlockFacts
 
 /-! Least solution and native coverage for a pure quad loop with two backedges. -/
 
@@ -10,7 +11,8 @@ import Silmaril.Proofs.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP.Correctn
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.TwoBackedges.SCCP
 
 open Diamond (Model Signature ValueSort dataPorts sortValue)
-open Diamond.SCCP (Fact TupleCovers)
+open Diamond.SCCP (Fact TupleCovers TupleLE)
+open Semantics.Dataflow (Flat)
 open SeaOfNodes.Loop.SCCP (BankFacts BankDecidableEq BankCovers)
 open Blocks (Bank)
 open Join (Block)
@@ -21,6 +23,20 @@ universe u v w
 variable {Data : Type u} {Op : Signature.{u, v} Data}
 variable {regs : List (ValueSort Data)} {out : ValueSort Data}
 variable {m : Model.{u, v, w} Op}
+
+/-- The compiled producer interpreter reads the same ordered flat writes. -/
+theorem blockFacts_fold (m : Model.{u, v, w} Op) (block : Block Op regs)
+    (entry : Tuple (Fact m.value) (dataPorts regs)) :
+    blockFacts m block entry = block.foldl (fun bank q => quadFacts m q bank) entry :=
+  Proofs.blockFacts_fold m block entry
+
+theorem blockFacts_mono (block : Block Op regs) {a b : Tuple (Fact m.value) (dataPorts regs)}
+    (le : TupleLE a b) : TupleLE (blockFacts m block a) (blockFacts m block b) :=
+  Proofs.blockFacts_mono block le
+
+theorem successors_mono {a b s t : Flat (ULift.{w} Bool)} (again : a ≤ b) (select : s ≤ t) :
+    successors a s ⊆ successors b t :=
+  Proofs.successors_mono again select
 
 /-- The compiled abstract block covers the actual ordered source block. -/
 theorem blockFacts_cover (block : Block Op regs)

@@ -261,6 +261,64 @@ private theorem block_checked [DecidableEq Base] [HasTy F (Ty Base)]
     (block_checkedWith (Versioning.destinations graph) (Versioning.registers graph) src index old new
       required captures routes ctx A distinct keeps supplies checked)
 
+section PacketLocal
+
+variable {n : Nat} [DecidableEq Base] [HasTy F (Ty Base)]
+
+set_option maxHeartbeats 400000 in
+theorem packetLocalSource_sound (graph : CFG V K F) (names : Fin n → V)
+    (ctx : BoundCtx (Ty Base) n) (exits : List K) (external : Fin exits.length → Ty Base)
+    (R : Fin (Versioning.compilePacketLocal graph).blocks.length → Ty Base)
+    (checked : packetLocalSourceChecks graph names ctx exits external R = true) :
+    RoundTrip.PacketClosed graph ∧
+      ∃ table, elaborate (Versioning.compilePacketLocal graph) exits (fun i => (names i, 0)) = some table ∧
+        let profile := fun i => Ty.product (R i) .unit
+        let types := SSA.FiniteSum.append profile external
+        checkBody types ctx table.entry = true ∧
+          ∀ i, checkBody types (.snoc ctx (profile i)) (table.block i) = true := by
+  let compiled := Versioning.compilePacketLocal graph
+  let labels := Versioning.destinationsWith graph (fun _ => [])
+  let build := Versioning.compileBlockWith (F := F) labels [] []
+  let index := labelIndex compiled.blocks exits
+  let profile := fun i => Ty.product (R i) .unit
+  let old := SSA.FiniteSum.append R external
+  let new := SSA.FiniteSum.append profile external
+  have route : Routes index labels (fun _ => []) old new :=
+    routes_saved graph exits (fun _ => []) build (fun _ => []) (fun _ => []) R external
+      (fun _ => rfl) (fun _ _ _ => rfl)
+  obtain ⟨sourceEntry, sourceBlocks⟩ := Bool.and_eq_true_iff.mp checked
+  have closed : RoundTrip.PacketClosed graph := by
+    intro item member
+    obtain ⟨j, hj, eq⟩ := List.getElem_of_mem member
+    let i : Fin compiled.blocks.length := Fin.cast (List.length_map _).symm ⟨j, hj⟩
+    obtain ⟨_, read, _⟩ := checked_source (List.all_eq_true.mp sourceBlocks i (List.mem_finRange i))
+    rw [← eq]
+    exact block_packetClosed _ read
+  obtain ⟨_, read, typed⟩ := checked_source sourceEntry
+  obtain ⟨entry, hEntry, tEntry⟩ := version_body index labels (fun _ => []) [] old new route []
+    graph.entry 0 (fun _ => 0) _ _ _ _ (entry_scope names ctx)
+    (by simp [SavedScope]) (by simp [KeepsCapture]) (by simp [Supplies]) read typed
+  have byBlock (i : Fin compiled.blocks.length) :
+      ∃ flat, body index (blockNames compiled.blocks[i].2.param) compiled.blocks[i].2.body = some flat ∧
+        checkBody new (.snoc ctx (profile i)) flat = true := by
+    let j : Fin graph.blocks.length := Fin.cast (List.length_map _) i
+    have checkAt := List.all_eq_true.mp sourceBlocks i (List.mem_finRange i)
+    have row : compiled.blocks[i].2 = build graph.blocks[j].2 := by
+      exact congrArg Prod.snd (List.getElem_map (fun item => (item.1, build item.2))
+        (l := graph.blocks) (i := i.val) (h := by rw [List.length_map]; exact j.isLt))
+    rw [row]
+    exact block_checkedWith labels [] graph.blocks[j].2 index old new (fun _ => []) [] route
+      ctx (R i) (by simp) (by simp [KeepsCapture]) (by simp [Supplies]) checkAt
+  obtain ⟨rows, hRows, tRows⟩ := tabulate_checked byBlock
+  exact ⟨closed, ⟨entry, rows⟩, by
+    unfold elaborate
+    change (body index (first fun i => (names i, 0)) compiled.entry).bind _ = _
+    rw [show body index (first fun i => (names i, 0)) compiled.entry = some entry
+      from hEntry]
+    exact congrArg (Option.map (FiniteCFG.mk entry)) hRows, tEntry, tRows⟩
+
+end PacketLocal
+
 variable {κ Label : Type (u + 1)} [DecidableEq Label] [DecidableEq κ]
   {n blocks : Nat} {P : FlatInstitution.Signature.{u, v} κ}
   {context : BoundCtx (Ty κ) n} {exits : List Label} {external : Fin exits.length → Ty κ}
@@ -434,49 +492,6 @@ theorem compiled_success_captures (R : Fin blocks → Ty κ) (saved : a.SavesCap
     (fun _ => List.Sublist.refl slots) kept _ checked
   exact List.all_eq_true.mpr fun _ _ => List.all_eq_true.mpr fun label _ =>
     List.all_eq_true.mpr fun slot member => decide_eq_true (subset label member)
-
-set_option maxHeartbeats 400000 in
-/-- Read back and typecheck the actual opt-in compiler at its empty-record
-profile. The entry and every block are derived from the original checks. -/
-theorem compiled_success_packetLocal (R : Fin blocks → Ty κ) (checked : packetLocalChecks a R = true) :
-    ∃ table, elaborate (Versioning.compilePacketLocal attached) exits
-        (fun i : Fin n => ((⟨i.val⟩ : Register), 0)) = some table ∧
-      let types := SSA.FiniteSum.append (packetLocalProfile a R) exitTypes
-      checkBody types context table.entry = true ∧
-        ∀ i, checkBody types (.snoc context (packetLocalProfile a R i)) (table.block i) = true := by
-  let compiled := Versioning.compilePacketLocal attached
-  let labels := Versioning.destinationsWith attached (fun _ => [])
-  let build := Versioning.compileBlockWith (F := P.Instr) labels [] []
-  let index := labelIndex compiled.blocks exits
-  let original := fun i => R (Fin.cast (packetLocalCount a) i)
-  let old := SSA.FiniteSum.append original exitTypes
-  let new := SSA.FiniteSum.append (packetLocalProfile a R) exitTypes
-  have route : Routes index labels (fun _ => []) old new :=
-    routes_saved attached exits (fun _ => []) build (fun _ => []) (fun _ => []) original exitTypes
-      (fun _ => rfl) (fun _ _ _ => rfl)
-  obtain ⟨sourceEntry, sourceBlocks⟩ := Bool.and_eq_true_iff.mp checked
-  obtain ⟨_, read, typed⟩ := checked_source sourceEntry
-  obtain ⟨entry, hEntry, tEntry⟩ := version_body index labels (fun _ => []) [] old new route []
-    (attached).entry 0 (fun _ => 0) _ _ _ _ (entry_scope (fun i : Fin n => ⟨i.val⟩) context)
-    (by simp [SavedScope]) (by simp [KeepsCapture]) (by simp [Supplies]) read typed
-  have byBlock (i : Fin compiled.blocks.length) :
-      ∃ flat, body index (blockNames compiled.blocks[i].2.param) compiled.blocks[i].2.body = some flat ∧
-        checkBody new (.snoc context (packetLocalProfile a R i)) flat = true := by
-    let j : Fin (attached).blocks.length := Fin.cast (List.length_map _) i
-    have checkAt := List.all_eq_true.mp sourceBlocks i (List.mem_finRange i)
-    have row : compiled.blocks[i].2 = build (attached).blocks[j].2 := by
-      exact congrArg Prod.snd (List.getElem_map (fun item => (item.1, build item.2))
-        (l := (attached).blocks) (i := i.val) (h := by rw [List.length_map]; exact j.isLt))
-    rw [row]
-    exact block_checkedWith labels [] (attached).blocks[j].2 index old new (fun _ => []) [] route
-      context (original i) (by simp) (by simp [KeepsCapture]) (by simp [Supplies]) checkAt
-  obtain ⟨rows, hRows, tRows⟩ := tabulate_checked byBlock
-  exact ⟨⟨entry, rows⟩, by
-    unfold elaborate
-    change (body index (first fun i : Fin n => ((⟨i.val⟩ : Register), 0)) compiled.entry).bind _ = _
-    rw [show body index (first fun i : Fin n => ((⟨i.val⟩ : Register), 0)) compiled.entry = some entry
-      from hEntry]
-    exact congrArg (Option.map (FiniteCFG.mk entry)) hRows, tEntry, tRows⟩
 
 omit [DecidableEq κ] in
 theorem empty_of_no_captures (closed : n = 0) (saved : a.SavesCaptures) :

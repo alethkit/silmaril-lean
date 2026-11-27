@@ -70,7 +70,7 @@ theorem read_splitOrigin {head : List (Ty Data)} {t : Ty Data}
       rw [split] at same
       exact same
 
-private theorem wires_read {route : Routing args past target targetArgs}
+theorem wires_read {route : Routing args past target targetArgs}
     {entry' : Tuple (Val m.value) targetArgs}
     {old : Locals (Val m.value) past} {new : Locals (Val m.value) target}
     (agree : route.AgreesBetween m entry entry' old new) {ports : List (Ty Data)}

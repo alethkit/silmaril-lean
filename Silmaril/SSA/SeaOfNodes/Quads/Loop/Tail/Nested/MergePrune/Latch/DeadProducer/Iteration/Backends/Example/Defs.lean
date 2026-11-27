@@ -9,7 +9,7 @@ public import Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.De
 
 namespace Silmaril.SSA.SeaOfNodes.Quads.Loop.Tail.Nested.MergePrune.Latch.DeadProducer.Iteration.Backends.Example
 
-open Diamond.MLIR.CF.Example (input num regs stride test)
+open Diamond.MLIR.CF.Example (input num regs result stride test)
 open SeaOfNodes.Loop.MLIR.CF (Op evalOp model)
 open SeaOfNodes.MLIR.Lowering (encodeValues)
 open SeaOfNodes.Pure.Deletion (delete?)
@@ -27,11 +27,38 @@ def fullHeader : Source Op regs num 7 := fun id =>
   if id = 1 then {source id with body := []}
   else source id
 
-def runAt (targets : Targets source 0) (sourceFuel cfFuel activations : Nat) :
+/-- Both inner slots now go straight from block 2 to merge 4.
+The outer false arm still contributes a distinct bank via block 3. -/
+def parallelInner : Source Op regs num 6 := fun id =>
+  if id = 0 then ⟨(source 0).body, .transfer (.jump 1)⟩
+  else if id = 1 then ⟨(source 1).body, .branch test (.jump 2) (.jump 3)⟩
+  else if id = 2 then ⟨(source 2).body, .branch test (.jump 4) (.jump 4)⟩
+  else if id = 3 then ⟨(source 4).body, .transfer (.jump 4)⟩
+  else if id = 4 then ⟨(source 5).body, .transfer (.jump 5)⟩
+  else ⟨(source 6).body, .branch test (.jump 1) (.ret result)⟩
+
+/-- A common nonempty arm before the merge still violates disjointness. -/
+def sharedInnerArm : Source Op regs num 7 := fun id =>
+  if id = 2 then {source id with terminator := .branch test (.jump 3) (.jump 3)}
+  else source id
+
+def runAt {size : Nat} {table : Source Op regs num size} {entry : Fin size}
+    (targets : Targets table entry) (sourceFuel cfFuel activations : Nat) :
     Option Nat × Option Nat × Option Nat :=
-  ((source.runFrom model sourceFuel 0 input).map BitVec.toNat,
+  ((table.runFrom model sourceFuel entry input).map BitVec.toNat,
     (targets.cf.run evalOp cfFuel (encodeValues input)).map (fun result => (result.get .here).toNat),
     (targets.numbered.run (Join.model model) activations input).map (fun result => (result.get .head).toNat))
+
+def parallelTrace (targets : Targets parallelInner 0) : List ((Nat × Nat) × Option (Bool × Nat)) :=
+  let p := targets.program
+  let first := (parallelInner 0).body.eval model input
+  let second := nextBank p model first
+  let third := nextBank p model second
+  [first, second, third].map fun old =>
+    let edge := p.incomingEdge (p.selected model old)
+    let packet := (targets.packetRegion.run (Join.model model) 0 ((carry p).project old)).map fun
+      | .cons guard (.cons word _) => (guard.down, word.toNat)
+    ((edge.1.val, edge.2.val), packet)
 
 /-- Find the last emitted latch producer, check that the full packet
 protects it, and locate its only use in the carried stride field. -/

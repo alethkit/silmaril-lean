@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.Isotope.LetSeq.StraightLine.Structural.Thms
+import Silmaril.SSA.Isotope.LetSeq.StraightLine.Structural.Categorical.Thms
 
 namespace Silmaril.Isotope.LetSeq.StraightLine.Structural
 
@@ -59,7 +60,7 @@ private theorem both_observed :
   exact ⟨⟨⟩, FreeMonoid.of received, ⟨result, rfl⟩, rfl⟩
 
 -- Ignoring the unit result does not erase the first event.
-example : ¬ Equiv false Γ₀ (Packed inputShape) both receiveOnly Result := by
+private theorem both_ne_receive : ¬ Equiv false Γ₀ (Packed inputShape) both receiveOnly Result := by
   intro eq
   have equal := (packed_run_eq_iff_native bothTyped receiveTyped).mpr eq
   have trace := both_observed
@@ -71,5 +72,14 @@ example : ¬ Equiv false Γ₀ (Packed inputShape) both receiveOnly Result := by
   have different : Generator.receive = Generator.send :=
     congrArg Event.generator (List.cons.inj words).1
   cases different
+
+-- The same typed trace is observed by the categorical arrow.
+example : (result, observed) ∈
+    ((Categorical.traceArrow bothTyped).of ((), ((), inputShape.fresh 0))).outcomes := by
+  rw [Categorical.traceArrow_apply_packed]
+  exact both_observed
+
+example : ¬ Categorical.Valid bothTyped receiveTyped :=
+  fun h => both_ne_receive ((Categorical.equiv_iff_valid bothTyped receiveTyped).mpr h)
 
 end Silmaril.Isotope.LetSeq.StraightLine.Structural

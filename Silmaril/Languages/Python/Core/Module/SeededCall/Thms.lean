@@ -19,6 +19,19 @@ theorem Namespace.builtin_fallback (space : Namespace) {name : String}
 theorem Namespace.bind_preserves_builtins (space : Namespace) (name : String) (value : Value) :
     (space.bindGlobal name value).builtins = space.builtins := rfl
 
+theorem Namespace.lookup_unbindGlobal (space : Namespace) (name : String) :
+    (space.unbindGlobal name).lookupGlobal name = lookupBinding space.builtins name := by
+  simp [Namespace.unbindGlobal, Namespace.lookupGlobal,
+    Proofs.Languages.Python.Core.Module.SeededCall.lookupBinding_remove]
+
+theorem Namespace.lookup_unbindOther (space : Namespace) {name query : String} (different : query ≠ name) :
+    (space.unbindGlobal name).lookupGlobal query = space.lookupGlobal query := by
+  simp [Namespace.unbindGlobal, Namespace.lookupGlobal, different,
+    Proofs.Languages.Python.Core.Module.SeededCall.lookupBinding_remove]
+
+theorem Namespace.unbind_preserves_builtins (space : Namespace) (name : String) :
+    (space.unbindGlobal name).builtins = space.builtins := rfl
+
 theorem Operand.eval_local {slots : Nat} (space : Namespace) (locals : Locals slots) (slot : Fin slots) :
     (Operand.local slot).eval space locals =
       (locals.get slot).elim (.error (.raised (.runtime (.unboundLocal slot.val)))) .ok := rfl
@@ -30,6 +43,10 @@ theorem Expectation.delivers_iff {expectation : Expectation} {input output : Res
 theorem invoke_iff {callee : Value} {arguments : List Value} {result : Result} :
     invoke callee arguments = result ↔ Executes (Request.decode callee arguments) result :=
   Proofs.Languages.Python.Core.Module.SeededCall.invoke_iff
+
+theorem invoke_assertIs_none :
+    invoke (.helper .assertIs) [.none, .none] = .ok .none :=
+  invoke_iff.mpr .asserted
 
 theorem invoke_assertTrue_true : invoke (.helper .assertTrue) [.bool true] = .ok .none :=
   invoke_iff.mpr .asserted
@@ -44,9 +61,33 @@ theorem invoke_tuple_empty :
     invoke (.builtin .tuple) [] = .ok (.returnedTuple []) :=
   invoke_iff.mpr .emptyTuple
 
-theorem invoke_tuple_exact (items : List Core.Module.Value) :
+theorem invoke_tuple_exact (items : List Core.Module.TupleDispatch.Element) :
     invoke (.builtin .tuple) [.returnedTuple items] = .ok (.returnedTuple items) :=
   invoke_iff.mpr (.copyTuple items)
+
+theorem invoke_assertFalse_false : invoke (.helper .assertFalse) [.bool false] = .ok .none :=
+  invoke_iff.mpr .falseAsserted
+
+theorem invoke_assertFalse_true :
+    invoke (.helper .assertFalse) [.bool true] = .error (.raised (.assertionError (.boolean true))) :=
+  invoke_iff.mpr .falseAssertionFailed
+
+theorem invoke_assertTrue_returnedTuple (items : List Core.Module.TupleDispatch.Element) :
+    invoke (.helper .assertTrue) [.returnedTuple items] =
+      if items.isEmpty then .error (.raised (.assertionError .emptyTuple)) else .ok .none := by
+  cases items <;> exact invoke_iff.mpr (by constructor)
+
+theorem invoke_assertTrue_listObject (object : Core.Module.ListObject) :
+    invoke (.helper .assertTrue) [.listObject object] =
+      if object.contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none := by
+  rw [invoke]
+  rfl
+
+theorem invoke_assertTrue_tupleObject (object : Core.Module.TupleDispatch.Object) :
+    invoke (.helper .assertTrue) [.tupleObject object] =
+      if object.contents.isEmpty then .error (.raised (.assertionError .emptyTuple)) else .ok .none := by
+  rcases object with ⟨_, items⟩
+  cases items <;> exact invoke_iff.mpr (by constructor)
 
 theorem invoke_tuple_reference (object : Core.Module.TupleDispatch.Object) :
     invoke (.builtin .tuple) [.tupleObject object] = .ok (.tupleObject object) :=
@@ -85,7 +126,7 @@ theorem invoke_assertEqual_text (left right : Core.Text) :
   · exact invoke_iff.mpr (.equalText left right ‹_›)
   · exact invoke_iff.mpr (.unequalText left right ‹_›)
 
-theorem invoke_assertEqual_tuple (left right : List Core.Module.Value) :
+theorem invoke_assertEqual_tuple (left right : List Core.Module.TupleDispatch.Element) :
     invoke (.helper .assertEqual) [.returnedTuple left, .returnedTuple right] =
       if Core.Module.TupleDispatch.equalContents left right then .ok .none
       else .error (.raised (.assertionError (.tuplePair left right))) := by
@@ -116,6 +157,37 @@ theorem invoke_isinstance_bool_int (value : Bool) :
 theorem invoke_isinstance_int_bool (value : Int) :
     invoke (.builtin .isinstance) [.int value, .builtin .bool] = .ok (.bool false) :=
   invoke_iff.mpr (.isinstance .intAgainstBool)
+
+theorem invoke_isinstance_int_int (value : Int) :
+    invoke (.builtin .isinstance) [.int value, .builtin .int] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .intAgainstInt)
+
+theorem invoke_isinstance_float_float (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .float] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .floatAgainstFloat)
+
+theorem invoke_isinstance_float_int (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .int] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .floatAgainstBoolOrInt)
+
+theorem invoke_isinstance_float_bool (value : Silmaril.Numeric.Ieee754.F64.Finite) :
+    invoke (.builtin .isinstance) [.float64 value, .builtin .bool] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .floatAgainstBoolOrInt)
+
+theorem invoke_isinstance_int_float (value : Int) :
+    invoke (.builtin .isinstance) [.int value, .builtin .float] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .boolOrIntAgainstFloat)
+
+theorem invoke_isinstance_bool_float (value : Bool) :
+    invoke (.builtin .isinstance) [.bool value, .builtin .float] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .boolOrIntAgainstFloat)
+
+theorem resolveCall_firstOperandError {slots : Nat} {space : Namespace} {locals : Locals slots}
+    {callee operand : Operand slots} {tail : List (Operand slots)} {function : Value} {error : Failure}
+    (found : callee.eval space locals = .ok function)
+    (failed : operand.eval space locals = .error error) :
+    resolveCall space locals callee (operand :: tail) = .error error := by
+  simp [resolveCall, Operand.evalList, Except.bind, Except.map, found, failed]
 
 theorem invoke_assertIs_bool (left right : Bool) :
     invoke (.helper .assertIs) [.bool left, .bool right] =

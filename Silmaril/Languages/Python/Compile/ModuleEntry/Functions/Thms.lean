@@ -5,6 +5,7 @@ public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuar
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Thms
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Thms
 import Silmaril.Languages.Python.Core.Binary64.Thms
+import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.TextSlice
 
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions
@@ -21,7 +22,10 @@ theorem CallValueTranslation.float64_nearestEven {scope : Source.Scope}
       value.val.signBit = negative ∧
       NearestEven magnitude (Core.Binary64.decimalMagnitude coefficient exponent) (magnitudeBits value.val.bits).toNat := by
   cases checked with
-  | float64 literal rounded => exact ⟨_, _, _, literal, Core.Binary64.ofDecimal_nearestEven rounded⟩
+  | float64 literal =>
+    cases literal with
+    | @rounded negative coefficient exponent shape result =>
+      exact ⟨negative, coefficient, exponent, shape, Core.Binary64.ofDecimal_nearestEven result⟩
 
 theorem lowerArgumentOperand_numeric (scope : Source.Scope) {source : Source.Expr}
     {result : NumericArgument.Result} (checked : NumericArgument.check source = some result) :
@@ -102,6 +106,7 @@ theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}
     (lowerPlan tree index (.if_ guard yes no :: rest)).toOption.map Subtype.val =
       some (selected.map .scalar ++ tail) := by
   simp [lowerPlan, ClosedGuard.ordinaryIf_omitted_none checked, callSite?, binding?,
+    Proofs.Languages.Python.Compile.ModuleEntry.Functions.ordinaryIf_textSliceGuard_none checked,
     ModuleEntry.statements_complete checked, remaining,
     Except.mapError, Except.toOption]
   rfl

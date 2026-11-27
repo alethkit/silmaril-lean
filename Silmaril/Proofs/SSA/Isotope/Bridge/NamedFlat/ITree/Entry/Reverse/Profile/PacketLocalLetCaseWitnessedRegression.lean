@@ -1,6 +1,8 @@
 module
 
 import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.PacketLocal.LetCase.Witnessed.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Admission.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Materialize.Outline.Admission.Thms
 
 /-! # A written LetCase request and two ordered live-out exits -/
 
@@ -14,7 +16,7 @@ open LambdaSSA.Semantics (Env extend)
 open LambdaSSA.Semantics.Interaction (region)
 open LambdaSSA.Semantics.Interaction.Typed (AtomValues ModelTree)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
-open Silmaril.Elgot.ITree (vis diverge vis_bind)
+open Silmaril.Elgot.ITree (vis diverge vis_bind diverge_bind)
 open Isotope.Semantics (encodeValue)
 open Isotope.Institution.LetCase.WeakITree (algebra equationRoom)
 
@@ -245,12 +247,16 @@ private def mixedLabels (i : Fin (mixedGrammar.toTable.size + 1)) : Label := ⟨
 private def mixedSlots : List (Fin 2) := [1, 0]
 private def mixedRegisters : Registers Register := freshRegisters 2
 
+example : inferredSlots (fields := fields) grammar = [] := by decide
+
+example : inferredSlots (fields := mixedFields) mixedGrammar = mixedSlots := by decide
+
 private theorem mixedCompiled_ok :
-    (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).isSome = true := by
+    (compileInferred? (fields := mixedFields) mixedGrammar mixedRegisters mixedLabels).isSome = true := by
   decide +kernel
 
-private def mixedCompiled : CompiledList (fields := mixedFields) mixedGrammar mixedSlots :=
-  (compileCarryList? (fields := mixedFields) mixedGrammar mixedSlots mixedRegisters mixedLabels).get mixedCompiled_ok
+private def mixedCompiled : CompiledList (fields := mixedFields) mixedGrammar (inferredSlots mixedGrammar) :=
+  (compileInferred? (fields := mixedFields) mixedGrammar mixedRegisters mixedLabels).get mixedCompiled_ok
 
 example : packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 0 = .product (.product .unit num) choice ∧
     packetTypesList (fields := mixedFields) mixedGrammar mixedSlots 1 = .product (.product num num) choice := by decide
@@ -291,5 +297,525 @@ example : (Program.ofCFGEntry mixedGrammar.toTable.toFlat_hasType).denote model 
 
 example : (equationRoom sig).Sat (algebra (P := sig) model) mixedCompiled.equation :=
   mixedCompiled.satisfies model
+
+-- The oldest slot is used at entry only. The row reads the newer sum
+-- underneath a product decoder and the middle number inside a case arm's
+-- nested operand. Packet and local reads must not select caller slots.
+private abbrev shiftedContext : BoundCtx (Ty SortName) 3 := .snoc (.snoc context num) choice
+
+private def shiftedTable : LambdaSSA.FiniteCFG sig.Instr 1 1 3 :=
+  ⟨.br 0 (.bv 2), fun _ =>
+    .let₂ (.pair (.bv 0) .unit)
+      (.case (.bv 3)
+        (.br 1 (.let₁ (.bv 0) (.pair (.bv 0) (.bv 6))))
+        (.br 1 (.pair (.bv 0) (.bv 2))))⟩
+
+example : shiftedTable.HasType shiftedContext (fun _ => num) (fun _ => .product num num) :=
+  ⟨.br .bv, fun _ => .let₂ (.pair .bv .unit)
+    (.case .bv (.br (.let₁ .bv (.pair .bv .bv))) (.br (.pair .bv .bv)))⟩
+
+open Capture.Carry (graphList inferSlots infer_packetOnly) in
+example : inferSlots shiftedTable = [1, 0] ∧
+    ((graphList shiftedTable (inferSlots shiftedTable)).block 0).erase.Scoped 2 1 :=
+  ⟨by decide, infer_packetOnly shiftedTable 0⟩
+
+-- A packet-only row can still fail the named grammar's operand check.
+open Capture.Carry (graphList inferSlots) in
+example : (lower (freshRegisters 3) (fun i => (⟨i.val⟩ : Register))
+    (fun _ => (⟨7⟩ : Label)) (fun _ => ⟨22⟩)
+    (graphList shiftedTable (inferSlots shiftedTable))).isNone = true := by decide
+
+-- The original variable alias contracts in the case arm. Its old flat
+-- pair was not a mutable exit packet: the second number was plain data.
+open Capture.Carry (graphList inferSlots infer_packetOnly) in
+example :
+    (Materialize.graph shiftedTable).block 0 =
+      .let₂ (.pair (.bv 0) .unit)
+        (.case (.bv 3) (.br 1 (.pair (.bv 0) (.bv 5))) (.br 1 (.pair (.bv 0) (.bv 2)))) ∧
+    (lower (freshRegisters 3) (fun i => (⟨i.val⟩ : Register))
+      (fun _ => (⟨7⟩ : Label)) (fun _ => ⟨22⟩)
+      (graphList (Materialize.graph shiftedTable) (inferSlots (Materialize.graph shiftedTable)))).isSome = true :=
+  ⟨by decide, by decide⟩
+
+private abbrev shiftedExits : List Label := [⟨22⟩]
+private def shiftedOldType (_ : Fin shiftedExits.length) : Ty SortName := .product num num
+private abbrev shiftedPorts := numberedInterface shiftedContext shiftedExits shiftedOldType
+
+example (old : Fin shiftedExits.length → Ty SortName) (fields' : Label → List (Register × Ty SortName)) :
+    (LiveOut.exitInterface (numberedInterface shiftedContext shiftedExits old) fields').external ⟨0, Nat.zero_lt_succ 0⟩ ≠
+      .product num num := by
+  change Ty.product (old 0) (LiveOut.recordType (fields' ⟨22⟩)) ≠ .product num num
+  cases fields' ⟨22⟩ <;> simp [LiveOut.recordType, num]
+
+-- Keep both original payload components and explicitly project the middle
+-- caller number as a live-out. The entry's leading operand let performs a
+-- real request, so materialization must bind it before the internal jump.
+private def shiftedFields (_ : Label) : List (Register × Ty SortName) := [(⟨7⟩, num)]
+
+private def shiftedLiveTable : LambdaSSA.FiniteCFG sig.Instr 1 shiftedExits.length 3 :=
+  ⟨.br 0 (.let₁ (.op .pick (.bv 2)) (.bv 3)), fun _ =>
+    .let₂ (.pair (.bv 0) .unit)
+      (.case (.bv 3)
+        (.br 1 (.let₁ (.bv 0) (.pair (.pair (.bv 0) (.bv 6)) (.pair (.bv 6) .unit))))
+        (.br 1 (.pair (.pair (.bv 0) (.bv 2)) (.pair (.bv 5) .unit))))⟩
+
+private theorem shiftedTyped :
+    shiftedLiveTable.HasType shiftedContext (fun _ => num)
+      (LiveOut.exitInterface shiftedPorts shiftedFields).external :=
+  ⟨.br (.let₁ (.op .bv) .bv), fun _ => .let₂ (.pair .bv .unit)
+    (.case .bv (.br (.let₁ .bv (.pair (.pair .bv .bv) (.pair .bv .unit))))
+      (.br (.pair (.pair .bv .bv) (.pair .bv .unit))))⟩
+
+private def shiftedRegisters : Registers Register := freshRegisters 3
+private def shiftedLabels (_ : Fin 1) : Label := ⟨7⟩
+
+private def shiftedCompile :=
+  compileFlatInferred? (P := sig) (context := shiftedContext) (external := shiftedOldType) (fields := shiftedFields)
+    (Materialize.graph shiftedLiveTable) (fun _ => num) shiftedRegisters shiftedLabels
+
+private theorem shiftedCompile_ok : shiftedCompile.isSome = true := by decide +kernel
+private def shiftedCompiled := shiftedCompile.get shiftedCompile_ok
+
+example : Capture.Carry.inferSlots (Materialize.graph shiftedLiveTable) = [1, 0] := by decide
+
+example : shiftedCompiled.lowered.source.entry =
+    .let1 ⟨4⟩ (.app .pick (.var ⟨2⟩))
+      (.term (.br ⟨7⟩ (.pair (.pair (.var ⟨2⟩) (.var ⟨1⟩)) (.var ⟨0⟩)))) := by decide +kernel
+
+private def overwritesInput : Registers Register :=
+  { shiftedRegisters with localAt := fun depth => if depth = 0 then ⟨2⟩ else shiftedRegisters.localAt depth }
+
+example : (compileFlatInferred? (P := sig) (context := shiftedContext) (external := shiftedOldType)
+    (fields := shiftedFields) (Materialize.graph shiftedLiveTable) (fun _ => num)
+    overwritesInput shiftedLabels).isNone = true := by decide +kernel
+
+example (x : Record.Input shiftedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C (Region.packedInputType shiftedContext.toList) x))
+      (Program.ofCFGEntry shiftedTyped).code =
+    LiveOut.observe model shiftedPorts shiftedFields shiftedCompiled.lowered.source x :=
+  Materialize.packed_observe shiftedTyped model shiftedCompiled x ambient
+
+example (x : Record.Input shiftedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C (Region.packedInputType shiftedContext.toList) x))
+      (Program.ofCFGEntry shiftedTyped).code =
+    region model.raw (extend ambient (encodeValue C (Region.packedInputType shiftedContext.toList) x))
+      shiftedCompiled.admission.program.code :=
+  Materialize.packed_roundTrip shiftedTyped model shiftedCompiled x ambient
+
+private def shiftedInput (old middle chosen : Atom) (right : Bool) : Record.Input shiftedContext :=
+  (((PUnit.unit, old), middle), if right then Sum.inr chosen else Sum.inl chosen)
+
+private def number (x : Atom) : Value Runtime := .atom ⟨⟨()⟩, x⟩
+
+private def shiftedPayload (old middle chosen : Atom) (right : Bool) : Value Runtime :=
+  .pair (.pair (number chosen) (number (if right then old else middle))) (.pair (number middle) .unit)
+
+open LambdaSSA.Semantics.Interaction (BlockInput splitTransfer) in
+private theorem shifted_raw (old middle chosen : Atom) (right : Bool) :
+    region model.raw (inputEnv shiftedContext (shiftedInput old middle chosen right)) shiftedLiveTable.erase =
+      vis Event.choose (fun _ => pure (0, shiftedPayload old middle chosen right)) := by
+  let env := inputEnv shiftedContext (shiftedInput old middle chosen right)
+  let step (p : BlockInput Runtime 1) :=
+    region model.raw (extend env p.2) (shiftedLiveTable.block p.1).erase >>=
+      fun out => pure (splitTransfer 1 out)
+  have entry : region model.raw env shiftedLiveTable.entry.erase =
+      vis Event.choose (fun _ => pure (0, number old)) := by
+    simp only [shiftedLiveTable, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+      LambdaSSA.Semantics.Interaction.term, pure_bind]
+    let requested : ModelTree Event (Value Runtime) :=
+      vis Event.choose (fun reply => pure (if reply then .inr (number old) else .inl (number old)))
+    change ((requested >>= fun _ => pure (number old)) >>= fun v => pure (0, v)) = _
+    simp only [requested, vis_bind, pure_bind]
+  have row : step (0, number old) = pure (.inl (0, shiftedPayload old middle chosen right)) := by
+    cases right <;>
+      simp only [step, shiftedLiveTable, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, pure_bind] <;>
+      repeat' (first | rfl | erw [pure_bind])
+  have loop : Silmaril.Elgot.iter step (0, number old) = pure (0, shiftedPayload old middle chosen right) := by
+    rw [congrFun (Silmaril.Elgot.ITree.iterate_fixpoint step) (0, number old), row, pure_bind]
+    rfl
+  change (region model.raw env shiftedLiveTable.entry.erase >>= fun out =>
+    Sum.elim pure (Silmaril.Elgot.iter step) (splitTransfer 1 out)) = _
+  rw [entry, vis_bind]
+  simp only [pure_bind]
+  exact congrArg (vis Event.choose) (funext fun _ => loop)
+
+example (old middle chosen : Atom) (right : Bool) :
+    LiveOut.observe model shiftedPorts shiftedFields shiftedCompiled.lowered.source
+      (shiftedInput old middle chosen right) =
+      vis Event.choose (fun _ => pure (0, .inl (shiftedPayload old middle chosen right))) := by
+  let x := shiftedInput old middle chosen right
+  let ambient : Env Runtime := fun _ => .unit
+  rw [← Materialize.packed_observe shiftedTyped model shiftedCompiled x ambient, ← inputEnv_packet]
+  have contextTree := Capture.packed_context_tree model.raw shiftedTyped ambient (inputEnv shiftedContext x)
+  change region model.raw (extend ambient (Capture.packEnv 3 (inputEnv shiftedContext x)))
+    (Program.ofCFGEntry shiftedTyped).code = _
+  rw [show region model.raw (extend ambient (Capture.packEnv 3 (inputEnv shiftedContext x)))
+      (Program.ofCFGEntry shiftedTyped).code =
+      (region model.raw (inputEnv shiftedContext x) shiftedLiveTable.erase >>= fun p =>
+        pure (LambdaSSA.FiniteCFG.packedTreeOutput p)) from contextTree]
+  rw [shifted_raw, vis_bind]
+  simp only [pure_bind, LambdaSSA.FiniteCFG.packedTreeOutput, Region.packedExitValue]
+
+section Outlined
+
+open Materialize.Outline (Selection)
+
+private def outlineExits (i : Fin exits.length) : Ty SortName :=
+  if i.val = 0 then choice else num
+
+-- The old row packet is at register 3 on the bypass, and at register 5
+-- after the fresh row's additional packet decoder.
+private def outlineFields (k : Label) : List (Register × Ty SortName) :=
+  if k = ⟨22⟩ then [(⟨5⟩, num)] else [(⟨3⟩, num)]
+
+private abbrev outlinePorts := numberedInterface mixedContext exits outlineExits
+private abbrev outlineResults := (LiveOut.exitInterface outlinePorts outlineFields).external
+private abbrev outlineInputType := Region.packedInputType mixedContext.toList
+
+private def outlineSource : LambdaSSA.FiniteCFG sig.Instr 1 exits.length 2 :=
+  ⟨.br 0 (.bv 1), fun _ =>
+    .case (.bv 1)
+      (.br 1 (.let₁ (.op .pick (.bv 0)) (.pair (.bv 0) (.pair (.bv 2) .unit))))
+      (.br 2 (.pair (.bv 0) (.pair (.bv 1) .unit)))⟩
+
+private theorem outlineTyped : outlineSource.HasType mixedContext (fun _ => num) outlineResults :=
+  ⟨.br .bv, fun _ => .case .bv (.br (.let₁ (.op .bv) (.pair .bv (.pair .bv .unit))))
+    (.br (.pair .bv (.pair .bv .unit)))⟩
+
+private def outlineSelection : Selection outlineSource :=
+  (Materialize.Outline.read outlineSource 0).get (by decide)
+
+private theorem outlineArm : outlineSelection.arm.HasType mixedContext
+    (SSA.FiniteSum.append (fun _ => num) outlineResults) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair .bv (.pair .bv .unit)), .br (.pair .bv (.pair .bv .unit))⟩
+
+private def outlineLabels (i : Fin 2) : Label := ⟨7 + i.val⟩
+
+private def outlineCompile :=
+  Materialize.Outline.compile? (P := sig) (context := mixedContext) (external := outlineExits)
+    (fields := outlineFields) outlineSelection (fun _ => num) num (freshRegisters 2) outlineLabels
+
+private theorem outlineCompile_ok : outlineCompile.isSome = true := by decide +kernel
+private def outlineAccepted := outlineCompile.get outlineCompile_ok
+
+example : (compileFlatInferred? (P := sig) (context := mixedContext) (external := outlineExits)
+    (fields := outlineFields) (Materialize.graph outlineSource) (fun _ => num) (freshRegisters 2)
+    (fun _ => ⟨7⟩)).isNone = true := by decide
+
+example : Materialize.Outline.packets (fun _ : Fin 1 => num) outlineSelection.selected num 1 =
+    .product num num := by decide
+
+example : (Materialize.graph (Materialize.Outline.graph outlineSelection)).block 0 =
+    .case (.bv 1) (.br 1 (.pair (.bv 1) (.bv 0)))
+      (.br 3 (.pair (.bv 0) (.pair (.bv 1) .unit))) := by decide
+
+example : (Materialize.graph (Materialize.Outline.graph outlineSelection)).block 1 =
+    .let₂ (.bv 0) (.let₁ (.op .pick (.bv 0))
+      (.br 2 (.pair (.bv 0) (.pair (.bv 2) .unit)))) := by decide
+
+example : Capture.Carry.inferSlots (Materialize.graph (Materialize.Outline.graph outlineSelection)) = [0] := by decide
+
+example (x : Record.Input mixedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType x))
+      (Program.ofCFGEntry outlineTyped).code =
+    region model.raw (extend ambient (encodeValue C outlineInputType x)) outlineAccepted.admission.program.code :=
+  Materialize.Outline.packed_roundTrip outlineSelection outlineTyped outlineArm model outlineAccepted x ambient
+
+private def outlineInput (old chosen : Atom) (right : Bool) : Record.Input mixedContext :=
+  ((PUnit.unit, old), if right then Sum.inr chosen else Sum.inl chosen)
+
+private def outlineResult (old : Atom) (value : Value Runtime) : Value Runtime :=
+  .pair value (.pair (number old) .unit)
+
+private def replyValue (chosen : Atom) (reply : Bool) : Value Runtime :=
+  if reply then .inr (number chosen) else .inl (number chosen)
+
+open LambdaSSA.Semantics.Interaction (BlockInput splitTransfer) in
+private theorem outline_raw (old chosen : Atom) (right : Bool) :
+    region model.raw (inputEnv mixedContext (outlineInput old chosen right)) outlineSource.erase =
+      if right then pure (1, outlineResult old (number chosen))
+      else vis Event.choose (fun reply => pure (0, outlineResult old (replyValue chosen reply))) := by
+  let env := inputEnv mixedContext (outlineInput old chosen right)
+  let step (p : BlockInput Runtime 1) :=
+    region model.raw (extend env p.2) (outlineSource.block p.1).erase >>= fun out =>
+      pure (splitTransfer 1 out)
+  have first : region model.raw env outlineSource.entry.erase = pure (0, number old) := by
+    simp only [outlineSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind]
+    rfl
+  change (region model.raw env outlineSource.entry.erase >>= fun out =>
+    Sum.elim pure (Silmaril.Elgot.iter step) (splitTransfer 1 out)) = _
+  rw [first, pure_bind]
+  change Silmaril.Elgot.iter step (0, number old) = _
+  rw [congrFun (Silmaril.Elgot.ITree.iterate_fixpoint step) (0, number old)]
+  cases right
+  · simp only [step, outlineSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind, Bool.false_eq_true, ↓reduceIte, bind_assoc]
+    let request : ModelTree Event (Value Runtime) := vis Event.choose (fun reply => pure (replyValue chosen reply))
+    change ((request >>= fun v => pure ((1 : Nat), outlineResult old v)) >>= _) = _
+    simp only [request, vis_bind, pure_bind]
+    rfl
+  · simp only [step, outlineSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind, ↓reduceIte]
+    repeat' (first | rfl | erw [pure_bind])
+
+example (old chosen : Atom) (right : Bool) :
+    LiveOut.observe model outlinePorts outlineFields outlineAccepted.lowered.source
+      (outlineInput old chosen right) =
+    if right then pure (0, .inr (.inl (outlineResult old (number chosen))))
+    else vis Event.choose (fun reply => pure (0, .inl (outlineResult old (replyValue chosen reply)))) := by
+  let x := outlineInput old chosen right
+  let ambient : Env Runtime := fun _ => .unit
+  rw [← Materialize.Outline.packed_observe outlineSelection outlineTyped outlineArm model outlineAccepted x ambient,
+    ← inputEnv_packet]
+  have packed := Capture.packed_context_tree model.raw outlineTyped ambient (inputEnv mixedContext x)
+  rw [show region model.raw (extend ambient (Capture.packEnv 2 (inputEnv mixedContext x)))
+      (Program.ofCFGEntry outlineTyped).code =
+      (region model.raw (inputEnv mixedContext x) outlineSource.erase >>= fun p =>
+        pure (LambdaSSA.FiniteCFG.packedTreeOutput p)) from packed, outline_raw]
+  cases right <;> simp only [Bool.false_eq_true, ↓reduceIte, pure_bind, vis_bind,
+    LambdaSSA.FiniteCFG.packedTreeOutput, Region.packedExitValue]
+
+-- The right operand requests on the old packet and returns a product.
+-- The optional left operand requests on the selected payload instead.
+private def twoSideExits (i : Fin exits.length) : Ty SortName :=
+  if i.val = 0 then choice else .product choice num
+
+private def twoSideFields (both : Bool) (k : Label) : List (Register × Ty SortName) :=
+  if k = ⟨22⟩ then [(if both then ⟨5⟩ else ⟨3⟩, num)] else [(⟨6⟩, num)]
+
+private abbrev twoSidePorts := numberedInterface mixedContext exits twoSideExits
+private abbrev twoSideResults (both : Bool) := (LiveOut.exitInterface twoSidePorts (twoSideFields both)).external
+
+private def twoSideSource (both : Bool) : LambdaSSA.FiniteCFG sig.Instr 1 exits.length 2 :=
+  ⟨.br 0 (.bv 1), fun _ =>
+    .case (.bv 1)
+      (if both then .br 1 (.let₁ (.op .pick (.bv 0)) (.pair (.bv 0) (.pair (.bv 2) .unit)))
+        else .br 1 (.pair (.bv 2) (.pair (.bv 1) .unit)))
+      (.br 2 (.let₁ (.op .pick (.bv 1)) (.pair (.pair (.bv 0) (.bv 2)) (.pair (.bv 1) .unit))))⟩
+
+private theorem twoSideTyped (both : Bool) : (twoSideSource both).HasType mixedContext (fun _ => num)
+    (twoSideResults both) := by
+  cases both
+  · exact ⟨.br .bv, fun _ =>
+      .case .bv (.br (.pair .bv (.pair .bv .unit))) (.br (.let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit))))⟩
+  · exact ⟨.br .bv, fun _ =>
+      .case .bv (.br (.let₁ (.op .bv) (.pair .bv (.pair .bv .unit))))
+        (.br (.let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit))))⟩
+
+private def rightSelection : Selection (twoSideSource false) :=
+  (Materialize.Outline.read (twoSideSource false) 0 .right).get (by decide)
+
+private theorem rightArm : rightSelection.arm.HasType mixedContext
+    (SSA.FiniteSum.append (fun _ => num) (twoSideResults false)) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit)), .br (.pair .bv (.pair .bv .unit))⟩
+
+private def rightCompile :=
+  Materialize.Outline.compile? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields false) rightSelection (fun _ => num) num (freshRegisters 2) outlineLabels
+
+private theorem rightCompile_ok : rightCompile.isSome = true := by decide +kernel
+private def rightAccepted := rightCompile.get rightCompile_ok
+
+private def twice := (Materialize.Outline.readBoth (twoSideSource true) 0).get (by decide)
+
+private theorem twiceLeft : twice.first.arm.HasType mixedContext
+    (SSA.FiniteSum.append (fun _ => num) (twoSideResults true)) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair .bv (.pair .bv .unit)), .br (.let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit)))⟩
+
+private theorem twiceRight : twice.second.arm.HasType mixedContext
+    (SSA.FiniteSum.append (twice.first.packetTypes (fun _ => num) num num) (twoSideResults true)) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit)), .br (.pair .bv .bv)⟩
+
+private def twiceLabels (i : Fin 3) : Label := ⟨7 + i.val⟩
+
+private def twiceCompile :=
+  Materialize.Outline.compileBoth? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields true) twice (fun _ => num) num num (freshRegisters 2) twiceLabels
+
+private theorem twiceCompile_ok : twiceCompile.isSome = true := by decide +kernel
+private def twiceAccepted := twiceCompile.get twiceCompile_ok
+
+-- The second pass leaves the first fresh destination at its old number.
+example : (Materialize.Outline.graph twice.second).block 0 =
+    .case (.bv 1) (.br 1 (.pair (.bv 1) (.bv 0))) (.br 2 (.pair (.bv 1) (.bv 0))) := by decide
+
+private def rightResult (old chosen : Atom) (reply : Bool) : Value Runtime :=
+  outlineResult chosen (.pair (replyValue old reply) (number old))
+
+open LambdaSSA.Semantics.Interaction (BlockInput splitTransfer) in
+private theorem twoSide_raw (old chosen : Atom) (both right : Bool) :
+    region model.raw (inputEnv mixedContext (outlineInput old chosen right)) (twoSideSource both).erase =
+      if right then vis Event.choose (fun reply => pure (1, rightResult old chosen reply))
+      else if both then vis Event.choose (fun reply => pure (0, outlineResult old (replyValue chosen reply)))
+      else pure (0, outlineResult old (.inl (number chosen))) := by
+  let env := inputEnv mixedContext (outlineInput old chosen right)
+  let step (p : BlockInput Runtime 1) :=
+    region model.raw (extend env p.2) ((twoSideSource both).block p.1).erase >>= fun out =>
+      pure (splitTransfer 1 out)
+  have first : region model.raw env (twoSideSource both).entry.erase = pure (0, number old) := by
+    simp only [twoSideSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind]
+    rfl
+  change (region model.raw env (twoSideSource both).entry.erase >>= fun out =>
+    Sum.elim pure (Silmaril.Elgot.iter step) (splitTransfer 1 out)) = _
+  rw [first, pure_bind]
+  change Silmaril.Elgot.iter step (0, number old) = _
+  rw [congrFun (Silmaril.Elgot.ITree.iterate_fixpoint step) (0, number old)]
+  cases right <;> cases both <;>
+    simp only [step, twoSideSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind, Bool.false_eq_true, ↓reduceIte, bind_assoc]
+  · repeat' (first | rfl | erw [pure_bind])
+  · let request : ModelTree Event (Value Runtime) := vis Event.choose (fun reply => pure (replyValue chosen reply))
+    change ((request >>= fun v => pure ((1 : Nat), outlineResult old v)) >>= _) = _
+    simp only [request, vis_bind, pure_bind]
+    rfl
+  all_goals
+    let request : ModelTree Event (Value Runtime) := vis Event.choose (fun reply => pure (replyValue old reply))
+    change ((request >>= fun v => pure ((2 : Nat), outlineResult chosen (.pair v (number old)))) >>= _) = _
+    simp only [request, vis_bind, pure_bind]
+    rfl
+
+private theorem twoSide_packed (old chosen : Atom) (both right : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType (outlineInput old chosen right)))
+      (Program.ofCFGEntry (twoSideTyped both)).code =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else if both then vis Event.choose (fun reply => pure (0, .inl (outlineResult old (replyValue chosen reply))))
+    else pure (0, .inl (outlineResult old (.inl (number chosen)))) := by
+  let x := outlineInput old chosen right
+  rw [← inputEnv_packet]
+  have packed := Capture.packed_context_tree model.raw (twoSideTyped both) ambient (inputEnv mixedContext x)
+  rw [show region model.raw (extend ambient (Capture.packEnv 2 (inputEnv mixedContext x)))
+      (Program.ofCFGEntry (twoSideTyped both)).code =
+      (region model.raw (inputEnv mixedContext x) (twoSideSource both).erase >>= fun p =>
+        pure (LambdaSSA.FiniteCFG.packedTreeOutput p)) from packed, twoSide_raw]
+  cases right <;> cases both <;> simp only [Bool.false_eq_true, ↓reduceIte, pure_bind, vis_bind,
+    LambdaSSA.FiniteCFG.packedTreeOutput, Region.packedExitValue]
+
+example (old chosen : Atom) (right : Bool) :
+    LiveOut.observe model twoSidePorts (twoSideFields false) rightAccepted.lowered.source
+      (outlineInput old chosen right) =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else pure (0, .inl (outlineResult old (.inl (number chosen)))) :=
+  (Materialize.Outline.packed_observe rightSelection (twoSideTyped false) rightArm model rightAccepted
+    (outlineInput old chosen right) (fun _ => .unit)).symm.trans
+    (twoSide_packed old chosen false right (fun _ => .unit))
+
+example (old chosen : Atom) (right : Bool) :
+    LiveOut.observe model twoSidePorts (twoSideFields true) twiceAccepted.lowered.source
+      (outlineInput old chosen right) =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else vis Event.choose (fun reply => pure (0, .inl (outlineResult old (replyValue chosen reply)))) :=
+  (twice.packed_observe (twoSideTyped true) twiceLeft twiceRight model twiceAccepted
+    (outlineInput old chosen right) (fun _ => .unit)).symm.trans
+    (twoSide_packed old chosen true right (fun _ => .unit))
+
+example (x : Record.Input mixedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType x))
+      (Program.ofCFGEntry (twoSideTyped true)).code =
+    region model.raw (extend ambient (encodeValue C outlineInputType x)) twiceAccepted.admission.program.code :=
+  twice.packed_roundTrip (twoSideTyped true) twiceLeft twiceRight model twiceAccepted x ambient
+
+-- The right outline keeps a bypass to the selecting row on old feedback.
+private def backedgeSource : LambdaSSA.FiniteCFG sig.Instr 1 exits.length 2 :=
+  ⟨.br 0 (.bv 1), fun _ => .case (.bv 1) (.br 0 (.bv 1))
+    (.br 2 (.let₁ (.op .pick (.bv 1)) (.pair (.pair (.bv 0) (.bv 2)) (.pair (.bv 1) .unit))))⟩
+
+private def backedgeSelection :=
+  (Materialize.Outline.read backedgeSource 0 .right).get (by decide)
+
+private theorem backedgeTyped : backedgeSource.HasType mixedContext (fun _ => num) (twoSideResults false) :=
+  ⟨.br .bv, fun _ => .case .bv (.br .bv) (.br (.let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit))))⟩
+
+private theorem backedgeArm : backedgeSelection.arm.HasType mixedContext
+    (SSA.FiniteSum.append (fun _ => num) (twoSideResults false)) num num num :=
+  ⟨.bv, .let₁ (.op .bv) (.pair (.pair .bv .bv) (.pair .bv .unit)), .br .bv⟩
+
+private def backedgeCompile :=
+  Materialize.Outline.compileChecked? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields false) backedgeSelection (fun _ => num) num (freshRegisters 2) outlineLabels
+
+private theorem backedgeCompile_ok : backedgeCompile.isSome = true := by decide +kernel
+private def backedgeAccepted := backedgeCompile.get backedgeCompile_ok
+
+example : Capture.Carry.inferSlots (Materialize.graph (Materialize.Outline.graph backedgeSelection)) = [0] :=
+  by decide
+
+example : backedgeAccepted.admission.acyclicCheck = false := by decide +kernel
+
+example : (Materialize.Outline.compile? (P := sig) (context := mixedContext) (external := twoSideExits)
+    (fields := twoSideFields false) backedgeSelection (fun _ => num) num (freshRegisters 2)
+    outlineLabels).isNone = true := by decide +kernel
+
+open LambdaSSA.Semantics.Interaction (BlockInput splitTransfer) in
+private theorem backedge_raw (old chosen : Atom) (right : Bool) :
+    region model.raw (inputEnv mixedContext (outlineInput old chosen right)) backedgeSource.erase =
+      if right then vis Event.choose (fun reply => pure (1, rightResult old chosen reply)) else diverge := by
+  let env := inputEnv mixedContext (outlineInput old chosen right)
+  let step (p : BlockInput Runtime 1) :=
+    region model.raw (extend env p.2) (backedgeSource.block p.1).erase >>= fun out =>
+      pure (splitTransfer 1 out)
+  have entry : region model.raw env backedgeSource.entry.erase = pure (0, number old) := by
+    simp only [backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind]
+    rfl
+  change (region model.raw env backedgeSource.entry.erase >>= fun out =>
+    Sum.elim pure (Silmaril.Elgot.iter step) (splitTransfer 1 out)) = _
+  rw [entry, pure_bind]
+  change Silmaril.Elgot.iter step (0, number old) = _
+  cases right
+  · have spin : step = fun p => pure (.inr p) := by
+      funext p
+      rcases p with ⟨i, packet⟩
+      have eq : i = 0 := Subsingleton.elim _ _
+      subst i
+      simp only [step, backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+        LambdaSSA.Semantics.Interaction.term, pure_bind]
+      repeat' (first | rfl | erw [pure_bind])
+    rw [spin]
+    exact Silmaril.Elgot.ITree.iterate_forever (0, number old)
+  · rw [congrFun (Silmaril.Elgot.ITree.iterate_fixpoint step) (0, number old)]
+    simp only [step, backedgeSource, LambdaSSA.Flat.erase, region, Morphism.CaseSSA.erase,
+      LambdaSSA.Semantics.Interaction.term, pure_bind, bind_assoc]
+    let request : ModelTree Event (Value Runtime) := vis Event.choose (fun reply => pure (replyValue old reply))
+    change ((request >>= fun v => pure ((2 : Nat), outlineResult chosen (.pair v (number old)))) >>= _) = _
+    simp only [request, vis_bind, pure_bind]
+    rfl
+
+private theorem backedge_packed (old chosen : Atom) (right : Bool) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType (outlineInput old chosen right)))
+      (Program.ofCFGEntry backedgeTyped).code =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else diverge := by
+  let x := outlineInput old chosen right
+  rw [← inputEnv_packet]
+  have packed := Capture.packed_context_tree model.raw backedgeTyped ambient (inputEnv mixedContext x)
+  rw [show region model.raw (extend ambient (Capture.packEnv 2 (inputEnv mixedContext x)))
+      (Program.ofCFGEntry backedgeTyped).code =
+      (region model.raw (inputEnv mixedContext x) backedgeSource.erase >>= fun p =>
+        pure (LambdaSSA.FiniteCFG.packedTreeOutput p)) from packed, backedge_raw]
+  cases right <;> simp only [Bool.false_eq_true, ↓reduceIte, pure_bind, vis_bind, diverge_bind,
+    LambdaSSA.FiniteCFG.packedTreeOutput, Region.packedExitValue]
+
+-- Left revisits the same row with the same packet forever. Right requests
+-- on that packet and returns at the second ordered exit with the payload live-out.
+example (old chosen : Atom) (right : Bool) :
+    LiveOut.observe model twoSidePorts (twoSideFields false) backedgeAccepted.lowered.source
+      (outlineInput old chosen right) =
+    if right then vis Event.choose (fun reply => pure (0, .inr (.inl (rightResult old chosen reply))))
+    else diverge :=
+  (Materialize.Outline.checked_packed_observe backedgeSelection backedgeTyped backedgeArm model
+    backedgeAccepted (outlineInput old chosen right) (fun _ => .unit)).symm.trans
+    (backedge_packed old chosen right (fun _ => .unit))
+
+example (x : Record.Input mixedContext) (ambient : Env Runtime) :
+    region model.raw (extend ambient (encodeValue C outlineInputType x))
+      (Program.ofCFGEntry backedgeTyped).code =
+    region model.raw (extend ambient (encodeValue C outlineInputType x)) backedgeAccepted.admission.program.code :=
+  Materialize.Outline.checked_packed_roundTrip backedgeSelection backedgeTyped backedgeArm model
+    backedgeAccepted x ambient
+
+end Outlined
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal.Witnessed.Tests

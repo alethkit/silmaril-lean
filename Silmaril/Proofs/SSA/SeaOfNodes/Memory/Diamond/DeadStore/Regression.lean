@@ -6,9 +6,11 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.StoreTail.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Staged.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.LoadTail.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Thms
@@ -22,9 +24,11 @@ meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.StoreTail.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Staged.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.Staged.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Static.Final.LoadTail.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Entry.Composition.Retained.Load.Static.Defs
@@ -174,6 +178,38 @@ private def runEmitted (first : Projection) (guard : Bool) (fuel : Nat) :
 
 #guard (runEmitted .onFalse true 2).isNone
 #guard runEmitted .onTrue false 5 == runEmitted .onFalse false 3
+
+private def joinReadback (program : Discovery.MemRef.CF.Program 4 args) (guard : Bool) : Option (List Word) :=
+  let entered := Discovery.MemRef.CF.entryTransition program input guard ⟨initial⟩
+  match entered.1 with
+  | .inl ⟨.arm arrival, _⟩ =>
+    let joined := (program.block (.arm arrival)).eval (Discovery.MemRef.CF.evalBody input)
+      (.cons (BitVec.ofBool guard) .nil) entered.2
+    match joined.1 with
+    | .inl ⟨.join, words⟩ => some (readback (words.get .here, joined.2))
+    | _ => none
+  | _ => none
+
+private def runJoin (first : Projection) (guard : Bool) : Option (List Word × List Word) := do
+  let programs ← Discovery.MemRef.CF.lower (source first) input
+  let before ← joinReadback programs.original guard
+  let after ← joinReadback programs.optimized guard
+  some (before, after)
+
+-- Both join packets contain the checked Load word and all four cells.
+#guard runJoin .onFalse true == some ([2, 11, 11, 3, 55], [2, 11, 11, 3, 55])
+#guard runJoin .onTrue true == runJoin .onFalse true
+#guard runJoin .onTrue false == some ([3, 33, 2, 33, 55], [3, 33, 2, 33, 55])
+#guard runJoin .onFalse false == runJoin .onTrue false
+
+example (index : Nat) :
+    Memory.DeadStore.readAt (rightArm true) index input PUnit.unit initial =
+      Memory.DeadStore.readAt (rightArm true) index input PUnit.unit
+        ((source .onFalse).store.table.denote input initial).2 :=
+  (rewrite_arm_observations input (Discovery.rewrite_checked input (accepted .onFalse)).2 .first initial).2 index
+
+example : Discovery.MemRef.CF.lower (source .onFalse false) input = none := rfl
+example : Discovery.MemRef.CF.lower (source .onFalse true headPort) input = none := rfl
 
 private def slotNumber (program : Discovery.MemRef.CF.Program 4 args) (guard : Bool) : Option Nat :=
   match Discovery.MemRef.CF.entryDestination program input guard ⟨initial⟩ with
@@ -1123,5 +1159,164 @@ example : (Final.Staged.lower (finalStoreDiamond .onFalse) stagedWithoutFinal in
     .ok (Entry.lowerPair (finalStoreDiamond .onFalse) stagedWithoutFinal residualWithTrailingRead input) := rfl
 #guard runFinalStaged (finalStoreDiamond .onFalse) stagedWithoutFinal false 3 ==
     some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55])
+
+private def tailFacts : Memory.Forwarding.Disjoint.Certificate args := ⟨headPort, [leftPort]⟩
+
+private def retainedTailLoad : Memory.Graph args :=
+  sideStore.prepend (.load (.latest 0) (.arg leftPort) (.ret (.latest 0) loaded))
+
+example : Final.LoadTail.cut tailFacts 2 residualWithTrailingRead = some (middleStore, retainedTailLoad) := rfl
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) stagedWithoutFinal input tailFacts).map
+    (fun result => (result.entryOnly.plan.map (·.version), result.routes.isSome)) = .ok ([1], true) := rfl
+
+private def runLoadTail (graph : Graph args) (entry : Memory.Graph args) (valuation : Tuple (Val 4) args)
+    (facts : Memory.Forwarding.Disjoint.Certificate args) (guard : Bool) (fuel : Nat) :
+    Option (Option Word × Option Word × Option (Word × Word × List Word × List Word)) := do
+  let result ← (Final.LoadTail.lower graph entry valuation facts).toOption
+  let programs := result.programs
+  some (Final.LoadTail.entryWord programs.original programs.input ⟨initial⟩,
+    Final.LoadTail.entryWord programs.optimized programs.input ⟨initial⟩, runEntryPrograms programs guard fuel)
+
+-- The emitted entry Return exports the retained Load's 11. Read that
+-- actual entry code as well as running the full original and optimized CFGs.
+#guard runLoadTail (finalStoreDiamond .onFalse) stagedWithoutFinal input tailFacts false 3 ==
+    some (some 11, some 11, some (99, 7, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+#guard runLoadTail (finalStoreDiamond .onTrue) stagedWithoutFinal input tailFacts true 3 ==
+    some (some 11, some 11, some (99, 7, [11, 11, 11, 3, 55], [11, 11, 11, 3, 55]))
+#guard runLoadTail (finalStoreDiamond .onFalse) stagedWithoutFinal input tailFacts false 2 ==
+    some (some 11, some 11, none)
+
+-- Unknown separation and an invocation that aliases both ports leave the
+-- exact entry-only program pair, including its earlier accepted deletion.
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) stagedWithoutFinal input ⟨headPort, []⟩).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) stagedWithoutFinal residualWithTrailingRead input) := rfl
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) stagedWithoutFinal (chainInput headCell rightCell)
+    tailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) stagedWithoutFinal residualWithTrailingRead
+      (chainInput headCell rightCell)) := rfl
+
+private def residualWithSameCellLoad : Memory.Graph args :=
+  sideStore.prepend (.store (.latest 0) (.arg headPort) (.arg entryWord)
+    (.load (.latest 1) (.arg headPort) (.ret (.latest 1) loaded)))
+
+private def beforeSameCellLoad : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend residualWithSameCellLoad
+
+example : Final.LoadTail.cut ⟨headPort, [headPort]⟩ 2 residualWithSameCellLoad = none := rfl
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) beforeSameCellLoad input tailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) beforeSameCellLoad residualWithSameCellLoad input) := rfl
+#guard runLoadTail (finalStoreDiamond .onFalse) beforeSameCellLoad input tailFacts false 3 ==
+    some (some 99, some 99, some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+
+private def chainTailFacts : Memory.Forwarding.Disjoint.Certificate args := ⟨headPort, [leftPort, rightPort]⟩
+
+private def twoReadsAfterLastStore (second : Port args .address) (returnFirst : Bool) : Memory.Graph args :=
+  let returned : Origin args [[.word], [.word]] .word :=
+    if returnFirst then .output (1 : Fin 2) .head else .output (0 : Fin 2) .head
+  sideStore.prepend (.store (.latest 0) (.arg headPort) (.arg entryWord)
+    (.load (.latest 1) (.arg leftPort)
+      (.load (.latest 1) (.arg second) (.ret (.latest 1) returned))))
+
+private def entryWithTrailingReads (second : Port args .address) (returnFirst : Bool) : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend (twoReadsAfterLastStore second returnFirst)
+
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    input chainTailFacts).map (fun result => (result.entryOnly.plan.map (·.version), result.routes.isSome)) =
+    .ok ([1], true) := rfl
+
+-- Return can observe either Load. Both original and optimized emitted
+-- entry bodies preserve the first 11 and the second 3.
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort true)
+    input chainTailFacts false 3 ==
+    some (some 11, some 11, some (99, 7, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+#guard runLoadTail (finalStoreDiamond .onTrue) (entryWithTrailingReads rightPort false)
+    input chainTailFacts true 3 ==
+    some (some 3, some 3, some (99, 7, [11, 11, 11, 3, 55], [11, 11, 11, 3, 55]))
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    input chainTailFacts false 2 == some (some 3, some 3, none)
+
+-- The first reader is covered. A later same-port read or missing fact
+-- refuses the cut and keeps the precise entry-only emitted pair.
+example : Final.LoadTail.cut chainTailFacts 2 (twoReadsAfterLastStore headPort false) = none := rfl
+example : Final.LoadTail.cut tailFacts 2 (twoReadsAfterLastStore rightPort false) = none := rfl
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+    input chainTailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+      (twoReadsAfterLastStore headPort false) input) := rfl
+#guard runLoadTail (finalStoreDiamond .onFalse) (entryWithTrailingReads headPort false)
+    input chainTailFacts false 3 ==
+    some (some 99, some 99, some (99, 99, [11, 33, 11, 33, 55], [11, 33, 11, 33, 55]))
+
+-- A later symbolic reader may alias at a concrete invocation as well.
+example : (Final.LoadTail.lower (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+    overwriteInput chainTailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (finalStoreDiamond .onFalse) (entryWithTrailingReads rightPort false)
+      (twoReadsAfterLastStore rightPort false) overwriteInput) := rfl
+
+private def disjointStoreTailFacts : Memory.Forwarding.Disjoint.Certificate args := ⟨headPort, [rightPort]⟩
+
+private def residualWithDisjointStore : Memory.Graph args :=
+  sideStore.prepend (.load (.latest 0) (.arg leftPort)
+    (.store (.latest 0) (.arg headPort) (.arg entryWord)
+      (.store (.latest 1) (.arg rightPort) loaded
+        (.load (.latest 2) (.arg rightPort) (.ret (.latest 2) (.output (0 : Fin 2) .head))))))
+
+private def keptDisjointStore : Memory.Graph args :=
+  sideStore.prepend (.load (.latest 0) (.arg leftPort)
+    (.store (.latest 0) (.arg rightPort) loaded
+      (.load (.latest 1) (.arg rightPort) (.ret (.latest 1) (.output (0 : Fin 2) .head)))))
+
+private def entryWithDisjointStore : Memory.Graph args :=
+  (⟨leftPort, entryWord⟩ : PrefixStore args).prepend residualWithDisjointStore
+
+private def suffixStoreDiamond (first : Projection) : Graph args :=
+  let overwrite (word : Port args .word) : Memory.Graph args :=
+    .store (.latest 0) (.arg headPort) (.arg word)
+      (.load (.latest 1) (.arg rightPort) (.ret (.latest 1) loaded))
+  { samePortDiamond first with
+    arm
+      | .onTrue => overwrite leftWord
+      | .onFalse => overwrite rightWord }
+
+-- The first pass removes version one. The candidate is now version
+-- two, after a Load that feeds the exact retained Store data wire.
+example : (StoreTail.lower (suffixStoreDiamond .onFalse) entryWithDisjointStore 2 input
+    disjointStoreTailFacts).map (fun result => (result.entryOnly.plan.map (·.version), result.entryOnly.entry)) =
+      .ok ([1], residualWithDisjointStore) := rfl
+example : Entry.Composition.Retained.Load.cut 2 input residualWithDisjointStore = none := rfl
+example : StoreTail.cut disjointStoreTailFacts 2 residualWithDisjointStore =
+    some (middleStore, keptDisjointStore) := rfl
+example : (StoreTail.lower (suffixStoreDiamond .onFalse) entryWithDisjointStore 2 input
+    disjointStoreTailFacts).map (·.routes.isSome) = .ok true := rfl
+
+private def runStoreTail (graph : Graph args) (valuation : Tuple (Val 4) args)
+    (facts : Memory.Forwarding.Disjoint.Certificate args) (guard : Bool) (fuel : Nat) :
+    Option (Word × Word × List Word × List Word) := do
+  let result ← (StoreTail.lower graph entryWithDisjointStore 2 valuation facts).toOption
+  runEntryPrograms result.programs guard fuel
+
+-- Both arms observe the retained Store's 11 after their overwrite.
+/-- info: some (99#64, 7#64, [11#64, 33#64, 11#64, 11#64, 55#64], [11#64, 33#64, 11#64, 11#64, 55#64]) -/
+#guard_msgs in
+#eval runStoreTail (suffixStoreDiamond .onFalse) input disjointStoreTailFacts false 3
+
+#guard runStoreTail (suffixStoreDiamond .onTrue) input disjointStoreTailFacts true 3 ==
+    some (99, 7, [11, 11, 11, 11, 55], [11, 11, 11, 11, 55])
+#guard runStoreTail (suffixStoreDiamond .onFalse) input disjointStoreTailFacts false 2 == none
+
+-- Missing coverage and aliasing at the invocation keep the exact first
+-- optimized artifact. An observing branch refuses the route cut as well.
+example : StoreTail.cut ⟨headPort, []⟩ 2 residualWithDisjointStore = none := rfl
+example : (StoreTail.lower (suffixStoreDiamond .onFalse) entryWithDisjointStore 2 input
+    ⟨headPort, []⟩).map (·.programs) =
+    .ok (Entry.lowerPair (suffixStoreDiamond .onFalse) entryWithDisjointStore residualWithDisjointStore input) := rfl
+example : (StoreTail.lower (suffixStoreDiamond .onFalse) entryWithDisjointStore 2 overwriteInput
+    disjointStoreTailFacts).map (·.programs) =
+    .ok (Entry.lowerPair (suffixStoreDiamond .onFalse) entryWithDisjointStore
+      residualWithDisjointStore overwriteInput) := rfl
+#guard runStoreTail (suffixStoreDiamond .onFalse) overwriteInput disjointStoreTailFacts false 3 ==
+    some (11, 11, [33, 33, 11, 3, 55], [33, 33, 11, 3, 55])
+example : (StoreTail.lower observingRoute entryWithDisjointStore 2 input disjointStoreTailFacts).map
+    (·.programs) = .ok (Entry.lowerPair observingRoute entryWithDisjointStore residualWithDisjointStore input) := rfl
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore

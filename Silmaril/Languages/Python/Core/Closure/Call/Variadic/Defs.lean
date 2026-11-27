@@ -26,13 +26,15 @@ inductive PositionalInputFailure where
 /-- A checked operand can update the caller state, including on failure. -/
 abbrev ReadOperand (Operand State : Type) := Operand → State → Except Failure Value × State
 
-/-- Expand scalar tuples. Text is iterable, and its expansion is outside
-this positional operand profile. -/
+/-- Expand scalar tuples. Text, dictionaries and tuple elements carrying
+text are outside this positional operand profile. -/
 def expandPositional : Value → Except PositionalInputFailure (List Value)
-  | .tuple items => .ok (items.map Value.ofScalar)
-  | .tupleObject object => .ok (object.contents.map Value.ofScalar)
-  | .none | .int _ | .bool _ | .float64 _ | .function _ => .error .notIterable
-  | .text _ => .error .unsupportedIterable
+  | .tuple items | .tupleObject ⟨_, items⟩ =>
+    items.mapM fun
+      | .scalar value => .ok (Value.ofScalar value)
+      | .text _ => .error .unsupportedIterable
+  | .none | .int _ | .bool _ | .float64 _ | .exceptionClass _ | .exceptionInstance _ | .function _ => .error .notIterable
+  | .text _ | .dictionary _ | .dictionaryData _ => .error .unsupportedIterable
 
 def PositionalOperand.evaluate {Operand State : Type} (read : ReadOperand Operand State)
     (part : PositionalOperand Operand) (state : State) :
@@ -110,7 +112,7 @@ def complete (parameters : VariadicParameters layout) (supplied : List Value) :
   else
     match (supplied.drop count).mapM Value.scalar? with
     | none => .error .unsupportedTupleElement
-    | some rest => .ok (supplied.take count ++ [.tuple rest])
+    | some rest => .ok (supplied.take count ++ [.tuple (rest.map .scalar)])
 
 def bind (parameters : VariadicParameters layout) (supplied : List Value)
     (before : Environment layout) : Except Failure (Environment layout) :=

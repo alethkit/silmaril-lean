@@ -16,7 +16,7 @@ private def pager : LocalId .pager := ⟨0⟩
 private def cache : LocalId .pageCache := ⟨0⟩
 
 private def fileFields : FileFields := ⟨some "main.db", some .readOnly⟩
-private def pagerFields : PagerFields := ⟨vfs, cache, mainFile, journal, subjournal, none, 512⟩
+private def pagerFields : PagerFields LocalId := ⟨vfs, cache, mainFile, journal, subjournal, none, 512⟩
 
 private def store : IndexedStore :=
   let store := IndexedStore.empty.insert vfs ⟨"unix", 120, 512⟩

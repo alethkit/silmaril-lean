@@ -73,7 +73,7 @@ private theorem replacement_body (seed : Program) :
       (.read (by decide) (.owned (by decide)) (.owned (by decide)))))))
 
 private def aliasCall : Invocation block :=
-  ⟨"copy", by decide, by decide, "firstValue", by decide, [], [], [], .nil, .empty⟩
+  ⟨"copy", by decide, by decide, "firstValue", by decide, [], [], [], .nil, .empty, none, none⟩
 
 private inductive Mode where
   | success | missing | unknown | conflict | operand | surplus
@@ -184,8 +184,8 @@ private theorem profile (mode : Mode) (seed : Program) :
               (.read (by decide) (.owned replacement.target) (.owned replacement.target))
               (.copy replacement.target rfl)
               (.assign (name := "alias") (by decide) (.int 0) .forget
-                (.invoke aliasCall ⟨seed.size, [], none, original⟩ rfl
-                  (.invoke (selectedCall mode) ⟨(seed.push original.declaration).size, replacementKeywords, none, replacement⟩ rfl
+                (.invoke aliasCall ⟨seed.size, [], none, none, original⟩ rfl
+                  (.invoke (selectedCall mode) ⟨(seed.push original.declaration).size, replacementKeywords, none, none, replacement⟩ rfl
                     (.plain (.straight ending))))))))))
   have firstName : original.name = "first" := rfl
   have replacementName : replacement.name = "replacement" := rfl

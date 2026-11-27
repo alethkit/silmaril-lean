@@ -25,6 +25,21 @@ theorem tail_transfer {past : List (List ValueSort)} {live : Nat} (tail : Memory
       (retained.1, (selected.table.denote input retained.2).2) :=
   Proofs.tail_transfer tail selected input safe locals initial
 
+/-- Reuse the cut and replay law with a suffix checker that establishes
+the existing disjointness check at this input. -/
+theorem cutWith_disjoint_preserves {past : List (List ValueSort)} {live version : Nat}
+    {body retained : Memory.Body args past live} {selected : PrefixStore args}
+    (input : Tuple (Val cells) args)
+    (check : PrefixStore args → {past : List (List ValueSort)} → {live : Nat} → Memory.Body args past live → Bool)
+    (safe : ∀ {past : List (List ValueSort)} {live : Nat} (tail : Memory.Body args past live)
+      (store : PrefixStore args), check store tail = true → checkTail store input tail = true)
+    (accepted : cutWith check version body = some (selected, retained)) :
+    DeletesStores 1 (operations body) (operations retained) ∧
+      ∀ (locals : Locals (Val cells) past) (initial : Heap cells),
+        let result := retained.denote input locals initial
+        body.denote input locals initial = (result.1, (selected.table.denote input result.2).2) :=
+  Proofs.cutWith_disjoint_preserves input check safe accepted
+
 /-- Exactly the nominated Store is cut. Every retained operation keeps
 its typed scalar operands and relative order. -/
 theorem cut_operations {past : List (List ValueSort)} {live version : Nat}

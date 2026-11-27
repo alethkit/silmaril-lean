@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Defs
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Thms
 import Silmaril.SSA.SeaOfNodes.Diamond.Thms
 
@@ -32,7 +33,7 @@ private theorem entry_eval (graph : Graph args) (entryBody : Option (Memory.Grap
     enter (entryBody.map (lowerMemory cells)) input initial) = _
   cases guard <;> simp [Projection.ofBool]
 
-private theorem arm_eval (graph : Graph args) (entryBody : Option (Memory.Graph args))
+theorem arm_eval (graph : Graph args) (entryBody : Option (Memory.Graph args))
     (input : Tuple (Val cells) args) (arrival : Slot) (env : Env entryTypes) (initial : Buffer cells) :
     Block.eval (evalBody input) ((lowerDiamond cells graph entryBody).block (Label.arm arrival)) env initial =
       let selected := observe (graph.arm (graph.merge.predecessor arrival)) input initial
@@ -171,5 +172,21 @@ theorem lower_entry_slots {source : Prefixed args} {programs : Programs cells ar
   · exact lowerDiamond_entry source.diamond (some source.store.table) input guard initial
   · exact (lowerDiamond_entry result.graph none input guard initial).trans
       (by rw [Discovery.rewrite_merge input discovered])
+
+theorem lower_join_eq {source : Prefixed args} {programs : Programs cells args}
+    (input : Tuple (Val cells) args) (accepted : lower source input = some programs)
+    (guard : Bool) (arrival : Slot) (initial : Buffer cells) :
+    let env : Env entryTypes := .cons (BitVec.ofBool guard) .nil
+    let before := (entryTransition programs.original programs.input guard initial).2
+    let after := (entryTransition programs.optimized programs.input guard initial).2
+    Block.eval (evalBody programs.input) (programs.optimized.block (Label.arm arrival)) env after =
+      Block.eval (evalBody programs.input) (programs.original.block (Label.arm arrival)) env before := by
+  obtain ⟨result, discovered, packed⟩ := Option.bind_eq_some_iff.mp accepted
+  cases Option.some.inj packed
+  have checked := (Discovery.rewrite_checked input discovered).2
+  have packet := (DeadStore.rewrite_arm_observations input checked arrival initial.cell).1
+  dsimp only
+  simp only [arm_eval, lowerDiamond_entryTransition, (DeadStore.rewrite_shape input checked).1, lower_run]
+  rw [packet]
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Discovery.MemRef.CF.Proofs

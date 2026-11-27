@@ -25,7 +25,7 @@ variable {H : Type}
 theorem context_code (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) (body : List Admin) :
     (seq.context args labels).plug value body =
       [.frame seq.root.function.declaration.results.length (seq.root.function.declaration.frame args)
-        ((seq.insert labels).plug value [.label (OpenLabel.results seq.root.function labels).length [] body])] := by
+        ((seq.insert labels).plug value [.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body])] := by
   simp only [Sequence.context, EvalCtx.plug, EvalCtx.plug_comp]
 
 private theorem composed_frame (left right : EvalCtx Wasm.V1.Instr) (f : Frame) :
@@ -50,27 +50,27 @@ theorem open_code (seq : Sequence H) (args : List Value) (labels : List (OpenLab
     (label : OpenLabel H) (body : List Admin) :
     (seq.context args (label :: labels)).plug value body =
       (seq.context args labels).plug value
-        (values label.saved ++ .label label.result.toList.length [] body :: (seq.tailCode label)) := by
+        (values label.saved ++ .label label.branchTypes.length (seq.labelCode (label :: labels)) body :: (seq.tailCode label)) := by
   simp only [context_code, Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug,
-    OpenLabel.results, List.head?_cons, Option.map_some, Option.getD_some, List.append_assoc, List.singleton_append, values]
+    OpenLabel.labelArity, List.append_assoc, List.singleton_append, values]
 
-private theorem inserted_head (seq : Sequence H) (labels : List (OpenLabel H)) (n : Nat) (body : List Admin) :
-    ∃ m inside, firstRedex ((seq.insert labels).plug value [.label n [] body]) = some (.label m [] inside) := by
-  induction labels generalizing n body with
-  | nil => exact ⟨n, body, by simp [Sequence.insert, EvalCtx.plug]⟩
+private theorem inserted_head (seq : Sequence H) (labels : List (OpenLabel H)) (n : Nat) (cont : Wasm.V1.Expr) (body : List Admin) :
+    ∃ m continuation inside, firstRedex ((seq.insert labels).plug value [.label n cont body]) = some (.label m continuation inside) := by
+  induction labels generalizing n cont body with
+  | nil => exact ⟨n, cont, body, by simp [Sequence.insert, EvalCtx.plug]⟩
   | cons label rest ih =>
     simp only [Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug]
-    exact ih _ _
+    exact ih _ _ _
 
 private theorem label_in_sequence {host : HostSemantics H} {s s' : Store H} {f f' : Frame}
-    {saved : List Value} {n : Nat} {body tail out : List Admin} :
-    Step host ⟨s, f, values saved ++ [.label n [] body] ++ tail⟩ ⟨s', f', out⟩ ↔
-      ∃ code, Step host ⟨s, f, [.label n [] body]⟩ ⟨s', f', code⟩ ∧ out = values saved ++ code ++ tail := by
+    {saved : List Value} {n : Nat} {cont : Wasm.V1.Expr} {body tail out : List Admin} :
+    Step host ⟨s, f, values saved ++ [.label n cont body] ++ tail⟩ ⟨s', f', out⟩ ↔
+      ∃ code, Step host ⟨s, f, [.label n cont body]⟩ ⟨s', f', code⟩ ∧ out = values saved ++ code ++ tail := by
   constructor
   · intro step
-    rcases step.label_inv (p := saved) (q := tail) (n := n) (cont := []) (body := body) (by simp [List.append_assoc]) with
+    rcases step.label_inv (p := saved) (q := tail) (n := n) (cont := cont) (body := body) (by simp [List.append_assoc]) with
       ⟨inner, move, eq⟩ | ⟨after, pure, store, frame, eq⟩
-    · refine ⟨_, .label move n [], ?_⟩
+    · refine ⟨_, .label move n cont, ?_⟩
       simpa only [List.append_assoc, List.singleton_append] using eq
     · cases store
       cases frame
@@ -79,11 +79,11 @@ private theorem label_in_sequence {host : HostSemantics H} {s s' : Store H} {f f
     exact .context move saved tail
 
 private theorem insert_step {host : HostSemantics H} {s s' : Store H}
-    {f f' : Frame} (seq : Sequence H) (labels : List (OpenLabel H)) {n : Nat} {body out : List Admin} :
-    Step host ⟨s, f, (seq.insert labels).plug value [.label n [] body]⟩ ⟨s', f', out⟩ ↔
-      ∃ code, Step host ⟨s, f, [.label n [] body]⟩ ⟨s', f', code⟩ ∧
+    {f f' : Frame} (seq : Sequence H) (labels : List (OpenLabel H)) {n : Nat} {cont : Wasm.V1.Expr} {body out : List Admin} :
+    Step host ⟨s, f, (seq.insert labels).plug value [.label n cont body]⟩ ⟨s', f', out⟩ ↔
+      ∃ code, Step host ⟨s, f, [.label n cont body]⟩ ⟨s', f', code⟩ ∧
         out = (seq.insert labels).plug value code := by
-  induction labels generalizing n body with
+  induction labels generalizing n cont body with
   | nil => exact ⟨fun move => ⟨out, move, rfl⟩, fun ⟨_, move, rfl⟩ => move⟩
   | cons label rest ih =>
     simp only [Sequence.insert, EvalCtx.plug_comp, EvalCtx.plug]
@@ -91,16 +91,16 @@ private theorem insert_step {host : HostSemantics H} {s s' : Store H}
     constructor
     · rintro ⟨code, move, eq⟩
       rcases move.label_inv (p := []) (q := []) rfl with ⟨inside, step, codeEq⟩ | ⟨_, pure, _, _, _⟩
-      · obtain ⟨inner, localStep, insideEq⟩ := (label_in_sequence (saved := label.saved) (n := n) (body := body) (tail := (seq.tailCode label))).mp step
+      · obtain ⟨inner, localStep, insideEq⟩ := (label_in_sequence (saved := label.saved) (n := n) (cont := cont) (body := body) (tail := (seq.tailCode label))).mp step
         subst inside
         change code = _ at codeEq
         simp only [values, List.map_nil, List.nil_append] at codeEq
         exact ⟨inner, localStep, eq.trans (congrArg ((seq.insert rest).plug value) codeEq)⟩
-      · have head : firstRedex (values label.saved ++ [.label n [] body] ++ (seq.tailCode label)) = some (.label n [] body) := by
+      · have head : firstRedex (values label.saved ++ [.label n cont body] ++ (seq.tailCode label)) = some (.label n cont body) := by
           simp
-        exact (pure.not_callHead_label rfl head (.label n [] body)).elim
+        exact (pure.not_callHead_label rfl head (.label n cont body)).elim
     · rintro ⟨code, move, rfl⟩
-      exact ⟨_, .label (.context move label.saved (seq.tailCode label)) _ [], rfl⟩
+      exact ⟨_, .label (.context move label.saved (seq.tailCode label)) _ (seq.labelCode rest), rfl⟩
 
 /-- Peel the real enclosing labels to use the exact rule of the innermost
 label. Replacing that label retains each enclosing operand prefix and tail. -/
@@ -108,9 +108,9 @@ theorem scoped_step {host : HostSemantics H} {s : Store H} {outer : Frame}
     (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {body : List Admin} {dst : Config H} :
     Step host ⟨s, outer, (seq.context args labels).plug value body⟩ dst ↔
       ∃ nextStore nextFrame code,
-        Step host ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length (seq.root.function.declaration.frame args)
-          [.label (OpenLabel.results seq.root.function labels).length [] body]]⟩
-          ⟨nextStore, outer, [.frame (OpenLabel.results seq.root.function labels).length nextFrame code]⟩ ∧
+        Step host ⟨s, outer, [.frame (OpenLabel.labelArity seq.root.function labels) (seq.root.function.declaration.frame args)
+          [.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body]]⟩
+          ⟨nextStore, outer, [.frame (OpenLabel.labelArity seq.root.function labels) nextFrame code]⟩ ∧
         dst = ⟨nextStore, outer, [.frame seq.root.function.declaration.results.length nextFrame
           ((seq.insert labels).plug value code)]⟩ := by
   rw [context_code]
@@ -120,21 +120,22 @@ theorem scoped_step {host : HostSemantics H} {s : Store H} {outer : Frame}
     · obtain ⟨next, body', move, after⟩ := within
       obtain ⟨code, inner, eq⟩ := (insert_step seq labels).mp move
       exact ⟨dst.store, next, code, .frame inner _ outer, by cases dst; simp_all [values]⟩
-    · obtain ⟨n, inside, head⟩ := inserted_head seq labels (OpenLabel.results seq.root.function labels).length body
-      exact (pure.not_callHead_frame rfl head (.label n [] inside)).elim
+    · obtain ⟨n, cont, inside, head⟩ :=
+        inserted_head seq labels (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body
+      exact (pure.not_callHead_frame rfl head (.label n cont inside)).elim
   · rintro ⟨s', f', code, move, rfl⟩
     obtain ⟨_, within | ⟨_, pure, _, _⟩⟩ := move.frame_inv (p := []) (q := []) rfl
     · obtain ⟨next, inside, step, eq⟩ := within
       obtain ⟨rfl, rfl⟩ : f' = next ∧ code = inside := by simpa [values] using eq
       exact .frame ((insert_step seq labels).mpr ⟨code, step, rfl⟩) _ outer
-    · exact (pure.not_callHead_frame rfl (by simp) (.label (OpenLabel.results seq.root.function labels).length [] body)).elim
+    · exact (pure.not_callHead_frame rfl (by simp) (.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body)).elim
 
 theorem scoped_result {A : Type} {host : HostSemantics H} {s : Store H} {outer : Frame}
     (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {body : List Admin} {dst : Config H}
     (moves : A → Prop) (output : A → List Admin)
-    (atLabel : ∀ target, Step host ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length
-          (seq.root.function.declaration.frame args) [.label (OpenLabel.results seq.root.function labels).length [] body]]⟩ target ↔
-      ∃ outcome, moves outcome ∧ target = ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length
+    (atLabel : ∀ target, Step host ⟨s, outer, [.frame (OpenLabel.labelArity seq.root.function labels)
+          (seq.root.function.declaration.frame args) [.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body]]⟩ target ↔
+      ∃ outcome, moves outcome ∧ target = ⟨s, outer, [.frame (OpenLabel.labelArity seq.root.function labels)
         (seq.root.function.declaration.frame args) (output outcome)]⟩) :
     Step host ⟨s, outer, (seq.context args labels).plug value body⟩ dst ↔
       ∃ outcome, moves outcome ∧ dst = ⟨s, outer, [.frame seq.root.function.declaration.results.length
@@ -149,14 +150,14 @@ theorem scoped_result {A : Type} {host : HostSemantics H} {s : Store H} {outer :
   · rintro ⟨outcome, moved, rfl⟩
     exact ⟨_, _, _, (atLabel _).mpr ⟨outcome, moved, rfl⟩, rfl⟩
 
-/-- A frame with a branch at its innermost explicit label either delivers a
-zero-depth suffix or lowers the positive depth. The branch itself never
+/-- A frame with a branch at its innermost label either delivers a
+zero-depth suffix and label continuation or lowers the positive depth. The branch itself never
 reduces inside the label. -/
 theorem framed_branch_iff {host : HostSemantics H} {s : Store H} {outer active : Frame}
-    {n : Nat} {stack : List Value} {depth : LabelIdx} {tail : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, [.frame n active [.label n [] (values stack ++ .source (.br depth) :: tail)]]⟩ dst ↔
+    {n : Nat} {cont : Wasm.V1.Expr} {stack : List Value} {depth : LabelIdx} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n active [.label n cont (values stack ++ .source (.br depth) :: tail)]]⟩ dst ↔
       (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
-        dst = ⟨s, outer, [.frame n active (values payload)]⟩) ∨
+        dst = ⟨s, outer, [.frame n active (values payload ++ expression cont)]⟩) ∨
       (0 < depth.toNat ∧ dst = ⟨s, outer, [.frame n active (values stack ++ [.source (.br (lowerLabel depth))])]⟩) := by
   rw [HostEntry.Proofs.frame_label_step]
   constructor
@@ -167,13 +168,13 @@ theorem framed_branch_iff {host : HostSemantics H} {s : Store H} {outer active :
           Wasm.V1.Instr.toLime] using translated)).elim
     · have translated := (Step.pure (host := host) s active pure).toLime
           (target := fun _ _ _ _ => True) (fun _ _ _ _ _ => trivial)
-      have moved := (BranchExit.lime_label_br_iff (n := n) (depth := depth) (stack := stack) (rest := codeToLime tail)).mp
+      have moved := (BranchExit.lime_label_br_cont_iff (cont := cont.toLime) (n := n) (depth := depth) (stack := stack) (rest := codeToLime tail)).mp
         (by simpa only [Config.toLime, codeToLime_cons, codeToLime_append, codeToLime_nil, map_values,
-          AdminInstr.map, AdminInstr.mapList, List.map_nil, Wasm.V1.Instr.toLime] using translated)
+          AdminInstr.map, Wasm.V1.Expr.toLime_eq_map, Wasm.V1.Instr.toLime] using translated)
       rcases moved with ⟨extra, payload, split, arity, zero, eq⟩ | ⟨positive, eq⟩
-      · have same : (⟨s, active, code⟩ : Config H) = ⟨s, active, values payload⟩ :=
+      · have same : (⟨s, active, code⟩ : Config H) = ⟨s, active, values payload ++ expression cont⟩ :=
           CallContinuation.config_toLime_injective H
-            (by simpa only [Config.toLime, map_values] using eq)
+            (by simpa only [Config.toLime, codeToLime_append, map_values, map_expression] using eq)
         exact .inl ⟨extra, payload, split, arity, zero, by cases same; rfl⟩
       · have same : (⟨s, active, code⟩ : Config H) = ⟨s, active, values stack ++ [.source (.br (lowerLabel depth))]⟩ :=
           CallContinuation.config_toLime_injective H
@@ -183,18 +184,18 @@ theorem framed_branch_iff {host : HostSemantics H} {s : Store H} {outer active :
   · rintro (⟨extra, payload, rfl, arity, zero, rfl⟩ | ⟨positive, rfl⟩)
     · have same : depth = ⟨0⟩ := Idx.toNat_injective zero
       subst depth
-      exact .inr ⟨_, by simpa only [values_append, List.append_assoc, List.singleton_append, expression,
-        List.map_nil, List.append_nil] using (.labelBranch n [] extra payload tail arity : PureStep _ _), rfl⟩
+      exact .inr ⟨_, by simpa only [values_append, List.append_assoc, List.singleton_append] using
+        (.labelBranch n cont extra payload tail arity : PureStep _ _), rfl⟩
     · exact .inr ⟨_, by simpa only [List.append_assoc, List.singleton_append] using
-        (.labelBranchOuter n [] stack tail depth (Nat.ne_of_gt positive) : PureStep _ _), rfl⟩
+        (.labelBranchOuter n cont stack tail depth (Nat.ne_of_gt positive) : PureStep _ _), rfl⟩
 
 private theorem framed_source_iff {host : HostSemantics H} {s : Store H} {outer f : Frame}
-    {n : Nat} {stack : List Value} {instr : Wasm.V1.Instr} {tail after : List Admin} {dst : Config H}
+    {n : Nat} {cont : Wasm.V1.Expr} {stack : List Value} {instr : Wasm.V1.Instr} {tail after : List Admin} {dst : Config H}
     (nonvalue : asValue? (.source instr) = none) (noBranch : ∀ d, instr ≠ .br d) (noReturn : instr ≠ .return_)
     (localStep : ∀ target, Step host ⟨s, f, values stack ++ .source instr :: tail⟩ target ↔
       target = ⟨s, f, after⟩) :
-    Step host ⟨s, outer, [.frame n f [.label n [] (values stack ++ .source instr :: tail)]]⟩ dst ↔
-      dst = ⟨s, outer, [.frame n f [.label n [] after]]⟩ := by
+    Step host ⟨s, outer, [.frame n f [.label n cont (values stack ++ .source instr :: tail)]]⟩ dst ↔
+      dst = ⟨s, outer, [.frame n f [.label n cont after]]⟩ := by
   rw [HostEntry.Proofs.frame_label_step]
   constructor
   · rintro (⟨s', f', body, step, eq⟩ | ⟨code, pure, _⟩)
@@ -219,7 +220,7 @@ theorem scoped_source_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
   · rintro ⟨s', f', code, move, eq⟩
     have same := (framed_source_iff nonvalue noBranch noReturn localStep).mp move
     obtain ⟨rfl, _, frame⟩ := Execution.Runtime.Config.mk.inj same
-    obtain ⟨rfl, rfl⟩ : f' = seq.root.function.declaration.frame args ∧ code = [.label (OpenLabel.results seq.root.function labels).length [] after] :=
+    obtain ⟨rfl, rfl⟩ : f' = seq.root.function.declaration.frame args ∧ code = [.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) after] :=
       by simpa using frame
     exact eq
   · rintro rfl
@@ -258,6 +259,39 @@ theorem scoped_block_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
       dst = ⟨s, outer, (seq.context args labels).plug value
         (values stack ++ .label result.toList.length [] (expression body) :: tail)⟩ :=
   scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h) (fun _ => block_step)
+
+private theorem loop_step {host : HostSemantics H} {s : Store H} {f : Frame}
+    {saved : List Value} {result : Option NumType} {body : Wasm.V1.Expr} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, f, values saved ++ .source (.loop result body) :: tail⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .label 0 [.loop result body] (expression body) :: tail⟩ := by
+  constructor
+  · intro move
+    have noCallout : ∀ call, ¬ CalloutAt ⟨s, f, values saved ++ .source (.loop result body) :: tail⟩ call := by
+      intro call located
+      have found := exists_callout_iff.mp ⟨call, located⟩
+      simp [decompose?, asValue?] at found
+    have internal := (Step.internal_iff_of_not_callout noCallout).mp move
+    have projected := internal.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ err => err)
+    have type : Wasm.V1.BlockType.toLime result = Blocks.limeType result := by cases result <;> rfl
+    have reduced := (Computed.lime_loop_iff (result := result) (body := body.toLime)
+      (stack := saved) (rest := codeToLime tail)).mp
+      (by simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons, AdminInstr.map,
+        Wasm.V1.Instr.toLime, type] using projected)
+    apply CallContinuation.config_toLime_injective H
+    simpa only [Config.toLime, codeToLime_append, map_values, codeToLime_cons, AdminInstr.map,
+      map_expression, Wasm.V1.Instr.toLime, type, List.map_cons, List.map_nil] using reduced
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context (Step.pure (host := host) s f (.loop result body)) saved tail
+
+theorem scoped_loop_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
+    (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {stack : List Value}
+    {result : Option NumType} {body : Wasm.V1.Expr} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, (seq.context args labels).plug value
+      (values stack ++ .source (.loop result body) :: tail)⟩ dst ↔
+      dst = ⟨s, outer, (seq.context args labels).plug value
+        (values stack ++ .label 0 [.loop result body] (expression body) :: tail)⟩ :=
+  scoped_source_iff seq args labels rfl (by intro _ h; cases h) (by intro h; cases h) (fun _ => loop_step)
 
 theorem scoped_get_iff {host : HostSemantics H} {s : Store H} {outer : Frame}
     (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H))

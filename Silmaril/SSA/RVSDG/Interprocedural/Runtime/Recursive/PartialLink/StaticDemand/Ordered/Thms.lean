@@ -38,6 +38,18 @@ A synthesized family can enter directly via `Family.Template.admit`. -/
   right := ⟨memberRow table.members (family.memberValue groupR)
     (fun i => .callable i _ (family.capturedAt groupR i) ⟨rfl, rfl⟩), PUnit.unit⟩
 
+/-- Use one typed λ body with the actual captures read at each placement. -/
+theorem Dispatch.lambda_transport_withCaptures (earlier : Dispatch actions table) (binding : Binding Op table imports past fn)
+    {pastR : List (Ports (Ty V S))} (capturesR : Wires imports pastR binding.context)
+    (inputsL inputsR : Tuple m.Val imports) (localsL : Locals m.Val past) (localsR : Locals m.Val pastR)
+    (resolvedL : binding.resolved earlier.left inputsL localsL)
+    (resolvedR : (binding.withCaptures capturesR).resolved earlier.right inputsR localsR) :
+    ∀ i fL fR capsL capsR,
+      binding.extendGuard earlier.left inputsL localsL i fL capsL →
+      (binding.withCaptures capturesR).extendGuard earlier.right inputsR localsR i fR capsR →
+      CallAgrees actions ((prepend binding.summary table).at i) fL fR capsL capsR :=
+  Proofs.lambda_transport earlier binding capturesR inputsL inputsR localsL localsR resolvedL resolvedR
+
 theorem Dispatch.lambda_transport (earlier : Dispatch actions table) (binding : Binding Op table imports past fn)
     (inputsL inputsR : Tuple m.Val imports) (localsL localsR : Locals m.Val past)
     (resolvedL : binding.resolved earlier.left inputsL localsL)
@@ -46,7 +58,7 @@ theorem Dispatch.lambda_transport (earlier : Dispatch actions table) (binding : 
       binding.extendGuard earlier.left inputsL localsL i fL capsL →
       binding.extendGuard earlier.right inputsR localsR i fR capsR →
       CallAgrees actions ((prepend binding.summary table).at i) fL fR capsL capsR :=
-  Proofs.lambda_transport earlier binding inputsL inputsR localsL localsR resolvedL resolvedR
+  earlier.lambda_transport_withCaptures binding binding.captures inputsL inputsR localsL localsR resolvedL resolvedR
 
 theorem Known.weaken {ty : Ty V S} {value : m.Val ty} {guard : Guard m table}
     (binding : Binding Op table imports past fn) (inputs : Tuple m.Val imports) (locals : Locals m.Val past) :

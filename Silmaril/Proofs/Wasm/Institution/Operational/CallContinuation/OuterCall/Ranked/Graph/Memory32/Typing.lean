@@ -29,28 +29,31 @@ theorem split_i32 {stack : List Value} {resume : List NumType → Bool}
       | i64 => simp [Graph.checkCondition] at checked
 
 theorem load_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
-    (checked : fn.WellTyped stack (.load offset :: rest)) :
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.load offset :: rest) labels = true) :
     ∃ (saved : List Value) (address : BitVec 32),
       stack = saved ++ [Value.int .i32 address] ∧
-      ∀ bits : BitVec 32, fn.WellTyped (saved ++ [Value.int .i32 bits]) rest := by
+      ∀ bits : BitVec 32, fn.checkRegion (Prefix.stackTypes (saved ++ [Value.int .i32 bits])) fallthrough rest labels = true := by
   change Graph.checkCondition (Prefix.stackTypes stack)
-    (fun saved => fn.checkCode (.int .i32 :: saved) rest) = true at checked
+    (fun saved => fn.checkRegion (.int .i32 :: saved) fallthrough rest labels) = true at checked
   obtain ⟨saved, address, rfl, resume⟩ := split_i32 checked
   refine ⟨saved, address, rfl, fun bits => ?_⟩
-  simpa [Function.WellTyped, Prefix.stackTypes, Value.int, List.reverse_append] using resume
+  simpa [Prefix.stackTypes, Value.int, List.reverse_append] using resume
 
 theorem grow_typed {fn : Function} {stack : List Value} {rest : List Op}
-    (checked : fn.WellTyped stack (.grow :: rest)) :
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.grow :: rest) labels = true) :
     ∃ (saved : List Value) (delta : BitVec 32),
       stack = saved ++ [Value.int .i32 delta] ∧
-      ∀ result : BitVec 32, fn.WellTyped (saved ++ [Value.int .i32 result]) rest :=
+      ∀ result : BitVec 32, fn.checkRegion (Prefix.stackTypes (saved ++ [Value.int .i32 result])) fallthrough rest labels = true :=
   load_typed (offset := 0) checked
 
 theorem size_typed {fn : Function} {stack : List Value} {rest : List Op}
-    (checked : fn.WellTyped stack (.size :: rest)) (pages : BitVec 32) :
-    fn.WellTyped (stack ++ [Value.int .i32 pages]) rest := by
-  change fn.checkCode (.int .i32 :: Prefix.stackTypes stack) rest = true at checked
-  simpa [Function.WellTyped, Prefix.stackTypes, List.reverse_append, Value.int] using checked
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.size :: rest) labels = true) (pages : BitVec 32) :
+    fn.checkRegion (Prefix.stackTypes (stack ++ [Value.int .i32 pages])) fallthrough rest labels = true := by
+  change fn.checkRegion (.int .i32 :: Prefix.stackTypes stack) fallthrough rest labels = true at checked
+  simpa [Prefix.stackTypes, List.reverse_append, Value.int] using checked
 
 theorem indirect_typed {fn : Function} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
     {rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}
@@ -70,11 +73,12 @@ theorem indirect_typed {fn : Function} {stack : List Value} {index : TypeIdx} {s
   exact ⟨operands, selector, rfl, shape, resume⟩
 
 theorem store_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
-    (checked : fn.WellTyped stack (.store offset :: rest)) :
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.store offset :: rest) labels = true) :
     ∃ (saved : List Value) (address word : BitVec 32),
-      stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.WellTyped saved rest := by
+      stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.checkRegion (Prefix.stackTypes saved) fallthrough rest labels = true := by
   change Graph.checkCondition (Prefix.stackTypes stack)
-    (fun args => Graph.checkCondition args (fun saved => fn.checkCode saved rest)) = true at checked
+    (fun args => Graph.checkCondition args (fun saved => fn.checkRegion saved fallthrough rest labels)) = true at checked
   obtain ⟨args, word, rfl, remaining⟩ := split_i32 checked
   obtain ⟨saved, address, rfl, tail⟩ := split_i32 remaining
   exact ⟨saved, address, word, by simp [List.append_assoc], tail⟩

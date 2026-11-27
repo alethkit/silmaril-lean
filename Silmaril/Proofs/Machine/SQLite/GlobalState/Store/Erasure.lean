@@ -82,14 +82,25 @@ theorem fresh_allocate_iff (history : History ObjectId Payload) (id query : Obje
     (history.allocate id kind payload fresh).Fresh query ↔ query ≠ id ∧ history.Fresh query :=
   fresh_insert_iff history id query (.present ⟨kind, .live, payload⟩)
 
-theorem fresh_free_iff (history : History ObjectId Payload) (id query : ObjectId)
-    {object : Object Payload} (present : history.lookup id = some (.present object)) :
-    (history.free id present).Fresh query ↔ history.Fresh query := by
-  change (History.lookup (Std.ExtHashMap.insert history id (.freed object.kind)) query = none) ↔ _
+private theorem fresh_write_iff_of_present (history : History ObjectId Payload)
+    (id query : ObjectId) {object : Object Payload}
+    (present : history.lookup id = some (.present object)) (entry : HistoryEntry Payload) :
+    (History.lookup (Std.ExtHashMap.insert history id entry) query = none) ↔ history.Fresh query := by
   rw [fresh_insert_iff]
   refine ⟨And.right, fun fresh => ⟨?_, fresh⟩⟩
   rintro rfl
   simp [History.Fresh, present] at fresh
+
+theorem fresh_updatePresent_iff (history : History ObjectId Payload) (id query : ObjectId)
+    {object : Object Payload} (present : history.lookup id = some (.present object))
+    (state : PresentState) (payload : Payload object.kind) :
+    (history.updatePresent id present state payload).Fresh query ↔ history.Fresh query :=
+  fresh_write_iff_of_present history id query present (.present ⟨object.kind, state, payload⟩)
+
+theorem fresh_free_iff (history : History ObjectId Payload) (id query : ObjectId)
+    {object : Object Payload} (present : history.lookup id = some (.present object)) :
+    (history.free id present).Fresh query ↔ history.Fresh query :=
+  fresh_write_iff_of_present history id query present (.freed object.kind)
 
 theorem toObjects_free (history : History ObjectId Payload) (id : ObjectId)
     {object : Object Payload} (present : history.lookup id = some (.present object)) :

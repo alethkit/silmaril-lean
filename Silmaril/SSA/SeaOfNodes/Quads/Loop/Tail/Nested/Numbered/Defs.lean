@@ -53,6 +53,19 @@ abbrev routePorts (regs : List (ValueSort Data)) : List (Ty Data) :=
 abbrev splitSigs (regs : List (ValueSort Data)) : List (List (Ty Data)) :=
   [routePorts regs, dataPorts regs]
 
+/-- Link a two-arm γ to a continuation over the actual numbered result
+ports. Each isolated child has the same typed result interface. -/
+def linkGamma {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
+    (choice : Choice regs 2) (sigs : Fin 2 → List (List (Ty Data)))
+    (arms : (i : Fin 2) → Term (Opcode Op) (dataPorts regs) [] (sigs i) outputs)
+    (current : Wires args past (dataPorts regs))
+    (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
+      Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results) :
+    Term (Opcode Op) args past ([routePorts regs, outputs] ++ suffix) results :=
+  .bind ⟨_, .base (.simple (.route choice)), current, Fin.elim0⟩ (fun i => i.elim0)
+    (.bind ⟨_, .base (.gamma 0), lastBank past (routePorts regs), sigs⟩
+      arms (finish (lastBank (past ++ [routePorts regs]) outputs)))
+
 /-- Wire the outer γ with the supplied common result interface. Each arm
 must already return that interface in the same port order. -/
 def afterOuterWith {args outputs results : List (Ty Data)} {past suffix : List (List (Ty Data))}
@@ -61,9 +74,7 @@ def afterOuterWith {args outputs results : List (Ty Data)} {past suffix : List (
     (finish : Wires args (extend past [routePorts regs, outputs]) outputs →
       Term (Opcode Op) args (extend past [routePorts regs, outputs]) suffix results) :
     Term (Opcode Op) args past ([routePorts regs, outputs] ++ suffix) results :=
-  .bind ⟨_, .base (.simple (.route (outerChoice p))), current, Fin.elim0⟩ (fun i => i.elim0)
-    (.bind ⟨_, .base (.gamma 0), lastBank past (routePorts regs), outerSigs p⟩
-      arms (finish (lastBank (past ++ [routePorts regs]) outputs)))
+  linkGamma (outerChoice p) (outerSigs p) arms current finish
 
 /-- The outer γ returns the complete bank from its chosen region. -/
 def afterOuter {args results : List (Ty Data)} {past suffix : List (List (Ty Data))}

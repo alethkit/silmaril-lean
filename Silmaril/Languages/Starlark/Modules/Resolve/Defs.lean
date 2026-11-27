@@ -791,6 +791,12 @@ def elaborateCommand (block : BlockContext) (command : Command) :
   | .load label imports =>
     if imports.isEmpty then throw (.emptyLoad label) else pure (.load label imports)
 
+theorem elaborateCommand_load (block : BlockContext) (label : String) (first : Modules.Import)
+    (rest : List Modules.Import) (program : Program) :
+    elaborateCommand block (.load label (first :: rest)) program =
+      .ok (.load label (first :: rest), program) := by
+  simp [elaborateCommand, pure, StateT.pure, Except.pure]
+
 theorem elaborateCommand_assign (block : BlockContext) (name : String) (value : Lowering.Resolve.SourceExpr)
     (program : Program) :
     elaborateCommand block (.assign name value) program =
@@ -806,23 +812,34 @@ theorem elaborateCommand_eval (block : BlockContext) (value : Lowering.Resolve.S
   cases operand : resolveTracked block.reads value <;>
     simp [elaborateCommand, readExpr, operand, Except.mapError, bind, StateT.bind, Except.bind, lift_ok, pure, StateT.pure, Except.map] <;> rfl
 
+/-- A direct definition uses the same signature, body and declaration table at either destination scope. -/
+theorem elaborateCommand_nativeDefinition (block : BlockContext) (writes : Scope) (name : String)
+    (signature : SourceSignature) (body : Statement) (seed next : Program) (id : DeclarationId)
+    (reads : List Binding)
+    (compiled : compileBody block (.define name signature body) seed =
+      .ok (⟨.define (fileSlot name) id, reads⟩, next)) :
+    elaborateCommand { block with writes } (.define name signature body) seed =
+      .ok (.exec (.define name id), next) := by
+  cases layoutEq : collectFunctionLayout block.reads signature body with
+  | error error =>
+    simp [compileBody, layoutEq, bind, StateT.bind, Except.bind, monadLift, MonadLift.monadLift, StateT.lift] at compiled
+  | ok layout =>
+    cases built : compileDefinition block.reads signature layout (fun inner => compileBody inner body) seed with
+    | error error =>
+      simp [compileBody, layoutEq, built, bind, StateT.bind, Except.bind, lift_ok] at compiled
+    | ok output =>
+      obtain ⟨⟨emitted, defaults, foundReads⟩, table⟩ := output
+      cases defaults <;>
+        simp_all [compileBody, elaborateCommand, bind, StateT.bind, Except.bind, lift_ok,
+          pure, StateT.pure, Except.pure, Comprehensions.definitionWithDefaults]
+
 theorem elaborateCommand_requiredDefinition (block : BlockContext) (writes : Scope) (name : String) (parameters : List String)
     (body : Statement) (program next : Program) (id : DeclarationId) (reads : List Binding)
     (compiled : compileBody block (.define name (.required parameters) body) program =
       .ok (⟨.define (fileSlot name) id, reads⟩, next)) :
     elaborateCommand { block with writes } (.define name (.required parameters) body) program =
-      .ok (.exec (.define name id), next) := by
-  cases layoutEq : collectFunctionLayout block.reads (.required parameters) body with
-  | error error =>
-    simp only [SourceSignature.required] at layoutEq
-    simp [compileBody, layoutEq, bind, StateT.bind, Except.bind, SourceSignature.required] at compiled
-    exact nomatch compiled
-  | ok layout =>
-    simp only [SourceSignature.required] at layoutEq
-    cases inner : compileBody layout.block body program <;>
-      simp_all [compileBody, elaborateCommand, compileDefinition, SourceSignature.required, required_names,
-        bind, StateT.bind, lift_ok, get_build, set_build, read_required, plain_required, required_reads,
-        Except.bind, pure, StateT.pure, Except.pure]
+      .ok (.exec (.define name id), next) :=
+  elaborateCommand_nativeDefinition block writes name (.required parameters) body program next id reads compiled
 
 /-- One resolved plain default together with its normalized source and reads. -/
 structure PlainPositionalDefault where
@@ -957,23 +974,26 @@ private theorem keyword_reads (parameters : List PlainKeywordParameter) :
 /-- With plain defaults before and after the star boundary, compilation
 emits a direct definition and retains the defining reads in source order. -/
 theorem compileBody_plainParameterDefinition (block : BlockContext) (name : String) (required : List String)
-    (defaults : List PlainPositionalDefault) (keywords : List PlainKeywordParameter) (varargs : Option String)
+    (defaults : List PlainPositionalDefault) (keywords : List PlainKeywordParameter) (varargs kwargs : Option String)
     (body : Statement) (program next : Program) (layout : FunctionLayout) (compiled : ResolvedBody)
     (closed : ∀ item ∈ defaults ++ keywords.filterMap PlainKeywordParameter.default,
       resolveTracked block.reads item.source = .ok (item.value, item.reads))
     (collected : collectFunctionLayout block.reads
       { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
         keywordOnly := keywords.map PlainKeywordParameter.source
-        varargs := varargs } body = .ok layout)
+        varargs := varargs
+        kwargs := kwargs } body = .ok layout)
     (bodyCode : compileBody layout.block body program = .ok (compiled, next)) :
     let source : SourceSignature :=
       { positional := required.map (fun name => ⟨name, none⟩) ++ defaults.map PlainPositionalDefault.parameter
         keywordOnly := keywords.map PlainKeywordParameter.source
-        varargs := varargs }
+        varargs := varargs
+        kwargs := kwargs }
     let signature : Functions.Signature :=
       { positional := (requiredSignature required).positional ++ defaults.map PlainPositionalDefault.resolved
         keywordOnly := keywords.map PlainKeywordParameter.resolved
-        varargs := varargs.map fileSlot }
+        varargs := varargs.map fileSlot
+        kwargs := kwargs.map fileSlot }
     let captures := captureNames (source.parameterNames ++ layout.locals) compiled.reads
     compileBody block (.define name source body) program =
       .ok (⟨.define (fileSlot name) next.size,
@@ -1015,7 +1035,7 @@ theorem compileBody_plainPositionalDefinition (block : BlockContext) (name : Str
     compileBody block (.define name source body) program =
       .ok (⟨.define (fileSlot name) next.size, defaults.flatMap PlainPositionalDefault.reads ++ captures.map FreeName.source⟩,
         next.push ⟨signature, layout.locals.map fileSlot, captures, compiled.code⟩) := by
-  simpa using compileBody_plainParameterDefinition block name required defaults [] none body program next layout
+  simpa using compileBody_plainParameterDefinition block name required defaults [] none none body program next layout
     compiled (by simpa using closed) collected bodyCode
 
 theorem compileBody_plainAssign (block : BlockContext) (name : String) (source : Lowering.Resolve.SourceExpr)
