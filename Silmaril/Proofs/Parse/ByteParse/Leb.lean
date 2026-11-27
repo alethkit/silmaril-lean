@@ -16,7 +16,7 @@ length bound are accepted, as the Wasm specification requires. `le n` reads
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (UN SN littleEndian)
+open Silmaril.Parse.Binary (UN SN littleEndian)
 
 /-- A non-empty segment: its first byte and the rest. -/
 theorem seg_head {bs : ByteArray} {i : Nat} {b : UInt8} {l : Bytes}

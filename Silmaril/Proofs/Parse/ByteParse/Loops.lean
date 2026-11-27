@@ -19,7 +19,7 @@ public import Silmaril.Proofs.Parse.ByteParse.Leb
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (Seq Vec UN U32 Name Byte Utf8)
+open Silmaril.Parse.Binary (Seq Vec UN U32 Name Byte Utf8)
 
 variable {α : Type}
 
@@ -245,7 +245,7 @@ theorem fromUTF8_toUTF8 (s : String) : String.fromUTF8? s.toUTF8 = some s := by
 
 theorem name_spec_name {l : Bytes} {s : String} (h : Spec.name l s) : Name l s := by
   obtain ⟨nb, rfl, hu⟩ := h
-  refine Name.mk (Vec.mk ?_ (seqByte _)) (Silmaril.Wasm.Binary.Utf8.toUTF8 s)
+  refine Name.mk (Vec.mk ?_ (seqByte _)) (Silmaril.Parse.Binary.Utf8.toUTF8 s)
   rwa [← size_eq_length]
 
 theorem sound_name' : Sound Spec.name name := by
@@ -375,7 +375,7 @@ instance lawful_sizedItems (g : Grammar α) (hne : NonEmpty g.G) [g.Lawful] :
 instance lawful_sizedBy (g : Grammar α) [g.Lawful] : (sizedBy g).Lawful :=
   inferInstanceAs (u32.bind fun n => sized n g).Lawful
 
-theorem uN_G {N : Nat} {l : Bytes} {n : Nat} (h : Silmaril.Wasm.Binary.UN N l n) : (uN N).G l n := h
+theorem uN_G {N : Nat} {l : Bytes} {n : Nat} (h : Silmaril.Parse.Binary.UN N l n) : (uN N).G l n := h
 
 theorem name_G (s : String) {nb : Bytes} (h : U32 nb s.toUTF8.size) :
     name.G (nb ++ s.toUTF8.data.toList) s := ⟨nb, rfl, h⟩

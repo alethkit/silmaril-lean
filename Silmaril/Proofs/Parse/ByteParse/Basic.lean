@@ -17,7 +17,7 @@ public import Mathlib.Tactic.Linarith
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (Seq Vec UN U32)
+open Silmaril.Parse.Binary (Seq Vec UN U32)
 
 variable {α β : Type}
 

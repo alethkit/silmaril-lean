@@ -17,7 +17,7 @@ prefix, and `GrammarE.runAll` reads a whole input.
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (Seq U32)
+open Silmaril.Parse.Binary (Seq U32)
 
 variable {α β : Type}
 

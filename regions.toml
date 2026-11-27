@@ -144,7 +144,7 @@ deps = ["Prelude", "Semantics", "Logic", "Project", "Machine"]
 [[region]]
 name = "Parse"
 scope = "Byte-level parsing: a combinator core for binary formats, with its laws, shared by the Wasm binary codecs and other formats."
-deps = ["Wasm"]
+deps = []
 
 [[region]]
 name = "Cerberus"

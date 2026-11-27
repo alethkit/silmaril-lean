@@ -1,21 +1,20 @@
 module
 
 public import Silmaril.Proofs.Parse.ByteParse.AtEnd
-public import Silmaril.Wasm.Binaryen.Exe.EncodeBaseSound
 
 /-!
 # Encoder laws
 
 Each encoder of `Silmaril.Parse.ByteParse.Enc` produces bytes its grammar accepts.
 With completeness this is the round trip `parse (enc a ++ rest) = ok a`.
-LEB128 laws reuse silmaril's `encU_sound`/`encS_sound`.
+LEB128 laws reuse `Silmaril.Parse.Binary.encU_sound`/`encS_sound`.
 -/
 
 @[expose] public section
 
 namespace Silmaril.Parse.ByteParse
 
-open Silmaril.Wasm.Binary (Seq Vec UN SN U32)
+open Silmaril.Parse.Binary (Seq Vec UN SN U32)
 
 variable {α : Type}
 
@@ -24,7 +23,7 @@ namespace Enc
 theorem u32_G {n : Nat} {l : Bytes} (h : u32 n = some l) : UN 32 l n := by
   unfold u32 at h
   split at h
-  · cases h; exact Silmaril.Wasm.Binaryen.Exe.encU_sound ‹_›
+  · cases h; exact Silmaril.Parse.Binary.encU_sound ‹_›
   · cases h
 
 theorem u32_lt {n : Nat} {l : Bytes} (h : u32 n = some l) : n < 2 ^ 32 := by
@@ -36,7 +35,7 @@ theorem u32_lt {n : Nat} {l : Bytes} (h : u32 n = some l) : n < 2 ^ 32 := by
 theorem sN_G {N : Nat} {i : Int} {l : Bytes} (h : sN N i = some l) : SN N l i := by
   unfold sN at h
   split at h
-  · next hc => cases h; exact Silmaril.Wasm.Binaryen.Exe.encS_sound hc.2.1 hc.2.2 hc.1
+  · next hc => cases h; exact Silmaril.Parse.Binary.encS_sound hc.2.1 hc.2.2 hc.1
   · cases h
 
 theorem u32_ne_nil {n : Nat} {l : Bytes} (h : u32 n = some l) : l ≠ [] := by
@@ -114,7 +113,7 @@ theorem le_G (n v : Nat) (hv : v < 2 ^ (8 * n)) : Spec.le n (le n v) v := by
         _ = 2 ^ (8 * n) * 256 := by rw [Nat.mul_succ, pow_add]; norm_num
     obtain ⟨hl, hv'⟩ := ih (v / 256) h1
     refine ⟨by simp [le, hl], ?_⟩
-    simp only [le, Silmaril.Wasm.Binary.littleEndian, ← hv']
+    simp only [le, Silmaril.Parse.Binary.littleEndian, ← hv']
     rw [UInt8.toNat_ofNat_of_lt' (show v % 256 < 256 by omega)]
     omega
 
