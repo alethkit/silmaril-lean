@@ -761,13 +761,6 @@ theorem let_case_comm_proof {m : Nat} {Δ : BoundCtx (Ty α) m} {X Y Z C : Ty α
     (Equiv.let₁ (.refl hEX) (caseL.trans substL)) (Equiv.let₁ (.refl hEY) (caseR.trans substR)))
 
 end CaseSlot
-/-- Exchanging two slots twice is the identity. -/
-theorem swap_swap_rename {k : Nat} (Γ : BoundCtx (Ty α) k) (X Z : Ty α) (x : LetCase.LocallyNameless.Tm Empty Φ (k + 2)) :
-    (x.rename (swapRenaming Γ X Z).toFun).rename (swapRenaming Γ Z X).toFun = x :=
-  ((LetCase.LocallyNameless.Tm.rename_comp _ _ x).trans
-    (LetCase.LocallyNameless.Tm.rename_congr (fun i => Fin.cases rfl (fun i => Fin.cases rfl (fun _ => rfl) i) i) x)).trans
-    (LetCase.LocallyNameless.Tm.rename_id x)
-
 /-- A native equation between terms equal to the given ones. -/
 theorem equiv_cast [HasTy Φ (Ty α)] {k : Nat} {Γ : BoundCtx (Ty α) k} {C : Ty α}
     {x y x' y' : LetCase.LocallyNameless.Tm Empty Φ k} (h : Equiv false Γ₀ Γ x y C) (ex : x = x') (ey : y = y') :
@@ -775,6 +768,104 @@ theorem equiv_cast [HasTy Φ (Ty α)] {k : Nat} {Γ : BoundCtx (Ty α) k} {C : T
   subst ex
   subst ey
   exact h
+
+/-! ## A case on a stored sum slot after a finite prefix
+
+A prefix of requests and pattern lets in front of a case on a stored slot
+of sum type is natively equal to the case in front of the two
+specializations of the prefix. One step of the induction on the prefix
+uses the equation that moves a case in front of a binding, or the equation
+that moves a pattern let out of both arms of a case. No two requests are
+exchanged. -/
+
+section Prefix
+
+variable [TaggedSignature α Φ]
+
+omit [TaggedSignature α Φ] in
+/-- A typed let has a typed bound term and a typed body. -/
+theorem hasType_let_inv [HasTy Φ (Ty α)] {k : Nat} {β : BoundCtx (Ty α) k} {a : LetCase.LocallyNameless.Tm Empty Φ k}
+    {b : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} {C : Ty α} (h : HasType Φ Γ₀ β (.let₁ a b) C) :
+    ∃ A : Ty α, HasType Φ Γ₀ β a A ∧ HasType Φ Γ₀ (β.snoc A) b C := by
+  cases h with
+  | let₁ ha hb => exact ⟨_, ha, hb⟩
+
+omit [TaggedSignature α Φ] in
+/-- A typed pattern let has a typed scrutinee and a typed body. -/
+theorem hasType_pair_inv [HasTy Φ (Ty α)] {k : Nat} {β : BoundCtx (Ty α) k} {a : LetCase.LocallyNameless.Tm Empty Φ k}
+    {c : LetCase.LocallyNameless.Tm Empty Φ (k + 2)} {C : Ty α} (h : HasType Φ Γ₀ β (.let₂ a c) C) :
+    ∃ A B : Ty α, HasType Φ Γ₀ β a (.product A B) ∧ HasType Φ Γ₀ ((β.snoc A).snoc B) c C := by
+  cases h with
+  | let₂ ha hc => exact ⟨_, _, ha, hc⟩
+
+/-- A request is typed at its reply type. -/
+theorem hasType_op_type {k : Nat} {β : BoundCtx (Ty α) k} {g : Φ} {a : LetCase.LocallyNameless.Tm Empty Φ k} {A : Ty α}
+    (h : HasType Φ Γ₀ β (.op g a) A) : A = tagsTy (replyTags g) := by
+  cases h
+  rfl
+
+omit [TaggedSignature α Φ] in
+/-- A slot is typed at its type in the context. -/
+theorem hasType_bv_type [HasTy Φ (Ty α)] {k : Nat} {β : BoundCtx (Ty α) k} {i : Fin k} {A : Ty α}
+    (h : HasType Φ Γ₀ β (.bv i) A) : A = β.get i := by
+  cases h
+  rfl
+
+/-- The finite-prefix equation. A prefix followed by a case on a stored
+slot of sum type is natively equal to the case on that slot followed by
+the specialization of the prefix in each arm. -/
+theorem deferred_equiv_proof {X Y C : Ty α} : {k : Nat} → {Γ : BoundCtx (Ty α) k} → {s : Fin k} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ k} → {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} → (w : Deferred X Y Γ s t l r) →
+    HasType Φ Γ₀ (Γ.snoc X) l C → HasType Φ Γ₀ (Γ.snoc Y) r C →
+    Equiv false Γ₀ Γ t (.case (.bv s) l r) C
+  | _, _, s, _, _, _, .here hs _ _, hl, hr => .refl (.case (slot_typed s hs) hl hr)
+  | _, Γ, s, _, _, _, .ask (l := l) (r := r) g argument rest, hl, hr => by
+    let Z : Ty α := tagsTy (replyTags g)
+    have hs : Γ.get s = .coprod X Y := rest.slot
+    have hE : HasType Φ Γ₀ Γ (.op g (argTerm argument)) Z :=
+      (Derivation.op (f := g) (argTyping argument)).toHasType
+    obtain ⟨Al, hEl, hbl⟩ := hasType_let_inv hl
+    obtain ⟨Ar, hEr, hbr⟩ := hasType_let_inv hr
+    obtain rfl := hasType_op_type hEl
+    obtain rfl := hasType_op_type hEr
+    have hl' : HasType Φ Γ₀ ((Γ.snoc Z).snoc X) l C := by
+      have h := HasType.rename (swapRenaming Γ X Z) hbl
+      rwa [swap_swap_rename] at h
+    have hr' : HasType Φ Γ₀ ((Γ.snoc Z).snoc Y) r C := by
+      have h := HasType.rename (swapRenaming Γ Y Z) hbr
+      rwa [swap_swap_rename] at h
+    have ih := deferred_equiv_proof rest hl' hr'
+    have comm := let_case_comm_proof s hs hE hl' hr'
+    exact (Equiv.let₁ (.refl hE) ih).trans (equiv_cast comm rfl
+      (congrArg₂ (fun a b => LetCase.LocallyNameless.Tm.case (.bv s)
+          (.let₁ (.op g a) (l.rename (swapRenaming Γ Z X).toFun))
+          (.let₁ (.op g b) (r.rename (swapRenaming Γ Z Y).toFun)))
+        (argTerm_rename argument (BoundCtx.Renaming.succ Γ X))
+        (argTerm_rename argument (BoundCtx.Renaming.succ Γ Y))))
+  | _, Γ, s, _, _, _, .unpack (A := A) (B := B) (l := l) (r := r) x rest, hl, hr => by
+    have hs : Γ.get s = .coprod X Y := rest.slot
+    obtain ⟨Al, Bl, hvl, hbl⟩ := hasType_pair_inv hl
+    obtain ⟨Ar, Br, hvr, hbr⟩ := hasType_pair_inv hr
+    have el : Ty.product Al Bl = Ty.product A B := (hasType_bv_type hvl).trans x.2
+    have er : Ty.product Ar Br = Ty.product A B := (hasType_bv_type hvr).trans x.2
+    obtain ⟨hAl, hBl⟩ := Ty.product.inj el
+    obtain ⟨hAr, hBr⟩ := Ty.product.inj er
+    subst hAl hBl hAr hBr
+    have hl' : HasType Φ Γ₀ (((Γ.snoc Ar).snoc Br).snoc X) l C := by
+      have h : HasType Φ Γ₀ (((Γ.snoc Ar).snoc Br).snoc X) ((l.rename beforePair).rename afterPair) C :=
+        HasType.rename (afterPairRenaming Γ X Ar Br) hbl
+      rwa [before_after_rename] at h
+    have hr' : HasType Φ Γ₀ (((Γ.snoc Ar).snoc Br).snoc Y) r C := by
+      have h : HasType Φ Γ₀ (((Γ.snoc Ar).snoc Br).snoc Y) ((r.rename beforePair).rename afterPair) C :=
+        HasType.rename (afterPairRenaming Γ Y Ar Br) hbr
+      rwa [before_after_rename] at h
+    have ih := deferred_equiv_proof rest hl' hr'
+    have comm := case_pair_comm_proof s x.1 hs x.2 hbl hbr
+    exact (Equiv.let₂ (.refl (slot_typed x.1 x.2)) ih).trans (equiv_cast comm.symm
+      (congrArg₂ (fun a b => LetCase.LocallyNameless.Tm.let₂ (.bv x.1) (.case (.bv s.succ.succ) a b))
+        (before_after_rename l) (before_after_rename r)) rfl)
+
+end Prefix
 
 /-! ## Moving a binding or a case under the unpackings of a stack
 
@@ -1093,6 +1184,99 @@ section Spelled
 
 variable [TaggedSignature α Φ]
 
+/-- The normal-form equation at a case on a bound reply, from the equations
+of its arms. It is shared by the case that directly follows its request and
+by the case that is delayed across a prefix. -/
+theorem split_opened_equiv {stack : List (List α)} {atoms nxt : List α} {more : List (List α)} {m : Nat}
+    {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack} {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+    (left : SpelledStack (atoms :: stack) ((Δ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tupleTy atoms))
+      (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: nxt :: more)) (tupleTy atoms)))) L l)
+    (right : SpelledStackTags stack (nxt :: more) (Δ.snoc (tagsTy (atoms :: nxt :: more)))
+      (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: nxt :: more)))) L r)
+    {k : Nat} {Θ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming Δ Θ)
+    (ihl : Equiv false Γ₀ ((Θ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tupleTy atoms)) (l.rename ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms)).toFun)
+      (unpackStack (atoms :: stack)
+        ((Holds.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: nxt :: more)) (tupleTy atoms)))).rename ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms)))
+        (left.opened ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))).1) (packedExitType L))
+    (ihr : ∃ V : LetCase.LocallyNameless.Tm Empty Φ (stackSize (k + 1 + 1) stack),
+      Equiv false Γ₀ ((Θ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tagsTy (nxt :: more))) (r.rename ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tagsTy (nxt :: more))).toFun)
+        (unpackStack stack (((holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: nxt :: more)))).rename (ρ.up (tagsTy (atoms :: nxt :: more)))).rename
+          (weakenTele (Θ.snoc (tagsTy (atoms :: nxt :: more))) [tagsTy (nxt :: more)])) V) (packedExitType L) ∧
+      HasType Φ Γ₀ (stackCtx stack ((Θ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tagsTy (nxt :: more)))) V (packedExitType L) ∧
+      V.rename (swapStack stack (Θ.snoc (tagsTy (atoms :: nxt :: more))) [tagsTy (nxt :: more)]).toFun = (right.opened (ρ.up (tagsTy (atoms :: nxt :: more)))).1) :
+    ∃ U : LetCase.LocallyNameless.Tm Empty Φ (stackSize (k + 1) stack),
+      Equiv false Γ₀ (Θ.snoc (tagsTy (atoms :: nxt :: more)))
+        (.case (.bv 0) (l.rename ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms)).toFun) (r.rename ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tagsTy (nxt :: more))).toFun))
+        (unpackStack stack ((holds.rename ρ).rename (weakenTele Θ [tagsTy (atoms :: nxt :: more)])) U) (packedExitType L) ∧
+      HasType Φ Γ₀ (stackCtx stack (Θ.snoc (tagsTy (atoms :: nxt :: more)))) U (packedExitType L) ∧
+      U.rename (swapStack stack Θ [tagsTy (atoms :: nxt :: more)]).toFun =
+        ((SpelledStackTags.split atoms nxt more left right).opened ρ).1 := by
+    let Rt : Ty α := tagsTy (atoms :: nxt :: more)
+    let X : Ty α := tupleTy atoms
+    let Y : Ty α := tagsTy (nxt :: more)
+    let Γ := Θ.snoc Rt
+    let H' := (holds.rename ρ).rename (weakenTele Θ [Rt])
+    let ρ₂ := (ρ.up Rt).up X
+    -- the first arm
+    have holdsL : (holds.rename (pastPair Δ Rt X)).rename ρ₂ = H'.rename (weakenTele Γ [X]) :=
+      (Holds.rename_comp holds (pastPair Δ Rt X) ρ₂).trans
+        ((congrArg (fun r => holds.rename r) (renaming_ext (ρ := (pastPair Δ Rt X).comp ρ₂)
+          (π := (ρ.comp (weakenTele Θ [Rt])).comp (weakenTele Γ [X])) (fun _ => rfl))).trans
+          ((Holds.rename_comp holds (ρ.comp (weakenTele Θ [Rt])) (weakenTele Γ [X])).symm.trans
+            (congrArg (fun h => Holds.rename (weakenTele Γ [X]) h)
+              (Holds.rename_comp holds ρ (weakenTele Θ [Rt])).symm)))
+    let i₀ := (weakenStack stack (Γ.snoc X)).toFun 0
+    have hNl := (left.opened ρ₂).2.typing.toHasType
+    have hAl := unpackAt_typed_proof atoms i₀ ((weakenStack stack (Γ.snoc X)).typed 0) hNl
+    have ihl' : Equiv false Γ₀ (Γ.snoc X) (_ : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1))
+        (unpackStack stack (H'.rename (weakenTele Γ [X])) (unpackAt atoms i₀ (left.opened ρ₂).1))
+        (packedExitType L) :=
+      equiv_cast ihl rfl (congrArg (fun h => unpackStack stack h
+        (unpackAt atoms i₀ (left.opened ρ₂).1)) holdsL)
+    -- the other arms
+    obtain ⟨V, hflatR, hV, hopenR⟩ := ihr
+    have holdsR : (holds.rename (BoundCtx.Renaming.succ Δ Rt)).rename (ρ.up Rt) = H' :=
+      (Holds.rename_comp holds (BoundCtx.Renaming.succ Δ Rt) (ρ.up Rt)).trans
+        ((congrArg (fun r => holds.rename r) (renaming_ext (ρ := (BoundCtx.Renaming.succ Δ Rt).comp (ρ.up Rt))
+          (π := ρ.comp (weakenTele Θ [Rt])) (fun _ => rfl))).trans
+          (Holds.rename_comp holds ρ (weakenTele Θ [Rt])).symm)
+    have ihr' : Equiv false Γ₀ (Γ.snoc Y) (_ : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1))
+        (unpackStack stack (H'.rename (weakenTele Γ [Y])) V) (packedExitType L) :=
+      equiv_cast hflatR rfl (congrArg (fun h => unpackStack stack (Holds.rename (weakenTele Γ [Y]) h) V) holdsR)
+    -- the case
+    have out := case_stack_out_proof (C := packedExitType L) stack (Γ := Γ) (X := X) (Y := Y) 0 rfl H' hAl hV
+    have index : (swapStack stack Θ [Rt]).toFun ((weakenStack stack Γ).toFun 0) =
+        (0 : Fin (stackSize k stack + 1)) :=
+      congrArg (fun r : BoundCtx.Renaming Γ _ => r.toFun 0) (swapStack_weaken stack Θ [Rt])
+    refine ⟨_, (Equiv.case (.refl (.bv (ι := (0 : Fin (k + 1))))) ihl' ihr').trans out,
+      .case (slot_typed _ ((weakenStack stack Γ).typed 0))
+        (HasType.rename (swapStack stack Γ [X]) hAl) (HasType.rename (swapStack stack Γ [Y]) hV), ?_⟩
+    show LetCase.LocallyNameless.Tm.case (.bv ((swapStack stack Θ [Rt]).toFun ((weakenStack stack Γ).toFun 0)))
+      (LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up X).toFun _)
+      (LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up Y).toFun _) = _
+    refine congr (congr (congrArg (fun i => LetCase.LocallyNameless.Tm.case (.bv i)) index) ?_) ?_
+    · -- the first arm of the normal form
+      have idx : (swapStack stack Θ [Rt, X]).toFun i₀ = (0 : Fin (stackSize k stack + 1 + 1)) :=
+        congrArg (fun r : BoundCtx.Renaming (Γ.snoc X) _ => r.toFun 0) (swapStack_weaken stack Θ [Rt, X])
+      exact ((LetCase.LocallyNameless.Tm.rename_comp (swapStack stack Γ [X]).toFun ((swapStack stack Θ [Rt]).up X).toFun
+          (unpackAt atoms i₀ (left.opened ρ₂).1)).trans
+        (congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun (unpackAt atoms i₀ (left.opened ρ₂).1))
+          (swapStack_cons stack Θ Rt [X]).symm)).trans
+        (((unpackAt_rename (Φ := Φ) atoms (swapStack stack Θ [Rt, X]) i₀ _).trans
+          (congrArg (fun i => unpackAt atoms i ((left.opened ρ₂).1.rename
+            (upTele (swapStack stack Θ [Rt, X]) (pairsTele atoms)).toFun)) idx)).trans
+          (congrArg (unpackAt atoms (0 : Fin (stackSize k stack + 1 + 1)))
+            (CaseTree.renamed_body_term (left.opened ρ₂).2
+              (upTele (swapStack stack Θ [Rt, X]) (pairsTele atoms))).symm))
+    · -- the other arms of the normal form
+      have renamedTags : (CaseTree.renamed (pending := .tags (nxt :: more))
+          (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (ρ.up Rt)).2 (swapStack stack Θ [Rt])).1 =
+          (right.opened (ρ.up Rt)).1.rename (LetCase.LocallyNameless.Tm.up (swapStack stack Θ [Rt]).toFun) :=
+        CaseTree.renamed_term (right.opened (ρ.up Rt)).2 (swapStack stack Θ [Rt])
+      exact (congrArg (fun t => LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up Y).toFun t) hopenR).trans
+        renamedTags.symm
+
 mutual
 
 theorem Spelled.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} →
@@ -1294,73 +1478,12 @@ theorem SpelledStackTags.opened_equiv : {stack : List (List α)} → {tags : Lis
         (congrArg (unpackAt atoms (0 : Fin (stackSize k stack + 1)))
           (CaseTree.renamed_body_term (next.opened (ρ.up X)).2
             (upTele (swapStack stack Θ [X]) (pairsTele atoms))).symm)⟩
-  | stack, _, _, Δ, holds, _, .split atoms nxt more left right, k, Θ, ρ => by
-    let Rt : Ty α := tagsTy (atoms :: nxt :: more)
-    let X : Ty α := tupleTy atoms
-    let Y : Ty α := tagsTy (nxt :: more)
-    let Γ := Θ.snoc Rt
-    let H' := (holds.rename ρ).rename (weakenTele Θ [Rt])
-    let ρ₂ := (ρ.up Rt).up X
-    -- the first arm
-    have ihl := left.opened_equiv ρ₂
-    have holdsL : (holds.rename (pastPair Δ Rt X)).rename ρ₂ = H'.rename (weakenTele Γ [X]) :=
-      (Holds.rename_comp holds (pastPair Δ Rt X) ρ₂).trans
-        ((congrArg (fun r => holds.rename r) (renaming_ext (ρ := (pastPair Δ Rt X).comp ρ₂)
-          (π := (ρ.comp (weakenTele Θ [Rt])).comp (weakenTele Γ [X])) (fun _ => rfl))).trans
-          ((Holds.rename_comp holds (ρ.comp (weakenTele Θ [Rt])) (weakenTele Γ [X])).symm.trans
-            (congrArg (fun h => Holds.rename (weakenTele Γ [X]) h)
-              (Holds.rename_comp holds ρ (weakenTele Θ [Rt])).symm)))
-    let i₀ := (weakenStack stack (Γ.snoc X)).toFun 0
-    have hNl := (left.opened ρ₂).2.typing.toHasType
-    have hAl := unpackAt_typed_proof atoms i₀ ((weakenStack stack (Γ.snoc X)).typed 0) hNl
-    have ihl' : Equiv false Γ₀ (Γ.snoc X) (_ : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1))
-        (unpackStack stack (H'.rename (weakenTele Γ [X])) (unpackAt atoms i₀ (left.opened ρ₂).1))
-        (packedExitType L) :=
-      equiv_cast ihl rfl (congrArg (fun h => unpackStack stack h
-        (unpackAt atoms i₀ (left.opened ρ₂).1)) holdsL)
-    -- the other arms
-    obtain ⟨V, hflatR, hV, hopenR⟩ := right.opened_equiv (ρ.up Rt)
-    have holdsR : (holds.rename (BoundCtx.Renaming.succ Δ Rt)).rename (ρ.up Rt) = H' :=
-      (Holds.rename_comp holds (BoundCtx.Renaming.succ Δ Rt) (ρ.up Rt)).trans
-        ((congrArg (fun r => holds.rename r) (renaming_ext (ρ := (BoundCtx.Renaming.succ Δ Rt).comp (ρ.up Rt))
-          (π := ρ.comp (weakenTele Θ [Rt])) (fun _ => rfl))).trans
-          (Holds.rename_comp holds ρ (weakenTele Θ [Rt])).symm)
-    have ihr' : Equiv false Γ₀ (Γ.snoc Y) (_ : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1))
-        (unpackStack stack (H'.rename (weakenTele Γ [Y])) V) (packedExitType L) :=
-      equiv_cast hflatR rfl (congrArg (fun h => unpackStack stack (Holds.rename (weakenTele Γ [Y]) h) V) holdsR)
-    -- the case
-    have out := case_stack_out_proof (C := packedExitType L) stack (Γ := Γ) (X := X) (Y := Y) 0 rfl H' hAl hV
-    have index : (swapStack stack Θ [Rt]).toFun ((weakenStack stack Γ).toFun 0) =
-        (0 : Fin (stackSize k stack + 1)) :=
-      congrArg (fun r : BoundCtx.Renaming Γ _ => r.toFun 0) (swapStack_weaken stack Θ [Rt])
-    refine ⟨_, (Equiv.case (.refl (.bv (ι := (0 : Fin (k + 1))))) ihl' ihr').trans out,
-      .case (slot_typed _ ((weakenStack stack Γ).typed 0))
-        (HasType.rename (swapStack stack Γ [X]) hAl) (HasType.rename (swapStack stack Γ [Y]) hV), ?_⟩
-    show LetCase.LocallyNameless.Tm.case (.bv ((swapStack stack Θ [Rt]).toFun ((weakenStack stack Γ).toFun 0)))
-      (LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up X).toFun _)
-      (LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up Y).toFun _) = _
-    refine congr (congr (congrArg (fun i => LetCase.LocallyNameless.Tm.case (.bv i)) index) ?_) ?_
-    · -- the first arm of the normal form
-      have idx : (swapStack stack Θ [Rt, X]).toFun i₀ = (0 : Fin (stackSize k stack + 1 + 1)) :=
-        congrArg (fun r : BoundCtx.Renaming (Γ.snoc X) _ => r.toFun 0) (swapStack_weaken stack Θ [Rt, X])
-      exact ((LetCase.LocallyNameless.Tm.rename_comp (swapStack stack Γ [X]).toFun ((swapStack stack Θ [Rt]).up X).toFun
-          (unpackAt atoms i₀ (left.opened ρ₂).1)).trans
-        (congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun (unpackAt atoms i₀ (left.opened ρ₂).1))
-          (swapStack_cons stack Θ Rt [X]).symm)).trans
-        (((unpackAt_rename (Φ := Φ) atoms (swapStack stack Θ [Rt, X]) i₀ _).trans
-          (congrArg (fun i => unpackAt atoms i ((left.opened ρ₂).1.rename
-            (upTele (swapStack stack Θ [Rt, X]) (pairsTele atoms)).toFun)) idx)).trans
-          (congrArg (unpackAt atoms (0 : Fin (stackSize k stack + 1 + 1)))
-            (CaseTree.renamed_body_term (left.opened ρ₂).2
-              (upTele (swapStack stack Θ [Rt, X]) (pairsTele atoms))).symm))
-    · -- the other arms of the normal form
-      have renamedTags : (CaseTree.renamed (pending := .tags (nxt :: more))
-          (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (ρ.up Rt)).2 (swapStack stack Θ [Rt])).1 =
-          (right.opened (ρ.up Rt)).1.rename (LetCase.LocallyNameless.Tm.up (swapStack stack Θ [Rt]).toFun) :=
-        CaseTree.renamed_term (right.opened (ρ.up Rt)).2 (swapStack stack Θ [Rt])
-      exact (congrArg (fun t => LetCase.LocallyNameless.Tm.rename ((swapStack stack Θ [Rt]).up Y).toFun t) hopenR).trans
-        renamedTags.symm
+  | _, _, _, _, _, _, .split _ _ _ left right, _, _, ρ =>
+    split_opened_equiv left right ρ (left.opened_equiv _) (right.opened_equiv _)
+  | _, _, _, _, _, _, .deferred atoms nxt more shape left right, _, _, ρ => by
+    obtain ⟨U, h, hU, e⟩ := split_opened_equiv left right ρ (left.opened_equiv _) (right.opened_equiv _)
+    exact ⟨U, ((deferred_equiv_proof shape left.typing.toHasType right.typing.toHasType).rename
+      (ρ.up (tagsTy (atoms :: nxt :: more)))).trans h, hU, e⟩
   | _, tags, _, _, _, _, .later h argument arms, _, _, ρ => by
     obtain ⟨U, hflat, hU, hopen⟩ := arms.opened_equiv ρ (argument.rename (ρ.up (tagsTy tags)))
     exact ⟨U, equiv_cast hflat
@@ -1574,6 +1697,104 @@ section Natural
 
 variable [TaggedSignature α Φ]
 
+/-- Naturality of the normal form at a case on a bound reply, from the
+naturality of its arms. -/
+theorem split_opened_renamed {stack : List (List α)} {atoms nxt : List α} {more : List (List α)} {n : Nat}
+    {Δ : BoundCtx (Ty α) n} {holds : Holds Δ stack} {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (left : SpelledStack (atoms :: stack) ((Δ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tupleTy atoms))
+      (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: nxt :: more)) (tupleTy atoms)))) L l)
+    (right : SpelledStackTags stack (nxt :: more) (Δ.snoc (tagsTy (atoms :: nxt :: more)))
+      (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: nxt :: more)))) L r)
+    {m : Nat} {Θ : BoundCtx (Ty α) m} {k : Nat} {δ : BoundCtx (Ty α) k} (σ : BoundCtx.Renaming Δ Θ)
+    (π : BoundCtx.Renaming Θ δ)
+    (ihl₀ : CaseTree.renamed (pending := .body) (left.opened ((σ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))).2
+        (upStack (atoms :: stack) ((π.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))) =
+      left.opened (((σ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms)).comp ((π.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))))
+    (ihr₀ : CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := (stackCtx stack (Θ.snoc (tagsTy (atoms :: nxt :: more)))).snoc (tagsTy (nxt :: more)))
+        (right.opened (σ.up (tagsTy (atoms :: nxt :: more)))).2 (upStack stack (π.up (tagsTy (atoms :: nxt :: more)))) =
+      right.opened ((σ.up (tagsTy (atoms :: nxt :: more))).comp (π.up (tagsTy (atoms :: nxt :: more))))) :
+    CaseTree.renamed (pending := .tags (atoms :: nxt :: more))
+      (β := (stackCtx stack Θ).snoc (tagsTy (atoms :: nxt :: more)))
+      ((SpelledStackTags.split atoms nxt more left right).opened σ).2 (upStack stack π) =
+      (SpelledStackTags.split atoms nxt more left right).opened (σ.comp π) := by
+    let Rt : Ty α := tagsTy (atoms :: nxt :: more)
+    let X : Ty α := tupleTy atoms
+    let Y : Ty α := tagsTy (nxt :: more)
+    let P := pairsTele atoms
+    let σ₂ := (σ.up Rt).up X
+    let π₂ := (π.up Rt).up X
+    -- the first arm
+    have ihl := ihl₀.trans (congrArg (fun r => left.opened r)
+      ((renaming_up_comp (σ.up Rt) (π.up Rt) X).trans
+        (congrArg (fun r : BoundCtx.Renaming _ _ => r.up X) (renaming_up_comp σ π Rt))))
+    have el : (upTele (swapStack stack Θ [Rt, X]) P).comp
+        (upTele ((upStack stack π).up Rt) (unpackTele atoms)) =
+        (upStack (atoms :: stack) π₂).comp (upTele (swapStack stack δ [Rt, X]) P) :=
+      (upTele_comp P (swapStack stack Θ [Rt, X]) (upTele (upStack stack π) [Rt, X])).trans
+        ((congrArg (fun r => upTele r P) (swapStack_natural stack [Rt, X] π)).trans
+          (upTele_comp P (upStack stack π₂) (swapStack stack δ [Rt, X])).symm)
+    have stepl : CaseTree.renamed (pending := .body)
+        (CaseTree.renamed (pending := .body) (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)).2
+        (upTele ((upStack stack π).up Rt) (unpackTele atoms)) =
+        CaseTree.renamed (pending := .body) (left.opened (((σ.comp π).up Rt).up X)).2
+          (upTele (swapStack stack δ [Rt, X]) P) :=
+      (CaseTree.renamed_body_comp (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)
+          (upTele ((upStack stack π).up Rt) (unpackTele atoms))).trans
+        ((congrArg (fun r => CaseTree.renamed (pending := .body) (left.opened σ₂).2 r) el).trans
+          ((CaseTree.renamed_body_comp (left.opened σ₂).2 (upStack (atoms :: stack) π₂)
+              (upTele (swapStack stack δ [Rt, X]) P)).symm.trans
+            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
+              CaseTree.renamed (pending := .body) r.2 (upTele (swapStack stack δ [Rt, X]) P)) ihl)))
+    have armL := (CaseTree.packed_renamed atoms
+        (CaseTree.renamed (pending := .body) (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)).2
+        ((upStack stack π).up Rt)).trans
+      (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body
+          (extendCtx ((stackCtx stack δ).snoc Rt) (unpackTele atoms)) L u =>
+        (⟨_, CaseTree.packed atoms r.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
+          (((stackCtx stack δ).snoc Rt).snoc X) L u)) stepl)
+    -- the other arms
+    have ihr := ihr₀.trans
+      (congrArg (fun r => right.opened r) (renaming_up_comp σ π Rt))
+    have comp₁ : CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := ((stackCtx stack Θ).snoc Rt).snoc Y)
+        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (σ.up Rt)).2 (swapStack stack Θ [Rt])).2
+        ((upStack stack π).up Rt) =
+        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (σ.up Rt)).2 ((swapStack stack Θ [Rt]).comp ((upStack stack π).up Rt)) :=
+      CaseTree.renamed_comp (right.opened (σ.up Rt)).2 _ _
+    have comp₂ : CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := (stackCtx stack (δ.snoc Rt)).snoc Y)
+        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (σ.up Rt)).2 (upStack stack (π.up Rt))).2
+        (swapStack stack δ [Rt]) =
+        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (σ.up Rt)).2 ((upStack stack (π.up Rt)).comp (swapStack stack δ [Rt])) :=
+      CaseTree.renamed_comp (right.opened (σ.up Rt)).2 _ _
+    have stepr : CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := ((stackCtx stack Θ).snoc Rt).snoc Y)
+        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
+          (right.opened (σ.up Rt)).2 (swapStack stack Θ [Rt])).2
+        ((upStack stack π).up Rt) =
+        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (δ.snoc Rt)).snoc Y)
+          (right.opened ((σ.comp π).up Rt)).2 (swapStack stack δ [Rt]) :=
+      comp₁.trans
+        ((congrArg (fun r => CaseTree.renamed (pending := .tags (nxt :: more))
+            (β := (stackCtx stack (Θ.snoc Rt)).snoc Y) (right.opened (σ.up Rt)).2 r)
+          (swapStack_natural stack [Rt] π)).trans
+          (comp₂.symm.trans
+            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tags (nxt :: more)) _ L u =>
+              CaseTree.renamed (pending := .tags (nxt :: more))
+                (β := (stackCtx stack (δ.snoc Rt)).snoc Y) r.2 (swapStack stack δ [Rt])) ihr)))
+    exact congrArg₂ (fun (x : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
+          (((stackCtx stack δ).snoc Rt).snoc X) L u)
+        (y : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tags (nxt :: more))
+          (((stackCtx stack δ).snoc Rt).snoc Y) L u) =>
+        (⟨_, CaseTree.split atoms nxt more x.2 y.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
+          CaseTree (.tags (atoms :: nxt :: more)) ((stackCtx stack δ).snoc Rt) L u))
+      armL stepr
+
 mutual
 
 theorem Spelled.normal_renamed : {n : Nat} → {β : BoundCtx (Ty α) n} →
@@ -1747,83 +1968,10 @@ theorem SpelledStackTags.opened_renamed : {stack : List (List α)} → {tags : L
             (extendCtx (stackCtx stack δ) (unpackTele atoms)) L u =>
           (⟨_, CaseTree.packed atoms r.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
             CaseTree (.tuple atoms) ((stackCtx stack δ).snoc X) L u)) step))
-  | stack, _, _, _, _, _, .split atoms nxt more left right, _, Θ, _, δ, σ, π => by
-    let Rt : Ty α := tagsTy (atoms :: nxt :: more)
-    let X : Ty α := tupleTy atoms
-    let Y : Ty α := tagsTy (nxt :: more)
-    let P := pairsTele atoms
-    let σ₂ := (σ.up Rt).up X
-    let π₂ := (π.up Rt).up X
-    -- the first arm
-    have ihl := (left.opened_renamed σ₂ π₂).trans (congrArg (fun r => left.opened r)
-      ((renaming_up_comp (σ.up Rt) (π.up Rt) X).trans
-        (congrArg (fun r : BoundCtx.Renaming _ _ => r.up X) (renaming_up_comp σ π Rt))))
-    have el : (upTele (swapStack stack Θ [Rt, X]) P).comp
-        (upTele ((upStack stack π).up Rt) (unpackTele atoms)) =
-        (upStack (atoms :: stack) π₂).comp (upTele (swapStack stack δ [Rt, X]) P) :=
-      (upTele_comp P (swapStack stack Θ [Rt, X]) (upTele (upStack stack π) [Rt, X])).trans
-        ((congrArg (fun r => upTele r P) (swapStack_natural stack [Rt, X] π)).trans
-          (upTele_comp P (upStack stack π₂) (swapStack stack δ [Rt, X])).symm)
-    have stepl : CaseTree.renamed (pending := .body)
-        (CaseTree.renamed (pending := .body) (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)).2
-        (upTele ((upStack stack π).up Rt) (unpackTele atoms)) =
-        CaseTree.renamed (pending := .body) (left.opened (((σ.comp π).up Rt).up X)).2
-          (upTele (swapStack stack δ [Rt, X]) P) :=
-      (CaseTree.renamed_body_comp (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)
-          (upTele ((upStack stack π).up Rt) (unpackTele atoms))).trans
-        ((congrArg (fun r => CaseTree.renamed (pending := .body) (left.opened σ₂).2 r) el).trans
-          ((CaseTree.renamed_body_comp (left.opened σ₂).2 (upStack (atoms :: stack) π₂)
-              (upTele (swapStack stack δ [Rt, X]) P)).symm.trans
-            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
-              CaseTree.renamed (pending := .body) r.2 (upTele (swapStack stack δ [Rt, X]) P)) ihl)))
-    have armL := (CaseTree.packed_renamed atoms
-        (CaseTree.renamed (pending := .body) (left.opened σ₂).2 (upTele (swapStack stack Θ [Rt, X]) P)).2
-        ((upStack stack π).up Rt)).trans
-      (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body
-          (extendCtx ((stackCtx stack δ).snoc Rt) (unpackTele atoms)) L u =>
-        (⟨_, CaseTree.packed atoms r.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
-          (((stackCtx stack δ).snoc Rt).snoc X) L u)) stepl)
-    -- the other arms
-    have ihr := (right.opened_renamed (σ.up Rt) (π.up Rt)).trans
-      (congrArg (fun r => right.opened r) (renaming_up_comp σ π Rt))
-    have comp₁ : CaseTree.renamed (pending := .tags (nxt :: more))
-        (β := ((stackCtx stack Θ).snoc Rt).snoc Y)
-        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (σ.up Rt)).2 (swapStack stack Θ [Rt])).2
-        ((upStack stack π).up Rt) =
-        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (σ.up Rt)).2 ((swapStack stack Θ [Rt]).comp ((upStack stack π).up Rt)) :=
-      CaseTree.renamed_comp (right.opened (σ.up Rt)).2 _ _
-    have comp₂ : CaseTree.renamed (pending := .tags (nxt :: more))
-        (β := (stackCtx stack (δ.snoc Rt)).snoc Y)
-        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (σ.up Rt)).2 (upStack stack (π.up Rt))).2
-        (swapStack stack δ [Rt]) =
-        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (σ.up Rt)).2 ((upStack stack (π.up Rt)).comp (swapStack stack δ [Rt])) :=
-      CaseTree.renamed_comp (right.opened (σ.up Rt)).2 _ _
-    have stepr : CaseTree.renamed (pending := .tags (nxt :: more))
-        (β := ((stackCtx stack Θ).snoc Rt).snoc Y)
-        (CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (Θ.snoc Rt)).snoc Y)
-          (right.opened (σ.up Rt)).2 (swapStack stack Θ [Rt])).2
-        ((upStack stack π).up Rt) =
-        CaseTree.renamed (pending := .tags (nxt :: more)) (β := (stackCtx stack (δ.snoc Rt)).snoc Y)
-          (right.opened ((σ.comp π).up Rt)).2 (swapStack stack δ [Rt]) :=
-      comp₁.trans
-        ((congrArg (fun r => CaseTree.renamed (pending := .tags (nxt :: more))
-            (β := (stackCtx stack (Θ.snoc Rt)).snoc Y) (right.opened (σ.up Rt)).2 r)
-          (swapStack_natural stack [Rt] π)).trans
-          (comp₂.symm.trans
-            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tags (nxt :: more)) _ L u =>
-              CaseTree.renamed (pending := .tags (nxt :: more))
-                (β := (stackCtx stack (δ.snoc Rt)).snoc Y) r.2 (swapStack stack δ [Rt])) ihr)))
-    exact congrArg₂ (fun (x : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
-          (((stackCtx stack δ).snoc Rt).snoc X) L u)
-        (y : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tags (nxt :: more))
-          (((stackCtx stack δ).snoc Rt).snoc Y) L u) =>
-        (⟨_, CaseTree.split atoms nxt more x.2 y.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
-          CaseTree (.tags (atoms :: nxt :: more)) ((stackCtx stack δ).snoc Rt) L u))
-      armL stepr
+  | _, _, _, _, _, _, .split _ _ _ left right, _, _, _, _, σ, π =>
+    split_opened_renamed left right σ π (left.opened_renamed _ _) (right.opened_renamed _ _)
+  | _, _, _, _, _, _, .deferred _ _ _ _ left right, _, _, _, _, σ, π =>
+    split_opened_renamed left right σ π (left.opened_renamed _ _) (right.opened_renamed _ _)
   | _, tags, _, _, _, _, .later _ argument arms, _, _, _, _, σ, π =>
     (arms.opened_renamed σ π (argument.rename (σ.up (tagsTy tags)))).trans
       (congrArg (fun a => arms.opened (σ.comp π) a)

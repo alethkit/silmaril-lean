@@ -1496,11 +1496,9 @@ The continuation cannot jump back to its own label.
   the packed tuples move out of both arms as before, and normal forms
   commute with renaming. Ranked validity and equality of ordered-exit
   arrows at the original exits follow as for the other spelled trees.
-  Outside the class: delaying the inspection across two or more
-  requests, or across a pattern let, and a stored reply that is selected
-  again later. Those need the normal form of a whole chain prefix to
-  branch on the stored tag, which is a stack entry of sum type and a
-  body for each tag; that is not built. The regression asks a request
+  In this entry the delay is across exactly one request. A finite
+  prefix of requests and pattern lets is covered in the next entry. The
+  regression asks a request
   with two tags, then a request on an older capture, and only then
   cases on the first reply. The delayed chain and the eager spelling,
   which cases at once and writes the later request in each arm, are
@@ -1513,6 +1511,45 @@ The continuation cannot jump back to its own label.
   [Delayed cases in chains](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Sum-slot equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A reply inspected after a later request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDelayedCaseRegression.lean)
+- The inspection may be delayed across a finite prefix. Between the
+  request with several tags and the case on its reply there may be any
+  number of requests, each with its reply bound, and pattern lets on
+  tuple slots. A request of the prefix is assembled from the atom slots
+  of the context in which the stored reply has sum type. So it may use
+  older captures and the atoms of earlier replies of the prefix, opened
+  by pattern lets of the prefix, and neither the stored reply nor its
+  payload. The prefix is a typed shape with two specializations, one
+  for the first tag and one for the remaining tags: the same prefix
+  weakened past the payload, followed by the arm with the payload
+  beneath the slots of the prefix. The shape computes the terms of the
+  specializations. The finite-prefix equation is
+  `P[case s L R] = case s (P↑[L′]) (P↑[R′])`, proved by induction on the
+  prefix with the equation that moves a case in front of a binding at
+  each request and the equation that moves a pattern let out of both
+  arms of a case at each pattern let. No effect interchange is assumed
+  and no law is added: the requests of the prefix keep their order, and
+  on every run each is asked once. The grammar gets one constructor,
+  which takes the shape and the two specializations as trees of the
+  grammar; their terms must be the ones the shape computes. The normal
+  form is that of the eager tree, with the case right after its request
+  and a copy of the prefix in each arm. The native equation, naturality
+  under renaming, ranked validity and equality of ordered-exit arrows at
+  the original exits follow, sharing the proof of the eager case. For
+  three or more tags the specialization to the remaining tags is again
+  a delayed tree. What is not built is the computation of the
+  specialized trees from the delayed tree alone: the arms would have to
+  be renamed so that the payload moves beneath the prefix, and spelled
+  trees have no renaming action, only their normal forms do. A prefix
+  that branches, with a case of its own, is also outside the class. The
+  regression delays a two-tag reply across two requests, where the
+  second takes a component of the reply of the first, opened by a
+  pattern let of the prefix, and an older capture. The delayed tree and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The removed dependency, a changed component under the first
+  tag and a changed component under the second tag are each told apart.
+  [Prefix shapes and deferred cases](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Finite-prefix equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A reply inspected after two dependent requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomPrefixRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

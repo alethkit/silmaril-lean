@@ -63,6 +63,16 @@ the reply carries, and may use older captures. The case on `s` directly
 follows `h`. In each arm the payload of the tag is pushed on the stack and
 the reply of `h` is pending.
 
+The inspection may also be delayed across a finite prefix: any number of
+requests, each with its reply bound, and pattern lets on tuple slots, and
+then the case on the stored reply. A request of the prefix may use older
+captures and the atoms of earlier replies of the prefix, and neither the
+stored reply nor its payload. Such a tree is given by the shape of its
+prefix (`Deferred`) and by its two specializations to the tags, which are
+trees of this grammar: each runs a copy of the prefix with the payload of
+its tag already bound beneath it, and then the arm. The shape determines
+the terms of the specializations, so they are checked against the prefix.
+
 The normal form unpacks every tuple completely right after the request or
 the case that binds it, and it inspects every reply right after its
 request. For a reply inspected at once, the case is in place. For a delayed
@@ -84,7 +94,9 @@ inspection uses a fourth derived equation,
 `let₁ E (case s L R) = case s (let₁ E↑ L′) (let₁ E↑ R′)` for a slot `s` of
 sum type. It follows from `K[s] = case s (K[inl a]) (K[inr b])`, which is
 derived from pure-let beta, sum eta and the law that pulls a case out of
-the scrutinee of a let, and from case beta at an injection. By induction on a
+the scrutinee of a let, and from case beta at an injection. By induction on
+a prefix it gives the finite-prefix equation `deferred_equiv`, with the
+equation for a case and a pattern let at the pattern lets. By induction on a
 tuple they move its whole unpacking, and by induction on the stack they
 move the unpackings of every packed tuple, in front of any binding that
 moves single pattern lets (`stack_out`) and out of both arms of a case
@@ -110,9 +122,11 @@ in order, as in the case trees, except that a pending tuple may be held
 and starts a chain over a stack as above. A chain may also start with the
 stack empty. Outside it are: a request whose reply is destructured or
 cased on at the request itself while a tuple is packed; a reply with
-several tags whose inspection is delayed across two or more requests, or
-across a pattern let, or which is selected again later; and arbitrary
-LetCase terms.
+several tags whose inspection is delayed across a prefix that branches,
+that is, a prefix with a case of its own; and arbitrary LetCase terms. The
+specializations of a delayed tree across a prefix are given, not computed:
+computing them needs a renaming action on spelled trees, which is not
+defined.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -547,6 +561,26 @@ theorem spelledStackTags_opened_renamed {stack : List (List α)} {tags : List (L
     CaseTree.renamed (pending := .tags tags) (β := (stackCtx stack γ).snoc (tagsTy tags))
       (d.opened ρ).2 (upStack stack π) = d.opened (ρ.comp π) :=
   d.opened_renamed ρ π
+
+/-- The finite-prefix equation. A prefix of requests and pattern lets
+followed by a case on a stored slot of sum type is natively equal to the
+case on that slot followed by the specialization of the prefix in each arm:
+
+`P[case s L R] = case s (P↑[L′]) (P↑[R′])`
+
+where `P↑` is the prefix weakened past the payload of the arm and `L′`,
+`R′` are the arms with the payload beneath the slots of the prefix. The
+prefix has any length. Each request of the prefix is typed where `s` has
+sum type, so it may use older captures and earlier replies of the prefix
+and neither the stored slot nor its payload, and it is one term for both
+tags. The proof is an induction on the prefix with `let_case_comm` at a
+request and `case_pair_comm` at a pattern let. No two requests are
+exchanged, and on every run each request is asked once. -/
+theorem deferred_equiv {X Y C : Ty α} {k : Nat} {Γ : BoundCtx (Ty α) k} {s : Fin k}
+    {t : LetCase.LocallyNameless.Tm Empty Φ k} {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} (w : Deferred X Y Γ s t l r)
+    (hl : HasType Φ Γ₀ (Γ.snoc X) l C) (hr : HasType Φ Γ₀ (Γ.snoc Y) r C) :
+    Equiv false Γ₀ Γ t (.case (.bv s) l r) C :=
+  deferred_equiv_proof w hl hr
 
 /-- A reply inspected after one later request `h`, with `h` asked in front
 of it, is natively equal to the unpackings of the stack around the case on
