@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.ML.OCaml.Syntax.Defs
+public import Silmaril.OCaml.Syntax.Defs
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.WasmIxx.Part0
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.WasmIxx.Part1
 
@@ -15,7 +15,7 @@ Kept 3 of 3 top-level items (tree-shaken from the roots in specs/ml/manifest.jso
 
 namespace Silmaril.Wasm.OCaml.RefInterp.Gen.WasmIxx
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 set_option maxRecDepth 100000
 

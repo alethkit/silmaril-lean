@@ -2,8 +2,8 @@ module
 
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.Program
 public import Silmaril.Raw.Wasm.OCaml.SpecTecMain.Gen.Program
-public import Silmaril.ML.OCaml.Override.Defs
-public import Silmaril.ML.OCaml.Interp.Defs
+public import Silmaril.OCaml.Override.Defs
+public import Silmaril.OCaml.Interp.Defs
 public import Silmaril.Wasm.SpecTec.Defs
 
 /-!
@@ -36,7 +36,7 @@ Notes are irrelevant to `reduce_exp` on these expressions; they are `()` here.
 @[expose] public section
 namespace Silmaril.Wasm.OCaml.SpecTecEval
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 /-- The external units, in the order they are linked before the imported ones. -/
 def externals : Program :=

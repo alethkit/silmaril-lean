@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.ML.OCaml.Syntax.Defs
+public import Silmaril.OCaml.Syntax.Defs
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.IlEval.Part0
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.IlEval.Part1
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.IlEval.Part2
@@ -21,7 +21,7 @@ Kept 26 of 32 top-level items (tree-shaken from the roots in specs/ml/manifest.j
 
 namespace Silmaril.Wasm.OCaml.SpecTecPin.Gen.IlEval
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 set_option maxRecDepth 100000
 

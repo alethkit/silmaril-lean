@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.Program
-public import Silmaril.ML.OCaml.Interp.Defs
+public import Silmaril.OCaml.Interp.Defs
 public import Silmaril.Wasm.SpecTec.Defs
 
 /-!
@@ -10,7 +10,7 @@ public import Silmaril.Wasm.SpecTec.Defs
 `interpreter/binary/decode.ml` at `WebAssembly/spec@608711107b` and what its integer
 decoders reach (`Wasm.Source`, `Wasm.Error`, `Wasm.Ixx`, `Wasm.I32`, `Wasm.I64` and 17 units
 of the OCaml 5.4.1 standard library), imported by an OCaml-to-Lean import tool from the compiler's
-typed trees (`specs/ml/refinterp-pin`) and linked by the semantics of `Silmaril.ML.OCaml`.
+typed trees (`specs/ml/refinterp-pin`) and linked by the semantics of `Silmaril.OCaml`.
 
 `decode.mli` exports only `decode` and `decode_with_custom`, so `uN`, `u32`, `sN`, `s32`,
 `u64` and `s64` are appended to the export list of the unit `Wasm__Decode` (`decodeUnit`).
@@ -30,7 +30,7 @@ allocated at link time (`codeExn`).
 @[expose] public section
 namespace Silmaril.Wasm.OCaml.Decode
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 open Silmaril.Wasm.OCaml.RefInterp.Gen
 
 /-- The decoders, by position after `decode.mli`'s three exports. -/

@@ -10,7 +10,7 @@ public import Silmaril.Proofs.Wasm.OCaml.SpecTecEval.SliceGeneric
 # SpecTec's own `reduce_exp` on slices: the pin has the strict bound, main has the fix
 
 `runSlice p es i n` runs `Il.Eval.reduce_exp Env.empty (es[i : n])` — the **imported OCaml
-source** of `spectec/src/il/eval.ml` — in the semantics `Silmaril.ML.OCaml`, for a list `es` of
+source** of `spectec/src/il/eval.ml` — in the semantics `Silmaril.OCaml`, for a list `es` of
 natural-number literals. `p` is `pinProgram` (`WebAssembly/spec@608711107b`, the pin of every
 SpecTec result in Silmaril) or `mainProgram` (`@e7a9df7cd`, after upstream's
 `f4f22691f "[spectec] Fix reduction of slices at boundary"`).
@@ -42,7 +42,7 @@ of it. A statement for all lists needs a program logic for the imported code
 @[expose] public section
 namespace Silmaril.Wasm.OCaml.SpecTecEval
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 theorem agreesSlice_none {o : SliceOut} (h : agreesSlice none o = true) : o = .errorSlice := by
   cases o <;> simp_all [agreesSlice]

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.ML.OCaml.Stdlib.Defs
+public import Silmaril.OCaml.Stdlib.Defs
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.WasmSource
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.WasmError
 public import Silmaril.Raw.Wasm.OCaml.RefInterp.Gen.WasmIxx
@@ -19,26 +19,26 @@ External units (not imported; modelled in Lean): none.
 
 namespace Silmaril.Wasm.OCaml.RefInterp.Gen
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 /-- The linked units, in initialisation order. -/
 def program : Program :=
-  [Silmaril.ML.OCaml.Gen.OCamlStdlib.CamlinternalFormatBasics.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.Stdlib.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibChar.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibInt.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibSeq.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibSys.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibUchar.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibBytes.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibBuffer.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibArray.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibList.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibString.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.CamlinternalFormat.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibInt32.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibInt64.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibPrintf.unit,
+  [Silmaril.OCaml.Gen.OCamlStdlib.CamlinternalFormatBasics.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.Stdlib.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibChar.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibInt.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibSeq.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibSys.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibUchar.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibBytes.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibBuffer.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibArray.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibList.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibString.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.CamlinternalFormat.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibInt32.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibInt64.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibPrintf.unit,
    Silmaril.Wasm.OCaml.RefInterp.Gen.WasmSource.unit,
    Silmaril.Wasm.OCaml.RefInterp.Gen.WasmError.unit,
    Silmaril.Wasm.OCaml.RefInterp.Gen.WasmIxx.unit,
