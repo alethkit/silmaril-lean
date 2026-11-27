@@ -1165,9 +1165,9 @@ The continuation cannot jump back to its own label.
   model is used. The later request occurs once, in the same place in
   the order, with the same argument. No case selection is moved across a
   request. The normalization, the native equation and the completeness
-  theorem for spelled trees extend to this node. Holding a longer tuple
-  and holding across a request with a compound or multi-tag reply are
-  outside the class. The first
+  theorem for spelled trees extend to this node. Holding across a
+  request with a compound or multi-tag reply is outside the class.
+  Chains of requests and longer tuples are covered below. The first
   regression holds the bound pair reply of one request across another
   and returns an old component with the new reply; the held and the
   eager spellings are valid together, and a changed component, a changed
@@ -1193,11 +1193,9 @@ The continuation cannot jump back to its own label.
   destructuring removed, as a term placed by one renaming, which
   commutes with renaming. Ranked validity and equality of ordered-exit
   arrows at the original exits follow as for the other spelled trees. A
-  tuple of three or more atoms is not held: its normal form unpacks the
-  rest of the tuple before the chain, so each request would have to be
-  placed under that unpacking, and that needs the normal form of the
-  rest to commute with renaming, which is not proved. A case inside the
-  chain is not allowed, so no case is moved across a request. The
+  tuple of three or more atoms is held as described in the next entry.
+  A case inside the chain is not allowed, so no case is moved across a
+  request. The
   regression holds a pair across three requests, where the second takes
   the reply of the first and an older capture, and returns a component
   of the pair with a reply of the chain. The held and the eager
@@ -1207,6 +1205,47 @@ The continuation cannot jump back to its own label.
   [Chains with a held pair](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Chain equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A pair held across three requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomChainRegression.lean)
+- Case trees carry a typed renaming action, and with it a right-nested
+  tuple of any number of atoms may be held across the same chains. A
+  body is renamed along any renaming of its context. A pending tuple or
+  reply is renamed along a renaming of the context beneath its pending
+  slot. One recursion covers the three kinds of tree. The term of the
+  renamed tree is the renamed term, and renaming twice is renaming along
+  the composite. Normal forms of spelled trees commute with renaming:
+  the normal form along a composite renaming is the normal form along
+  the first renaming, renamed along the second, for every spelled
+  family. A held tuple of two or more atoms ends its chain by
+  destructuring into its first atom and the rest, and the rest is
+  pending again: it is unpacked, or held across a further chain whose
+  requests may also use the atoms already unpacked. The normal form
+  unpacks the whole tuple first and then asks the same requests in the
+  same order, with the same arguments. Each request is moved under the
+  unpacking of the rest by an operation on the pending case tree that
+  renames every body so that the reply slot is newest and binds the
+  request in front of it. That operation is natively equal to binding
+  the request in front of the pending tree, by induction on the
+  unpacking with one commuting conversion for each pattern let, and it
+  commutes with renaming before and after. The dependency exclusion is
+  unchanged: the held tuple is one slot of product type and no request
+  of its chain can use it or its components. Ranked validity and
+  equality of ordered-exit arrows at the original exits follow as for
+  the other spelled trees. A chain request with a compound or multi-tag
+  reply, a case inside a chain and holding pending tags are outside the
+  class; no case is moved across a request. The regression holds a
+  triple across two requests, where the second takes the reply of the
+  first and an older capture, and returns an inner component of the
+  triple with a reply of the chain. The held and the eager spellings are
+  valid together with the same ordered-exit arrow. A removed dependency,
+  the other inner component, the first component, an older capture in
+  place of the inner component, a changed reply, a changed order and an
+  older capture in place of a reply are each told apart. A second tree
+  holds the rest of the triple again across a request on its first
+  atom.
+  [Renaming and binding under a pending tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Renaming laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Chains with a held tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Naturality and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A triple held across dependent requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTupleRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

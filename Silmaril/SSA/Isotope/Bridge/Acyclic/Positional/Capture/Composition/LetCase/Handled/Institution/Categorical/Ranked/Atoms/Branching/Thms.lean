@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Categorical.Ranked.Atoms.Branching.Defs
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.AtomBranching
+import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.AtomRenaming
 
 /-! # Completeness for case trees on tagged tuple replies
 
@@ -272,5 +273,103 @@ theorem denoteRanked_caseTree_iff (separable : Separable β) (p : CaseTree .body
         denoteRanked (traceJ (α := α) (Φ := Φ)) (atomTraceModel α Φ) (entryOf q.graph) ↔ t = u :=
   (rankedValid_branching_iff_atomTrace separable (entryOf p.graph) (entryOf q.graph) (branching_graph p)
     (branching_graph q)).symm.trans (rankedValid_caseTree_iff separable p q)
+
+/-! ## The renaming action on case trees
+
+A body is renamed along any renaming of its context. A pending tuple or
+reply is renamed along a renaming of the context beneath its pending slot,
+which stays newest. The action is defined by one recursion over all three
+kinds of tree. -/
+
+section Renaming
+
+variable {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k}
+
+omit [TaggedSignature α Φ] in
+/-- Renaming commutes with returning at an exit. -/
+theorem ExitAt.term_rename {A : Ty α} (e : ExitAt L A) (ξ : Fin n → Fin m)
+    (t : LetCase.LocallyNameless.Tm Empty Φ n) : (e.term t).rename ξ = e.term (t.rename ξ) :=
+  exit_term_rename_proof e ξ t
+
+omit [TaggedSignature α Φ] in
+/-- Renaming commutes with assembling a payload or an argument. -/
+theorem argTerm_rename {A : Ty α} (p : Assembly β A) (ρ : BoundCtx.Renaming β γ) :
+    (argTerm (Φ := Φ) p).rename ρ.toFun = argTerm (p.rename ρ) :=
+  argTerm_rename_proof p ρ
+
+omit [TaggedSignature α Φ] in
+/-- Two renamings with the same function are equal. -/
+theorem renaming_ext {ρ π : BoundCtx.Renaming β γ} (same : ∀ i, ρ.toFun i = π.toFun i) : ρ = π :=
+  renaming_ext_proof same
+
+omit [TaggedSignature α Φ] in
+/-- Lifting under a new slot commutes with composition. -/
+theorem renaming_up_comp (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) (X : Ty α) :
+    (ρ.up X).comp (π.up X) = (ρ.comp π).up X :=
+  renaming_up_comp_proof ρ π X
+
+omit [TaggedSignature α Φ] in
+/-- Renaming an assembled payload twice is renaming along the composite. -/
+theorem assembly_rename_comp {A : Ty α} (p : Assembly β A) (ρ : BoundCtx.Renaming β γ)
+    (π : BoundCtx.Renaming γ δ) : (p.rename ρ).rename π = p.rename (ρ.comp π) :=
+  assembly_rename_comp_proof p ρ π
+
+end Renaming
+
+/-- The term of a renamed case tree is the renamed term. For a body:
+`(tree.renamed ρ).1 = t.rename ρ`. Under a pending slot the renaming keeps
+that slot: `(tree.renamed ρ).1 = t.rename (up ρ)`. -/
+theorem CaseTree.renamed_term {pending : Pending α} {t : LetCase.LocallyNameless.Tm Empty Φ n}
+    (tree : CaseTree pending β L t) {m : Nat} {γ : BoundCtx (Ty α) m} (ρ : CaseTree.Along pending β γ) :
+    CaseTree.RenamedTerm pending β γ t ρ (tree.renamed ρ) :=
+  renamed_term_proof tree ρ
+
+/-- Renaming a case tree twice is renaming it along the composite:
+`(tree.renamed ρ).2.renamed π = tree.renamed (ρ.comp π)`, for a body and
+for a pending tree. -/
+theorem CaseTree.renamed_comp {pending : Pending α} {t : LetCase.LocallyNameless.Tm Empty Φ n}
+    (tree : CaseTree pending β L t) : CaseTree.RenamedComp pending β tree :=
+  renamed_comp_proof tree
+
+/-- The renamed body, with its term stated. -/
+theorem CaseTree.renamed_body_term {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree .body β L t)
+    {m : Nat} {γ : BoundCtx (Ty α) m} (ρ : BoundCtx.Renaming β γ) :
+    (CaseTree.renamed (pending := .body) tree ρ).1 = t.rename ρ.toFun :=
+  CaseTree.renamed_term tree ρ
+
+/-- Renaming a body twice is renaming it along the composite. -/
+theorem CaseTree.renamed_body_comp {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree .body β L t)
+    {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ)
+    (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .body) (CaseTree.renamed (pending := .body) tree ρ).2 π =
+      CaseTree.renamed (pending := .body) tree (ρ.comp π) :=
+  CaseTree.renamed_comp tree ρ π
+
+/-! ## Renaming and binding under a pending tuple
+
+Binding a slot under the unpacking of a pending tuple commutes with
+renaming the tuple beforehand and with renaming the result. -/
+
+/-- Binding a slot under a renamed pending tuple is binding it under the
+tuple along the composite renaming. -/
+theorem CaseTree.pushed_renamed {atoms : List α} {T : Ty α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {j : Nat} {β' : BoundCtx (Ty α) j}
+    (ρ : BoundCtx.Renaming β β') {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
+    (π : BoundCtx.Renaming β' (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X) :
+    CaseTree.pushed (pending := .tuple atoms) (β := β'.snoc T)
+      (CaseTree.renamed (pending := .tuple atoms) tree ρ).2 π wrap = CaseTree.pushed tree (ρ.comp π) wrap :=
+  pushed_pre_proof tree ρ π wrap
+
+/-- Renaming the result of binding a slot under a pending tuple is binding
+the slot under the tuple along the composite renaming, with the binding
+taken after the renaming. The way to bind the slot must commute with
+renaming. -/
+theorem CaseTree.renamed_pushed {atoms : List α} {T : Ty α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
+    (π : BoundCtx.Renaming β (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X) (natural : wrap.Natural)
+    {j : Nat} {Ω' : BoundCtx (Ty α) j} (ω : BoundCtx.Renaming Ω Ω') :
+    CaseTree.renamed (pending := .tuple atoms) (β := Ω.snoc T) (CaseTree.pushed tree π wrap).2 ω =
+      CaseTree.pushed tree (π.comp (ω.up X)) (fun ω' => wrap (ω.comp ω')) :=
+  pushed_post_proof tree π wrap natural ω
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution

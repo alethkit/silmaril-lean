@@ -261,4 +261,191 @@ def TokenWitness : Pending α → {n : Nat} → (β : BoundCtx (Ty α) n) → Na
   | .tuple _, _, .nil, _, _ => False
   | .tags _, _, .nil, _, _ => False
 
+/-! ## Renaming case trees
+
+Case trees of the three kinds are one inductive family, so the renaming
+action is one recursion. Its inputs and results depend on the kind: a
+body is renamed along a renaming of its context, and a pending tuple or
+reply along a renaming of the context beneath its pending slot. The types
+of the renamings and of the results, and the statements of the laws, are
+therefore given by cases on the kind and the context. The theorems restate
+the laws for each kind. -/
+
+/-- Move the three newest slots past two slots inserted beneath them: the
+newest two move up by one and the third becomes newest. -/
+def afterPair {m : Nat} : Fin (m + 3) → Fin (m + 3) :=
+  Fin.cases 1 (Fin.cases 2 (Fin.cases 0 (fun i => i.succ.succ.succ)))
+
+/-- That move as a renaming of contexts: two slots `A`, `B` bound after a
+slot `X` are placed beneath it. -/
+def afterPairRenaming {m : Nat} (Δ : BoundCtx (Ty α) m) (X A B : Ty α) :
+    BoundCtx.Renaming (((Δ.snoc X).snoc A).snoc B) (((Δ.snoc A).snoc B).snoc X) where
+  toFun := afterPair
+  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun _ => rfl)))
+
+/-- Exchange the two newest slots. -/
+def swapRenaming {m : Nat} (Ω : BoundCtx (Ty α) m) (X Y : Ty α) :
+    BoundCtx.Renaming ((Ω.snoc X).snoc Y) ((Ω.snoc Y).snoc X) where
+  toFun := Fin.cases 1 (Fin.cases 0 (fun i => i.succ.succ))
+  typed := Fin.cases rfl (Fin.cases rfl (fun _ => rfl))
+
+/-- The renamings along which a case tree can be renamed. A body is renamed
+along any renaming of its context. A pending tuple or reply is renamed
+along a renaming of the context beneath its pending slot, which stays
+newest. -/
+def CaseTree.Along : Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m → Type
+  | .body, _, β, _, γ => BoundCtx.Renaming β γ
+  | .tuple _, _, .snoc β _, _, γ => BoundCtx.Renaming β γ
+  | .tags _, _, .snoc β _, _, γ => BoundCtx.Renaming β γ
+  | .tuple _, _, .nil, _, _ => PEmpty
+  | .tags _, _, .nil, _, _ => PEmpty
+
+/-- The renamed case trees: a body in the target context, or a pending
+tree in the target context under the same pending slot. -/
+def CaseTree.Renamed (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) :
+    Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m → Type
+  | .body, _, _, m, γ => (u : LetCase.LocallyNameless.Tm Empty Φ m) × CaseTree .body γ L u
+  | .tuple atoms, _, .snoc _ X, m, γ =>
+    (u : LetCase.LocallyNameless.Tm Empty Φ (m + 1)) × CaseTree (.tuple atoms) (γ.snoc X) L u
+  | .tags replies, _, .snoc _ X, m, γ =>
+    (u : LetCase.LocallyNameless.Tm Empty Φ (m + 1)) × CaseTree (.tags replies) (γ.snoc X) L u
+  | .tuple _, _, .nil, _, _ => PEmpty
+  | .tags _, _, .nil, _, _ => PEmpty
+
+/-- The renaming action on case trees. -/
+def CaseTree.renamed : {pending : Pending α} → {n : Nat} → {β : BoundCtx (Ty α) n} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → {m : Nat} →
+    {γ : BoundCtx (Ty α) m} → CaseTree.Along pending β γ → CaseTree.Renamed Φ L pending β γ
+  | _, _, _, _, .ret exit payload, _, _, ρ => ⟨_, .ret exit (payload.rename ρ)⟩
+  | _, _, _, _, .ask f argument reply, _, _, ρ => ⟨_, .ask f (argument.rename ρ) (reply.renamed ρ).2⟩
+  | _, _, _, _, .only atoms payload, _, _, ρ => ⟨_, .only atoms (payload.renamed ρ).2⟩
+  | _, _, _, _, .split atoms next rest left right, _, _, ρ =>
+    ⟨_, .split atoms next rest (left.renamed (ρ.up _)).2 (right.renamed (ρ.up _)).2⟩
+  | _, _, _, _, .unit body, _, _, ρ => ⟨_, .unit (body.renamed (ρ.up _)).2⟩
+  | _, _, _, _, .atom a body, _, _, ρ => ⟨_, .atom a (body.renamed (ρ.up _)).2⟩
+  | _, _, _, _, .pair a b rest later, _, _, ρ =>
+    ⟨_, .pair a b rest (later.renamed ((ρ.up _).up _)).2⟩
+
+/-- The term of a renamed case tree is the renamed term. Under a pending
+slot the renaming keeps that slot. -/
+def CaseTree.RenamedTerm : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) → {m : Nat} →
+    (γ : BoundCtx (Ty α) m) → LetCase.LocallyNameless.Tm Empty Φ n → CaseTree.Along pending β γ →
+    CaseTree.Renamed Φ L pending β γ → Prop
+  | .body, _, _, _, _, t, ρ, r => r.1 = t.rename ρ.toFun
+  | .tuple _, _, .snoc _ _, _, _, t, ρ, r => r.1 = t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)
+  | .tags _, _, .snoc _ _, _, _, t, ρ, r => r.1 = t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)
+  | .tuple _, _, .nil, _, _, _, _, _ => True
+  | .tags _, _, .nil, _, _, _, _, _ => True
+
+/-- Renaming a case tree twice is renaming along the composite. -/
+def CaseTree.RenamedComp : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → Prop
+  | .body, _, β, _, tree =>
+    ∀ {m : Nat} {γ : BoundCtx (Ty α) m} {k : Nat} {δ : BoundCtx (Ty α) k}
+      (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ),
+      CaseTree.renamed (pending := .body) (tree.renamed ρ).2 π = tree.renamed (ρ.comp π)
+  | .tuple atoms, _, .snoc β X, _, tree =>
+    ∀ {m : Nat} {γ : BoundCtx (Ty α) m} {k : Nat} {δ : BoundCtx (Ty α) k}
+      (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ),
+      CaseTree.renamed (pending := .tuple atoms) (β := γ.snoc X) (tree.renamed ρ).2 π =
+        tree.renamed (ρ.comp π)
+  | .tags replies, _, .snoc β X, _, tree =>
+    ∀ {m : Nat} {γ : BoundCtx (Ty α) m} {k : Nat} {δ : BoundCtx (Ty α) k}
+      (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ),
+      CaseTree.renamed (pending := .tags replies) (β := γ.snoc X) (tree.renamed ρ).2 π =
+        tree.renamed (ρ.comp π)
+  | .tuple _, _, .nil, _, _ => True
+  | .tags _, _, .nil, _, _ => True
+
+/-! ## Binding a slot under a pending tuple
+
+A slot beneath a pending tuple is moved to a binding under the unpacking
+of the tuple. This is how a request asked before a held tuple is unpacked
+is placed in the normal form, which unpacks the tuple first. -/
+
+/-- A way to bind a slot of type `X` in front of a body, in any context
+that the base context renames into. -/
+abbrev CaseTree.Wrap (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) {m : Nat} (Ω : BoundCtx (Ty α) m)
+    (X : Ty α) :=
+  ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k}, BoundCtx.Renaming Ω Ω' →
+    {u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} → CaseTree .body (Ω'.snoc X) L u →
+    (v : LetCase.LocallyNameless.Tm Empty Φ k) × CaseTree .body Ω' L v
+
+/-- The data for moving a slot under a pending tuple: a renaming of the
+context beneath the tuple that puts the slot newest. -/
+def CaseTree.PushAlong : Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m →
+    Ty α → Type
+  | .body, _, _, _, _, _ => PEmpty
+  | .tags _, _, _, _, _, _ => PEmpty
+  | .tuple _, _, .nil, _, _, _ => PEmpty
+  | .tuple _, _, .snoc Ξ _, _, Ω, X => BoundCtx.Renaming Ξ (Ω.snoc X)
+
+/-- The result of moving a slot under a pending tuple: the pending tuple
+over the context without the slot. -/
+def CaseTree.Pushed (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) :
+    Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m → Type
+  | .body, _, _, _, _ => PUnit
+  | .tags _, _, _, _, _ => PUnit
+  | .tuple _, _, .nil, _, _ => PUnit
+  | .tuple atoms, _, .snoc _ T, m, Ω =>
+    (u : LetCase.LocallyNameless.Tm Empty Φ (m + 1)) × CaseTree (.tuple atoms) (Ω.snoc T) L u
+
+/-- Move a slot of the context beneath a pending tuple to a binding under
+the full unpacking of the tuple. At each body under the unpacking, the
+body is renamed so that the slot is newest and the binding is put in front
+of it. -/
+def CaseTree.pushed : {pending : Pending α} → {n : Nat} → {β : BoundCtx (Ty α) n} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → {m : Nat} →
+    {Ω : BoundCtx (Ty α) m} → {X : Ty α} → CaseTree.PushAlong pending β Ω X → CaseTree.Wrap Φ L Ω X →
+    CaseTree.Pushed Φ L pending β Ω
+  | _, _, _, _, .ret _ _, _, _, _, π, _ => nomatch π
+  | _, _, _, _, .ask _ _ _reply, _, _, _, π, _ => nomatch π
+  | _, _, _, _, .only _ _payload, _, _, _, π, _ => nomatch π
+  | _, _, _, _, .split _ _ _ _left _right, _, _, _, π, _ => nomatch π
+  | _, _, _, _, .unit body, _, Ω, X, π, wrap =>
+    ⟨_, .unit (wrap (BoundCtx.Renaming.succ Ω _)
+      (body.renamed ((π.up _).comp (swapRenaming Ω X _))).2).2⟩
+  | _, _, _, _, .atom a body, _, Ω, X, π, wrap =>
+    ⟨_, .atom a (wrap (BoundCtx.Renaming.succ Ω _)
+      (body.renamed ((π.up _).comp (swapRenaming Ω X _))).2).2⟩
+  | _, _, _, _, .pair a b rest later, _, Ω, X, π, wrap =>
+    ⟨_, .pair a b rest (later.pushed (((π.up _).up _).comp (afterPairRenaming Ω X _ _))
+      (fun ω => wrap (((BoundCtx.Renaming.succ Ω _).comp (BoundCtx.Renaming.succ _ _)).comp ω))).2⟩
+
+/-- Binding a slot under a renamed pending tuple is binding it under the
+tuple along the composite renaming. -/
+def CaseTree.PushedPre : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → Prop
+  | .body, _, _, _, _ => True
+  | .tags _, _, _, _, _ => True
+  | .tuple _, _, .nil, _, _ => True
+  | .tuple atoms, _, .snoc Ξ T, _, tree =>
+    ∀ {j : Nat} {Ξ' : BoundCtx (Ty α) j} (ρ : BoundCtx.Renaming Ξ Ξ') {m : Nat} {Ω : BoundCtx (Ty α) m}
+      {X : Ty α} (π : BoundCtx.Renaming Ξ' (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X),
+      CaseTree.pushed (pending := .tuple atoms) (β := Ξ'.snoc T)
+        (CaseTree.renamed (pending := .tuple atoms) tree ρ).2 π wrap = CaseTree.pushed tree (ρ.comp π) wrap
+
+/-- A way to bind a slot commutes with renaming. -/
+def CaseTree.Wrap.Natural {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α} (wrap : CaseTree.Wrap Φ L Ω X) : Prop :=
+  ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k} (ω : BoundCtx.Renaming Ω Ω')
+    {u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} (r : CaseTree .body (Ω'.snoc X) L u) {j : Nat}
+    {Ω'' : BoundCtx (Ty α) j} (ω' : BoundCtx.Renaming Ω' Ω''),
+    CaseTree.renamed (pending := .body) (wrap ω r).2 ω' =
+      wrap (ω.comp ω') (CaseTree.renamed (pending := .body) r (ω'.up X)).2
+
+/-- Renaming the result of binding a slot under a pending tuple is binding
+the slot under the tuple along the composite renaming, with the binding
+taken after the renaming. -/
+def CaseTree.PushedPost : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → Prop
+  | .body, _, _, _, _ => True
+  | .tags _, _, _, _, _ => True
+  | .tuple _, _, .nil, _, _ => True
+  | .tuple atoms, _, .snoc Ξ T, _, tree =>
+    ∀ {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α} (π : BoundCtx.Renaming Ξ (Ω.snoc X))
+      (wrap : CaseTree.Wrap Φ L Ω X), wrap.Natural →
+      ∀ {j : Nat} {Ω' : BoundCtx (Ty α) j} (ω : BoundCtx.Renaming Ω Ω'),
+      CaseTree.renamed (pending := .tuple atoms) (β := Ω.snoc T) (CaseTree.pushed tree π wrap).2 ω =
+        CaseTree.pushed tree (π.comp (ω.up X)) (fun ω' => wrap (ω.comp ω'))
+
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution
