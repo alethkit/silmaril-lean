@@ -116,6 +116,11 @@ theorem dullBit_false {cyc c : Fin (M + 1) → Bool} {y : Fin (M + 1)} (h : cyc 
   unfold dullBit
   rw [h]
 
+theorem dullBit_true {cyc c : Fin (M + 1) → Bool} {y : Fin (M + 1)} (h : cyc y = true) :
+    dullBit cyc c y = false := by
+  unfold dullBit
+  rw [h]
+
 def dullProg (b : Bool) (p : Program) : Program :=
   match b with
   | true => .ret 0 0
@@ -386,5 +391,43 @@ theorem dulled_spin
           exact ⟨rfl, .inr ⟨(hnone j cj).2, cj'⟩⟩⟩ x x (.inl ⟨rfl, l, hx⟩)
 
 end Spun
+
+/-! ## The dulled table and a table with written rows and silent rows -/
+
+theorem dulled_live {M : Nat} (t s : Router M) (cyc : Fin (M + 1) → Bool) (nxt : Fin (M + 1) → Fin (M + 1))
+    (live : Fin (M + 1) → Prop)
+    (hlive : ∀ y, live y → cyc y = false ∧ s.prog y = t.prog y ∧
+      ∀ a b, s.act y a b = dullAct cyc (t.act y a b))
+    (htgt : ∀ y, live y → ∀ a b z q, t.act y a b = .go z q → live z ∨ cyc z = true)
+    (hspin : ∀ y, cyc y = true →
+      s.prog y = .ret 0 0 ∧ (∀ a b, s.act y a b = .go y false) ∧ cyc (nxt y) = true)
+    (x : Fin (M + 1)) (hx : live x ∨ cyc x = true) :
+    Eqv false [State] ((dulled t cyc nxt).entered x) (s.entered x) [Bit] :=
+  router_bisimulation_eqv (dulled t cyc nxt) s
+    (fun j j' => (j = j' ∧ live j) ∨ (cyc j = true ∧ cyc j' = true))
+    ⟨fun j j' r => by
+        show dullProg (cyc j) (t.prog j) = s.prog j'
+        rcases r with ⟨e, lj⟩ | ⟨cj, cj'⟩
+        · subst e
+          rw [(hlive j lj).1, (hlive j lj).2.1]
+          rfl
+        · rw [cj, (hspin j' cj').1]
+          rfl,
+      fun j j' r a b => by
+        show Act.Rel _ (dullRow cyc (cyc j) (nxt j) (t.act j) a b) (s.act j' a b)
+        rcases r with ⟨e, lj⟩ | ⟨cj, cj'⟩
+        · subst e
+          rw [(hlive j lj).1, (hlive j lj).2.2 a b]
+          show Act.Rel _ (dullAct cyc (t.act j a b)) (dullAct cyc (t.act j a b))
+          cases h : t.act j a b with
+          | ret c => exact rfl
+          | go z q =>
+            refine ⟨rfl, ?_⟩
+            rcases htgt j lj a b z q h with lz | cz
+            · exact .inl ⟨rfl, lz⟩
+            · exact .inr ⟨cz, cz⟩
+        · rw [cj, (hspin j' cj').2.1 a b]
+          exact ⟨rfl, .inr ⟨(hspin j cj).2.2, cj'⟩⟩⟩ x x
+    (hx.elim (fun l => .inl ⟨rfl, l⟩) (fun c => .inr ⟨c, c⟩))
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.Tables
