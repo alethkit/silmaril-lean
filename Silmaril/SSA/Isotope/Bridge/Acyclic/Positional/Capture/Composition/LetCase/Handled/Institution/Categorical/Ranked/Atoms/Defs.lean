@@ -14,11 +14,12 @@ equality of the original ones. It reflects validity when validity of the
 translated sentence gives validity of the original one. Soundness and the
 forward transports are theorems and are not part of these definitions.
 
-The atom-bearing signatures are the existing structural signatures whose
-primitive argument and reply types are built from atoms, unit and ordered
-products. Their ordered trace interpretation gives every atom the carrier
-`Nat`. A pair of ranked entries is reflected by that interpretation when
-equal ordered trace arrows of the emitted operands give native equality.
+The ordered trace interpretation of a signature typed over atoms gives
+every atom the carrier `Nat`. A pair of ranked entries is reflected by
+that interpretation when equal ordered trace arrows of the emitted
+operands give native equality. The straight-line class below is over the
+existing structural signatures whose primitive argument and reply types
+are built from atoms, unit and ordered products.
 
 An operand is straight-line when it is natively equal to a term of the
 straight-line calculus returned at the single exit. The bound context is
@@ -69,20 +70,23 @@ end Translation
 
 /-! ## Signatures with atoms -/
 
-variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ]
+section Typed
 
-/-- A structural signature with atoms as an instruction signature of the
-existing equational institutions. Every primitive is effectful. -/
-abbrev atomSig (α Φ : Type) [LetSeq.StraightLine.Structural.Signature α Φ] : InstrSig (Ty α) Bool := ⟨Φ⟩
+variable {α Φ : Type} [HasTy Φ (Ty α)]
+
+/-- A signature typed over atoms as an instruction signature of the
+existing equational institutions. Every primitive is effectful. The
+primitive types may use every type former. -/
+abbrev atomSig (α Φ : Type) [HasTy Φ (Ty α)] : InstrSig (Ty α) Bool := ⟨Φ⟩
 
 /-- The ordered trace interpretation whose atoms are natural numbers, as a
 coherent region model of the existing rooms. -/
-noncomputable def atomTraceModel (α Φ : Type) [LetSeq.StraightLine.Structural.Signature α Φ] :
+noncomputable def atomTraceModel (α Φ : Type) [HasTy Φ (Ty α)] :
     CoherentRegionModel (traceJ (α := α) (Φ := Φ)) (atomSig α Φ) :=
   ⟨traceTypes α, traceInstructions, atomTrace_region_coherent⟩
 
 /-- The same interpretation as a model of the existing ranked room. -/
-noncomputable def atomTraceRanked (α Φ : Type) [LetSeq.StraightLine.Structural.Signature α Φ] :
+noncomputable def atomTraceRanked (α Φ : Type) [HasTy Φ (Ty α)] :
     (Silmaril.Isotope.Institution.Acyclic.Captured.rankedRoom (traceJ (α := α) (Φ := Φ)) (atomSig α Φ)).Mod :=
   ShrinkHoms.toShrinkHoms (Discrete.mk (atomTraceModel α Φ))
 
@@ -101,7 +105,9 @@ def TraceReflects (l r : RankedEntry Φ β L) : Prop :=
   traceArrow (emitted (P := atomSig α Φ) l).2 = traceArrow (emitted (P := atomSig α Φ) r).2 →
     Equiv false Γ₀ β (emitted (P := atomSig α Φ) l).1 (emitted (P := atomSig α Φ) r).1 (packedExitType L)
 
-variable {s : Shape α} {A : Ty α}
+end Typed
+
+variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ] {s : Shape α} {A : Ty α}
 
 /-- A term of the straight-line calculus returned at the single exit, as
 a captured LetCase operand over one packed product slot. -/

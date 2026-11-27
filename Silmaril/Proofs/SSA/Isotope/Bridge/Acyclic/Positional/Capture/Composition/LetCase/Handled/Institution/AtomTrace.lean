@@ -40,9 +40,11 @@ end Translation
 
 /-! ## The ordered trace model with atoms -/
 
-variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ]
-
 set_option backward.isDefEq.respectTransparency false
+
+section Typed
+
+variable {α Φ : Type} [HasTy Φ (Ty α)]
 
 /-- The ordered trace model with atoms is a supported model. -/
 theorem atomTrace_supported_proof : Supported false (atomTraceModel α Φ) := by
@@ -65,9 +67,12 @@ theorem atomTrace_denoteRanked_iff_proof {d : Nat} {β : BoundCtx (Ty α) d} {L 
     Native.denote_caseIter (traceJ (α := α) (Φ := Φ)) (traceTypes α)]
   exact Iff.rfl
 
+end Typed
+
 /-! ## Straight-line operands -/
 
-variable {s : Shape α} {A : Ty α} {t u : LetSeq.LocallyNameless.Tm Empty Φ 1}
+variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ]
+  {s : Shape α} {A : Ty α} {t u : LetSeq.LocallyNameless.Tm Empty Φ 1}
 
 /-- Two straight-line terms returned at the single exit with equal
 ordered trace arrows are natively equal in the straight-line calculus. The
