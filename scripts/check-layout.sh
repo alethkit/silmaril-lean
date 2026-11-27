@@ -54,4 +54,5 @@ PY
 # are public: lang_<term> definitions and formats.<module>.<term> languages).
 python3 -I scripts/languages/format_examples.py --check || status=1
 python3 -I scripts/check-function-imports.py || status=1
+python3 -I scripts/check-region-dag.py || status=1
 exit $status
