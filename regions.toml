@@ -10,19 +10,34 @@ scope = "Small shared definitions: byte arrays, options, list utilities, attribu
 deps = []
 
 [[region]]
+name = "Foundations"
+scope = "Core relation and simulation foundations: infinite traces and forward/lockstep simulation kits."
+deps = []
+
+[[region]]
+name = "Data"
+scope = "Low-level data structures and binary containers: byte arrays, bitmaps, tries, range maps, separation lists, binary images, layout helpers, compile-time byte inclusion and time series."
+deps = ["Prelude"]
+
+[[region]]
+name = "Compile"
+scope = "Generic compiler-pass and compiler-category framework: languages, passes, pass contracts, checked passes and categorical composition."
+deps = []
+
+[[region]]
+name = "OCaml"
+scope = "Deep embedding of OCaml 5.4 (syntax, values, primitives, semantics, interpreter, stdlib)."
+deps = ["Prelude"]
+
+[[region]]
 name = "Semantics"
 scope = "Semantic toolkit: domains, category theory, Elgot iteration, binding, traces, simulation, behaviours. `Silmaril.Semantics.Behaviour` and its Raw tree also import `Silmaril.Machine.Behaviour` (outcomes and small-step semantics), an existing exception to `deps` until they move under `Machine`."
-deps = ["Prelude"]
+deps = ["Prelude", "Foundations"]
 
 [[region]]
 name = "Logic"
 scope = "Logics and metatheory: theories and models, HOL, Metamath, set theory, arithmetic."
 deps = ["Prelude", "Semantics"]
-
-[[region]]
-name = "Computability"
-scope = "Complexity classes, machines, oracle constructions, problem encodings."
-deps = ["Prelude", "Semantics", "Logic"]
 
 [[region]]
 name = "Numeric"
@@ -37,12 +52,12 @@ deps = ["Prelude", "Semantics", "Numeric"]
 [[region]]
 name = "Formats"
 scope = "Data formats and codecs: bytes, JSON, CBOR, S-expressions, ASN.1, ELF, compression."
-deps = ["Prelude", "Semantics", "Numeric", "Crypto"]
+deps = ["Prelude", "Data", "Semantics", "Numeric", "Crypto"]
 
 [[region]]
 name = "SSA"
 scope = "SSA and effectful intermediate representations: syntax, typing, equational theory, denotations, refinement."
-deps = ["Prelude", "Semantics", "Logic"]
+deps = ["Prelude", "Foundations", "Semantics", "Logic"]
 
 [[region]]
 name = "ProofFormats"
@@ -57,61 +72,58 @@ deps = ["Prelude", "Semantics", "Logic", "Formats", "SSA"]
 [[region]]
 name = "Machine"
 scope = "Instruction sets (x86, RISC-V, AArch64), machine IRs, memory models, processes."
-deps = ["Prelude", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA"]
+deps = ["Prelude", "Foundations", "Data", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA"]
+
+[[region]]
+name = "Apps"
+scope = "Reference application specifications and verification targets (such as `sha256sum`)."
+deps = ["Prelude", "Crypto"]
+
+[[region]]
+name = "Problems"
+scope = "Problem/solution registry attributes (`@[problem]`, `@[solves]`, `@[refutes]`), canonical encodings, composition and problem model/shape definitions."
+deps = ["Prelude", "Logic"]
 
 [[region]]
 name = "Process"
 scope = "Linux process semantics, ELF launch models, syscall tables, musl startup, and process-level demonstrations."
-deps = ["Prelude", "Semantics", "Numeric", "Crypto", "Formats", "Machine"]
+deps = ["Prelude", "Data", "Compile", "Semantics", "Numeric", "Crypto", "Formats", "Machine", "Apps", "Problems"]
 
 [[region]]
 name = "Wasm"
 scope = "WebAssembly: core specifications, component model, text and binary formats, lowering."
-deps = ["Prelude", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA", "Machine", "Cli", "Games", "Parse"]
+deps = ["Prelude", "Foundations", "Data", "Compile", "OCaml", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA", "Machine", "Cli", "Games", "Parse"]
 
 [[region]]
-name = "GPU"
-scope = "GPU kernel languages and their correctness (Triton, Gluon)."
-deps = ["Prelude", "Semantics", "Numeric", "SSA"]
+name = "Wasi"
+scope = "WebAssembly System Interface (WASI): worlds, interfaces, theories, host/runtime models, component bridges and versioned specifications."
+deps = ["Prelude", "Semantics", "Logic", "Formats", "Machine", "Process", "Cli", "Games", "Wasm"]
 
 [[region]]
 name = "Languages"
 scope = "Real-world languages: Python, C (Cerberus), MLIR."
-deps = ["Prelude", "Semantics", "Numeric", "Formats", "SSA", "GPU"]
-
-[[region]]
-name = "Science"
-scope = "Units, physical constants and other scientific world models."
-deps = ["Prelude", "Numeric"]
+deps = ["Prelude", "Semantics", "Numeric", "Formats", "SSA"]
 
 [[region]]
 name = "Elf"
 scope = "The ELF verification API: one parse of an ELF64 file into an AST, symbol lookup as ld.so does it (SysV and GNU hash, versions), a lookup index, facts about a file (kind, symbols, lookups, DT_NEEDED, relocations, placement, code) with their problem shapes, a checker for the parse of large files, and the x86-64 dynamic-loading models these facts relate to (ld.so's table readers, pages of included files, ElfBind, the loader relation ExeLoaded and its image), and executables as models of the CLI institution (`Silmaril.Elf.LpsCli`: LPS launches, and the static and dynamically linked `sha256sum`). Also imports the x86 tree (`Silmaril.X86`: blobs, memory, symbolic execution), which is not a region, as `Project` does."
-deps = ["Prelude", "Semantics", "Formats", "Machine", "Process", "Project", "Cli", "Cerberus"]
+deps = ["Prelude", "Data", "Semantics", "Formats", "Machine", "Process", "Project", "Cli", "Cerberus", "Apps"]
 
 [[region]]
 name = "Libc"
 scope = "C library contracts: the contract institution of C library signatures (signatures, contracts with reducts, invariants as a monoidal category, the institution, the allocator chain and stdio, the tensor), the abstract allocator heap and its signature hierarchy, and allocator contracts over ELF shared objects with their loading model (segments at a page-aligned base, imports bound to functions with named contracts) and problem shapes; and allocators in static x86-64 executables (specifications, problem shapes, the pinned toy-allocator ladder and its proofs). Also imports the x86 tree (`Silmaril.X86`: relational machines, function contracts, the separation-logic allocator interface), which is not a region, as `Elf` does."
-deps = ["Prelude", "Semantics", "Logic", "Formats", "Machine", "Process", "Elf", "Project"]
+deps = ["Prelude", "Data", "Semantics", "Logic", "Formats", "Machine", "Process", "Elf", "Project"]
 
 [[region]]
 name = "Project"
-scope = "Silmaril projects: artifact types, formats and values, problems over arguments, the problem DAG, records files, rooms, the standard shapes (formats and values, ELF executables, x86-64 functions, command-line programs) and format adapters over silmaril's parsers; the records `sil project` dumps and checks. Also imports the x86 tree (`Silmaril.X86`: function contracts, block certificates, the pinned ladder), `Silmaril.Problems` (core, model classes and shapes) and `Silmaril.Data` (the include-bytes helper); none of these is a region here, an existing exception to `deps`."
-deps = ["Formats", "Logic", "Process", "Wasm", "Machine", "Cli", "Cerberus", "Compiler"]
+scope = "Silmaril projects: artifact types, formats and values, problems over arguments, the problem DAG, records files, rooms, the standard shapes (formats and values, ELF executables, x86-64 functions, command-line programs) and format adapters over silmaril's parsers; the records `sil project` dumps and checks. Also imports the x86 tree (`Silmaril.X86`: function contracts, block certificates, the pinned ladder), which is not a region yet."
+deps = ["Data", "Formats", "Logic", "Process", "Wasm", "Wasi", "Machine", "Cli", "Cerberus", "Compiler", "Problems"]
 
-# Views are leaves: no region imports them. Papers, Standards and Thesis
-# re-export and restate; Courses may include self-contained teaching proofs.
+# Views are leaves: no region imports them. Papers re-exports and restates;
+# Courses may include self-contained teaching proofs.
 [[view]]
 name = "Papers"
 scope = "One folder per paper: Defs, Relations, Thms following the paper's numbering."
-
-[[view]]
-name = "Standards"
-scope = "One folder per standard (RFCs, ISA manuals, the Wasm specification)."
-
-[[view]]
-name = "Thesis"
-scope = "imbrem/thesis, one folder per chapter, following the text."
 
 [[view]]
 name = "Courses"
@@ -123,13 +135,13 @@ scope = "The logic graph's records: `silmaril institution`, `comorphism`, `morph
 
 [[region]]
 name = "Cli"
-scope = "Command-line interfaces as specifications: argument grammars as data with a derived front end (parser proved sound and complete, renderer with round trip, help, usage errors, exit codes, grammar morphisms), the clap and getopt dialects, a behaviour model of CLI programs (arguments, environment, stdin, stdout, stderr, files under declared roots, exit code) with refinement and composition, Lean programs as a free monad with a test harness, and the CLI institution with its observation levels and standard sentences. Also imports `Silmaril.Apps.Sha256sum` (the reference behaviour of `sha256sum`), which is not a region."
-deps = ["Logic"]
+scope = "Command-line interfaces as specifications: argument grammars as data with a derived front end (parser proved sound and complete, renderer with round trip, help, usage errors, exit codes, grammar morphisms), the clap and getopt dialects, a behaviour model of CLI programs (arguments, environment, stdin, stdout, stderr, files under declared roots, exit code) with refinement and composition, Lean programs as a free monad with a test harness, and the CLI institution with its observation levels and standard sentences."
+deps = ["Logic", "Apps"]
 
 [[region]]
 name = "Games"
 scope = "Game semantics for components that call effects: effect signatures, plays, strategies with refinement, parallel composition with hiding, handlers, transition systems as strategies, divergence and infinite plays, and instantiation and linking of components with failure."
-deps = ["Prelude", "Logic"]
+deps = ["Prelude", "Foundations", "Logic"]
 
 [[region]]
 name = "WasmSpec"
@@ -142,31 +154,36 @@ scope = "Finite machines as basic objects: finite named types (`FinNamed`) and t
 deps = ["Prelude", "Semantics", "Logic", "Project", "Machine"]
 
 [[region]]
+name = "Net"
+scope = "Networking protocols and framing: IP, TCP, UDP, TLS, QUIC, HTTP/1–3, HPACK/QPACK, WebSocket, WebTransport, tunnels and wire codecs."
+deps = ["Prelude", "Logic", "Crypto", "Formats", "Parse", "Automata"]
+
+[[region]]
 name = "Parse"
 scope = "Byte-level parsing: a combinator core for binary formats, with its laws, shared by the Wasm binary codecs and other formats."
 deps = []
 
 [[region]]
 name = "Cerberus"
-scope = "The Lean port of the Cerberus C semantics: Cabs, Ail and typed Ail with the C frontend, Core syntax and dynamics, the memory models, the Ail-to-Core elaboration, target types, codecs and the institution over Core executions. Its Raw modules also import the older `Silmaril.{Compile,Foundations}` trees, which are not regions."
-deps = ["Prelude", "Semantics", "Logic", "Numeric", "Formats"]
+scope = "The Lean port of the Cerberus C semantics: Cabs, Ail and typed Ail with the C frontend, Core syntax and dynamics, the memory models, the Ail-to-Core elaboration, target types, codecs and the institution over Core executions."
+deps = ["Prelude", "Foundations", "Compile", "Semantics", "Logic", "Numeric", "Formats"]
 
 [[region]]
 name = "Compiler"
-scope = "C compiler machinery over Cerberus Core: the Core elaboration correctness theorems, the compiler category and its Cerberus instance, the Clang JSON frontend, the Core reader and verified Core fragments. Also imports the x86 tree (`Silmaril.X86`) and the older `Silmaril.Compile` tree, which are not regions."
-deps = ["Prelude", "Semantics", "Logic", "Cerberus", "Machine"]
+scope = "C compiler machinery over Cerberus Core: the Core elaboration correctness theorems, the compiler category and its Cerberus instance, the Clang JSON frontend, the Core reader and verified Core fragments. Also imports the x86 tree (`Silmaril.X86`), which is not a region yet."
+deps = ["Prelude", "Foundations", "Compile", "Semantics", "Logic", "Cerberus", "Machine"]
 
 [[region]]
 name = "Servers"
-scope = "Servers as specifications, platform-neutral: the server institution (interfaces of requests and responses, trace sentences, trace-set models, morphisms), request/response traces over connections with request identities (pipelining on one connection, concurrency across connections), the atomic, functional, linearizable and sequentially consistent readings with the lifts between them, refinement as trace inclusion, and the instances (HTTP over `Silmaril.Net.Http`, wasi:http components, processes and containers). Also imports `Silmaril.Net` (HTTP semantics and framing), `Silmaril.Wasi` (the WASI theories) and `Silmaril.Problems.Basic` (the problem registry attributes), which are not regions."
-deps = ["Prelude", "Semantics", "Logic", "Cli", "Games", "Wasm", "Process"]
+scope = "Servers as specifications, platform-neutral: the server institution (interfaces of requests and responses, trace sentences, trace-set models, morphisms), request/response traces over connections with request identities (pipelining on one connection, concurrency across connections), the atomic, functional, linearizable and sequentially consistent readings with the lifts between them, refinement as trace inclusion, and the instances (HTTP over `Silmaril.Net.Http`, wasi:http components, processes and containers)."
+deps = ["Prelude", "Semantics", "Logic", "Cli", "Games", "Wasm", "Wasi", "Process", "Net", "Problems"]
 
 [[region]]
 name = "Sim"
-scope = "Instruction-set simulators written in WebAssembly and their soundness: machines, simulations and co-simulations with transfer of angelic and demonic properties, Wasm modules as simulators (one export per command) with per-method certificates, problem decompositions and the simulator institution, and the x86-64 instance (the certified G translator from a register fragment to Wasm methods, its instantiated module, the System V wrapper, dispatch loops and worked examples), and the RV64 instance (a memory-state simulator with an `ExportSim` certificate, and leaf functions of RV64 executables transported from their Wasm specification entries `Silmaril.WasmSpec.Rv64*`). The run-time simulators under `examples/wasm-sim/` are tested, not proved. Also imports the x86 tree (`Silmaril.X86`: the reference `Ext` semantics), which is not a region, as `Elf` does. The WASI bridge also imports `Silmaril.Wasi` (the WASI theories) and `Silmaril.Apps` (the reference `sha256sum` behaviour), which are not regions; its `sha256sum` instances import the dynamically linked GNU `sha256sum` (`Silmaril.Elf.Link.Dyn.Sha256sum`) and its LPS reading (`Silmaril.Elf.LpsCli`) from `Elf`."
-deps = ["Prelude", "Semantics", "Logic", "Machine", "Wasm", "WasmSpec", "Games", "Libc", "Cli", "Elf"]
+scope = "Instruction-set simulators written in WebAssembly and their soundness: machines, simulations and co-simulations with transfer of angelic and demonic properties, Wasm modules as simulators (one export per command) with per-method certificates, problem decompositions and the simulator institution, and the x86-64 instance (the certified G translator from a register fragment to Wasm methods, its instantiated module, the System V wrapper, dispatch loops and worked examples), and the RV64 instance (a memory-state simulator with an `ExportSim` certificate, and leaf functions of RV64 executables transported from their Wasm specification entries `Silmaril.WasmSpec.Rv64*`). The run-time simulators under `examples/wasm-sim/` are tested, not proved. Also imports the x86 tree (`Silmaril.X86`: the reference `Ext` semantics), which is not a region, as `Elf` does; its `sha256sum` instances import the dynamically linked GNU `sha256sum` (`Silmaril.Elf.Link.Dyn.Sha256sum`) and its LPS reading (`Silmaril.Elf.LpsCli`) from `Elf`."
+deps = ["Prelude", "Semantics", "Logic", "Machine", "Wasm", "WasmSpec", "Wasi", "Games", "Libc", "Cli", "Elf", "Apps"]
 
 [[region]]
 name = "Containers"
-scope = "Containers as verification targets, platform-neutral: content-addressed stores with integrity and binding kept apart, image data models (flat, layered, octets) and shapes, environment events with capabilities and restricted profiles (vsock-only, TCP-only, UDP-only, network, network and Unix sockets), behaviours with stops, blocking, silent divergence and infinite runs, specifications (safety, partial and total correctness, assumptions, noninterference), pluggable runtime models (loader, process semantics, runtime-added behaviours, enforcement), semantic preconditions on contents with representability as an explicit obligation, small fixtures under an explicit runtime model, the bridge to the server platforms of `Servers`, the behaviour institution, the restricted Linux process semantics adapter over `Process.LPS` (`Containers.Lps`), a restricted OCI reader with checked SHA-256 digests over `Formats` (`Containers.Oci`), and the static no-op OCI fixture (`Containers.Noop`). Also imports `Silmaril.Net` (addresses, ports, HTTP/1.1 syntax), which is not a region, as `Servers` does; statements of `Containers.Lps` mention the x86 tree (`Silmaril.X86`) through `Process.LPS`, which is not a region either. `Elf` is listed for the planned ELF facts. The region's problem shapes, consequence systems and instances are registered in the `LogicGraph` view (`Silmaril.LogicGraph.Consequence.Containers`), so the region does not depend on `Project`."
-deps = ["Prelude", "Semantics", "Logic", "Crypto", "Formats", "Machine", "Process", "Elf", "Servers"]
+scope = "Containers as verification targets, platform-neutral: content-addressed stores with integrity and binding kept apart, image data models (flat, layered, octets) and shapes, environment events with capabilities and restricted profiles (vsock-only, TCP-only, UDP-only, network, network and Unix sockets), behaviours with stops, blocking, silent divergence and infinite runs, specifications (safety, partial and total correctness, assumptions, noninterference), pluggable runtime models (loader, process semantics, runtime-added behaviours, enforcement), semantic preconditions on contents with representability as an explicit obligation, small fixtures under an explicit runtime model, the bridge to the server platforms of `Servers`, the behaviour institution, the restricted Linux process semantics adapter over `Process.LPS` (`Containers.Lps`), a restricted OCI reader with checked SHA-256 digests over `Formats` (`Containers.Oci`), and the static no-op OCI fixture (`Containers.Noop`). Statements of `Containers.Lps` mention the x86 tree (`Silmaril.X86`) through `Process.LPS`, which is not a region yet. `Elf` is listed for the planned ELF facts. The region's problem shapes, consequence systems and instances are registered in the `LogicGraph` view (`Silmaril.LogicGraph.Consequence.Containers`), so the region does not depend on `Project`."
+deps = ["Prelude", "Semantics", "Logic", "Crypto", "Formats", "Machine", "Process", "Elf", "Net", "Servers"]
