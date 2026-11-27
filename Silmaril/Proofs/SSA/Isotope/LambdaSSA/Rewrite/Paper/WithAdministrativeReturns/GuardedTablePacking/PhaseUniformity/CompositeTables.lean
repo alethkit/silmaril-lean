@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable.Composite.Defs
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.CompileTables
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Roundtrip.Thms
 
 /-! # From a factored step to the literal request tree, at loop entries -/
 
@@ -237,5 +238,130 @@ theorem duo_table_eqv
   dispatch_rows_eqv (duoRouter l₁ l₂ act).rows_typed (duoSource l₁ l₂ act).toTable.rows_typed
     (fun i => (duo_row K _ _ _ (act i) (fac i)).trans
       (qlit_congr (duoSource_rows l₁ l₂ act i).symm _ _)) j
+
+/-! ## The factoring, in default Paper -/
+
+theorem idBit : ValueBranches [Bit] (.br 0 (.var 0) : Region signature.Instr) [Bit] := .br rfl (.var rfl)
+
+/-- Packing a Bit as a state and unpacking it is the identity, in default Paper. -/
+theorem pack_unpack : ofRegion bitState_typed ≫ ofRegion unpack_typed = 𝟙 (ofType (Φ := signature.Instr) Bit) := by
+  have native := ValueBranches.unpack_packExits (Φ := signature.Instr) idBit
+  have e : ofRegion (seqValueBranches bitState_typed unpack_typed) = ofRegion idBit :=
+    (Paper.TypeCategory.ofRegion_eq_iff _ _).mpr (.cfgEta (.native native))
+  rw [ofRegion_comp bitState_typed unpack_typed (seqValueBranches bitState_typed unpack_typed), e]
+  exact ofRegion_id Bit
+
+theorem chain_inl (p₂ : Program) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod Bit State]) rfl
+      (.inl (.var (i := 0) rfl)) : ValueBranches [Bit] (.br 0 (.inl (.var 0)) : Region signature.Instr) _)
+      (chain_typed p₂)) = ofRegion p₂.typed.packExits := by
+  have red := case_inl_arrow (X := Bit) (B := State) (t := (.var 0 : Tm signature.Instr)) (.var (i := 0) rfl)
+    (seqValueBranches bitState_typed (step_typed p₂)) keep_typed
+  refine red.trans ?_
+  have e₁ := (ofRegion_comp idBit (seqValueBranches bitState_typed (step_typed p₂))
+    (seqValueBranches idBit (seqValueBranches bitState_typed (step_typed p₂)))).symm
+  have e₂ := (ofRegion_comp bitState_typed (step_typed p₂)
+    (seqValueBranches bitState_typed (step_typed p₂))).symm
+  have e₃ := (ofRegion_comp unpack_typed p₂.typed.packExits (step_typed p₂)).symm
+  refine e₁.trans ?_
+  rw [e₂, e₃, ofRegion_id, Category.id_comp, ← Category.assoc, pack_unpack, Category.id_comp]
+
+theorem chain_inr (p₂ : Program) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod Bit State]) rfl
+      (.inr (.inl (.var (i := 0) rfl))) :
+        ValueBranches [Bit] (.br 0 (.inr (.inl (.var 0))) : Region signature.Instr) _) (chain_typed p₂)) =
+      ofRegion (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod Bit State]) rfl
+        (.inr (.inl (.var (i := 0) rfl))) :
+          ValueBranches [Bit] (.br 0 (.inr (.inl (.var 0))) : Region signature.Instr) _) := by
+  have red := case_inr_arrow (X := Bit) (A := Bit) (B := State) (t := (.inl (.var 0) : Tm signature.Instr))
+    (.inl (.var (i := 0) rfl)) (seqValueBranches bitState_typed (step_typed p₂)) keep_typed
+  refine red.trans ?_
+  have e := (ofRegion_comp bitState_typed keep_typed (seqValueBranches bitState_typed keep_typed)).symm
+  refine e.trans ?_
+  rw [keep_arrow]
+  exact (br_inr (.inl (.var rfl))).symm
+
+theorem weaken {i : Nat} {A : Ty Empty} (h : At [Bit] i A) :
+    Tm.BranchValue (Φ := signature.Instr) [Bit, Bit] (.var i) A := by
+  cases i with
+  | zero => exact .var h
+  | succ i => cases h
+
+/-- The packed two-request program is the packed one-request program
+followed by the chain, in default Paper. -/
+theorem duo_packed (l₁ l₂ : Bool) :
+    ofRegion (seqValueBranches (labelPoll l₁).program.typed.packExits (chain_typed (labelPoll l₂).program)) =
+      ofRegion (duoProgram l₁ l₂).typed.packExits := by
+  have left := Paper.Eqv.substVars (Δ := [Bit, Bit]) (θ := fun i => (.var i : Tm signature.Instr))
+    ((Paper.TypeCategory.ofRegion_eq_iff _ _).mp (chain_inl (labelPoll l₂).program)) (fun _ _ h => weaken h)
+  have right := Paper.Eqv.substVars (Δ := [Bit, Bit]) (θ := fun i => (.var i : Tm signature.Instr))
+    ((Paper.TypeCategory.ofRegion_eq_iff _ _).mp (chain_inr (labelPoll l₂).program)) (fun _ _ h => weaken h)
+  have hop : Tm.HasType [Bit] (.op (.ask l₁) (.var 0) : Tm signature.Instr) (Silmaril.coprod Bit Bit) :=
+    .op (.var (i := 0) rfl)
+  exact (Paper.TypeCategory.ofRegion_eq_iff _ _).mpr (Paper.Eqv.case hop left right)
+
+/-- The written step of the two-request program is the step of its first
+request chained into its second, as arrows of default Paper. -/
+theorem duo_step_arrow (l₁ l₂ : Bool) :
+    ofRegion (step_typed (duoProgram l₁ l₂)) =
+      ofRegion (chainedStep_typed (labelPoll l₁).program (labelPoll l₂).program) := by
+  have a := (ofRegion_comp unpack_typed (duoProgram l₁ l₂).typed.packExits (step_typed (duoProgram l₁ l₂))).symm
+  have b := (ofRegion_comp (step_typed (labelPoll l₁).program) (chain_typed (labelPoll l₂).program)
+    (chainedStep_typed (labelPoll l₁).program (labelPoll l₂).program)).symm
+  have c := (ofRegion_comp unpack_typed (labelPoll l₁).program.typed.packExits
+    (step_typed (labelPoll l₁).program)).symm
+  have d := (ofRegion_comp (labelPoll l₁).program.typed.packExits (chain_typed (labelPoll l₂).program)
+    (seqValueBranches (labelPoll l₁).program.typed.packExits (chain_typed (labelPoll l₂).program))).symm
+  rw [a, b, c, Category.assoc, ← d, duo_packed]
+
+/-- So the factoring hypothesis holds for the two-request program. -/
+theorem duo_stepFactors (l₁ l₂ : Bool) :
+    StepFactors (duoProgram l₁ l₂) (labelPoll l₁).program (labelPoll l₂).program :=
+  (Paper.Extension.Singleton.ofRegion_eq_iff N (step_typed (duoProgram l₁ l₂))
+    (chainedStep_typed (labelPoll l₁).program (labelPoll l₂).program)).1
+    (congrArg (π).map (duo_step_arrow l₁ l₂))
+
+/-- The row of the two-request program equals the row of literal request
+trees, as arrows of default Paper. -/
+theorem duo_row_arrow (K : Nat) (l₁ l₂ : Bool) (a : Bool → Bool → Act K) :
+    ofRegion (routerRow_typed K (duoProgram l₁ l₂) a) =
+      ofRegion (genRow_typed (labelPoll l₁).program
+        fun x y => treeRegion_typed K (duoKids K (labelPoll l₂).program a x y)) := by
+  have l := (ofRegion_comp (step_typed (duoProgram l₁ l₂)) (routerRoute_typed K a)
+    (routerRow_typed K (duoProgram l₁ l₂) a)).symm
+  have m := (ofRegion_comp (step_typed (labelPoll l₁).program) (chain_typed (labelPoll l₂).program)
+    (chainedStep_typed (labelPoll l₁).program (labelPoll l₂).program)).symm
+  have r := (ofRegion_comp (step_typed (labelPoll l₁).program)
+    (genRoute_typed fun x y => treeRegion_typed K (duoKids K (labelPoll l₂).program a x y))
+    (genRow_typed (labelPoll l₁).program
+      fun x y => treeRegion_typed K (duoKids K (labelPoll l₂).program a x y))).symm
+  rw [l, duo_step_arrow, m, Category.assoc, chain_route, ← r]
+
+theorem region_arrow_congr {X D : Ty Empty} {r r' : Region signature.Instr} (e : r = r')
+    (h : ValueBranches [X] r [D]) (h' : ValueBranches [X] r' [D]) : ofRegion h = ofRegion h' := by
+  subst e
+  rfl
+
+/-- Dispatchers whose rows are equal arrows have equal entered loops, in
+default Paper. -/
+theorem dispatch_rows_arrow {K : Nat} {rows rows' : Fin (K + 1) → Region signature.Instr}
+    (h : ∀ i, ValueBranches [State] (rows i) [Silmaril.coprod Bit (States K)])
+    (h' : ∀ i, ValueBranches [State] (rows' i) [Silmaril.coprod Bit (States K)])
+    (row : ∀ i, ofRegion (h i) = ofRegion (h' i)) (i : Fin (K + 1)) :
+    ofRegion (dispatchEntered_typed h i) = ofRegion (dispatchEntered_typed h' i) := by
+  have d : ofRegion (dispatch_typed K h) = ofRegion (dispatch_typed K h') := by
+    apply inj_ext K
+    intro j
+    rw [inj_dispatch K h j, inj_dispatch K h' j]
+    exact row j
+  rw [dispatchEntered_arrow h i, dispatchEntered_arrow h' i, dispatchLoop_arrow h, dispatchLoop_arrow h', d]
+
+/-- The table of two-request programs and the table of literal request
+trees have the same entered loops, as arrows of default Paper. -/
+theorem duo_table_arrow (j : Fin (K + 1)) :
+    ofRegion ((duoRouter l₁ l₂ act).entered_typed j) = ofRegion ((duoSource l₁ l₂ act).entered_typed j) :=
+  dispatch_rows_arrow (duoRouter l₁ l₂ act).rows_typed (duoSource l₁ l₂ act).toTable.rows_typed
+    (fun i => (duo_row_arrow K (l₁ i) (l₂ i) (act i)).trans
+      (region_arrow_congr (duoSource_rows l₁ l₂ act i).symm _ _)) j
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.Tables
