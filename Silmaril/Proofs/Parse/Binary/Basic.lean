@@ -481,4 +481,14 @@ theorem encS_sound {N : Nat} {i : Int} (hlo : -(2 ^ (N - 1) : Int) ≤ i)
 termination_by i.natAbs
 decreasing_by omega
 
+/-- Weaken the element production of a sequence, on encodings no longer than the sequence. -/
+theorem Seq.imp {α : Type} {G G' : Bytes → α → Prop} {b : Bytes}
+    {xs : List α} (h : Seq G b xs) (hg : ∀ {c x}, c.length ≤ b.length → G c x → G' c x) :
+    Seq G' b xs := by
+  induction h with
+  | nil => exact .nil
+  | cons hx _ ih =>
+    refine .cons (hg (by simp only [List.length_append]; omega) hx) (ih fun hc hx' => hg ?_ hx')
+    simp only [List.length_append]; omega
+
 end Silmaril.Proofs.Parse.Binary

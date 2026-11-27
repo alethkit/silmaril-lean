@@ -79,6 +79,13 @@ theorem IN.prefixFree (N : Nat) : PrefixFree (IN N) :=
 theorem FN.prefixFree (N : Nat) : PrefixFree (FN N) :=
   Silmaril.Proofs.Parse.Binary.FN.prefixFree N
 
+/-- Cancel a prefix-free production at the front of two equal byte strings. -/
+theorem PrefixFree.cancel {α : Type} {G : Bytes → α → Prop}
+    (hG : PrefixFree G) {b b' r r' : Bytes} {a a' : α} (h : G b a) (h' : G b' a')
+    (e : b ++ r = b' ++ r') : b = b' ∧ a = a' ∧ r = r' := by
+  obtain ⟨rfl, rfl⟩ := hG h h' e
+  exact ⟨rfl, rfl, List.append_cancel_left e⟩
+
 /-- A sequence of a prefix-free production with no empty encoding is functional.
 The hypothesis `hne` is needed: for `G b () := b = []`, `Seq G [] []` and
 `Seq G [] [()]` both hold. (`Vec.prefixFree` needs no such hypothesis, since the
@@ -87,9 +94,20 @@ theorem Seq.functional {α : Type} {G : Bytes → α → Prop} (h : PrefixFree G
     (hne : ∀ a, ¬ G [] a) : Functional (Seq G) :=
   Silmaril.Proofs.Parse.Binary.Seq.functional h hne
 
+/-- Weaken the element production of a sequence, on encodings no longer than the sequence. -/
+theorem Seq.imp {α : Type} {G G' : Bytes → α → Prop} {b : Bytes}
+    {xs : List α} (h : Seq G b xs) (hg : ∀ {c x}, c.length ≤ b.length → G c x → G' c x) :
+    Seq G' b xs :=
+  Silmaril.Proofs.Parse.Binary.Seq.imp h hg
+
 theorem Vec.prefixFree {α : Type} {G : Bytes → α → Prop} (h : PrefixFree G) :
     PrefixFree (Vec G) :=
   Silmaril.Proofs.Parse.Binary.Vec.prefixFree h
+
+theorem Vec.imp {α : Type} {G G' : Bytes → α → Prop} {b : Bytes}
+    {xs : List α} (h : Vec G b xs) (hg : ∀ {c x}, G c x → G' c x) : Vec G' b xs := by
+  obtain ⟨hn, hs⟩ := h
+  exact .mk hn (hs.imp fun _ hx => hg hx)
 
 theorem Utf8.functional : Functional (fun b (s : List Char) => Utf8 s b) :=
   Silmaril.Proofs.Parse.Binary.Utf8.functional

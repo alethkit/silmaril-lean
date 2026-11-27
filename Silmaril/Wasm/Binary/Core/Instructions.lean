@@ -358,28 +358,6 @@ def Expr.dataIdxs (e : Wasm.Expr) : List DataIdx := e.flatMap Instr.dataIdxs
 
 /-! ### Generic lemmas -/
 
-/-- Cancel a prefix-free production at the front of two equal byte strings. -/
-theorem _root_.Silmaril.Wasm.Binary.PrefixFree.cancel {α : Type} {G : Bytes → α → Prop}
-    (hG : PrefixFree G) {b b' r r' : Bytes} {a a' : α} (h : G b a) (h' : G b' a')
-    (e : b ++ r = b' ++ r') : b = b' ∧ a = a' ∧ r = r' := by
-  obtain ⟨rfl, rfl⟩ := hG h h' e
-  exact ⟨rfl, rfl, List.append_cancel_left e⟩
-
-/-- Weaken the element production of a sequence, on encodings no longer than the sequence. -/
-theorem _root_.Silmaril.Wasm.Binary.Seq.imp {α : Type} {G G' : Bytes → α → Prop} {b : Bytes}
-    {xs : List α} (h : Seq G b xs) (hg : ∀ {c x}, c.length ≤ b.length → G c x → G' c x) :
-    Seq G' b xs := by
-  induction h with
-  | nil => exact .nil
-  | cons hx _ ih =>
-    refine .cons (hg (by simp only [List.length_append]; omega) hx) (ih fun hc hx' => hg ?_ hx')
-    simp only [List.length_append]; omega
-
-theorem _root_.Silmaril.Wasm.Binary.Vec.imp {α : Type} {G G' : Bytes → α → Prop} {b : Bytes}
-    {xs : List α} (h : Vec G b xs) (hg : ∀ {c x}, G c x → G' c x) : Vec G' b xs := by
-  obtain ⟨hn, hs⟩ := h
-  exact .mk hn (hs.imp fun _ hx => hg hx)
-
 theorem Instrs.iff_seq {F : Forms} {b : Bytes} {is : List Wasm.Instr} :
     Instrs F b is ↔ Seq (Instr F) b is := by
   constructor
