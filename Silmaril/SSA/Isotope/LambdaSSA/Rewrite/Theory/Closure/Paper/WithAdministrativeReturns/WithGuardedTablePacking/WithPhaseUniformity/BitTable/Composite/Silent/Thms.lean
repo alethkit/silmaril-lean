@@ -113,18 +113,13 @@ immediate return and from every table of literal request trees.
 `tri_cycle`, `tri_request`: one request-free row lands in the cycle on
 one Bit and at the request row on the other.
 
-## The gap: a request followed by silent divergence
+## A request followed by silent divergence
 
-`Classified.quiet` requires that no request row repeats into `cyc`. A
-request row whose reply leads into a silent cycle has a visible prefix
-followed by silent divergence, and it is not covered. Two things are
-missing. A table of literal request trees has no leaf that diverges, so
-the normal form needs a table of labelled rows together with the
-canonical silent row. And `Router.labels_eqv_iff`, the reflection of a
-bisimulation from prefix observations, is proved for tables of labelled
-rows only. In the model such a reply contributes no observation, since
-`spinRouter` has none; the reflection for tables with that row is not
-proved here.
+`Classified.quiet` requires that no request row repeats into `cyc`. The
+landings of this file do not cover a request row whose reply leads into a
+silent cycle. `Composite.Silent.Diverge` treats that case for request
+rows that are single requests, with tables of labelled rows and canonical
+silent rows in place of literal request trees, and states what remains.
 
 ## Scope
 
