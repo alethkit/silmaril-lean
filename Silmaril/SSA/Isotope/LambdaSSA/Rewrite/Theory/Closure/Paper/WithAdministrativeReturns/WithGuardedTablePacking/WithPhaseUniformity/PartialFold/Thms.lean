@@ -23,13 +23,12 @@ One untouched state, of the same type as the folded phases, whose row
 exits or enters the block and does not repeat into itself. The block may
 exit, return to the state, or stay in the block.
 
-## Not covered
+## A wider shape
 
-An untouched part with its own feedback, or of another type. That needs
-block elimination for a left block with feedback. The quotient has it at
-its chosen coproducts (`iterateChosen_rows`). What is missing is its
-transport to projected default Paper steps at exact sum types, where the
-seed's square is checked.
+`PartialFold.Feedback` covers an untouched block of any type that may
+repeat into itself. Block elimination with feedback in the left block
+holds in default Paper at exact sums, so no law of the quotient's chosen
+coproducts has to be transported.
 -/
 
 public section
