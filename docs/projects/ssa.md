@@ -1165,9 +1165,9 @@ The continuation cannot jump back to its own label.
   model is used. The later request occurs once, in the same place in
   the order, with the same argument. No case selection is moved across a
   request. The normalization, the native equation and the completeness
-  theorem for spelled trees extend to this node. Holding a longer tuple,
-  holding across a request with a compound or multi-tag reply, and
-  holding across more than one request are outside the class. The
+  theorem for spelled trees extend to this node. Holding a longer tuple
+  and holding across a request with a compound or multi-tag reply are
+  outside the class. The first
   regression holds the bound pair reply of one request across another
   and returns an old component with the new reply; the held and the
   eager spellings are valid together, and a changed component, a changed
@@ -1176,6 +1176,37 @@ The continuation cannot jump back to its own label.
   [Held pairs in spelled trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Commuting equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A pair held across a request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomHeldRegression.lean)
+- The pair may be held across a chain of requests of any finite length.
+  The chain is a sequence of requests, each with a one-tag reply of at
+  most one atom, and it ends by destructuring the pair. The dependencies
+  are exact. Each request is assembled from the atom slots in scope. The
+  held pair is one slot of pair type, not an atom slot, so no request of
+  the chain can use it or its components. The replies of earlier
+  requests of the chain are atom slots, so later requests may use them,
+  and any request may use the older captures. The body may use the two
+  components, the replies of the chain and the older captures. The
+  normal form destructures the pair first and then asks the same
+  requests in the same order. The native equation is proved by induction
+  on the chain: the commuting conversion above is applied once for each
+  request, at the slot where the pair then sits, so no chain length is
+  enumerated. The induction goes through the chain with its final
+  destructuring removed, as a term placed by one renaming, which
+  commutes with renaming. Ranked validity and equality of ordered-exit
+  arrows at the original exits follow as for the other spelled trees. A
+  tuple of three or more atoms is not held: its normal form unpacks the
+  rest of the tuple before the chain, so each request would have to be
+  placed under that unpacking, and that needs the normal form of the
+  rest to commute with renaming, which is not proved. A case inside the
+  chain is not allowed, so no case is moved across a request. The
+  regression holds a pair across three requests, where the second takes
+  the reply of the first and an older capture, and returns a component
+  of the pair with a reply of the chain. The held and the eager
+  spellings are valid together with the same ordered-exit arrow, and a
+  removed dependency, a changed component, a changed reply, a changed
+  order and an older capture in place of a reply are each told apart.
+  [Chains with a held pair](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Chain equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A pair held across three requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomChainRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
