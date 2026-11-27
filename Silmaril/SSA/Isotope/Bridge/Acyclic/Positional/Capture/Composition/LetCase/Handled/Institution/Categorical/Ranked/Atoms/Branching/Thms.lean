@@ -3,29 +3,37 @@ module
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.Categorical.Ranked.Atoms.Branching.Defs
 import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition.LetCase.Handled.Institution.AtomBranching
 
-/-! # Completeness for case trees on tagged atom replies
+/-! # Completeness for case trees on tagged tuple replies
 
 The ordered trace interpretation whose atoms are natural numbers reflects
 native equality of branching operands. This is proved, not assumed.
 
-The exits are an ordered list of types. A leaf returns a payload at one
-exit of the type of the payload. The payload is assembled from the atom
-slots in scope: an atom slot, the unit, or an ordered pair of payloads.
-That grammar has exactly one tree for each product of atom slots.
+A reply carries one of finitely many ordered tags, and each tag has its
+own ordered tuple of atoms. A request binds the reply, cases on it tag by
+tag in order, and unpacks the tuple of the chosen tag into atom slots in
+order. The exits are an ordered list of types, and a leaf returns a
+payload assembled from the atom slots in scope at one exit of the type of
+the payload.
 
 At an environment that gives distinct tokens to the atom slots, two case
-trees with the same ordered traces are the same term. A leaf is determined
-by the value it returns. The value is a payload value under the injections
-of one exit position, so it fixes the position, the type of the exit and
-the payload value. The payload value fixes the payload tree, component by
-component, because the atom slots have distinct tokens. Two exits of the
-same type are told apart, and so are two orders of the same components. A
-request node is determined by its first logged event, which records the
-primitive and the tokens of the argument. The reply may carry either tag
-with any payload atom, so the run of the node contains the runs of both
-arms at every payload token. Extending the environment by the next unused
-token keeps the atom slots distinct, and the argument continues in each
-arm.
+trees with the same ordered traces are the same term. The induction
+follows the tree.
+
+- A leaf is determined by the value it returns: the value fixes the exit
+  position, the exit type and the payload value, and at distinct tokens
+  the payload value fixes the payload tree.
+- A request is determined by its first logged event, which records the
+  primitive and the tokens of the argument. Every reply value is
+  possible, so the run of the request contains the run of its
+  continuation at every reply.
+- A case split on the bound reply runs the arm of the tag of the reply.
+  The two arms are compared at the replies of their own tags.
+- A tuple is compared at consecutive unused tokens. Unpacking binds its
+  first atom at the next token and continues with the rest. Every newly
+  bound atom slot gets a token that no older slot has.
+
+Slots that hold a bound reply or a tuple of two or more atoms are not
+atom slots. They stay in scope and do not affect the separation.
 
 A ranked sentence between entries whose emitted operands are natively
 equal to case trees, over a separable bound context, is therefore valid in
@@ -34,11 +42,12 @@ The sentence is at the original ordered exits of the entries. On the
 graphs read back from two case trees, validity is equality of the trees,
 and so is equality of their ordered-exit arrows at the one model.
 
-The class is exact. Every primitive replies with one atom under one of two
-tags, every case is on a request, and each leaf returns one assembled
-payload at one exit of its type. Sequencing without a case, cases on other
-scrutinees, reply payloads that are not atoms, and returned payloads that
-contain sums or are not assembled from atom slots are outside it.
+The class is exact. A reply has at least one tag and each tag carries a
+flat ordered tuple of atoms. Every request is followed at once by the
+full case split and unpacking of its reply. Each leaf returns one
+assembled payload at one exit of its type. Reply payloads with nested
+products or sums, cases on other scrutinees, partial or reordered
+unpacking, and returned payloads that contain sums are outside it.
 -/
 
 @[expose] public section
@@ -75,26 +84,55 @@ theorem separable_snoc (separable : Separable β) (a : α) : Separable (β.snoc 
   let ⟨ρ, k, sep⟩ := separable
   ⟨ρ.snoc (A := Ty.base a) (k : Nat), k + 1, separates_fresh sep a⟩
 
-/-! ## The reduction at a request node -/
+omit [TaggedSignature α Φ] in
+/-- A separating environment stays separating under a new slot that is
+not an atom: a bound reply, a tuple of two or more atoms, or the unit. -/
+theorem separates_other {ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β} {used : Set Nat}
+    (sep : Separates ρ used) {X : Ty α} (other : ∀ a, X ≠ .base a)
+    (x : LetSeq.StraightLine.Structural.Value (α := α) X) : Separates (ρ.snoc x) used :=
+  separates_other_proof sep other x
+
+/-! ## The reductions at a request, a case split and a tuple -/
 
 variable {t u : LetCase.LocallyNameless.Tm Empty Φ n}
 
-/-- At a request node with the same primitive and argument, the ordered
-traces agree exactly when the arms agree at every payload token. The older
-slots keep their values in both arms. -/
+/-- At a request with the same primitive and argument, the ordered traces
+agree exactly when the continuations agree at every reply. The older
+slots keep their values. -/
 theorem ask_run_eq_iff (f : Φ) (argument : Assembly β (instrSrc f))
-    {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
-    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l')
-    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r')
+    {k k' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (reply : CaseTree (.tags (replyTags f)) (β.snoc (tagsTy (replyTags f))) L k)
+    (reply' : CaseTree (.tags (replyTags f)) (β.snoc (tagsTy (replyTags f))) L k')
     (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β) :
-    run (CaseTree.ask f argument left right).typing ρ = run (CaseTree.ask f argument left' right').typing ρ ↔
-      (∀ x : Nat, run left.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x) =
-        run left'.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x)) ∧
-      (∀ y : Nat, run right.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y) =
-        run right'.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y)) :=
-  ask_run_eq_iff_proof f argument left right left' right' ρ
+    run (CaseTree.ask f argument reply).typing ρ = run (CaseTree.ask f argument reply').typing ρ ↔
+      ∀ w : LetSeq.StraightLine.Structural.Value (α := α) (tagsTy (replyTags f)),
+        run reply.typing (ρ.snoc w) = run reply'.typing (ρ.snoc w) :=
+  ask_run_eq_iff_proof f argument reply reply' ρ
+
+/-- A case split on a pending reply runs the arm of the tag of the reply:
+the left arm with the tuple of the first tag, or the right arm with the
+reply at the remaining tags. -/
+theorem run_split (atoms next : List α) (rest : List (List α))
+    {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (left : CaseTree (.tuple atoms) ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tupleTy atoms)) L l)
+    (right : CaseTree (.tags (next :: rest))
+      ((β.snoc (tagsTy (atoms :: next :: rest))).snoc (tagsTy (next :: rest))) L r)
+    (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β)
+    (w : LetSeq.StraightLine.Structural.Value (α := α) (tagsTy (atoms :: next :: rest))) :
+    run (CaseTree.split atoms next rest left right).typing (ρ.snoc w) =
+      Sum.elim (fun x => run left.typing ((ρ.snoc w).snoc x)) (fun y => run right.typing ((ρ.snoc w).snoc y)) w :=
+  run_split_proof atoms next rest left right ρ w
+
+/-- Unpacking a pending tuple of two or more atoms binds its first atom
+and the rest, in that order. -/
+theorem run_pair (a b : α) (rest : List α) {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1)}
+    (later : CaseTree (.tuple (b :: rest))
+      (((β.snoc (tupleTy (a :: b :: rest))).snoc (.base a)).snoc (tupleTy (b :: rest))) L t)
+    (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β)
+    (w : LetSeq.StraightLine.Structural.Value (α := α) (tupleTy (a :: b :: rest))) :
+    run (CaseTree.pair a b rest later).typing (ρ.snoc w) =
+      run later.typing (((ρ.snoc w).snoc (A := Ty.base a) w.1).snoc w.2) :=
+  run_pair_proof a b rest later ρ w
 
 /-! ## Exits and payloads -/
 
@@ -133,9 +171,15 @@ theorem ret_eq_of_run {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B) (p : Asse
 
 /-! ## Separation of case trees -/
 
+/-- The token induction, at any pending state. Two case trees whose runs
+agree at the environments of `TokenWitness` are the same term. -/
+theorem caseTree_eq_of_witness {pending : Pending α} (p : CaseTree pending β L t) (q : CaseTree pending β L u)
+    (k : Nat) (witness : TokenWitness pending β k (fun ρ => run p.typing ρ = run q.typing ρ)) : t = u :=
+  caseTree_eq_of_witness_proof p q k witness
+
 /-- Two case trees with the same ordered traces at one environment that
 separates the atom slots are the same term. -/
-theorem caseTree_eq_of_run (p : CaseTree β L t) (q : CaseTree β L u)
+theorem caseTree_eq_of_run (p : CaseTree .body β L t) (q : CaseTree .body β L u)
     (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β) (k : Nat)
     (sep : Separates ρ (Set.Iio k)) (same : run p.typing ρ = run q.typing ρ) : t = u :=
   caseTree_eq_of_run_proof p q ρ k sep same
@@ -149,7 +193,7 @@ theorem branching_reflects (separable : Separable β) (x y : Operand Φ β (pack
 
 /-- Over a separable bound context, two case trees are natively equal
 exactly when they are the same term. -/
-theorem caseTree_equiv_iff (separable : Separable β) (p : CaseTree β L t) (q : CaseTree β L u) :
+theorem caseTree_equiv_iff (separable : Separable β) (p : CaseTree .body β L t) (q : CaseTree .body β L u) :
     Equiv false Γ₀ β t u (packedExitType L) ↔ t = u :=
   ⟨fun h => by
       obtain ⟨ρ, k, sep⟩ := separable
@@ -163,7 +207,7 @@ theorem caseTree_equiv_iff (separable : Separable β) (p : CaseTree β L t) (q :
 /-! ## Branching operands -/
 
 /-- A case tree is a branching operand. -/
-theorem branching_operand (p : CaseTree β L t) : Branching p.operand :=
+theorem branching_operand (p : CaseTree .body β L t) : Branching p.operand :=
   ⟨t, p, .refl p.typing.toHasType⟩
 
 /-- An operand natively equal to a branching operand is branching. -/
@@ -173,7 +217,7 @@ theorem Branching.congr {x y : Operand Φ β (packedExitType L)}
   ⟨t, p, h.trans same⟩
 
 /-- The graph read back from a case tree emits a branching operand. -/
-theorem branching_graph (p : CaseTree β L t) : Branching p.graph.toLetCase :=
+theorem branching_graph (p : CaseTree .body β L t) : Branching p.graph.toLetCase :=
   ⟨t, p, CheckedTable.ofLetCase_emit false p.exits_ne_nil p.typing⟩
 
 /-- Entries with branching emitted operands are reflected by the ordered
@@ -208,7 +252,7 @@ theorem rankedValid_branching_iff_atomTrace (separable : Separable β) (l r : Ra
 /-- On the graphs read back from two case trees, validity in the ranked
 room is equality of the two trees. The sentence is at the original ordered
 exits. -/
-theorem rankedValid_caseTree_iff (separable : Separable β) (p : CaseTree β L t) (q : CaseTree β L u) :
+theorem rankedValid_caseTree_iff (separable : Separable β) (p : CaseTree .body β L t) (q : CaseTree .body β L u) :
     RankedValid false (sentenceOf (entryOf p.graph) (entryOf q.graph)) ↔ t = u :=
   (rankedValid_branching_iff separable (entryOf p.graph) (entryOf q.graph) (branching_graph p)
     (branching_graph q)).trans
@@ -223,7 +267,7 @@ theorem rankedValid_caseTree_iff (separable : Separable β) (p : CaseTree β L t
 arrows of the graphs read back from two case trees are equal exactly when
 the trees are the same. The arrows are those of the ranked room, into the
 ordered exits, before any packing. -/
-theorem denoteRanked_caseTree_iff (separable : Separable β) (p : CaseTree β L t) (q : CaseTree β L u) :
+theorem denoteRanked_caseTree_iff (separable : Separable β) (p : CaseTree .body β L t) (q : CaseTree .body β L u) :
     denoteRanked (traceJ (α := α) (Φ := Φ)) (atomTraceModel α Φ) (entryOf p.graph) =
         denoteRanked (traceJ (α := α) (Φ := Φ)) (atomTraceModel α Φ) (entryOf q.graph) ↔ t = u :=
   (rankedValid_branching_iff_atomTrace separable (entryOf p.graph) (entryOf q.graph) (branching_graph p)
