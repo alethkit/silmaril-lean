@@ -357,31 +357,114 @@ def CaseTree.RenamedComp : (pending : Pending α) → {n : Nat} → (β : BoundC
   | .tuple _, _, .nil, _, _ => True
   | .tags _, _, .nil, _, _ => True
 
-/-! ## Binding a slot under a pending tuple
+/-! ## Telescopes
 
-A slot beneath a pending tuple is moved to a binding under the unpacking
-of the tuple. This is how a request asked before a held tuple is unpacked
-is placed in the normal form, which unpacks the tuple first. -/
+A telescope is a list of slot types, oldest first, that extends a context.
+One renaming moves a slot bound after a telescope beneath it. The other
+permutations of binders used below are composed from it and from the
+exchange of two slots, so no tuple length is fixed. -/
 
-/-- A way to bind a slot of type `X` in front of a body, in any context
-that the base context renames into. -/
+/-- The size of a context extended by a telescope. -/
+def teleSize : Nat → List (Ty α) → Nat
+  | k, [] => k
+  | k, _ :: tel => teleSize (k + 1) tel
+
+/-- A context extended by a telescope: a list of slot types, oldest first. -/
+def extendCtx : {k : Nat} → BoundCtx (Ty α) k → (tel : List (Ty α)) → BoundCtx (Ty α) (teleSize k tel)
+  | _, Ω, [] => Ω
+  | _, Ω, X :: tel => extendCtx (Ω.snoc X) tel
+
+/-- Weaken past a telescope. -/
+def weakenTele : {k : Nat} → (Ω : BoundCtx (Ty α) k) → (tel : List (Ty α)) →
+    BoundCtx.Renaming Ω (extendCtx Ω tel)
+  | _, Ω, [] => .id Ω
+  | _, Ω, X :: tel => (BoundCtx.Renaming.succ Ω X).comp (weakenTele (Ω.snoc X) tel)
+
+/-- Lift a renaming under a telescope. -/
+def upTele : {k j : Nat} → {Ω : BoundCtx (Ty α) k} → {Ω' : BoundCtx (Ty α) j} → BoundCtx.Renaming Ω Ω' →
+    (tel : List (Ty α)) → BoundCtx.Renaming (extendCtx Ω tel) (extendCtx Ω' tel)
+  | _, _, _, _, ρ, [] => ρ
+  | _, _, _, _, ρ, X :: tel => upTele (ρ.up X) tel
+
+/-- Move one slot bound after a telescope beneath it. Every other
+permutation of binders used here is built from this one. -/
+def swapTele : {k : Nat} → (Ω : BoundCtx (Ty α) k) → (tel : List (Ty α)) → (T : Ty α) →
+    BoundCtx.Renaming ((extendCtx Ω tel).snoc T) (extendCtx (Ω.snoc T) tel)
+  | _, _, [], _ => .id _
+  | _, Ω, X :: tel, T => (swapTele (Ω.snoc X) tel T).comp (upTele (swapRenaming Ω X T) tel)
+
+/-- Move two slots bound after a telescope beneath it, one after the other. -/
+def pairPastTele {k : Nat} (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) (A B : Ty α) :
+    BoundCtx.Renaming (((extendCtx Ω tel).snoc A).snoc B) (extendCtx ((Ω.snoc A).snoc B) tel) :=
+  ((swapTele Ω tel A).up B).comp (swapTele (Ω.snoc A) tel B)
+
+/-- Weaken past two new slots. -/
+def pastPair {k : Nat} (Ω : BoundCtx (Ty α) k) (A B : Ty α) : BoundCtx.Renaming Ω ((Ω.snoc A).snoc B) :=
+  (BoundCtx.Renaming.succ Ω A).comp (BoundCtx.Renaming.succ (Ω.snoc A) B)
+
+/-- Move the two newest pairs of slots past each other: the newest two
+slots go beneath the two slots under them. -/
+def afterPairPair {m : Nat} : Fin (m + 4) → Fin (m + 4) :=
+  Fin.cases 2 (Fin.cases 3 (Fin.cases 0 (Fin.cases 1 (fun i => i.succ.succ.succ.succ))))
+
+/-- That move as a renaming of contexts: two slots `A`, `B` bound after two
+slots `C`, `D` are placed beneath them. -/
+def afterPairPairRenaming {m : Nat} (Γ : BoundCtx (Ty α) m) (C D A B : Ty α) :
+    BoundCtx.Renaming ((((Γ.snoc C).snoc D).snoc A).snoc B) ((((Γ.snoc A).snoc B).snoc C).snoc D) where
+  toFun := afterPairPair
+  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun _ => rfl))))
+
+/-! ## Unpacking a tuple slot
+
+The slots bound by unpacking a tuple slot form a telescope, and the
+pattern lets of the unpacking wrap a term over that telescope. -/
+
+/-- The slots bound by unpacking a tuple slot, after that slot: for two or
+more atoms, the first atom and the rest of the tuple, then the slots of
+unpacking the rest. -/
+def pairsTele : List α → List (Ty α)
+  | [] => []
+  | [_] => []
+  | c :: d :: more => .base c :: tupleTy (d :: more) :: pairsTele (d :: more)
+
+/-- A tuple slot followed by the slots bound by unpacking it. -/
+abbrev unpackTele (atoms : List α) : List (Ty α) := tupleTy atoms :: pairsTele atoms
+
+/-- The pattern lets that unpack a tuple slot around a term. The first is
+on the given slot and each later one on the newest slot. -/
+def unpackAt : (atoms : List α) → {k : Nat} → Fin k →
+    LetCase.LocallyNameless.Tm Empty Φ (teleSize k (pairsTele atoms)) → LetCase.LocallyNameless.Tm Empty Φ k
+  | [], _, _, u => u
+  | [_], _, _, u => u
+  | _ :: d :: more, _, i, u => .let₂ (.bv i) (unpackAt (d :: more) 0 u)
+
+/-! ## Binding slots under a pending tuple
+
+The slots of a telescope beneath a pending tuple are moved to bindings
+under the unpacking of the tuple. This is how a request asked before a held
+tuple is unpacked is placed in the normal form, which unpacks the tuple
+first. The telescope is the reply of the request and the slots of its
+unpacking. -/
+
+/-- A way to bind the slots of a telescope in front of a body, in any
+context that the base context renames into. -/
 abbrev CaseTree.Wrap (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) {m : Nat} (Ω : BoundCtx (Ty α) m)
-    (X : Ty α) :=
+    (tel : List (Ty α)) :=
   ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k}, BoundCtx.Renaming Ω Ω' →
-    {u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} → CaseTree .body (Ω'.snoc X) L u →
+    {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k tel)} → CaseTree .body (extendCtx Ω' tel) L u →
     (v : LetCase.LocallyNameless.Tm Empty Φ k) × CaseTree .body Ω' L v
 
-/-- The data for moving a slot under a pending tuple: a renaming of the
-context beneath the tuple that puts the slot newest. -/
+/-- The data for moving a telescope under a pending tuple: a renaming of
+the context beneath the tuple that puts the telescope newest. -/
 def CaseTree.PushAlong : Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m →
-    Ty α → Type
+    List (Ty α) → Type
   | .body, _, _, _, _, _ => PEmpty
   | .tags _, _, _, _, _, _ => PEmpty
   | .tuple _, _, .nil, _, _, _ => PEmpty
-  | .tuple _, _, .snoc Ξ _, _, Ω, X => BoundCtx.Renaming Ξ (Ω.snoc X)
+  | .tuple _, _, .snoc Ξ _, _, Ω, tel => BoundCtx.Renaming Ξ (extendCtx Ω tel)
 
-/-- The result of moving a slot under a pending tuple: the pending tuple
-over the context without the slot. -/
+/-- The result of moving a telescope under a pending tuple: the pending
+tuple over the context without the telescope. -/
 def CaseTree.Pushed (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) :
     Pending α → {n : Nat} → BoundCtx (Ty α) n → {m : Nat} → BoundCtx (Ty α) m → Type
   | .body, _, _, _, _ => PUnit
@@ -390,30 +473,30 @@ def CaseTree.Pushed (Φ : Type) [TaggedSignature α Φ] (L : List (Ty α)) :
   | .tuple atoms, _, .snoc _ T, m, Ω =>
     (u : LetCase.LocallyNameless.Tm Empty Φ (m + 1)) × CaseTree (.tuple atoms) (Ω.snoc T) L u
 
-/-- Move a slot of the context beneath a pending tuple to a binding under
+/-- Move the slots of a telescope beneath a pending tuple to bindings under
 the full unpacking of the tuple. At each body under the unpacking, the
-body is renamed so that the slot is newest and the binding is put in front
-of it. -/
+body is renamed so that the telescope is newest and the bindings are put
+in front of it. -/
 def CaseTree.pushed : {pending : Pending α} → {n : Nat} → {β : BoundCtx (Ty α) n} →
     {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → {m : Nat} →
-    {Ω : BoundCtx (Ty α) m} → {X : Ty α} → CaseTree.PushAlong pending β Ω X → CaseTree.Wrap Φ L Ω X →
-    CaseTree.Pushed Φ L pending β Ω
+    {Ω : BoundCtx (Ty α) m} → {tel : List (Ty α)} → CaseTree.PushAlong pending β Ω tel →
+    CaseTree.Wrap Φ L Ω tel → CaseTree.Pushed Φ L pending β Ω
   | _, _, _, _, .ret _ _, _, _, _, π, _ => nomatch π
   | _, _, _, _, .ask _ _ _reply, _, _, _, π, _ => nomatch π
   | _, _, _, _, .only _ _payload, _, _, _, π, _ => nomatch π
   | _, _, _, _, .split _ _ _ _left _right, _, _, _, π, _ => nomatch π
-  | _, _, _, _, .unit body, _, Ω, X, π, wrap =>
+  | _, _, _, _, .unit body, _, Ω, tel, π, wrap =>
     ⟨_, .unit (wrap (BoundCtx.Renaming.succ Ω _)
-      (body.renamed ((π.up _).comp (swapRenaming Ω X _))).2).2⟩
-  | _, _, _, _, .atom a body, _, Ω, X, π, wrap =>
+      (body.renamed ((π.up _).comp (swapTele Ω tel _))).2).2⟩
+  | _, _, _, _, .atom a body, _, Ω, tel, π, wrap =>
     ⟨_, .atom a (wrap (BoundCtx.Renaming.succ Ω _)
-      (body.renamed ((π.up _).comp (swapRenaming Ω X _))).2).2⟩
-  | _, _, _, _, .pair a b rest later, _, Ω, X, π, wrap =>
-    ⟨_, .pair a b rest (later.pushed (((π.up _).up _).comp (afterPairRenaming Ω X _ _))
-      (fun ω => wrap (((BoundCtx.Renaming.succ Ω _).comp (BoundCtx.Renaming.succ _ _)).comp ω))).2⟩
+      (body.renamed ((π.up _).comp (swapTele Ω tel _))).2).2⟩
+  | _, _, _, _, .pair a b rest later, _, Ω, tel, π, wrap =>
+    ⟨_, .pair a b rest (later.pushed (((π.up _).up _).comp (pairPastTele Ω tel _ _))
+      (fun ω => wrap ((pastPair Ω _ _).comp ω))).2⟩
 
-/-- Binding a slot under a renamed pending tuple is binding it under the
-tuple along the composite renaming. -/
+/-- Binding a telescope under a renamed pending tuple is binding it under
+the tuple along the composite renaming. -/
 def CaseTree.PushedPre : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) →
     {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → Prop
   | .body, _, _, _, _ => True
@@ -421,31 +504,42 @@ def CaseTree.PushedPre : (pending : Pending α) → {n : Nat} → (β : BoundCtx
   | .tuple _, _, .nil, _, _ => True
   | .tuple atoms, _, .snoc Ξ T, _, tree =>
     ∀ {j : Nat} {Ξ' : BoundCtx (Ty α) j} (ρ : BoundCtx.Renaming Ξ Ξ') {m : Nat} {Ω : BoundCtx (Ty α) m}
-      {X : Ty α} (π : BoundCtx.Renaming Ξ' (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X),
+      {tel : List (Ty α)} (π : BoundCtx.Renaming Ξ' (extendCtx Ω tel)) (wrap : CaseTree.Wrap Φ L Ω tel),
       CaseTree.pushed (pending := .tuple atoms) (β := Ξ'.snoc T)
         (CaseTree.renamed (pending := .tuple atoms) tree ρ).2 π wrap = CaseTree.pushed tree (ρ.comp π) wrap
 
-/-- A way to bind a slot commutes with renaming. -/
-def CaseTree.Wrap.Natural {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α} (wrap : CaseTree.Wrap Φ L Ω X) : Prop :=
+/-- A way to bind a telescope commutes with renaming. -/
+def CaseTree.Wrap.Natural {m : Nat} {Ω : BoundCtx (Ty α) m} {tel : List (Ty α)}
+    (wrap : CaseTree.Wrap Φ L Ω tel) : Prop :=
   ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k} (ω : BoundCtx.Renaming Ω Ω')
-    {u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} (r : CaseTree .body (Ω'.snoc X) L u) {j : Nat}
-    {Ω'' : BoundCtx (Ty α) j} (ω' : BoundCtx.Renaming Ω' Ω''),
+    {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k tel)} (r : CaseTree .body (extendCtx Ω' tel) L u)
+    {j : Nat} {Ω'' : BoundCtx (Ty α) j} (ω' : BoundCtx.Renaming Ω' Ω''),
     CaseTree.renamed (pending := .body) (wrap ω r).2 ω' =
-      wrap (ω.comp ω') (CaseTree.renamed (pending := .body) r (ω'.up X)).2
+      wrap (ω.comp ω') (CaseTree.renamed (pending := .body) r (upTele ω' tel)).2
 
-/-- Renaming the result of binding a slot under a pending tuple is binding
-the slot under the tuple along the composite renaming, with the binding
-taken after the renaming. -/
+/-- Renaming the result of binding a telescope under a pending tuple is
+binding the telescope under the tuple along the composite renaming, with
+the binding taken after the renaming. -/
 def CaseTree.PushedPost : (pending : Pending α) → {n : Nat} → (β : BoundCtx (Ty α) n) →
     {t : LetCase.LocallyNameless.Tm Empty Φ n} → CaseTree pending β L t → Prop
   | .body, _, _, _, _ => True
   | .tags _, _, _, _, _ => True
   | .tuple _, _, .nil, _, _ => True
   | .tuple atoms, _, .snoc Ξ T, _, tree =>
-    ∀ {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α} (π : BoundCtx.Renaming Ξ (Ω.snoc X))
-      (wrap : CaseTree.Wrap Φ L Ω X), wrap.Natural →
+    ∀ {m : Nat} {Ω : BoundCtx (Ty α) m} {tel : List (Ty α)} (π : BoundCtx.Renaming Ξ (extendCtx Ω tel))
+      (wrap : CaseTree.Wrap Φ L Ω tel), wrap.Natural →
       ∀ {j : Nat} {Ω' : BoundCtx (Ty α) j} (ω : BoundCtx.Renaming Ω Ω'),
       CaseTree.renamed (pending := .tuple atoms) (β := Ω.snoc T) (CaseTree.pushed tree π wrap).2 ω =
-        CaseTree.pushed tree (π.comp (ω.up X)) (fun ω' => wrap (ω.comp ω'))
+        CaseTree.pushed tree (π.comp (upTele ω tel)) (fun ω' => wrap (ω.comp ω'))
+
+/-- The pending tuple whose unpacking ends in a given body. The body is
+over the tuple slot and the slots of its unpacking. -/
+def CaseTree.packed : (atoms : List α) → {k : Nat} → {Ω : BoundCtx (Ty α) k} →
+    {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k (unpackTele atoms))} →
+    CaseTree .body (extendCtx Ω (unpackTele atoms)) L u →
+    CaseTree (.tuple atoms) (Ω.snoc (tupleTy atoms)) L (unpackAt atoms 0 u)
+  | [], _, _, _, r => .unit r
+  | [c], _, _, _, r => .atom c r
+  | c :: d :: more, _, _, _, r => .pair c d more (CaseTree.packed (d :: more) r)
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution
