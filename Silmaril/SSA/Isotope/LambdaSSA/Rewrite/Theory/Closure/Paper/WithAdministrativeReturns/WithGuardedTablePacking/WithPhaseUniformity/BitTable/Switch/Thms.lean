@@ -76,8 +76,9 @@ except `false, false, false`.
 * The converse for rows that are not written polls. Replay holds for all
   programs; rows that spell a poll with other syntax are not exchanged
   here.
-* Rows with more than two successors, or other reply splits. The relay
-  rows are not instances.
+* Other reply splits are not handled here. Arbitrary routing of the four
+  replies is in `BitTable/Router/Thms.lean`. The relay rows are not
+  instances.
 * No explicit separating run is constructed. The converse shows that the
   sets of complete runs differ.
 * The interpreter is used for the converse only. No equation is inferred
