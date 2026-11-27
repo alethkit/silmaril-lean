@@ -24,28 +24,41 @@ No seed is added. Nothing here is inferred from a model.
   tables, equality at given entries is validity in every supported
   model, by `LTable.eqv_iff_valid`.
 
-## What is not proved: the next lemma
+## What is not proved: `StepFactors`
 
 `StepFactors (duoProgram l₁ l₂) (labelPoll l₁).program (labelPoll l₂).program`,
 that is
 
-  `Eqv (stepRegion (duoProgram l₁ l₂)) (chainedStep … …)`.
+  `Eqv (stepRegion (duoProgram l₁ l₂)) (chainedStep … …)`,
 
-The two regions differ as follows. In the written program the second
-request stands directly in the left reply arm of the first. In the
-chained step the first program ends by branching with its packed result,
-and the chain then cases on that result. After label substitution the
-chained step has a case on a constructor in each reply arm, under the
-first request.
+is still a hypothesis. It is neither derived nor refuted here.
 
-Default Paper's rules are the CFG rules, product β and η, the
-congruences, label and variable substitution, label renaming, collapse
-and uniformity. None of them is a rule for a case on a constructor, so
-this file does not attempt the equation in default Paper. In the opt-in
-quotients it would have to come from the administrative-return and
-case-bind seeds, through a lemma that reduces such a case under a
-request. That lemma is not derived here, and the equation has not been
-checked in a model here.
+What is checked towards it:
+
+* `case_inl_reduce`, `case_inr_reduce` (default Paper): a branch with an
+  injected payload followed by a case is the branch followed by the
+  selected arm, for regions with one variable. So the reduction of a case
+  on an injected payload is available in default Paper at a one-variable
+  boundary. It needs no seed.
+* Congruence under a request is a rule of the theory: the case rule
+  relates two requests whose reply arms are related.
+
+What remains, and is not checked:
+
+* The reply arms of the written request have two variables, the payload
+  and the outer Bit. The one-variable reduction has to be moved there by
+  weakening.
+* The packed step of the one-request program followed by the chain has to
+  be rewritten, by associativity of label substitution, into one request
+  whose arms are those composites.
+* At the start of the second step the state is unpacked. That has to
+  cancel against the injection of the payload into the state.
+
+Whether these go through in default Paper or need the administrative
+return and case-bind rules of the opt-in quotients is open. No rule of
+default Paper names this reduction under a request, but that is not
+evidence that it fails there. No model counterexample is known, and the
+equation has not been checked in any model here.
 
 ## Scope
 
@@ -64,6 +77,7 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper.WithAdministrativeReturns.With
 
 open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (seqValueBranches caseValueBranches)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory (ofRegion)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.WithAdministrativeReturns.BitFragment.Recursive (Program)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.WithAdministrativeReturns.WithGuardedTablePacking.BitLoop
@@ -74,6 +88,31 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeRetur
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity
 
 variable {K K₁ K₂ : Nat}
+
+/-! ## A case on an injected payload, at a one-variable boundary -/
+
+section Reduce
+
+variable {X A B D : Ty Empty} {t : Tm signature.Instr} {l r : Region signature.Instr}
+
+/-- A branch with a left-injected payload followed by a case is the
+branch followed by the left arm, in default Paper. -/
+theorem case_inl_reduce (ht : Tm.BranchValue [X] t A) (hl : ValueBranches [A] l [D])
+    (hr : ValueBranches [B] r [D]) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inl ht))
+        (caseValueBranches hl hr)) =
+      ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [A]) rfl ht) hl) :=
+  Tables.case_inl_arrow ht hl hr
+
+/-- The same for a right-injected payload. -/
+theorem case_inr_reduce (ht : Tm.BranchValue [X] t B) (hl : ValueBranches [A] l [D])
+    (hr : ValueBranches [B] r [D]) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inr ht))
+        (caseValueBranches hl hr)) =
+      ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [B]) rfl ht) hr) :=
+  Tables.case_inr_arrow ht hl hr
+
+end Reduce
 
 /-- The chain into `p₂` followed by the routing `a`, in default Paper. -/
 theorem chain_routerRoute (K : Nat) (p₂ : Program) (a : Bool → Bool → Act K) :
