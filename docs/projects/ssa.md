@@ -934,13 +934,33 @@ The continuation cannot jump back to its own label.
   functor from relabellings to rooms, and restricting models commutes with
   the existing ranked signature corridor. Validity in the supported models
   is preserved by every relabelling through this model law. Relabellings
-  need not be injective. Signature maps that translate types are not
-  covered. The regression takes the reduct of the ordered trace model over
+  need not be injective. The regression takes the reduct of the ordered trace model over
   a two-primitive signature: it is a supported model over the
   one-primitive signature that rejects a sentence with an older capture.
   [Relabelling and restricted room](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Defs.lean) ·
   [Model law and functoriality](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Thms.lean) ·
   [A non-identity reduct](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedReductRegression.lean)
+- The supported models are also closed under the existing pullback along
+  signature maps that translate types and effects and keep the type
+  formers. Every exact LetIter derivation over the source signature, at
+  the empty named context and including iteration, has a derivation of the
+  translated term over the target signature with the same arrow in the
+  pulled-back interpretation. Coherent expression typing therefore
+  transports. The shared tensor depends on the functor alone. A primitive
+  that is pure at a source effect marker is pure at its image, and its
+  value map transports along the two type equations. The ranked room
+  restricted to supported models has a corridor along every such map, from
+  a source marker to its image, and restricting models commutes with the
+  existing ranked signature corridor. Validity in the supported models is
+  preserved. This is a law about model reducts. It does not reflect
+  validity from the target signature to the source signature. In the
+  regression the source types have an atom, sent to the two-tag sum. The
+  pullback of the ordered trace model is a supported model over the source
+  signature. Soundness holds there for a derivable sentence with an older
+  capture of atom type, and it rejects a sentence whose translated
+  operands differ at the ordered trace model.
+  [Pullback law and restricted corridor](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Thms.lean) ·
+  [An atom sent to a structural type](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedPullbackRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

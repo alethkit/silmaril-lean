@@ -24,7 +24,7 @@ relabellings, and the restriction commutes with the existing ranked
 signature corridor.
 
 Relabellings need not be injective here. Signature maps that translate
-types are not covered.
+types are treated separately.
 -/
 
 @[expose] public section
