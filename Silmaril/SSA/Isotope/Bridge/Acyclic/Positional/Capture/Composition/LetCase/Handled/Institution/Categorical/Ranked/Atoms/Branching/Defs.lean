@@ -495,6 +495,42 @@ def Holds.rename {m k : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k}
   | _, .nil => .nil
   | _, .cons top older => .cons (top.rename ρ) (older.rename ρ)
 
+/-- A selection of one packed tuple of a stack: the atoms of the selected
+tuple, and the stack of the other tuples in their order. Any tuple of the
+stack can be selected. -/
+inductive Select : List (List α) → List α → List (List α) → Type where
+  | here {atoms : List α} {stack : List (List α)} : Select (atoms :: stack) atoms stack
+  | there {x : List α} {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+      (sel : Select stack atoms rest) : Select (x :: stack) atoms (x :: rest)
+
+/-- The slot of the selected tuple. -/
+def Holds.pick {m : Nat} {Δ : BoundCtx (Ty α) m} : {stack : List (List α)} → {atoms : List α} →
+    {rest : List (List α)} → Select stack atoms rest → Holds Δ stack → Slot Δ (tupleTy atoms)
+  | _, _, _, .here, .cons top _ => top
+  | _, _, _, .there sel, .cons _ older => older.pick sel
+
+/-- The slots of the other tuples. -/
+def Holds.drop {m : Nat} {Δ : BoundCtx (Ty α) m} : {stack : List (List α)} → {atoms : List α} →
+    {rest : List (List α)} → Select stack atoms rest → Holds Δ stack → Holds Δ rest
+  | _, _, _, .here, .cons _ older => older
+  | _, _, _, .there sel, .cons top older => .cons top (older.drop sel)
+
+/-- The slots of a stack with the selected tuple moved to the top. -/
+def Holds.select {m : Nat} {Δ : BoundCtx (Ty α) m} {stack : List (List α)} {atoms : List α}
+    {rest : List (List α)} (sel : Select stack atoms rest) (H : Holds Δ stack) : Holds Δ (atoms :: rest) :=
+  .cons (H.pick sel) (H.drop sel)
+
+/-- The context under the unpackings of a stack in which the selected tuple
+is unpacked innermost, into the context in which it is unpacked in its
+place. The slots of the unpacking of the selected tuple move beneath the
+slots of the unpackings of the newer tuples, one telescope at a time. -/
+def selectRen : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    Select stack atoms rest → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    BoundCtx.Renaming (stackCtx (atoms :: rest) Ω) (stackCtx stack Ω)
+  | _, _, _, .here, _, _ => .id _
+  | _, atoms, _, @Select.there _ x _ _ rest sel, _, Ω =>
+    (swapTeles (stackCtx rest Ω) (pairsTele x) (pairsTele atoms)).comp (upTele (selectRen sel Ω) (pairsTele x))
+
 /-- The pattern lets that unpack every tuple of a stack around a term. The
 oldest tuple is unpacked outermost. -/
 def unpackStack : (stack : List (List α)) → {k : Nat} → {Ω : BoundCtx (Ty α) k} → Holds Ω stack →

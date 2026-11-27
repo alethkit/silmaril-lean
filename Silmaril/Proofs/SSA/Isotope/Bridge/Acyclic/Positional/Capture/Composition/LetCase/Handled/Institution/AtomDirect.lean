@@ -778,6 +778,53 @@ theorem case_stack_out_proof {C : Ty α} : (stack : List (List α)) → {k : Nat
           (LetCase.LocallyNameless.Tm.rename_comp (upTele (swapStack stack Γ [Y]) (pairsTele atoms)).toFun
             (swapTeles Γ₁ [Y] (pairsTele atoms)).toFun r)))
 
+/-- The selection interchange for eager unpacking. Unpacking every tuple
+of a stack with a selected tuple unpacked innermost is natively equal to
+unpacking every tuple in the order of the stack, with the slots of the
+selected unpacking moved to their place. The unpacking of the selected
+tuple is exchanged with the unpacking of each newer tuple in turn. -/
+theorem select_out_proof {C : Ty α} : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    (sel : Select stack atoms rest) → {k : Nat} → {Ω : BoundCtx (Ty α) k} → (H : Holds Ω stack) →
+    {u : LetCase.LocallyNameless.Tm Empty Φ (stackSize k (atoms :: rest))} →
+    HasType Φ Γ₀ (stackCtx (atoms :: rest) Ω) u C →
+    Equiv false Γ₀ Ω (unpackStack (atoms :: rest) (H.select sel) u)
+      (unpackStack stack H (u.rename (selectRen sel Ω).toFun)) C
+  | _, _, _, .here, _, Ω, .cons top older, u, hu =>
+    Eq.subst (motive := fun x => Equiv false Γ₀ Ω (unpackStack _ (Holds.cons top older) u)
+      (unpackStack _ (Holds.cons top older) x) C)
+      (LetCase.LocallyNameless.Tm.rename_id u).symm (.refl (unpackStack_typed_proof _ (.cons top older) hu))
+  | _, atoms, _, @Select.there _ x stack _ rest sel, k, Ω, .cons topx older, u, hu => by
+    let Ω₁ := stackCtx rest Ω
+    let j := (weakenStack rest Ω).toFun (older.pick sel).1
+    let i := (weakenStack rest Ω).toFun topx.1
+    have hj : Ω₁.get j = tupleTy atoms := ((weakenStack rest Ω).typed _).trans (older.pick sel).2
+    have hi : Ω₁.get i = tupleTy x := ((weakenStack rest Ω).typed _).trans topx.2
+    -- exchange the unpacking of the selected tuple with that of the newest tuple
+    have out := unpack_out_proof (unpack_frame_proof (C := C) x (Ω := Ω₁) i hi) atoms
+      (BoundCtx.Renaming.id Ω₁) j hj hu
+    let i₂ := (weakenTele Ω₁ (pairsTele atoms)).toFun i
+    have hi₂ : (stackCtx (atoms :: rest) Ω).get i₂ = tupleTy x :=
+      ((weakenTele Ω₁ (pairsTele atoms)).typed i).trans hi
+    have hu₂ : HasType Φ Γ₀ (stackCtx (atoms :: rest) Ω)
+        (unpackAt x i₂ (u.rename (swapTeles Ω₁ (pairsTele x) (pairsTele atoms)).toFun)) C :=
+      unpackAt_typed_proof x i₂ hi₂ (HasType.rename (swapTeles Ω₁ (pairsTele x) (pairsTele atoms)) hu)
+    -- select among the older tuples
+    have ih := select_out_proof (C := C) sel older hu₂
+    have idx : (selectRen sel Ω).toFun i₂ = (weakenStack stack Ω).toFun topx.1 :=
+      congrArg (fun r : BoundCtx.Renaming Ω _ => r.toFun topx.1) (selectRen_weaken sel Ω)
+    have moved : (unpackAt x i₂ (u.rename (swapTeles Ω₁ (pairsTele x) (pairsTele atoms)).toFun)).rename
+        (selectRen sel Ω).toFun =
+        unpackAt x ((weakenStack stack Ω).toFun topx.1)
+          (u.rename (selectRen (Select.there (x := x) sel) Ω).toFun) :=
+      ((unpackAt_rename (Φ := Φ) x (selectRen sel Ω) i₂ _).trans
+        (congrArg (fun l => unpackAt x l ((u.rename (swapTeles Ω₁ (pairsTele x) (pairsTele atoms)).toFun).rename
+          (upTele (selectRen sel Ω) (pairsTele x)).toFun)) idx)).trans
+        (congrArg (unpackAt x ((weakenStack stack Ω).toFun topx.1))
+          (LetCase.LocallyNameless.Tm.rename_comp (swapTeles Ω₁ (pairsTele x) (pairsTele atoms)).toFun
+            (upTele (selectRen sel Ω) (pairsTele x)).toFun u))
+    exact (unpackStack_congr_proof rest (older.drop sel) out).trans
+      (equiv_cast ih rfl (congrArg (fun z => unpackStack stack older z) moved))
+
 end Stack
 
 /-! ## Binding under a pending tuple
@@ -1040,6 +1087,13 @@ theorem SpelledStack.opened_equiv : {stack : List (List α)} → {m : Nat} → {
           (congrArg (fun z => unpackStack stack (holds.rename ρ) z) (congrArg₂ LetCase.LocallyNameless.Tm.let₁ request₂ hopen))))
       (congrArg (fun e => LetCase.LocallyNameless.Tm.let₁ e _) request₁.symm) rfl
 
+  | _, _, _, holds, _, .pick sel next, _, Θ, ρ =>
+    equiv_cast ((equiv_cast (next.opened_equiv ρ) rfl
+        (congrArg (fun h => unpackStack _ h (next.opened ρ).1) (Holds.select_rename sel holds ρ).symm)).trans
+        (select_out_proof (C := packedExitType L) sel (holds.rename ρ) (next.opened ρ).2.typing.toHasType))
+      rfl (congrArg (unpackStack _ (holds.rename ρ))
+        (CaseTree.renamed_body_term (next.opened ρ).2 (selectRen sel Θ)).symm)
+
 /-- The same for the bound reply of a request, under its slot. The body is
 given with the reply slot beneath the unpackings of the stack; renamed so
 that the reply slot is newest it is the normal form of the reply. -/
@@ -1283,6 +1337,14 @@ theorem SpelledStack.opened_renamed : {stack : List (List α)} → {n : Nat} →
       congrArg (fun r => σ.comp r) (weakenStack_natural stack π)
     simp only [SpelledStack.opened, CaseTree.renamed]
     rw [assembly_rename_comp, e, h]
+
+  | stack, _, _, _, _, .pick sel next, _, Θ, _, δ, σ, π =>
+    (CaseTree.renamed_body_comp (next.opened σ).2 (selectRen sel Θ) (upStack stack π)).trans
+      ((congrArg (fun r => CaseTree.renamed (pending := .body) (next.opened σ).2 r)
+        (selectRen_natural sel π)).trans
+        ((CaseTree.renamed_body_comp (next.opened σ).2 (upStack (_ :: _) π) (selectRen sel δ)).symm.trans
+          (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
+            CaseTree.renamed (pending := .body) r.2 (selectRen sel δ)) (next.opened_renamed σ π))))
 
 /-- The normal form of the bound reply of a request of such a chain
 commutes with renaming. -/

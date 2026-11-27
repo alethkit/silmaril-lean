@@ -22,8 +22,9 @@ A pending tuple may instead be held, which starts a chain over a stack of
 packed tuples. Each tuple of the stack is one slot of the context, and the
 stack has any depth. A chain asks a request and binds its reply, which is
 pushed on the stack; destructures the newest tuple of the stack by one
-pattern let; drops a newest tuple with at most one atom; or, with the
-stack empty, continues with any spelled tree. A reply with several tags is
+pattern let; selects any packed tuple as the one the next pattern let
+opens; drops a newest tuple with at most one atom; or, with the stack
+empty, continues with any spelled tree. A reply with several tags is
 cased on right after its request, and each arm pushes its payload and
 continues its own chain. A packed tuple of two or more atoms is not an
 atom slot, so no request uses it or its components before they are
@@ -219,10 +220,13 @@ newest first, and has any depth.
 - `unit` and `atom` drop a newest tuple with no atom or one atom. It needs
   no pattern let, and with one atom its slot is an atom slot.
 - `done` continues with any spelled tree when the stack is empty.
+- `pick` selects any tuple of the stack and moves it to the top. The term
+  is unchanged. The next `step`, `unit` or `atom` acts on the selected
+  tuple, and the other tuples stay packed in their order.
 
-Tuples are opened newest first. The reply of a request is pushed on the
-stack by `SpelledStackTags`, so unpacking it at once is `step`s right after
-the request, and keeping it packed is asking further requests first. -/
+The reply of a request is pushed on the stack by `SpelledStackTags`, so
+unpacking it at once is `step`s right after the request, and keeping it
+packed is asking further requests first. Tuples are opened in any order. -/
 inductive SpelledStack : (stack : List (List α)) → {m : Nat} → (Δ : BoundCtx (Ty α) m) → Holds Δ stack →
     List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ m → Type where
   | done {m : Nat} {Δ : BoundCtx (Ty α) m} {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ m} (body : Spelled Δ L t) :
@@ -243,6 +247,9 @@ inductive SpelledStack : (stack : List (List α)) → {m : Nat} → (Δ : BoundC
       (g : Φ) (argument : Assembly Δ (instrSrc g)) {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
       (reply : SpelledStackTags stack (replyTags g) Δ holds L k) :
       SpelledStack stack Δ holds L (.let₁ (.op g (argTerm argument)) k)
+  | pick {stack : List (List α)} {atoms : List α} {rest : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {holds : Holds Δ stack} {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ m} (sel : Select stack atoms rest)
+      (next : SpelledStack (atoms :: rest) Δ (holds.select sel) L t) : SpelledStack stack Δ holds L t
 
 /-- The bound reply of a request of a chain over a stack, pending at the
 newest slot. A reply with one tag is a tuple of atoms and is pushed on the
@@ -314,6 +321,7 @@ def SpelledStack.typing : {stack : List (List α)} → {m : Nat} → {Δ : Bound
   | _, _, _, _, _, .atom next => next.typing
   | _, _, _, .cons top _, _, .step next => .let₂ (slotTyping top) next.typing
   | _, _, _, _, _, .ask g argument reply => .let₁ (.op (f := g) (argTyping argument)) reply.typing
+  | _, _, _, _, _, .pick _ next => next.typing
 
 /-- The native typing of the bound reply of a request of such a chain,
 under its slot. -/
@@ -392,6 +400,8 @@ def SpelledStack.opened : {stack : List (List α)} → {m : Nat} → {Δ : Bound
       (upTele (swapStack stack Θ [.base a, tupleTy (b :: rest)]) (pairsTele (b :: rest)))
   | stack, _, _, _, _, .ask g argument reply, _, Θ, ρ =>
     ⟨_, .ask g (argument.rename (ρ.comp (weakenStack stack Θ))) (reply.opened ρ).2⟩
+  | _, _, _, _, _, .pick sel next, _, Θ, ρ =>
+    CaseTree.renamed (pending := .body) (next.opened ρ).2 (selectRen sel Θ)
 
 /-- The normal form of the bound reply of a request of such a chain,
 pending under the unpackings of the stack. The payload of a tag is

@@ -501,6 +501,58 @@ theorem swapStack_cons_proof : (stack : List (List α)) → {k : Nat} → (Ω : 
           (upTele_comp_proof tel (upTele (swapStack stack Ω [X]) (pairsTele atoms))
             (swapTeles (stackCtx stack Ω) [X] (pairsTele atoms)))))
 
+/-- The slot of a selected tuple along a renaming. -/
+theorem holds_pick_rename_proof {m k : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming Δ Θ) : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    (sel : Select stack atoms rest) → (H : Holds Δ stack) → (H.rename ρ).pick sel = (H.pick sel).rename ρ
+  | _, _, _, .here, .cons _ _ => rfl
+  | _, _, _, .there sel, .cons _ older => holds_pick_rename_proof ρ sel older
+
+/-- The slots of the other tuples along a renaming. -/
+theorem holds_drop_rename_proof {m k : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming Δ Θ) : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    (sel : Select stack atoms rest) → (H : Holds Δ stack) → (H.rename ρ).drop sel = (H.drop sel).rename ρ
+  | _, _, _, .here, .cons _ _ => rfl
+  | _, _, _, .there sel, .cons top older =>
+    congrArg (Holds.cons (top.rename ρ)) (holds_drop_rename_proof ρ sel older)
+
+/-- Selecting a tuple commutes with renaming the slots of the stack. -/
+theorem holds_select_rename_proof {m k : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming Δ Θ) {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+    (sel : Select stack atoms rest) (H : Holds Δ stack) :
+    (H.rename ρ).select sel = (H.select sel).rename ρ :=
+  congrArg₂ Holds.cons (holds_pick_rename_proof ρ sel H) (holds_drop_rename_proof ρ sel H)
+
+/-- Weakening past the unpackings of a stack with a tuple selected, and
+then moving the selected unpacking to its place, is weakening past the
+unpackings of the stack. -/
+theorem selectRen_weaken_proof : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    (sel : Select stack atoms rest) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    (weakenStack (atoms :: rest) Ω).comp (selectRen sel Ω) = weakenStack stack Ω
+  | _, _, _, .here, _, _ => rfl
+  | _, atoms, _, @Select.there _ x stack _ rest sel, _, Ω =>
+    (congrArg (fun r => (weakenStack rest Ω).comp
+        (BoundCtx.Renaming.comp r (upTele (selectRen sel Ω) (pairsTele x))))
+      (swapTeles_weakenTele_proof (pairsTele atoms) (stackCtx rest Ω) (pairsTele x))).trans
+      ((congrArg (fun r => ((weakenStack rest Ω).comp (weakenTele (stackCtx rest Ω) (pairsTele atoms))).comp r)
+        (weakenTele_natural_proof (pairsTele x) (selectRen sel Ω))).trans
+        (congrArg (fun r => BoundCtx.Renaming.comp r (weakenTele (stackCtx stack Ω) (pairsTele x)))
+          (selectRen_weaken_proof sel Ω)))
+
+/-- Moving a selected unpacking to its place commutes with renaming. -/
+theorem selectRen_natural_proof : {stack : List (List α)} → {atoms : List α} → {rest : List (List α)} →
+    (sel : Select stack atoms rest) → {k j : Nat} → {Ω : BoundCtx (Ty α) k} → {Ω' : BoundCtx (Ty α) j} →
+    (π : BoundCtx.Renaming Ω Ω') →
+    (selectRen sel Ω).comp (upStack stack π) = (upStack (atoms :: rest) π).comp (selectRen sel Ω')
+  | _, _, _, .here, _, _, _, _, _ => rfl
+  | _, atoms, _, @Select.there _ x stack _ rest sel, _, _, Ω, Ω', π =>
+    (congrArg (fun r => (swapTeles (stackCtx rest Ω) (pairsTele x) (pairsTele atoms)).comp r)
+      ((upTele_comp_proof (pairsTele x) (selectRen sel Ω) (upStack stack π)).trans
+        ((congrArg (fun r => upTele r (pairsTele x)) (selectRen_natural_proof sel π)).trans
+          (upTele_comp_proof (pairsTele x) (upStack (atoms :: rest) π) (selectRen sel Ω')).symm))).trans
+      (congrArg (fun r => BoundCtx.Renaming.comp r (upTele (selectRen sel Ω') (pairsTele x)))
+        (swapTeles_natural_proof (pairsTele atoms) (pairsTele x) (upStack rest π)))
+
 end Stack
 
 /-! ## Unpacking a tuple slot -/
