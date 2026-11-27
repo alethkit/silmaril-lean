@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the anonymous theorem and ClockSettles from the intact LiveHourClock."""
+"""Check parsed flexible quantification and the intact LiveHourClock."""
 
 import os
 from pathlib import Path
@@ -33,8 +33,15 @@ def main():
             "+Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs",
             "+Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms",
             "+Silmaril.Logic.Temporal.TLA.DataElab.Temporal.Thms",
+            "+Silmaril.Logic.Temporal.TLA.StutterReduction.Thms",
             "+Mathlib.Data.Nat.Find",
         ],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        [lake, "env", "lean", "-DautoImplicit=false", "-DwarningAsError=true",
+         str(HERE / "Flexible.lean")],
         cwd=ROOT,
         check=True,
     )

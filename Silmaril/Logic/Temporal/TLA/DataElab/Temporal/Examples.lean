@@ -123,13 +123,44 @@ F == Quantify({x'})
 
 #guard rejectsQuantifierSubstitution
 
-private meta def rejectsFlexibleBinder : Bool := Id.run do
-  let text := "---- MODULE Hiding ----\nVARIABLE x\nF == \\EE x : [] (x = x)\n===="
+#guard badOperand r"\EE h : h' = h"
+#guard badOperand r"\AA h : [Next]_x"
+#guard badOperand r"(\EE h : h = x)'"
+#guard badOperand r"ENABLED (\EE h : h = x)"
+
+private meta def rejectsFlexSubstitution : Bool := Id.run do
+  let .ok checked := registry r"
+---- MODULE BadFlexSubstitution ----
+VARIABLE x
+Hide(F) == \EE h : F
+Bad == Hide(x' = x)
+====
+" | return false
+  let .error (.levels ⟨site, .failedRequirement requirement⟩) :=
+    lowerFormula checked [] signature 32 (id 2) | return false
+  return site = ⟨"root", [.unit 2, .body]⟩ &&
+    requirement.origin = ⟨"root", [.unit 1, .body, .body]⟩ &&
+    requirement.condition = .nonAction (.fixed .action)
+
+#guard rejectsFlexSubstitution
+
+private meta def rejectsFlexName (body : String) (kind : Resolution.DiagnosticKind) : Bool := Id.run do
+  let text := "---- MODULE Names ----\nVARIABLE x\nF == " ++ body ++ "\n===="
   let .ok source := Surface.Parser.parseModule text | return false
   let .error diagnostic := resolveWith .levelSyntax [("root", .parsed source [])] "root" | return false
-  return diagnostic = ⟨⟨"root", [.unit 1, .body]⟩, .unsupported .actionOrTemporal⟩
+  return diagnostic.kind = kind
 
-#guard rejectsFlexibleBinder
+#guard rejectsFlexName r"\EE h, h : h = h"
+  (.conflictingName (.ident "h") (.declared ⟨"root", [.unit 1, .body, .binder 0]⟩))
+#guard rejectsFlexName r"\AA x : x = x"
+  (.conflictingName (.ident "x") (.declared ⟨"root", [.unit 0, .member 0]⟩))
+#guard rejectsFlexName r"(\EE h : h = x) /\ (h = x)" (.unknownName (.ident "h"))
+
+private meta def rejectsFlexSyntax (body : String) : Bool :=
+  (Surface.Parser.parseModule ("---- MODULE Syntax ----\nF == " ++ body ++ "\n====")).isOk == false
+
+#guard rejectsFlexSyntax r"\EE h \in {0} : TRUE"
+#guard rejectsFlexSyntax r"\AA <<h, k>> : TRUE"
 
 private meta def rejectsTupleBinder : Bool := Id.run do
   let .ok checked := registry "---- MODULE TupleBinder ----\nF == \\A <<a, b>> \\in {} : [] (a = b)\n===="

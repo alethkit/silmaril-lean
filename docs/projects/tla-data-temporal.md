@@ -32,6 +32,7 @@ and the same rigid valuation.
 | Temporal Boolean composition | Negation, conjunction, disjunction, implication, equivalence and junction lists. State children contribute their truth at the current instant. |
 | `[]F`, `<>F`, `F ~> G` | Standalone always, eventually and leads-to. The matching action forms are `[][A]_e` and `<><<A>>_e`. |
 | Rigid `\A` and `\E` | A temporal body may bind one or more ordinary names, with or without domains. Each witness ranges over the interpretation's value carrier and stays fixed throughout the body, including visits to later suffixes. |
+| Flexible `\EE` and `\AA` | A comma-separated list of unbounded variable names. The body is a supported constant, state or temporal formula. Each existential takes a behavior with one additional state coordinate and hides that coordinate up to stuttering. The universal is the negated existential of the negated body. |
 | `WF_e(A)` and `SF_e(A)` | Standalone weak and strong fairness of the changing steps of `A` under observation `e`. Fairness uses the same full successor space as ENABLED. |
 
 Bounded temporal quantifiers check each domain as a core data expression at
@@ -44,8 +45,50 @@ checks its scope against the active slots, and a primed operand reads the
 same witnesses at the target endpoint. Level checking still enforces
 operand rules and rechecks requirements after operator substitution.
 
-The resulting formulas inherit Simple TLA's checked whole-state stutter
-invariance. Source raw actions remain relations on two endpoints. Data
+## Flexible hiding
+
+The resolver assigns each bound name its own lexical declaration ID. The
+current state supplies an unprimed read, and the target state supplies a
+primed read of the same coordinate. An observation can read any coordinate
+in scope at its endpoint. ENABLED and fairness quantify over successors
+in that same extended state space. A rigid variable in scope continues
+to use one fixed value.
+
+A flexible binder has temporal level. In its body each bound name has
+state level. The level checker rejects a bare action operand, including
+when a call supplies an action to a parameterized definition whose body
+uses that parameter under a flexible binder. The parser accepts ordinary
+unbounded identifiers. The resolver rejects duplicate binders, name
+collisions in the active scope, and uses outside the binder body. A list
+expands to nested single-name binders in source order. Flexible and rigid
+binders may nest in either order wherever the body is admitted. Temporal
+binder lifting through parameterized operators and LET, and flexible
+quantifiers in the separate INSTANCE profile, are outside this slice.
+[Specifying Systems §§8.8, 16.2.4 and 17.2](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf#page=330) ·
+[Pinned SANY binder syntax and scope](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/src/tla2sany/semantic/Generator.java#L3927)
+
+Both source hiding and standalone General TLA use `hide`. Each witness
+must satisfy the whole operand on its own extended behavior. Dropping the
+bound coordinate leaves a behavior stutter-equivalent to the input suffix.
+A hidden change can occur while the projection repeats a visible state.
+The product-state binder inherits the checked reduction law.
+[Lamport, *The Temporal Logic of Actions*, equations (48)–(49)](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf#page=33) ·
+[Canonical reduction theorem](../../Silmaril/Logic/Temporal/TLA/StutterReduction/Thms.lean) ·
+[#3227](https://github.com/hiloopai/silmaril-lean/pull/3227)
+
+The parsed `Delayed` example has a hidden Boolean that starts false.
+A visible change is allowed only on a step where the hidden value moves
+from true to false. Lean proves that an input with an immediate visible
+change satisfies the hiding formula. Its witness first repeats the visible
+state while setting the hidden value to true. Lean also rules out an
+extension with exactly the input projection and rules out satisfaction on
+a permanently unchanged visible behavior. Further parsed checks compare
+a changing flexible witness to its rigid counterpart and exercise
+universal, nested and mixed binders.
+[Checked examples](../../tests/semantics/tla-temporal-source/Flexible.lean)
+
+The standalone semantics proves whole-state stutter invariance for every
+lowered formula. Source raw actions remain relations on two endpoints. Data
 predicates use the fixed interpretation's truth test and malformed-Boolean
 policy. Once composition reaches temporal level, its Boolean connectives
 combine propositions about behaviors.
@@ -57,8 +100,8 @@ resolved sites, including operators reached through EXTENDS. Core DataElab
 leaves retain their ordinary first-order calls, LET expansion and data
 binders. Lifting modal forms through parameterized calls, LET, value
 constructors or IF is a further slice. Below temporal level, quantifiers
-still use the core data path. Tuple patterns in temporal binders and
-flexible hiding (`\AA`, `\EE`) are outside this source profile. Other boundaries include
+still use the core data path. Tuple patterns in temporal binders are outside
+this source profile. Other boundaries include
 INSTANCE replay, collection-profile leaves, value-level tuple constructors,
 temporal primitives, action composition, guarantees, and checking source
 proofs. This is a mathematical semantics with a source admission check.

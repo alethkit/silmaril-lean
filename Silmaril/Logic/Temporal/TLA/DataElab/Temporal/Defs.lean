@@ -163,6 +163,11 @@ private def lowerForm (ctx : Context) {signature : ExternalSignature} (scope : S
     let obs ← lowerObservation ctx scope depth (bracketSite.child (.operand 1)) subscript
     return (p, obs)
   match expr with
+  | .temporalQuant kind names body =>
+    let binders := names.zipIdx.map fun (_, index) => declarationId site (.binder index)
+    let locals := binders.map (fun id => (id, Local.expression (.flexible id))) ++ scope.locals
+    let p ← lowerForm ctx { scope with locals } remaining (site.child .body) body
+    return binders.foldr (Form.flexQuant kind) p
   | .rigidQuant kind binders body =>
     let groups ← (rigidBinderGroups site binders).mapError .data
     let domains ← groups.mapM fun (groupSite, names, domain) => do
