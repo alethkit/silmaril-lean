@@ -1109,8 +1109,7 @@ The continuation cannot jump back to its own label.
   therefore a branching operand, and the completeness theorem applies to
   the direct syntax at the original ordered exits. On graphs read back
   from two direct case trees, validity is equality of the trees. The
-  direct trees are those of the two-tag atom replies; direct spellings of
-  replies with more tags or tuple payloads are not defined. The
+  direct trees are those of the two-tag atom replies. The
   regression has a nested direct tree whose inner arm returns a fresh
   reply atom paired with an older capture. Its normal form is checked
   explicitly, with request order and exits kept, and a changed exit, a
@@ -1119,6 +1118,37 @@ The continuation cannot jump back to its own label.
   [Direct case trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Native equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A nested direct tree](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDirectRegression.lean)
+- Every spelling of a request on a tagged tuple reply is covered. A
+  spelled tree has three heads for a request: bind the reply, as the case
+  trees do; destructure the reply as a pair at the request, when it has
+  one tag whose tuple has two or more atoms; or case on the reply at the
+  request, when it has two or more tags. After the head the rest of the
+  reply is a bound slot, consumed at once and in order as in the case
+  trees. The native theory has two sequencing laws, one that binds the
+  scrutinee of a pattern let, `let₂ e c = let₁ e (let₂ (bv 0) c↑)`, and
+  the one for a case above. Applied at every request under the renaming
+  past the reply slots already bound, they give a native equation
+  between a spelled tree and its normal form, proved once for all heads
+  by one mutual induction. The normal form keeps the requests, their
+  order, the exits and the payloads. An operand natively equal to a
+  spelled tree is a branching operand, so the completeness theorem
+  applies to every spelling at the original ordered exits. On graphs
+  read back from two spelled trees, validity is equality of their normal
+  forms; two spellings of one tree have the same normal form, so
+  equality of the trees is not the criterion. The direct case trees
+  above are the spelled trees of the two-tag atom replies with every
+  request cased on directly, and their equation is now this one. Other
+  placements of a destructuring, and arbitrary LetCase terms, are
+  outside the class. The regression destructures a pair reply at its
+  request, then cases on a request whose pair arm is destructured, with
+  a fresh atom and an older capture in the nested request and in the
+  returned pair; it also cases on a three-tag request at once. Normal
+  forms are checked explicitly, and a changed component, a fresh atom
+  for the older capture, a changed argument and a changed argument order
+  are each told apart.
+  [Spelled trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Native equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [Pair and case heads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSpelledRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
