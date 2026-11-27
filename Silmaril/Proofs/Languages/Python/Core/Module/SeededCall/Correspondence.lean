@@ -9,6 +9,32 @@ namespace Silmaril.Proofs.Languages.Python.Core.Module.SeededCall
 open Silmaril.Languages.Python.Core.Module.SeededCall
 open Silmaril.Languages.Python.Core.Module.TupleDispatch (equalContents)
 
+theorem lookupBinding_remove (bindings : Bindings) (name query : String) :
+    lookupBinding (bindings.filter fun binding => binding.1 != name) query =
+      if query = name then none else lookupBinding bindings query := by
+  induction bindings with
+  | nil => simp [lookupBinding]
+  | cons item rest ih =>
+    obtain ⟨key, value⟩ := item
+    by_cases removed : key = name
+    · subst key
+      by_cases target : query = name
+      · subst query
+        simpa [List.filter_cons] using ih
+      · simpa [List.filter_cons, lookupBinding, List.findSome?_cons, target] using ih
+    · rw [List.filter_cons]
+      have keep : ((key != name) : Bool) = true := by simp [removed]
+      simp only [keep, ite_true]
+      by_cases hit : query = key
+      · subst query
+        simp [lookupBinding, removed]
+      · by_cases target : query = name
+        · have miss : name ≠ key := Ne.symm removed
+          subst query
+          simp only [lookupBinding] at ih ⊢
+          simpa only [List.findSome?_cons, Prod.fst, ite_eq_right miss] using ih
+        · simpa [lookupBinding, List.findSome?_cons, hit, target] using ih
+
 theorem delivers_iff {expectation : Expectation} {input output : Result} :
     expectation.deliver input = output ↔ Delivers expectation input output := by
   constructor
@@ -66,6 +92,15 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     | equalTuple _ _ same => contradiction
     | unequalTuple => rfl
   | asserted | assertionFailed | textConversion | truthConversion | intFromBool | callable | isinstance | distinctIntBool | copyTuple | copyTupleObject => cases right; rfl
+  | falseAsserted | falseAssertionFailed | tupleAsserted | tupleAssertionFailed => cases right; rfl
+  | listAsserted _ nonempty =>
+    cases right with
+    | listAsserted => rfl
+    | listAssertionFailed _ empty => contradiction
+  | listAssertionFailed _ empty =>
+    cases right with
+    | listAsserted _ nonempty => contradiction
+    | listAssertionFailed => rfl
   | sameBool left right same =>
     cases right with
     | sameBool => rfl
@@ -95,6 +130,25 @@ private theorem computed (callee : Value) (arguments : List Value) :
       cases value
       · exact .assertionFailed
       · exact .asserted
+    | assertFalseBoolean value =>
+      rw [invoke, decoded]
+      cases value
+      · exact .falseAsserted
+      · exact .falseAssertionFailed
+    | assertTuple nonempty =>
+      rw [invoke, decoded]
+      cases nonempty
+      · exact .tupleAssertionFailed
+      · exact .tupleAsserted
+    | assertList object =>
+      rw [invoke, decoded]
+      change Executes (.assertList object)
+        (if object.contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none)
+      by_cases empty : object.contents.isEmpty = true
+      · rw [ite_eq_left empty]
+        exact .listAssertionFailed object empty
+      · rw [ite_eq_right empty]
+        exact .listAsserted object empty
     | compare left right =>
       rw [invoke, decoded]
       by_cases same : left = right

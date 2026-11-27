@@ -13,20 +13,21 @@ open Functions
 open Lists (State Capture Outcome)
 open Lists.Iteration (Flow finishState)
 
-theorem default_layout {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent keywords varargs) (named : KeywordLexical parent keywords) :
+theorem default_layout {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords) :
     site.declaration.signature.defaulted.map Prod.fst = site.defaultKeys ∧
       site.declaration.signature.defaulted.map Prod.snd = site.defaultsInOrder.map PlainPositionalDefault.value :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.default_layout
     site named
 
-theorem site_slots {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs) :
+theorem site_slots {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) :
     site.declaration.signature.slots ++ site.declaration.locals = site.block.owned.map fileSlot :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.site_slots
     site
 
-theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent keywords varargs) (named : KeywordLexical parent keywords)
+theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords)
     {seed middle : Program} (compiled : compileBody ⟨site.block.context, .local⟩ site.source seed =
       .ok (site.body, middle)) :
     compileBody ⟨parent.context, .local⟩ site.statement seed =
@@ -34,8 +35,8 @@ theorem compile_site {parent : LexicalBlock} {keywords : List PlainKeywordParame
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.compile_site
     site named compiled
 
-theorem lexical_defaults {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String}
-    (site : Site parent keywords varargs) (named : KeywordLexical parent keywords) :
+theorem lexical_defaults {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String} {scope : Scope}
+    (site : Site parent keywords varargs kwargs scope) (named : KeywordLexical parent keywords) :
     Lexical.Elaborates parent site.defaultSources site.defaultsInOrder :=
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.lexical_defaults
     site named
@@ -91,7 +92,8 @@ theorem forwarding_request {parent : LexicalBlock} (site : Site parent)
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence.Recursive.forwarding_request
     site selected binding present
 
-theorem installs {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs : Option String} (site : Site parent keywords varargs)
+theorem installs {parent : LexicalBlock} {keywords : List PlainKeywordParameter} {varargs kwargs : Option String}
+    (site : Site parent keywords varargs kwargs)
     {before after : List Binding} {free : List FreeName}
     (selected : Selects parent (before ++ site.reads ++ after) free)
     {state : State} {floor : Nat} (frame : Body.Frame parent free floor state) :

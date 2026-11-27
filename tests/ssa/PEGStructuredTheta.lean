@@ -2,11 +2,19 @@ module
 
 import Silmaril.SSA.PEG.Bridge.Theta.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.Tuple.Thms
-import Silmaril.SSA.Peggy.Bridge.Theta.Thms
+import Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA.Thms
 import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Scoped.Thms
+import Silmaril.SSA.RVSDG.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Thms
+import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL.Thms
+import Silmaril.Machine.PEG.CountedLoop.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Thms
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Defs
 meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaSSA.Schedule.Defs
+meta import Silmaril.SSA.PEG.Bridge.Theta.Region.MLIR.Defs
+meta import Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL.Defs
+meta import Silmaril.Machine.PEG.CountedLoop.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Hoist.Defs
 
 namespace Silmaril.SSA.PEG.Bridge.Theta.Tests
@@ -286,7 +294,7 @@ private theorem renamedReturns : renamed.Returns values (entry 2 10 1) (entry 0 
     (RVSDG.Theta.Iterate.again renamedSecond (RVSDG.Theta.Iterate.stop renamedStop))
 
 -- The model distinguishes the two sides before identifying the opcodes.
-example : ¬ equation.Holds markedModel := by
+private theorem markedEquationFalse : ¬ equation.Holds markedModel := by
   intro holds
   let idx : Index 1 := fun _ => 0
   have old := observedTuple idx
@@ -378,6 +386,342 @@ set_option interpreter.prefer_native false in
 /-- info: (true, none, some (0, 11, 12), some (0, 10, 1)) -/
 #guard_msgs in
 #eval (nativeHeaderShape, runPacket 2 2 10 1, runPacket 3 2 10 1, runPacket 1 0 10 1)
+
+open Silmaril.SSA.Peggy.Bridge.Theta.LambdaSSA
+
+private abbrev nativeSide := Peggy.Bridge.Theta.LambdaSSA.Side.ofBundle (S := markedSignature) bundle rfl
+
+private def nativeEquation : CheckedEquation markedSignature :=
+  ⟨carried, nativeSide, nativeSide.map rename⟩
+
+-- The opcode map identifies add and addAlt. Its square preserves both
+-- compiled sides with their exact packet signature and CFG constructor tree.
+example :
+    ((peggyToNative Unit).ρ.app markedSignature).sen (nativeEquation.map rename) =
+      (((peggyToNative Unit).ρ.app markedSignature).sen nativeEquation).map rename := by
+  rw [peggyToNative_sentence, peggyToNative_sentence]
+  rfl
+
+private theorem relabelledNativeReturn :
+    (nativeEquation.map rename).native.lhs.Returns markedModel (store 2 10 1) (store 0 12 14) := by
+  let mapped := Relabel.bundle (opMap rename) bundle
+  change Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
+    ((Region.LambdaSSA.lower bundle).mapInstr (Native.opcode rename)) () 0 (packet 0 12 14) ()
+  have ran : Isotope.LambdaSSA.Semantics.Region.Eval (Region.LambdaSSA.instruction total) (ssaEnv 2 10 1)
+      (Region.LambdaSSA.lower mapped) () 0 (packet 0 12 14) () :=
+    .cfg (.br .var) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 2 10 1) (entry 1 1 12) true renamedFirst ()) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 1 1 12) (entry 0 12 14) true renamedSecond ()) <|
+      .step (by decide) (Region.LambdaSSA.header_eval mapped total _ (entry 0 12 14) (entry 0 12 14) false renamedStop ())
+        (.exit (Nat.le_refl 1))
+  exact (Region.LambdaSSA.lower_map (opMap rename) bundle) ▸ ran
+
+example : ((peggyToNative Unit).ρ.app markedSignature).mod.obj (Discrete.mk markedModel) =
+    Discrete.mk markedModel :=
+  peggyToNative_model markedModel
+
+-- The old code returns the renamed result in the contravariant reduct.
+example : nativeEquation.native.lhs.Returns (Peggy.Bridge.Theta.reduct rename markedModel)
+    (store 2 10 1) (store 0 12 14) :=
+  (nativeEquation.native.lhs.returns_map rename markedModel _ _).mp relabelledNativeReturn
+
+example : ¬ nativeEquation.native.Holds markedModel := by
+  intro same
+  exact markedEquationFalse ((nativeEquation.satisfaction markedModel).mp same)
+
+example : (nativeEquation.map rename).native.Holds markedModel := by
+  intro input output
+  have collapsed : (nativeEquation.map rename).native.lhs = (nativeEquation.map rename).native.rhs := by
+    apply Subtype.ext
+    rfl
+  rw [collapsed]
+
+example : (nativeEquation.map rename).native.Holds markedModel ↔
+    (nativeEquation.map rename).peg.Holds markedModel :=
+  Silmaril.Logic.Institution.Inst.CoHom.satisfaction (peggyToNative Unit) markedSignature
+    (Discrete.mk markedModel) (nativeEquation.map rename)
+
+open Silmaril.MLIR.Arith (Env Width)
+
+private def wordProfile : Region.MLIR.Profile Unit where
+  countWidth := ⟨8, by decide⟩
+  dataWidth _ := ⟨16, by decide⟩
+
+private def wordOps : Silmaril.MLIR.Pure.Eval (Region.MLIR.Opcode wordProfile Op)
+  | _, _, .apply .pred, .cons n .nil => n - 1
+  | _, _, .apply .nonzero, .cons n .nil => BitVec.ofBool (n != 0)
+  | _, _, .apply .not, .cons flag .nil => ~~~flag
+  | _, _, .apply .add, .cons x (.cons y .nil) => x + y
+  | _, _, .apply .addAlt, .cons x (.cons y .nil) => x + y + 1
+
+private abbrev wordModel := Region.MLIR.model wordProfile wordOps
+private abbrev wordLoop := Region.MLIR.lower wordProfile bundle
+
+private def wordStore (n a b : Nat) : Env (wordProfile.widths carried) :=
+  .cons (BitVec.ofNat 8 n) (.cons (BitVec.ofNat 16 a) (.cons (BitVec.ofNat 16 b) .nil))
+
+private abbrev scopedBlock := Region.MLIR.Scoped.lower bundle
+private abbrev scopedModel := Region.MLIR.Scoped.model wordModel
+
+private def scopedCarry (n a b : Nat) :=
+  Region.MLIR.Scoped.encode wordModel (wordProfile.decode carried (wordStore n a b))
+
+private theorem scopedBlock_eq :
+    scopedBlock = RVSDG.MLIR.Graph.Feedback.lowerTerm
+      (RVSDG.NestedTheta.Term.ofTheta ⟨RVSDG.Institution.mapTerm
+        RVSDG.OrderedRuntime.Structured.Instruction.pure (Region.Compiler.body cert).2⟩) := by
+  simp only [Region.MLIR.Scoped.lower, RVSDG.MLIR.Graph.Feedback.WholeTheta.lower,
+    RVSDG.MLIR.Graph.Feedback.lower, RVSDG.MLIR.Graph.Feedback.WholeTheta.embed,
+    RVSDG.NestedTheta.Term.toTerm_toGraph, Region.compile, RVSDG.Theta.Term.toGraph,
+    RVSDG.Theta.Institution.relabel, RVSDG.Theta.Graph.toTerm, RVSDG.Institution.mapGraph,
+    RVSDG.Term.toTerm_toGraph]
+  rfl
+
+-- Execute the generated scoped block by its own relation. The body selects
+-- the update arm twice, then the bypass arm. Both accumulators are observed.
+example : scopedBlock.Returns scopedModel (scopedCarry 2 10 1) (scopedCarry 0 11 12) := by
+  rw [scopedBlock_eq]
+  refine ⟨scopedCarry 0 11 12, ⟨scopedCarry 0 11 12, ?_, ?_⟩, rfl⟩
+  · refine (Relation.ReflTransGen.single (b := scopedCarry 1 1 11) ?_).tail ?_
+    · exact ⟨scopedCarry 1 1 11, by rfl, by rfl⟩
+    · exact ⟨scopedCarry 0 11 12, by rfl, by rfl⟩
+  · exact ⟨scopedCarry 0 11 12, by rfl, by rfl⟩
+
+-- The same generated block agrees with the native SCF run on an initially
+-- false guard and on overflow in a 16-bit accumulator.
+example : scopedBlock.Returns scopedModel (scopedCarry 0 10 1) (scopedCarry 0 10 1) :=
+  (Region.MLIR.Scoped.scf_returns_iff bundle wordProfile wordOps (wordStore 0 10 1)
+    (wordStore 0 10 1)).mp ⟨1, rfl⟩
+
+example : scopedBlock.Returns scopedModel (scopedCarry 1 65535 2) (scopedCarry 0 2 1) :=
+  (Region.MLIR.Scoped.scf_returns_iff bundle wordProfile wordOps (wordStore 1 65535 2)
+    (wordStore 0 2 1)).mp ⟨2, rfl⟩
+
+private theorem bitNegation (flag : Bool) :
+    wordModel.run bundle.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩ := by
+  cases flag <;> rfl
+
+private def wordOpcodeName : {args : List Width} → {out : Width} →
+    Region.MLIR.Opcode wordProfile Op args out → String
+  | _, _, .apply .pred => "pred"
+  | _, _, .apply .nonzero => "nonzero"
+  | _, _, .apply .not => "not"
+  | _, _, .apply .add => "add"
+  | _, _, .apply .addAlt => "addAlt"
+
+private def opNames {Term : List Width → Type} : {Γ : List Width} →
+    Silmaril.MLIR.Pure.Code (Region.MLIR.Opcode wordProfile Op) Term Γ → List String
+  | _, .terminator _ => []
+  | _, .letOp op _ rest => wordOpcodeName op :: opNames rest
+
+private def branchesToBefore : {Γ : List Width} → Silmaril.MLIR.CF.Block
+    (Region.MLIR.Opcode wordProfile Op) (Silmaril.MLIR.SCF.Label wordLoop.State wordLoop.Payload)
+    Γ (wordProfile.widths carried) → Bool
+  | _, .terminator (.br ⟨.before, _⟩) => true
+  | _, .terminator _ => false
+  | _, .letOp _ _ rest => branchesToBefore rest
+
+-- Inspect the emitted regions and the actual typed CF latch.
+private def scfShape : Bool :=
+  opNames wordLoop.before == ["nonzero"] &&
+  opNames wordLoop.after == ["pred", "add"] &&
+  branchesToBefore (wordLoop.lower.block .after)
+
+example : scfShape = true := rfl
+
+example : wordLoop.run wordOps 2 (wordStore 2 10 1) = none := rfl
+example : wordLoop.run wordOps 3 (wordStore 2 10 1) = some (wordStore 0 11 12) := rfl
+example : wordLoop.lower.run wordOps 6 (wordStore 2 10 1) = none := rfl
+example : wordLoop.lower.run wordOps 7 (wordStore 2 10 1) = some (wordStore 0 11 12) := rfl
+
+-- Initially false: the update would decrement zero modulo 256, but the
+-- before region goes directly to the return with the old tuple.
+example : wordLoop.run wordOps 1 (wordStore 0 10 1) = some (wordStore 0 10 1) := rfl
+example : wordLoop.lower.run wordOps 3 (wordStore 0 10 1) = some (wordStore 0 10 1) := rfl
+
+-- The data primitive uses its actual i16 modular interpretation.
+example : wordLoop.run wordOps 2 (wordStore 1 65535 2) = some (wordStore 0 2 1) := rfl
+
+example (idx : Index 1) :
+    bundledGraph.observe wordModel.toPEG
+      (bundledGraph.denote wordModel.toPEG (wordProfile.decode carried (wordStore 2 10 1))
+        bundle.demandWellFounded) idx =
+      (wordProfile.decode carried (wordStore 0 11 12)).map (fun _ => some) :=
+  (Region.MLIR.cf_returns_iff_observe wordProfile wordOps bundle bitNegation _ _ idx).mp ⟨7, rfl⟩
+
+example (idx : Index 1) :
+    bundledGraph.observe wordModel.toPEG
+      (bundledGraph.denote wordModel.toPEG (wordProfile.decode carried (wordStore 0 10 1))
+        bundle.demandWellFounded) idx =
+      (wordProfile.decode carried (wordStore 0 10 1)).map (fun _ => some) :=
+  (Region.MLIR.returns_iff_observe wordProfile wordOps bundle bitNegation _ _ idx).mp ⟨1, rfl⟩
+
+private def unpackWords : Env (wordProfile.widths carried) → Nat × Nat × Nat
+  | .cons n (.cons x (.cons y .nil)) => (n.toNat, x.toNat, y.toNat)
+
+set_option interpreter.prefer_native false in
+/-- info: (true, some (0, 11, 12), some (0, 11, 12), some (0, 10, 1)) -/
+#guard_msgs in
+#eval (scfShape, (wordLoop.run wordOps 3 (wordStore 2 10 1)).map unpackWords,
+  (wordLoop.lower.run wordOps 7 (wordStore 2 10 1)).map unpackWords,
+  (wordLoop.lower.run wordOps 3 (wordStore 0 10 1)).map unpackWords)
+
+
+section LambdaRTL
+
+open Silmaril.SSA.PEG.Bridge.Theta.Region.LambdaRTL (Label observe observeFuel mem_observe_iff)
+open Silmaril.SSA.LambdaRTL.CFG.Cyclic (runFuel)
+open ForwardCFG (Value)
+
+private abbrev rtlLoop := Region.LambdaRTL.lower bundle
+
+-- The two label entries carry one packet each. Inspect actual assignments
+-- and terminators, including the backward transfer to the first label.
+private def rtlShape : Bool :=
+  match rtlLoop.blocks with
+  | [(.before, ⟨.packet, beforeBody⟩), (.after, ⟨.packet, afterBody⟩)] =>
+    match beforeBody, afterBody with
+    | .let2 (.slot 0) _ _ (.let2 (.slot 1) _ _ (.let2 (.slot 2) _ _
+        (.let1 (.temp 0) (.app (.inl ⟨_, _, .primitive .nonzero⟩) _)
+          (.term (.case (.app (.inr ()) _) _ (.br .exit _) _ (.br .after _)))))),
+      .let2 (.slot 0) _ _ (.let2 (.slot 1) _ _ (.let2 (.slot 2) _ _
+        (.let1 (.temp 0) (.app (.inl ⟨_, _, .primitive .pred⟩) _)
+          (.let1 (.temp 1) (.app (.inl ⟨_, _, .primitive .add⟩) _)
+            (.term (.br .before _)))))) => true
+    | _, _ => false
+  | _ => false
+
+example : rtlShape = true := rfl
+
+-- Two backedges are needed. The sum must use the old left accumulator,
+-- even though the new left accumulator has already been chosen.
+example : observeFuel bundle total 5 (store 2 10 1) = none := rfl
+example : observeFuel bundle total 6 (store 2 10 1) =
+    some (.exit, Value.pack (store 0 11 12)) := rfl
+
+example : observeFuel bundle total 2 (store 0 10 1) =
+    some (.exit, Value.pack (store 0 10 1)) := rfl
+
+-- Only the after block writes temp 1 in this example. The zero-trip path
+-- leaves that register at its initial value, as well as returning the old tuple.
+example : (runFuel (Region.LambdaRTL.model total) rtlLoop 2
+    (Region.LambdaRTL.inputStore total (store 0 10 1))).map
+    (fun (_, _, final) => final (.temp 1)) = some .unit := rfl
+
+example (idx : Index 1) : bundledGraph.observe total.toPEG
+    (bundledGraph.denote total.toPEG (store 2 10 1) bundle.demandWellFounded) idx =
+      (store 0 11 12).map (fun _ => some) := by
+  exact (Region.LambdaRTL.returns_iff_observe bundle total (fun _ => rfl) _ _ idx).mp
+    ((mem_observe_iff bundle total (store 2 10 1) .exit (Value.pack (store 0 11 12))).mpr ⟨6, rfl⟩)
+
+example (idx : Index 1) :
+    (Label.exit, Value.pack (store 0 11 12)) ∈ observe bundle total (store 2 10 1) :=
+  (Region.LambdaRTL.returns_iff_observe bundle total (fun _ => rfl) _ _ idx).mpr (observedTuple idx)
+
+private def rtlPacket (fuel n a b : Nat) : Option (Nat × Nat × Nat) := do
+  let (label, result) ← observeFuel bundle total fuel (store n a b)
+  match label with
+  | .exit =>
+    let .cons count (.cons left (.cons right .nil)) ← result.unpack carried
+    return (count.down, left, right)
+  | _ => none
+
+set_option interpreter.prefer_native false in
+/-- info: (true, none, some (0, 11, 12), some (0, 10, 1)) -/
+#guard_msgs in
+#eval (rtlShape, rtlPacket 5 2 10 1, rtlPacket 6 2 10 1, rtlPacket 2 0 10 1)
+
+end LambdaRTL
+
+
+section MachineRTL
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.PEG.CountedLoop (Image bank words)
+
+private abbrev nativeWord := Silmaril.Machine.PEG.CountedLoop.wordProfile Unit
+
+private def nativeOps : Silmaril.MLIR.Pure.Eval (Region.MLIR.Opcode nativeWord Op)
+  | _, _, .apply .pred, .cons n .nil => n - 1
+  | _, _, .apply .nonzero, .cons n .nil => BitVec.ofBool (n != 0)
+  | _, _, .apply .not, .cons flag .nil => ~~~flag
+  | _, _, .apply .add, .cons x (.cons y .nil) => x + y
+  | _, _, .apply .addAlt, .cons x (.cons y .nil) => x + y + 1
+
+-- The checked PEG bundle compiles to exactly the admitted SCF shape.
+private def nativeImage : Image (Region.MLIR.lower nativeWord bundle) :=
+  { nonzero := Region.MLIR.Opcode.apply (profile := nativeWord) Op.nonzero
+    pred := Region.MLIR.Opcode.apply (profile := nativeWord) Op.pred
+    add := Region.MLIR.Opcode.apply (profile := nativeWord) Op.add
+    shape := rfl }
+
+private theorem nativeAgrees : nativeImage.Agrees nativeOps where
+  nonzero n := by
+    change (BitVec.ofBool (n != 0)).getLsbD 0 = _
+    simp
+  pred _ := rfl
+  add _ _ := rfl
+
+private abbrev nativeModel := Region.MLIR.model nativeWord nativeOps
+private abbrev nativeRtl := Silmaril.Machine.PEG.CountedLoop.lower nativeImage
+
+private theorem nativeNegation (flag : Bool) :
+    nativeModel.run bundle.scalar.descriptor.negate (.cons ⟨flag⟩ .nil) = ⟨!flag⟩ := by
+  cases flag <;> rfl
+
+private def nativeMemory : Memory := Memory.ofList 2 [0xa5, 0x5a]
+
+example : Silmaril.Machine.PEG.CountedLoop.fromWords [10, 1] = none := rfl
+
+-- The latch passes right-old and left-old + right-old on the same backedge.
+example : Silmaril.Machine.PEG.CountedLoop.latch.term =
+    .jump 1 [.nextCount, .after 2, .nextRight] := rfl
+
+example : (match nativeRtl.runMain 6 0 (words (bank 2 10 1)) nativeMemory with
+  | .running s => (s.point.label, s.frame.readAll [.before 0, .before 1, .before 2])
+  | _ => (0, none)) = (1, some [1, 1, 11]) := rfl
+
+example : (nativeRtl.runMain 11 0 (words (bank 2 10 1)) nativeMemory).returnedValues? = none := rfl
+
+example : nativeRtl.runMain 12 0 (words (bank 2 10 1)) nativeMemory =
+    .returned [0, 11, 12] nativeMemory := rfl
+
+example : nativeRtl.runMain 4 0 (words (bank 0 10 1)) nativeMemory =
+    .returned [0, 10, 1] nativeMemory := rfl
+
+example : (match nativeRtl.runMain 3 0 (words (bank 0 10 1)) nativeMemory with
+  | .running s => (s.point.label, s.frame.get .nextCount, s.frame.get .nextRight)
+  | _ => (0, none, none)) = (3, none, none) := rfl
+
+example : (nativeRtl.runMain 8 0
+    (words (bank 1 0xffff_ffff_ffff_ffff 2)) nativeMemory).returnedValues? = some [0, 2, 1] := rfl
+
+example (idx : Index 1) :
+    bundledGraph.observe nativeModel.toPEG
+      (bundledGraph.denote nativeModel.toPEG (nativeWord.decode carried (bank 2 10 1))
+        bundle.demandWellFounded) idx = (nativeWord.decode carried (bank 0 11 12)).map (fun _ => some) :=
+  ((Silmaril.Machine.PEG.CountedLoop.returns_iff_observe_bank bundle nativeOps nativeImage nativeAgrees
+    nativeNegation (bank 2 10 1) (bank 0 11 12) nativeMemory nativeMemory idx).mp ⟨12, rfl⟩).1
+
+example (idx : Index 1) :
+    bundledGraph.observe nativeModel.toPEG
+      (bundledGraph.denote nativeModel.toPEG (nativeWord.decode carried (bank 0 10 1))
+        bundle.demandWellFounded) idx = (nativeWord.decode carried (bank 0 10 1)).map (fun _ => some) :=
+  ((Silmaril.Machine.PEG.CountedLoop.returns_iff_observe_bank bundle nativeOps nativeImage nativeAgrees
+    nativeNegation (bank 0 10 1) (bank 0 10 1) nativeMemory nativeMemory idx).mp ⟨4, rfl⟩).1
+
+private def runNative (fuel : Nat) (input : Env Silmaril.Machine.PEG.CountedLoop.Bank) :
+    Option (List Nat) :=
+  (nativeRtl.runMain fuel 0 (words input) nativeMemory).returnedValues?.map
+    (fun result => result.map BitVec.toNat)
+
+set_option interpreter.prefer_native false in
+/-- info: (none, some [0, 11, 12], some [0, 10, 1], some [0, 2, 1]) -/
+#guard_msgs in
+#eval (runNative 11 (bank 2 10 1), runNative 12 (bank 2 10 1), runNative 4 (bank 0 10 1),
+  runNative 8 (bank 1 0xffff_ffff_ffff_ffff 2))
+
+end MachineRTL
 
 end Silmaril.SSA.PEG.Bridge.Theta.Region.Tests
 

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.Reverse.Profile.Straight.Thms
+public import Silmaril.SSA.Isotope.Bridge.NamedFlat.ITree.Entry.LiveOut.PacketLocal.Defs
 
 /-! # Opt-in packet-local reversion at the original typed interface -/
 
@@ -40,16 +40,9 @@ def Admission.program (admission : Admission a) : Program P.Instr A B :=
 The actual scoped compiler result is taken from its elaboration. -/
 def admit [DecidableEq κ] (R : Fin blocks → Ty κ) (checked : Straight.packetLocalChecks a R = true) :
     Admission a :=
-  let graph := CFG.Cyclic.Versioning.compilePacketLocal (withLiveOut (P := P) fields a.source)
-  let read := NamedFlat.elaborate graph exits (fun i : Fin n => ((⟨i.val⟩ : Register), 0))
-  have success := Straight.compiled_success_packetLocal a R checked
-  have found : read.isSome := Option.isSome_iff_exists.mpr (success.imp fun _ h => h.1)
-  let table := read.get found
-  have typed : table.HasType context (Straight.packetLocalProfile a R) (Interface.external projected) := by
-    obtain ⟨target, eq, entry, rows⟩ := success
-    have witness : target.HasType context (Straight.packetLocalProfile a R) (Interface.external projected) :=
-      ⟨NamedFlat.checkBody_sound _ _ _ entry, fun i => NamedFlat.checkBody_sound _ _ _ (rows i)⟩
-    simpa only [table, Option.get_of_eq_some found (show read = some target from eq)] using witness
-  ⟨SSA.ofElaborated graph (Option.some_get found).symm typed, rfl⟩
+  have count : a.source.blocks.length = blocks := (List.length_map _).symm.trans a.count
+  let admitted := LiveOut.PacketLocal.admitOfCheck (numberedInterface context exits external) fields a.source
+    (fun i => R (Fin.cast count i)) checked
+  ⟨admitted.versioned, admitted.compiled⟩
 
 end Silmaril.Isotope.Bridge.NamedFlat.Entry.Reverse.PacketLocal

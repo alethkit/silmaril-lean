@@ -75,7 +75,7 @@ private theorem render_begin (bytes : ByteArray) (stack : List Value) (labels : 
   | hostsThen first later tail => exact render_hosts bytes stack labels first later (some tail)
   | br | brIf | brTable => rfl
   | plain code => exact render_finish bytes stack code labels
-  | blockThen | ifThen => rfl
+  | blockThen | ifThen | loopThen => rfl
 
 private theorem enter_step {dst : Config H} (checked : seq.Checked mode program memory calls base outer args source) :
     Step host (renderPhase (.invoke source)) dst ↔
@@ -89,9 +89,8 @@ private theorem enter_step {dst : Config H} (checked : seq.Checked mode program 
     rw [expression_append, literal_expression]
   have locals : (seq.v1FuncFor source).locals = (rootFn).declaration.locals := rfl
   rw [render_begin]
-  simpa only [render, body, locals, context,
-    OpenLabel.results, insert, EvalCtx.comp, EvalCtx.plug, List.head?_nil,
-    Option.map_none, Option.getD_none, Declaration.frame] using
+  simpa only [render, body, locals, context, labelCode,
+    OpenLabel.labelArity, insert, EvalCtx.comp, EvalCtx.plug, Declaration.frame] using
     (invoke_exact (host := host) (outer := outer) (dst := dst) allocated count checked.scalar)
 
 private theorem root_call {current : Source H} {dst : Config H}
@@ -102,9 +101,16 @@ private theorem root_call {current : Source H} {dst : Config H}
 private theorem block_entry {bytes : ByteArray} {stack : List Value} {result : Option NumType}
     {region tail : Source H} {labels : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.block bytes stack result region tail labels)) dst ↔
-      dst = renderPhase (seq.beginBody outer args bytes [] (⟨stack, result, tail⟩ :: labels) region) := by
+      dst = renderPhase (seq.beginBody outer args bytes [] (.block stack result tail :: labels) region) := by
   rw [render_begin, open_code]
   exact scoped_block_iff seq args labels
+
+private theorem loop_entry {bytes : ByteArray} {stack : List Value} {region tail : Source H} {result : Option NumType}
+    {labels : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.loop bytes stack region tail labels result)) dst ↔
+      dst = renderPhase (seq.beginBody outer args bytes [] (.loop stack region tail result :: labels) region) := by
+  rw [render_begin, open_code]
+  exact scoped_loop_iff seq args labels
 
 private theorem condition_step {bytes : ByteArray} {stack : List Value} {result : Option NumType} {index : LocalIdx}
     {left right tail : Source H} {condition : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H}
@@ -130,9 +136,9 @@ private theorem close_label_step {bytes : ByteArray} {stack : List Value} {label
     {rest : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.completed bytes stack label rest)) dst ↔
       dst = renderPhase (seq.beginBody outer args bytes (label.saved ++ stack) rest label.tail) := by
-  let n := (OpenLabel.results (rootFn) (label :: rest)).length
+  let n := (OpenLabel.labelArity (rootFn) (label :: rest))
   have atLabel (target : Config H) :
-      Step host ⟨live bytes, outer, [.frame n active [.label n [] (values stack)]]⟩ target ↔
+      Step host ⟨live bytes, outer, [.frame n active [.label n (seq.labelCode (label :: rest)) (values stack)]]⟩ target ↔
         ∃ outcome : Unit, True ∧ target = ⟨live bytes, outer, [.frame n active (values stack)]⟩ := by
     rw [HostEntry.Proofs.frame_label_step]
     constructor
@@ -141,11 +147,20 @@ private theorem close_label_step {bytes : ByteArray} {stack : List Value} {label
       · have same := HostEntry.Proofs.label_values pure rfl
         exact ⟨(), trivial, same ▸ eq⟩
     · rintro ⟨_, _, rfl⟩
-      exact .inr ⟨_, .labelDone n [] stack, rfl⟩
+      exact .inr ⟨_, .labelDone n (seq.labelCode (label :: rest)) stack, rfl⟩
   rw [render_begin]
   simp only [render]
   rw [scoped_result seq args (label :: rest) (fun _ : Unit => True) (fun _ => values stack) atLabel]
   simp [context_code, insert, EvalCtx.plug_comp, EvalCtx.plug, tailCode, values, List.append_assoc]
+
+theorem loop_fallthrough_step {bytes : ByteArray} {saved stack : List Value} {result : Option NumType}
+    {region tail : Source H} {labels : List (OpenLabel H)} {dst : Config H}
+    (ready : seq.Ready mode program memory calls initial (.completed bytes stack (.loop saved region tail result) labels) source) :
+    Step host (renderPhase (.completed bytes stack (.loop saved region tail result) labels)) dst ↔
+      stack.map Value.type = result.toList ∧
+        dst = renderPhase (seq.beginBody outer args bytes (saved ++ stack) labels tail) := by
+  rw [close_label_step]
+  exact ⟨fun eq => ⟨ready.2.1, eq⟩, And.right⟩
 
 private theorem branch_test_step {bytes : ByteArray} {saved : List Value} {branch : ForwardBranch}
     {tail : Source H} {condition : BitVec 32} {labels : List (OpenLabel H)} {dst : Config H} :
@@ -170,20 +185,20 @@ private theorem table_select_step {bytes : ByteArray} {saved : List Value} {tabl
 private theorem branch_step {bytes : ByteArray} {stack : List Value} {branch : ForwardBranch}
     {skipped : List Admin} {label : OpenLabel H} {rest : List (OpenLabel H)} {dst : Config H} :
     Step host (renderPhase (.branching bytes stack branch skipped (label :: rest))) dst ↔
-      (∃ extra payload, stack = extra ++ payload ∧ payload.length = label.result.toList.length ∧
-        branch.depth.toNat = 0 ∧ dst = renderPhase (seq.beginBody outer args bytes (label.saved ++ payload) rest label.tail)) ∨
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = label.branchTypes.length ∧
+        branch.depth.toNat = 0 ∧ dst = renderPhase (seq.branchDestination outer args bytes payload label rest)) ∨
       (0 < branch.depth.toNat ∧ dst = renderPhase (.branching bytes (label.saved ++ stack)
         { branch with depth := lowerLabel branch.depth } (seq.tailCode label) rest)) := by
-  let n := label.result.toList.length
+  let n := label.branchTypes.length
   let moves : Option (List Value × List Value) → Prop
     | none => 0 < branch.depth.toNat
     | some (extra, payload) => stack = extra ++ payload ∧ payload.length = n ∧ branch.depth.toNat = 0
   let output : Option (List Value × List Value) → List Admin
     | none => values stack ++ [.source (.br (lowerLabel branch.depth))]
-    | some (_, payload) => values payload
+    | some (_, payload) => values payload ++ expression (seq.labelCode (label :: rest))
   have atLabel (target : Config H) :
       Step host ⟨live bytes, outer, [.frame n active
-        [.label n [] (values stack ++ .source (.br branch.depth) :: skipped)]]⟩ target ↔
+        [.label n (seq.labelCode (label :: rest)) (values stack ++ .source (.br branch.depth) :: skipped)]]⟩ target ↔
       ∃ answer, moves answer ∧ target = ⟨live bytes, outer, [.frame n active (output answer)]⟩ := by
     rw [framed_branch_iff]
     constructor
@@ -200,24 +215,43 @@ private theorem branch_step {bytes : ByteArray} {stack : List Value} {branch : F
       seq.afterLabel args (label :: rest) code =
         (contextAt rest).plug value (values label.saved ++ code ++ seq.tailCode label) := by
     simp [afterLabel, insert, EvalCtx.plug_comp, EvalCtx.plug, context_code, values, List.append_assoc]
-  have exits (payload : List Value) :
-      renderPhase (seq.beginBody outer args bytes (label.saved ++ payload) rest label.tail) =
+  have exits (payload : List Value) (count : payload.length = label.branchTypes.length) :
+      renderPhase (seq.branchDestination outer args bytes payload label rest) =
         ⟨live bytes, outer, seq.afterLabel args (label :: rest) (output (some ([], payload)))⟩ := by
-    rw [render_begin, after]
-    simp [output, tailCode, values_append, List.append_assoc]
+    rw [after]
+    cases label with
+    | block saved result tail =>
+      rw [branchDestination, render_begin]
+      simp [output, labelCode, tailCode, OpenLabel.tail, OpenLabel.saved, values_append, List.append_assoc, expression]
+    | loop saved region tail result =>
+      have empty : payload = [] := List.eq_nil_of_length_eq_zero count
+      subst payload
+      simp [branchDestination, render, sourceCode, output, labelCode, tailCode, OpenLabel.tail, OpenLabel.saved,
+        expression, values, List.append_assoc]
   have lowers :
       renderPhase (.branching bytes (label.saved ++ stack) { branch with depth := lowerLabel branch.depth }
         (seq.tailCode label) rest) = ⟨live bytes, outer, seq.afterLabel args (label :: rest) (output none)⟩ := by
     rw [after]
     simp [render, output, values_append, List.append_assoc]
-  simp only [exits, lowers, afterLabel, output]
   constructor
   · rintro ⟨_ | ⟨extra, payload⟩, moved, eq⟩
-    · exact .inr ⟨moved, eq⟩
-    · exact .inl ⟨extra, payload, moved.1, moved.2.1, moved.2.2, eq⟩
+    · exact .inr ⟨moved, eq.trans lowers.symm⟩
+    · exact .inl ⟨extra, payload, moved.1, moved.2.1, moved.2.2, eq.trans (exits payload moved.2.1).symm⟩
   · rintro (⟨extra, payload, split, count, zero, eq⟩ | ⟨positive, eq⟩)
-    · exact ⟨some (extra, payload), ⟨split, count, zero⟩, eq⟩
-    · exact ⟨none, positive, eq⟩
+    · exact ⟨some (extra, payload), ⟨split, count, zero⟩, eq.trans (exits payload count)⟩
+    · exact ⟨none, positive, eq.trans lowers⟩
+
+theorem loop_restart_step {bytes : ByteArray} {stack saved : List Value} {results : List NumType}
+    {result : Option NumType} {region tail : Source H} {skipped : List Admin} {rest : List (OpenLabel H)} {dst : Config H} :
+    Step host (renderPhase (.branching bytes stack ⟨⟨0⟩, results⟩ skipped (.loop saved region tail result :: rest))) dst ↔
+      dst = renderPhase (.loop bytes saved region tail rest result) := by
+  constructor
+  · intro step
+    rcases branch_step.mp step with ⟨_, _, _, _, _, eq⟩ | ⟨positive, _⟩
+    · exact eq
+    · exact (Nat.not_lt_zero _ positive).elim
+  · intro eq
+    exact branch_step.mpr (.inl ⟨stack, [], (List.append_nil stack).symm, rfl, rfl, eq⟩)
 
 private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Prefix.Op} {rest : List Prefix.Op}
     {site : HostCall.V1.Site H} {later : List (HostSegment H)} {labels : List (OpenLabel H)} {nextSource : Option (Source H)} {dst : Config H} :
@@ -228,12 +262,12 @@ private theorem numeric_step {bytes : ByteArray} {stack : List Value} {op : Pref
         dst = renderPhase (.trapped bytes saved (rest.map (Prefix.emit v1Syntax) ++
           .source (.call site.index) :: seq.continuation later nextSource) labels)) := by
   let tail := rest.map (Prefix.emit v1Syntax) ++ .source (.call site.index) :: seq.continuation later nextSource
-  let output out := [AdminInstr.label (OpenLabel.results (rootFn) labels).length [] (Prefix.outcomeCode values .trap tail out)]
+  let output out := [AdminInstr.label (OpenLabel.labelArity (rootFn) labels) (seq.labelCode labels) (Prefix.outcomeCode values .trap tail out)]
   have atLabel :
-      ∀ target : Config H, Step host ⟨live bytes, outer, [.frame (OpenLabel.results (rootFn) labels).length active
-        [.label (OpenLabel.results (rootFn) labels).length [] (values stack ++ Prefix.emit v1Syntax op :: tail)]]⟩ target ↔
+      ∀ target : Config H, Step host ⟨live bytes, outer, [.frame (OpenLabel.labelArity (rootFn) labels) active
+        [.label (OpenLabel.labelArity (rootFn) labels) (seq.labelCode labels) (values stack ++ Prefix.emit v1Syntax op :: tail)]]⟩ target ↔
         ∃ out, Prefix.Reduce (active).locals stack op out ∧ target = ⟨live bytes, outer,
-          [.frame (OpenLabel.results (rootFn) labels).length active (output out)]⟩ := by
+          [.frame (OpenLabel.labelArity (rootFn) labels) active (output out)]⟩ := by
     intro target
     rw [framed_numeric_step]
     constructor
@@ -283,15 +317,15 @@ private theorem trap_step {bytes : ByteArray} {saved : List Value} {tail : List 
       (saved = [] ∧ tail = [] ∧ dst = renderPhase (seq.closeTrapped outer args bytes labels)) := by
   let outcome : Option (List Value × List Admin) → List Admin
     | none => [.trap]
-    | some (kept, rest) => [.label (OpenLabel.results (rootFn) labels).length [] (values kept ++ .trap :: rest)]
+    | some (kept, rest) => [.label (OpenLabel.labelArity (rootFn) labels) (seq.labelCode labels) (values kept ++ .trap :: rest)]
   let moves : Option (List Value × List Admin) → Prop
     | none => saved = [] ∧ tail = []
     | some (kept, rest) => Prefix.Discard saved tail kept rest
   have atLabel :
-      ∀ target : Config H, Step host ⟨live bytes, outer, [.frame (OpenLabel.results (rootFn) labels).length active
-        [.label (OpenLabel.results (rootFn) labels).length [] (values saved ++ .trap :: tail)]]⟩ target ↔
+      ∀ target : Config H, Step host ⟨live bytes, outer, [.frame (OpenLabel.labelArity (rootFn) labels) active
+        [.label (OpenLabel.labelArity (rootFn) labels) (seq.labelCode labels) (values saved ++ .trap :: tail)]]⟩ target ↔
         ∃ out, moves out ∧ target = ⟨live bytes, outer,
-          [.frame (OpenLabel.results (rootFn) labels).length active (outcome out)]⟩ := by
+          [.frame (OpenLabel.labelArity (rootFn) labels) active (outcome out)]⟩ := by
     intro target
     rw [framed_trapped_step]
     constructor
@@ -345,10 +379,24 @@ private theorem pending_step {bytes : ByteArray} {saved actual : List Value} {si
     (saved := saved) (tail := seq.continuation later nextSource) siteChecked
 
 private theorem label_scalar (checked : seq.Checked mode program memory calls base outer args source)
-    (labels : List (OpenLabel H)) : (OpenLabel.results (rootFn) labels).length ≤ 1 := by
+    (labels : List (OpenLabel H)) : (OpenLabel.labelArity (rootFn) labels) ≤ 1 := by
   cases labels with
   | nil => exact checked.scalar
-  | cons label rest => cases h : label.result <;> simp [OpenLabel.results, h]
+  | cons label rest =>
+    cases label with
+    | block _ result _ =>
+      change result.toList.length ≤ 1
+      cases result <;> simp
+    | loop => exact Nat.zero_le _
+
+private theorem plain_label_code {labels : List (OpenLabel H)} (plain : OpenLabel.needsResume labels = false) :
+    seq.labelCode labels = [] := by
+  cases labels with
+  | nil => rfl
+  | cons label rest =>
+    cases label with
+    | block => rfl
+    | loop => simp [OpenLabel.needsResume] at plain
 
 private theorem insert_allowed (checked : seq.Checked mode program memory calls base outer args source)
     {labels : List (OpenLabel H)} (scopes : seq.ContextReady mode program memory calls source labels)
@@ -358,16 +406,19 @@ private theorem insert_allowed (checked : seq.Checked mode program memory calls 
   induction labels generalizing code with
   | nil => exact body
   | cons label rest ih =>
-    have ⟨plainTail, plainRest⟩ := Bool.or_eq_false_iff.mp plain
-    have allowed : CodeAllowedFor mode program memory calls (rootFn).rank (active).module (seq.tailCode label) := by
-      rcases label with ⟨saved, result, tail⟩
-      cases tail <;> simp [Source.needsResume] at plainTail
-      exact scopes.2.1
-    simp only [insert, EvalCtx.plug_comp, EvalCtx.plug]
-    exact ih scopes.2.2.2 plainRest (RunProofs.single_allowed.mpr
-      (.label (label_scalar checked rest)
-        (RunProofs.append_allowed.mpr ⟨RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed label.saved, body⟩,
-          allowed⟩)))
+    cases label with
+    | loop => simp [OpenLabel.needsResume] at plain
+    | block saved result tail =>
+      have ⟨plainTail, plainRest⟩ := Bool.or_eq_false_iff.mp plain
+      have allowed : CodeAllowedFor mode program memory calls (rootFn).rank (active).module
+          (seq.tailCode (.block saved result tail)) := by
+        cases tail <;> simp [Source.needsResume] at plainTail
+        exact scopes.2.1
+      simp only [insert, EvalCtx.plug_comp, EvalCtx.plug, plain_label_code plainRest]
+      exact ih scopes.2.2.2.1 plainRest (RunProofs.single_allowed.mpr
+        (.label (label_scalar checked rest)
+          (RunProofs.append_allowed.mpr ⟨RunProofs.append_allowed.mpr ⟨RunProofs.values_allowed saved, body⟩,
+            allowed⟩)))
 
 private theorem frame_allowed (checked : seq.Checked mode program memory calls base outer args source)
     {code : List Admin}
@@ -382,7 +433,7 @@ private theorem wrap_checked (checked : seq.Checked mode program memory calls ba
     (plain : OpenLabel.needsResume labels = false)
     {code : List Admin} (guard : CodeAllowedFor mode program memory calls (rootFn).rank (active).module code) :
     CodeAllowedFor mode program memory calls ((rootFn).rank + 1) outer.module ((contextAt labels).plug value code) := by
-  rw [context_code]
+  rw [context_code, plain_label_code plain]
   exact frame_allowed checked (insert_allowed checked scopes plain
     (RunProofs.single_allowed.mpr (.label (label_scalar checked labels) guard)))
 
@@ -442,7 +493,7 @@ private theorem begin_ready {bytes : ByteArray} {region : Source H} {stack : Lis
       ⟨allowed, fun site used => listed site (List.mem_append_right _ used)⟩
   | br branch => exact ⟨extent, ready.2.2.2, ready.1⟩
   | plain code => exact finish_ready checked extent ready.2.2.2 ready.1 ready.2.1
-  | blockThen | ifThen | brIf | brTable => exact ⟨extent, ready⟩
+  | blockThen | ifThen | brIf | brTable | loopThen => exact ⟨extent, ready⟩
 
 private theorem resume_ready (checked : seq.Checked mode program memory calls base outer args source)
     {bytes : ByteArray} {stack : List Value} {later : List (HostSegment H)} {labels : List (OpenLabel H)}
@@ -548,7 +599,7 @@ private theorem branch_outer_ready {stack : List Value} {branch : ForwardBranch}
       (lowerLabel branch.depth) branch.results = true := by
   obtain ⟨found, payload⟩ := decide_eq_true_eq.mp typed
   refine decide_eq_true_eq.mpr ⟨?_, ?_⟩
-  · change (label.result.toList :: OpenLabel.targets (rootFn) rest)[branch.depth.toNat]? = some branch.results at found
+  · change (label.branchTypes :: OpenLabel.targets (rootFn) rest)[branch.depth.toNat]? = some branch.results at found
     change (OpenLabel.targets (rootFn) rest)[branch.depth.toNat - 1]? = some branch.results
     cases depth : branch.depth.toNat with
     | zero => simp [depth] at positive
@@ -582,7 +633,8 @@ private theorem function_branch_step {bytes : ByteArray} {stack : List Value} {b
         dst = ⟨live bytes, outer, seq.afterLabel args [] (values payload)⟩) ∨
       (0 < branch.depth.toNat ∧ dst = ⟨live bytes, outer,
         seq.afterLabel args [] (values stack ++ [.source (.br (lowerLabel branch.depth))])⟩) :=
-  framed_branch_iff
+  by simpa only [expression, List.map_nil, List.append_nil] using!
+    (@framed_branch_iff H host (live bytes) outer active arity [] stack branch.depth skipped dst)
 
 theorem function_branch_typed {bytes : ByteArray} {stack : List Value} {results : List NumType}
     {skipped : List Admin} {dst : Config H}
@@ -610,11 +662,20 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
   | enter =>
     cases ready
     exact begin_ready checked extent ⟨trivial, checked.guardedBody, fun _ used => used, checked.typedBody⟩
+  | openLoop =>
+    obtain ⟨liveExtent, scopes, allowed, listed, typed⟩ := ready
+    simp only [checkSourceAt, Bool.and_eq_true_iff] at typed
+    have bodyListed : ∀ site ∈ seq.sourceSites _, site ∈ seq.sourceSites source :=
+      fun site used => listed site (List.mem_append_left _ used)
+    exact begin_ready checked liveExtent
+      ⟨⟨typed.1, allowed.1, fun site used => listed site (List.mem_append_right _ used), scopes,
+          allowed.2, bodyListed, typed.2⟩,
+        allowed.2, bodyListed, typed.2⟩
   | openBlock =>
     obtain ⟨liveExtent, scopes, allowed, listed, typed⟩ := ready
     simp only [checkSourceAt, Bool.and_eq_true_iff] at typed
     exact begin_ready checked liveExtent
-      ⟨⟨typed.1, allowed.1, fun site used => listed site (List.mem_append_right _ used), scopes⟩,
+      ⟨⟨typed.1, allowed.1, fun site used => listed site (List.mem_append_right _ used), scopes, trivial⟩,
         allowed.2, fun site used => listed site (List.mem_append_left _ used), typed.2⟩
   | readCondition _ => exact ready
   | @select bytes stack result index left right tail condition labels =>
@@ -634,17 +695,22 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
       · exact listed site (List.mem_append_left _ (List.mem_append_left _ chosen))
       · exact listed site (List.mem_append_right _ following)
   | closeLabel _ =>
-    obtain ⟨liveExtent, types, typed, allowed, listed, scopes⟩ := ready
+    obtain ⟨liveExtent, types, typed, allowed, listed, scopes, _⟩ := ready
     exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using typed⟩
   | branchZero => exact begin_ready checked ready.1 (branch_test_checked ready.2).2
   | branchNonzero _ => exact ⟨ready.1, (branch_test_checked ready.2).1, ready.2.1⟩
   | selectTable => exact ⟨ready.1, table_target_checked ready.2, ready.2.1⟩
-  | branchOuter positive => exact ⟨ready.1, branch_outer_ready positive ready.2.1, ready.2.2.2.2.2⟩
-  | @branchExit bytes extra payload results skipped label rest count =>
-    obtain ⟨liveExtent, typed, tailTyped, allowed, listed, scopes⟩ := ready
-    have types := branch_payload_typed (target := label.result.toList)
+  | branchOuter positive => exact ⟨ready.1, branch_outer_ready positive ready.2.1, ready.2.2.2.2.2.1⟩
+  | @branchExit bytes extra payload results skipped saved result tail rest count =>
+    obtain ⟨liveExtent, typed, tailTyped, allowed, listed, scopes, _⟩ := ready
+    have types := branch_payload_typed (target := result.toList)
       (remaining := OpenLabel.targets (rootFn) rest) count typed
-    exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types] using tailTyped⟩
+    exact begin_ready checked liveExtent ⟨scopes, allowed, listed, by simpa [Prefix.stackTypes, types, OpenLabel.result, OpenLabel.saved, OpenLabel.tail] using tailTyped⟩
+  | restartLoop =>
+    obtain ⟨liveExtent, _, tailTyped, tailAllowed, tailListed, scopes, bodyAllowed, bodyListed, bodyTyped⟩ := ready
+    exact ⟨liveExtent, scopes, ⟨tailAllowed, bodyAllowed⟩,
+      fun site used => (List.mem_append.mp used).elim (bodyListed site) (tailListed site),
+      Bool.and_eq_true_iff.mpr ⟨tailTyped, bodyTyped⟩⟩
   | branchFunction _ => exact ⟨ready.1, frame_allowed checked (RunProofs.values_allowed _)⟩
   | numeric moved =>
     obtain ⟨current, listed, later, check, scopes⟩ := ready
@@ -667,7 +733,7 @@ theorem preserves (graphChecked : program.checkV1 memory mode calls = true)
       | false => simpa only [closeTrapped, h, Bool.false_eq_true, ↓reduceIte] using graph h
       | true => simpa only [closeTrapped, h, ↓reduceIte] using
           (show seq.Ready mode program memory calls initial (.trapped bytes label.saved (seq.tailCode label) rest)
-            source from ⟨liveExtent, scopes.2.2.2⟩)
+            source from ⟨liveExtent, scopes.2.2.2.1⟩)
   | hostResolve typed =>
     obtain ⟨current, listed, later, check, scopes⟩ := ready
     exact ⟨current, listed, later, typed, check_prefix_resume check typed, scopes⟩
@@ -688,6 +754,7 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | enter =>
     cases ready
     exact (enter_step checked).mpr rfl
+  | openLoop => exact loop_entry.mpr rfl
   | openBlock => exact block_entry.mpr rfl
   | readCondition found => exact (condition_step found).mpr rfl
   | select => exact select_step.mpr rfl
@@ -697,6 +764,7 @@ private theorem sound (graphChecked : program.checkV1 memory mode calls = true)
   | selectTable => exact table_select_step.mpr rfl
   | branchOuter positive => exact branch_step.mpr (.inr ⟨positive, rfl⟩)
   | branchExit count => exact branch_step.mpr (.inl ⟨_, _, rfl, count, rfl, rfl⟩)
+  | restartLoop => exact loop_restart_step.mpr rfl
   | branchFunction types =>
     exact (function_branch_typed ready).mpr ⟨_, _, rfl, types, rfl⟩
   | numeric moved => exact numeric_step.mpr (.inl ⟨_, moved, rfl⟩)
@@ -727,6 +795,7 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
   | invoke current =>
     cases ready
     exact ⟨_, .enter, (enter_step checked).mp step⟩
+  | loop => exact ⟨_, .openLoop, loop_entry.mp step⟩
   | block => exact ⟨_, .openBlock, block_entry.mp step⟩
   | if_ =>
     obtain ⟨bits, found⟩ := condition_found checked ready.2
@@ -768,7 +837,9 @@ private theorem readback (graphChecked : program.checkV1 memory mode calls = tru
       · rcases branch with ⟨depth, results⟩
         have same : depth = ⟨0⟩ := Idx.toNat_injective zero
         subst depth
-        exact ⟨_, .branchExit count, eq⟩
+        cases label with
+        | block => exact ⟨_, .branchExit count, eq⟩
+        | loop => exact ⟨_, .restartLoop, eq⟩
       · exact ⟨_, .branchOuter positive, eq⟩
   | computing bytes stack remaining site later labels nextSource =>
     cases remaining with

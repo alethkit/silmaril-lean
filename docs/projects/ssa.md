@@ -768,6 +768,832 @@ The continuation cannot jump back to its own label.
   ordered exit interface.
   [Witness and model obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Thms.lean) ·
   [Existing independence proof](../../Silmaril/SSA/Isotope/LetIter/Categorical/Empty/Thms.lean)
+- At a fixed finite structural primitive signature and structural older
+  context, the native LetCase equation classes at literal packed inputs
+  form a category. The typed input variable is the identity and the typed
+  let is composition. The let weakens its receiver below the bound
+  intermediate result, so every hom keeps the same older captures. The
+  actual ranked emitter and the checked readback are functors between the
+  written linking category and this native category. They compose to the
+  identity functor in both orders, which gives an equivalence of
+  categories with identity unit and counit. Objects are nonempty ordered
+  interfaces, and the native laws are transported along the emission and
+  readback squares. The regression composes independently written terms
+  and graphs under two older captures, takes both round trips, and
+  separates two terms that differ only in the capture they read.
+  [Written category and hom squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/Thms.lean) ·
+  [Native category and equivalence](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Thms.lean) ·
+  [Captured composition and round trips](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Regression.lean)
+- A semantic functor takes the native captured LetCase category to the
+  handled-trace program category at one primitive tree interpretation and
+  one reply policy. Handled-trace programs have a single input, so every
+  older capture is carried beside the input in a product and returned
+  beside the result. With no older captures the packed program is the
+  operand itself. Composing with the actual ranked emitter gives the
+  functor on written graphs, and both triangles over the emitter and the
+  checked readback commute. The source equality is the native equation
+  relation and the target equality is mutual handled-trace inclusion at
+  the fixed policy. The identity and composition equations are equalities
+  of interaction trees in every older environment, including for the
+  emitted written link. The functor is not faithful at one policy: the
+  regression has two different native classes that a state-flipping
+  policy sends to the same arrow. That regression packs an independently
+  written term with one older capture and two unit-payload exits, and
+  checks the pending request, the exit chosen by the handler state, and
+  the second request of a composite.
+  [Packing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Defs.lean) ·
+  [Functors and contextual equations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Thms.lean) ·
+  [State-dependent handler](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Regression.lean)
+- At the free request and reply interpretation, handled traces reflect
+  native equality of captured operands over a structural older context.
+  Each primitive is one request with its typed argument, answered at its
+  declared result type. The outcomes of the ordered trace semantics are
+  the complete finite histories of the free tree. Two operands that are
+  not natively equal therefore have a complete history, at some packed
+  input, that one shows and the other does not. A reply policy that can
+  replay every complete history from some state gives a faithful semantic
+  functor, on native classes and on written graphs. The permissive policy
+  and the policy scripted by an expected history are of this kind. The
+  premise cannot be dropped: the state-flipping policy never repeats a reply,
+  cannot replay the history in which a reply repeats, and identifies two
+  different native classes that the scripted and permissive policies
+  separate. The result is for this free interpretation, for the finite
+  structural signature, and for acyclic captured terms.
+  [Free interpretation and policies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Defs.lean) ·
+  [Reflection and faithfulness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Thms.lean) ·
+  [Separating history](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Regression.lean)
+- The directed version compares three relations on captured operands at
+  the free interpretation. The tree relation includes every finite
+  observation of one free tree in the other, in every older environment,
+  with pending requests. The outcome relation includes the ordered
+  complete outcomes of the ordered trace semantics. The third is
+  handled-trace inclusion of the packed programs at a reply policy. Replay
+  reads only the completed exchanges of an observation, so a policy that
+  replays every complete history replays every finite observation. At
+  such a policy, handled-trace inclusion is the tree relation, and the
+  comparison commutes with the ranked emitter and the checked readback.
+  Acyclic terms never diverge silently, and a tree without divergence is
+  maximal for inclusion of observations. All three relations are therefore
+  native equality on this fragment, and the hom order on the image of the
+  semantic functor is discrete. The outcome relation needs the inhabited
+  reply types of the signature. A tree-level example with an empty reply
+  type has no complete observation and loses its pending request, and
+  silent divergence is strictly below a request.
+  [Directed relations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Defs.lean) ·
+  [Bridge and collapse](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Thms.lean) ·
+  [Pending request and limits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Regression.lean)
+- The captured comparison is connected to the existing institutions. The
+  sentences are the existing ranked, grammar and LetCase equations at the
+  finite structural signature, each read as a directed sentence. The
+  models are the existing handled-trace models over the free requests. A
+  directed sentence holds when the existing trace-refinement sentence
+  between the two free trees holds in every environment. The existing
+  emission and readback of sentences are corridors with the identity on
+  models, and they give exactly the endpoints of the written and native
+  captured categories. On those endpoints, satisfaction is the hom order
+  under the semantic functors. A model that replays every complete
+  history from an initial state satisfies a directed captured sentence
+  exactly when its sides are natively equal, over a structural older
+  context. The model that admits every reply is of this kind, so validity
+  in all handled models is native equality. The state-flipping model
+  satisfies a sentence between two different native classes. An injective
+  renaming of primitives that keeps each argument and reply shape is a
+  morphism of the handled-trace signatures. The free tree of a renamed
+  operand is the request translation of the original tree, so a renamed
+  sentence holds in a model exactly when the original holds in the
+  reduct. The renamed sentence keeps its typing index. It is the sentence
+  map of the existing LetCase institution at the relabelling, and the
+  existing type-changing sentence map at the relabelling. Grammar and
+  ranked sentences are renamed by their existing signature maps. Every
+  relabelling between finite structural signatures is such a renaming, so
+  LetCase, grammar and ranked sentences form institutions over the
+  category of structural signatures and injective relabellings. Emission
+  of ranked sentences and rendering of grammar sentences are natural in
+  the renaming, and readback is natural up to satisfaction. Signature
+  morphisms that translate types are not morphisms of this category.
+  [Sentences, models and rooms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Defs.lean) ·
+  [Satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Thms.lean) ·
+  [Renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Thms.lean) ·
+  [Institutions over renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Category/Thms.lean) ·
+  [Three models and a renaming](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Regression.lean)
+- The handled-trace reading is compared with the existing categorical
+  model class on the same structural signatures. That class has objects
+  in `Type 1` and homs in `Type`. The free request tree monad sends
+  `Type 1` to `Type 1`, so its Kleisli category meets every condition of
+  the class with objects in `Type 2` and homs in `Type 1`. The validity
+  class is therefore also stated at chosen universes. The native equations
+  are sound in it at every universe, and the Kleisli category of a lawful
+  Elgot monad is a member one universe above the monad. Over a structural
+  older context, captured operands are equal in every model of the class
+  one universe up exactly when they are natively equal, with the free
+  request tree model as the separating model. The same holds in the
+  existing class, with the ordered trace model as the separating model.
+  The ordered trace model is a model of the existing ranked room, and
+  there the original ordered-exit arrows of two written graphs agree
+  exactly when their emitted operands are natively equal. A handled-trace
+  model that replays every history satisfies the same captured and ranked
+  sentences as these categorical models. A model with one fixed policy
+  can satisfy a sentence that is not valid in the class. The free tree
+  model is not made a model of the existing rooms, which fix the smaller
+  universes.
+  [Validity at chosen universes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Defs.lean) ·
+  [Kleisli adapter and comparisons](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Thms.lean) ·
+  [Composites in the categorical class](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/CategoricalRegression.lean)
+- In the existing categorical ranked room, soundness and completeness are
+  stated at the original ordered-exit arrows. In every model of the room,
+  two ranked entries have the same ordered-exit arrow exactly when their
+  emitted LetCase operands have the same arrow. This uses only the checked
+  emitter factorization. Native equations between the emitted operands are
+  sound in the supported models of the room: those with coherent
+  expression typing, a tensor shared with the value category, and pure
+  interpretations of pure primitives. Membership in the room gives
+  coherence of region witnesses only, so soundness is not claimed for
+  every model of the room. For the finite structural signature the
+  ordered trace model is supported, and over a separated bound context it
+  reflects native equality. A ranked sentence then holds in all supported
+  models exactly when its emitted operands are natively equal, and
+  validity is decided at that one model. A bound context is separated when
+  it is structural, or when it is a structural older context below any
+  input type. On written graphs this validity agrees with validity in all
+  handled-trace models, and it is preserved and reflected by injective
+  renamings that keep the typed interface. The existing signature reduct
+  transfers satisfaction in all models of the room.
+  [Supported models and validity](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Defs.lean) ·
+  [Soundness and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Thms.lean) ·
+  [Ranked sentences in the room](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/RankedValidityRegression.lean)
+- The supported models of the ranked room are closed under reducts along
+  relabellings of instruction signatures, which keep source types, target
+  types and effects. The existing reduct keeps the type interpretation and
+  reads each primitive through the map. Every relabelling is the
+  instruction map of a pulled-back signature, where the three equations
+  hold by definition. There the arrow of a derivation in the reduct is the
+  arrow of the relabelled derivation in the original model, so coherent
+  expression typing transports. The shared tensor depends on the functor
+  alone, and a pure primitive is sent to a pure primitive with the same
+  arrow. The ranked room restricted to supported models is therefore a
+  functor from relabellings to rooms, and restricting models commutes with
+  the existing ranked signature corridor. Validity in the supported models
+  is preserved by every relabelling through this model law. Relabellings
+  need not be injective. The regression takes the reduct of the ordered trace model over
+  a two-primitive signature: it is a supported model over the
+  one-primitive signature that rejects a sentence with an older capture.
+  [Relabelling and restricted room](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Defs.lean) ·
+  [Model law and functoriality](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Reduct/Thms.lean) ·
+  [A non-identity reduct](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedReductRegression.lean)
+- The supported models are also closed under the existing pullback along
+  signature maps that translate types and effects and keep the type
+  formers. Every exact LetIter derivation over the source signature, at
+  the empty named context and including iteration, has a derivation of the
+  translated term over the target signature with the same arrow in the
+  pulled-back interpretation. Coherent expression typing therefore
+  transports. The shared tensor depends on the functor alone. A primitive
+  that is pure at a source effect marker is pure at its image, and its
+  value map transports along the two type equations. The ranked room
+  restricted to supported models has a corridor along every such map, from
+  a source marker to its image, and restricting models commutes with the
+  existing ranked signature corridor. Validity in the supported models is
+  preserved. This is a law about model reducts. It does not reflect
+  validity from the target signature to the source signature. In the
+  regression the source types have an atom, sent to the two-tag sum. The
+  pullback of the ordered trace model is a supported model over the source
+  signature. Soundness holds there for a derivable sentence with an older
+  capture of atom type, and it rejects a sentence whose translated
+  operands differ at the ordered trace model.
+  [Pullback law and restricted corridor](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Thms.lean) ·
+  [An atom sent to a structural type](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/SupportedPullbackRegression.lean)
+- The supported rooms are packaged over type-changing signatures with a
+  chosen effect marker. A morphism is an existing type-changing signature
+  morphism whose effect map sends the source marker to the target marker.
+  The supported corridor along the identity is the identity, and along a
+  composite it is the composite, starting the second corridor at the image
+  of the marker. Both laws come from the laws of the existing ranked
+  corridor, because support of a model is a proposition. The supported
+  rooms are a functor from marked signatures to rooms. Forgetting the
+  marker and taking the existing ranked room is another, and the inclusion
+  of supported models is a natural transformation between them. This adds
+  no reflection of validity and no completeness. The regression composes
+  an effect map from counts to Booleans with a type map sending an atom to
+  the two-tag sum, and carries a captured sentence through both.
+  [Marked signatures](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Defs.lean) ·
+  [Functor and comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Thms.lean) ·
+  [Composable effect and type changes](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/MarkedSupportedRegression.lean)
+- Completeness in the ranked room is extended to signatures with atoms,
+  for one class of sentences. The signatures are the structural ones whose
+  primitive argument and reply types are built from atoms, unit and
+  ordered products. The ordered trace interpretation whose atoms are
+  natural numbers has coherent region witnesses and is a supported model
+  of the ranked room. It reflects native equality of operands that are
+  natively equal to a straight-line term returned at the single exit,
+  over one packed product slot. A ranked sentence between such entries is
+  valid in all supported models exactly when its emitted operands are
+  natively equal, and that one model decides it. Operands with a case on
+  a reply, more than one exit, or an older context beside the packed slot
+  are outside the class; for them the same reflection is a named
+  hypothesis. Translations are treated separately. Native equality and
+  validity both move forward along every signature map. Into a complete
+  target, a translation reflects native equality of a sentence exactly
+  when it reflects validity and the source is complete for that sentence.
+  Neither reflection follows from forward transport. In the regression
+  two captured atoms are told apart, a request observes their order, and
+  a graph and its readback are valid together. Sending the atom to the
+  unit type makes the translated sentence between the two captures valid
+  while the original is not, so that translation reflects neither
+  validity nor native equality. Sending it to the two-tag sum reflects on
+  that sentence, and the pullback of the target's trace model rejects it.
+  [Atom-bearing definitions](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Defs.lean) ·
+  [Completeness and the reflection criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Thms.lean) ·
+  [Region coherence with atoms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Coherence/Thms.lean) ·
+  [Captured atoms and two translations](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTraceRegression.lean)
+- The same completeness holds for one branching class with atoms. In a
+  tagged signature every primitive takes an argument built from atoms,
+  unit and ordered products and replies under one of its ordered tags;
+  in the first instance, with one atom under one of two tags. A case
+  tree asks a primitive with an argument assembled from the atom slots
+  in scope, binds the reply and cases on it. Each arm binds the payload
+  atom and keeps the older slots. A leaf returns one atom slot at an
+  exit. At an environment that gives distinct tokens to the atom
+  slots, two case trees with the same ordered traces are the same term:
+  the first logged event fixes the primitive and argument, and the runs
+  of both arms at every payload token are contained in the run of the
+  node. This reflection is proved for the class and is not a hypothesis.
+  A ranked sentence between entries whose emitted operands are natively
+  equal to case trees, over older atom captures, is valid in all
+  supported models exactly when the emitted operands are natively equal.
+  On graphs read back from two case trees that is equality of the trees.
+  The ordered trace model with atoms is now defined for every signature
+  typed over atoms. Cases on other scrutinees are outside the class. The
+  one-exit regression tells apart exchanged arms, the atom
+  returned under one tag, the older capture used as the request
+  argument, the order of two requests, and a payload used as the next
+  request argument.
+  [Tagged signatures and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Separation and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Branches, returned atoms and request order](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomBranchingRegression.lean)
+- The case trees have ordered exits. The exits are a list of atom sorts,
+  and a leaf returns one atom slot at one exit of the same sort. Two
+  exits may have the same sort. The value a leaf returns is a token under
+  the injections of its exit position, so it fixes the position, the sort
+  and the token; the token fixes the slot. The separation of case trees
+  and the completeness theorem above hold at any such exit list. The
+  ranked sentence is at the original ordered exits of the two entries,
+  and at the ordered trace model with atoms the ordered-exit arrows of
+  two read-back graphs are equal exactly when the trees are the same. No
+  repacking or reindexing of exits is involved. With two exits of one atom
+  sort, the atom-exit regression tells apart the same capture at a different exit,
+  the same payload at a different exit under one tag, and in a nested arm
+  the same fresh reply atom at a different exit and a different atom at
+  the same exit.
+  [Exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Exit reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Two exits of one sort](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomExitRegression.lean)
+- The exits of the case trees carry product payloads. The exits are an
+  ordered list of types, and a leaf returns a payload at one exit of the
+  type of the payload. The payload is assembled from the atom slots in
+  scope: an atom slot, the unit, or an ordered pair of payloads. This is
+  the existing argument grammar of the straight-line calculus, which has
+  exactly one tree for each product of atom slots. The value a leaf
+  returns fixes the exit position, the exit type and the payload value,
+  and at distinct tokens the payload value fixes the payload tree
+  component by component. Two leaves with the same traces at a
+  separating environment therefore have the same exit position and the
+  same payload tree. The separation of case trees, the completeness
+  theorem and the equality of ordered-exit arrows hold at any exit list.
+  The atom exits above are the case of atom payloads. Returned payloads
+  that contain sums are outside the class. The regression has four exits, with the same product type
+  at the first and third. A changed exit alone and a changed product
+  alone are each told apart, at a leaf and in a nested arm whose product
+  pairs a fresh reply atom with an older capture.
+  [Payload exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Leaf reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Product payloads at four exits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomProductExitRegression.lean)
+- The replies of the case trees have finitely many ordered tags with
+  tuple payloads. A reply has at least one tag, and each tag carries its
+  own ordered tuple of atoms, which may be empty and may differ from tag
+  to tag. A request binds the reply, cases on it tag by tag in order, and
+  in the arm of each tag unpacks the tuple into atom slots in order. The
+  case chain and the unpacking are forced by the reply type, so a tree
+  has one shape; a reply with one tag is a request without a case. The
+  token induction runs over the tree with the reply or tuple pending at
+  the newest slot. A bound reply is compared at every value, and the two
+  arms of a case split at the replies of their own tags. A tuple is
+  compared at consecutive unused tokens, so every newly bound atom slot
+  gets a token that no older slot has. Slots holding a bound reply or a
+  longer tuple are not atom slots and do not affect the separation. The
+  separation of case trees, the completeness theorem at the original
+  product-valued exits and the equality of ordered-exit arrows hold for
+  these replies. The two-tag atom replies above are the case of two tags
+  with one atom each. Reply payloads with nested products or sums,
+  partial or reordered unpacking, and cases on other scrutinees are
+  outside the class. The regression has a reply with three tags, an
+  atom, nothing and a pair, and a reply with two tags, a pair and an
+  atom. It tells apart what is returned under one of three tags, the
+  assignment of two behaviours to two tags, the order of the reply atoms
+  of a pair, and, in a nested request on a pair component and an older
+  capture, which component is used and in which order.
+  [Tagged tuple replies and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Token induction over pending replies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Three tags and pair payloads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomReplyRegression.lean)
+- The direct spelling of a request case is natively equal to the
+  bind-then-case spelling of the case trees. A direct case tree cases on
+  a request itself, `case (op f a) l r`, and no slot holds the reply; a
+  case tree binds the reply and cases on the bound slot. The native
+  LetCase theory has the sequencing law that binds the scrutinee of a
+  case, `case e l r = let₁ e (case (bv 0) l↑ r↑)`, with both arms
+  weakened past the new slot, and it holds for an effectful scrutinee.
+  Applied at every request, under the renaming that moves the slots of
+  the direct tree past the reply slots already bound, it gives a native
+  equation between a direct case tree and its normal form. No model is
+  used for that equation. The normal form has the same requests in the
+  same order, the same exits and the same payloads, and it determines
+  the direct tree. An operand natively equal to a direct case tree is
+  therefore a branching operand, and the completeness theorem applies to
+  the direct syntax at the original ordered exits. On graphs read back
+  from two direct case trees, validity is equality of the trees. The
+  direct trees are those of the two-tag atom replies. The
+  regression has a nested direct tree whose inner arm returns a fresh
+  reply atom paired with an older capture. Its normal form is checked
+  explicitly, with request order and exits kept, and a changed exit, a
+  changed component, a changed order and a changed request order are
+  each told apart in the direct syntax.
+  [Direct case trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Native equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A nested direct tree](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDirectRegression.lean)
+- Every spelling of a request on a tagged tuple reply is covered. A
+  spelled tree has three heads for a request: bind the reply, as the case
+  trees do; destructure the reply as a pair at the request, when it has
+  one tag whose tuple has two or more atoms; or case on the reply at the
+  request, when it has two or more tags. After the head the rest of the
+  reply is a bound slot, consumed at once and in order as in the case
+  trees. The native theory has two sequencing laws, one that binds the
+  scrutinee of a pattern let, `let₂ e c = let₁ e (let₂ (bv 0) c↑)`, and
+  the one for a case above. Applied at every request under the renaming
+  past the reply slots already bound, they give a native equation
+  between a spelled tree and its normal form, proved once for all heads
+  by one mutual induction. The normal form keeps the requests, their
+  order, the exits and the payloads. An operand natively equal to a
+  spelled tree is a branching operand, so the completeness theorem
+  applies to every spelling at the original ordered exits. On graphs
+  read back from two spelled trees, validity is equality of their normal
+  forms; two spellings of one tree have the same normal form, so
+  equality of the trees is not the criterion. The direct case trees
+  above are the spelled trees of the two-tag atom replies with every
+  request cased on directly, and their equation is now this one. Arbitrary LetCase
+  terms are outside the class. The regression destructures a pair reply
+  at its request, then cases on a request whose pair arm is destructured, with
+  a fresh atom and an older capture in the nested request and in the
+  returned pair; it also cases on a three-tag request at once. Normal
+  forms are checked explicitly, and a changed component, a fresh atom
+  for the older capture, a changed argument and a changed argument order
+  are each told apart.
+  [Spelled trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Native equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [Pair and case heads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSpelledRegression.lean)
+- A pure pair destructuring may be interleaved with a later request. In
+  a spelled tree, a pending pair of atoms may be held as one slot across
+  one later request and destructured after it. The pair is the bound
+  reply of a one-tag request or the payload of an arm. The later request
+  is assembled from the older atom slots, so it does not use the pair,
+  and its reply has one tag with at most one atom. The normal form
+  destructures the pair first. The two are related by a commuting
+  conversion, `let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`, for a slot `x`
+  of pair type: the pattern let moves in front of the let, `E` is
+  weakened past the two components, and in the body the components move
+  beneath the binder of the let. This is not an axiom of the native
+  theory. It is derived from native typed laws: pure-let beta at a slot
+  and at a pair of slots, pair eta at a slot, the sequencing law that
+  pulls a pattern let out of the scrutinee of a let, and pair beta. No
+  model is used. The later request occurs once, in the same place in
+  the order, with the same argument. No case selection is moved across a
+  request. The normalization, the native equation and the completeness
+  theorem for spelled trees extend to this node. Chains of requests,
+  longer tuples, compound replies and replies with several tags are
+  covered below. The first
+  regression holds the bound pair reply of one request across another
+  and returns an old component with the new reply; the held and the
+  eager spellings are valid together, and a changed component, a changed
+  order and an older capture in place of the new reply are each told
+  apart. It also holds the pair arm of a case across a request.
+  [Held pairs in spelled trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Commuting equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A pair held across a request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomHeldRegression.lean)
+- The pair may be held across a chain of requests of any finite length.
+  The chain is a sequence of requests, each with a one-tag reply of at
+  most one atom, and it ends by destructuring the pair. The dependencies
+  are exact. Each request is assembled from the atom slots in scope. The
+  held pair is one slot of pair type, not an atom slot, so no request of
+  the chain can use it or its components. The replies of earlier
+  requests of the chain are atom slots, so later requests may use them,
+  and any request may use the older captures. The body may use the two
+  components, the replies of the chain and the older captures. The
+  normal form destructures the pair first and then asks the same
+  requests in the same order. The native equation is proved by induction
+  on the chain: the commuting conversion above is applied once for each
+  request, at the slot where the pair then sits, so no chain length is
+  enumerated. The induction goes through the chain with its final
+  destructuring removed, as a term placed by one renaming, which
+  commutes with renaming. Ranked validity and equality of ordered-exit
+  arrows at the original exits follow as for the other spelled trees. A
+  tuple of three or more atoms is held as described in the next entry,
+  and a chain request with a compound reply or with several tags in the
+  entries after it. No case is moved across a request. The
+  regression holds a pair across three requests, where the second takes
+  the reply of the first and an older capture, and returns a component
+  of the pair with a reply of the chain. The held and the eager
+  spellings are valid together with the same ordered-exit arrow, and a
+  removed dependency, a changed component, a changed reply, a changed
+  order and an older capture in place of a reply are each told apart.
+  [Chains with a held pair](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Chain equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A pair held across three requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomChainRegression.lean)
+- Case trees carry a typed renaming action, and with it a right-nested
+  tuple of any number of atoms may be held across the same chains. A
+  body is renamed along any renaming of its context. A pending tuple or
+  reply is renamed along a renaming of the context beneath its pending
+  slot. One recursion covers the three kinds of tree. The term of the
+  renamed tree is the renamed term, and renaming twice is renaming along
+  the composite. Normal forms of spelled trees commute with renaming:
+  the normal form along a composite renaming is the normal form along
+  the first renaming, renamed along the second, for every spelled
+  family. A held tuple of two or more atoms ends its chain by
+  destructuring into its first atom and the rest, and the rest is
+  pending again: it is unpacked, or held across a further chain whose
+  requests may also use the atoms already unpacked. The normal form
+  unpacks the whole tuple first and then asks the same requests in the
+  same order, with the same arguments. Each request is moved under the
+  unpacking of the rest by an operation on the pending case tree that
+  renames every body so that the reply slot is newest and binds the
+  request in front of it. That operation is natively equal to binding
+  the request in front of the pending tree, by induction on the
+  unpacking with one commuting conversion for each pattern let, and it
+  commutes with renaming before and after. The dependency exclusion is
+  unchanged: the held tuple is one slot of product type and no request
+  of its chain can use it or its components. Ranked validity and
+  equality of ordered-exit arrows at the original exits follow as for
+  the other spelled trees. A case inside a chain and holding pending
+  tags are outside the class, and compound replies of chain requests
+  are covered in the next entry; no case is moved across a request. The regression holds a
+  triple across two requests, where the second takes the reply of the
+  first and an older capture, and returns an inner component of the
+  triple with a reply of the chain. The held and the eager spellings are
+  valid together with the same ordered-exit arrow. A removed dependency,
+  the other inner component, the first component, an older capture in
+  place of the inner component, a changed reply, a changed order and an
+  older capture in place of a reply are each told apart. A second tree
+  holds the rest of the triple again across a request on its first
+  atom.
+  [Renaming and binding under a pending tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Renaming laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Chains with a held tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Naturality and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A triple held across dependent requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTupleRegression.lean)
+- A request of such a chain may have a compound reply. Its reply has
+  one tag with any tuple of atoms. It is bound and unpacked in order,
+  `let₁ (op g a) (let₂ (bv 0) …)`, and the chain continues under the
+  unpacking, so later requests of the chain use the fresh atoms of the
+  reply while the held tuple is still one slot. The dependency exclusion
+  is unchanged: no request of the chain can use the held tuple or its
+  components. The normal form unpacks the held tuple first, then asks
+  each request and unpacks its reply right after it, in the same order
+  and with the same arguments. Two native equations are added, both
+  derived from typed laws and not axioms. Two pattern lets on pair slots
+  may be exchanged, `let₂ x (let₂ y B) = let₂ y (let₂ x B′)`. A pattern
+  let on an older pair slot moves in front of a bound tuple and the
+  pattern lets that unpack it,
+  `let₁ E (unpack (let₂ x B)) = let₂ x (let₁ E↑↑ (unpack B′))`, for a
+  tuple of any number of atoms, by induction on the tuple with one
+  exchange for each pattern let. The binder permutations are not written
+  out per tuple length. A telescope is a list of slot types that extends
+  a context, and one renaming moves a slot bound after a telescope
+  beneath it; the move of two slots is composed from it, and both
+  commute with renaming of the context. Moving a binding under the
+  unpacking of a pending tuple is generalized from one slot to a
+  telescope, here the reply and the slots of its unpacking. Its native
+  equation takes the binding by its action on terms and the equation
+  that moves a pattern let in front of it, so it does not depend on the
+  shape of the binding. Normal forms still commute with renaming, and
+  ranked validity and equality of ordered-exit arrows at the original
+  exits follow as for the other spelled trees. A reply that is
+  destructured at the request or held is outside the class, and replies
+  with several tags are covered in the next entry; no case is moved
+  across a request. The regression holds a pair across a request with a
+  pair reply and then a request on one fresh atom and an older capture,
+  and returns a component of the held pair with the last reply. The
+  held and the eager spellings are valid together with the same
+  ordered-exit arrow. The other fresh atom, an older capture in place of
+  the fresh atom, the other held component, a fresh atom in place of the
+  last reply, an older capture in place of that reply and a changed
+  order are each told apart. A second tree holds a triple across a
+  request with a triple reply.
+  [Telescopes and binding under a pending tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Telescope laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Chain replies of any tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Interchange equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A compound reply under a held tuple](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomCompoundReplyRegression.lean)
+- A request of such a chain may have a reply with several tags. The
+  reply is bound and cased on right after the request,
+  `let₁ (op g a) (case (bv 0) l r)`. The first arm unpacks its tuple and
+  the other arms case on the remaining tags, and each arm continues its
+  own chain, so the chain branches. Every branch ends by destructuring
+  the held tuple, and requests of a branch use the fresh atoms of its
+  arm and the older captures while the held tuple is still one slot.
+  The normal form destructures the held tuple once, before the chain.
+  Every request keeps its place and its argument, and every case is
+  still on the reply of its request and directly follows it. No case is
+  moved across a request: the later request chooses the same tag at the
+  same point, and only the pure unpacking of the earlier tuple moves,
+  from each arm to before the request. The native equation is
+  `case s (let₂ x L) (let₂ x R) = let₂ x (case s L′ R′)` for a slot `s`
+  of sum type and a slot `x` of pair type. It is derived from typed
+  laws and is not an axiom. A term over a pair slot is the destructuring
+  of the slot around the term at the pair of components,
+  `K[x] = let₂ x (K[(a, b)])`, by pure-let beta, pair eta and the law
+  that pulls a pattern let out of the scrutinee of a let. Under the
+  destructuring, case congruence on the same scrutinee and the pattern
+  let on a pair of slots in each arm give the equation. The arm
+  renamings are typed and are the move of two slots beneath the payload
+  slot of the arm, for arms of any payload type. The whole unpacking of
+  a held tuple of any length moves out of both arms by induction on the
+  tuple, and in front of a request or of the unpacking of a reply by one
+  lemma for any binding that moves single pattern lets. The normal form
+  of a chain is now built under the full unpacking of the held tuple,
+  with the slots of the chain placed beneath that unpacking by one
+  renaming of a telescope past a telescope, which commutes with renaming
+  of the context. It computes the same normal forms as before; the
+  operation that moves a binding under a pending case tree, from the two
+  entries above, stays as a checked lemma and is no longer used by the
+  normalization. Normal forms commute with renaming, and ranked
+  validity and equality of ordered-exit arrows at the original exits
+  follow as for the other spelled trees. A case that is not on the reply
+  of the request before it and holding pending tags are outside the
+  class; a one-tag reply kept packed inside the chain is covered in the
+  next entry, and a kept arm payload in the entry after it. The
+  regression holds a pair across a request with two tags, a pair and
+  one atom. The first arm asks a request on one fresh atom and an older
+  capture, and each arm returns a component of the held pair. The held
+  and the eager spellings are valid together with the same ordered-exit
+  arrow. The other fresh atom, the other held component in the first
+  arm, the other held component under the second tag only, an older
+  capture in place of the payload of the second tag and a changed order
+  are each told apart. A second tree holds a triple across the same
+  request.
+  [Telescopes past telescopes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Telescope laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Chain replies with several tags](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Case interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A held tuple across a request with two tags](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomHeldTagsRegression.lean)
+- Two tuples may be packed at once. Inside a chain with a held tuple,
+  the reply of a request with one tag of two or more atoms may stay one
+  slot across a subchain of further requests, and is then destructured
+  completely; the chain with the older tuple continues after it, so the
+  older tuple is still packed when the fresh one is opened. The requests
+  of the subchain have one-tag replies that are unpacked at once. They
+  are assembled from the atom slots in scope, so they may use older
+  captures and the atoms of earlier replies, and neither packed tuple.
+  The normal form unpacks the older tuple before the chain and the fresh
+  tuple right after its own request. Every request keeps its place in
+  the order and its argument. The native equation uses no new law. The
+  unpacking of the older tuple moves in front of the unpacking of the
+  fresh one by the exchange of pattern lets, and each of the two
+  unpackings moves in front of each request and each reply unpacking of
+  the subchain by the lemma for bindings that move single pattern lets,
+  the older tuple first. Neither tuple length is fixed and no binder
+  permutation is written out: two more telescope laws, on weakening past
+  two telescopes and past two slots, place the slots. Normal forms
+  commute with renaming, and ranked validity and equality of
+  ordered-exit arrows at the original exits follow as for the other
+  spelled trees. Destructuring the older tuple before the fresh one is
+  outside the class. Requests with several tags, further kept tuples
+  and kept arm payloads inside such a subchain are covered in the next
+  entry; no case is moved across a request. The regression holds a
+  pair, keeps a second pair
+  packed across a request that is asked while both are packed, opens the
+  second pair, asks a request on one of its atoms and an older capture,
+  opens the first pair, and returns one component of each. The chain and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The other component of the older pair, the other component of
+  the fresh pair, the other fresh atom as an argument, a reply or an
+  older capture in place of a fresh component, and the two components
+  exchanged are each told apart. A second tree keeps a triple packed
+  under a held pair.
+  [Kept tuples in chains](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Two-hold equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [Telescope laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Two tuples packed at once](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTwoHeldRegression.lean)
+- Any number of tuples may be packed at once, with one grammar. The
+  chains of the six entries above are now one family indexed by a stack
+  of packed tuples, newest first; there is no family per number of
+  holds, and the earlier families are removed. A chain asks a request
+  and binds its reply; destructures the newest tuple of the stack by one
+  pattern let, into its first atom and the rest; drops a newest tuple
+  with at most one atom; or, with the stack empty, continues with any
+  spelled tree. The reply of a request is pushed on the stack. A reply
+  with several tags is cased on right after its request, each arm
+  pushes the payload of its tag, and each arm continues its own chain.
+  Unpacking a reply at once is destructuring it right away, and keeping
+  it packed is asking further requests first, so a kept reply and a kept
+  arm payload are the same construction. In this entry tuples are
+  opened newest first; any order is covered in the next entry. No
+  request can use a packed tuple of two or more atoms or its
+  components before they are destructured. The normal form unpacks
+  every tuple right after the request or the case that binds it and
+  keeps every request, with its argument, and every case in place: a
+  case is still on the reply of its request and directly follows it. No
+  new native law is used. The existing pair and case interchanges are
+  lifted once more, by induction on the stack: the unpackings of every
+  packed tuple move in front of any binding that moves single pattern
+  lets, and out of both arms of a case on a slot. A request, the
+  unpacking of a tuple and a single pattern let are such bindings. The
+  binder permutations are renamings of a context under the unpackings
+  of a stack, defined by recursion on the stack from the telescope
+  renamings: weakening past the stack, lifting under it and moving a
+  telescope beneath it, with their laws. No tuple length and no stack
+  depth is fixed. Normal forms commute with renaming, and ranked
+  validity and equality of ordered-exit arrows at the original exits
+  follow as for the other spelled trees. The earlier regressions are
+  restated in the one grammar and keep their normal forms, so it
+  specializes to one and two holds. Outside the class: a request whose
+  reply is destructured or cased on at the request itself while a tuple
+  is packed; and, in this entry, a reply
+  with several tags kept as one slot. Delaying its inspection across one
+  request is covered two entries below. The regression packs three pairs at
+  once, asks a request while all three are packed, opens the newest,
+  asks a request on one of its atoms and an older capture, opens the
+  other two, and returns a component of the oldest and of the middle
+  pair. The chain and the eager spelling are valid together with the
+  same ordered-exit arrow. The other component of each of the three
+  pairs, a reply in place of a component, and the two returned
+  components exchanged are each told apart. A second tree keeps the
+  pair payload of one tag of a two-tag reply packed across a request
+  while an older pair is held.
+  [Stacks of packed tuples](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Stack laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Chains over a stack](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Indexed interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [Three tuples packed at once](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomStackRegression.lean)
+- Packed tuples may be opened in any order. The grammar of the entry
+  above gets one constructor and no new family. A typed selection names
+  any tuple of the stack, with the atoms of the selected tuple and the
+  stack of the others; selecting moves that tuple to the top of the
+  stack and does not change the term. The pattern let of a chain then
+  opens the selected tuple while the newer and the older tuples stay
+  packed. The normal form is unchanged in shape: every tuple is unpacked
+  right after the request or the case that binds it, and every request,
+  with its argument, and every case stays in place. No effect is
+  reordered. The native step is a selection interchange for eager
+  unpacking: unpacking a stack with the selected tuple innermost is
+  natively equal to unpacking it in the order of the stack, with the
+  slots of the selected unpacking moved to their place. It is proved by
+  induction on the selection, exchanging the selected unpacking with the
+  unpacking of each newer tuple by the lemma for bindings that move
+  single pattern lets; no new native law is used. A permutation of the
+  stack is a sequence of selections. The renaming along a selection is
+  defined by recursion on the selection from the renaming of a telescope
+  past a telescope; it commutes with renaming of the context and with
+  weakening past the stack. Normal forms commute with renaming, and
+  ranked validity and equality of ordered-exit arrows at the original
+  exits follow as for the other spelled trees. Delayed inspection of a
+  reply with several tags is covered in the next entry. The regression
+  packs three pairs, selects and
+  opens the oldest while the two newer pairs stay packed, asks a request
+  on one opened component and an older capture, then opens the newest
+  and the middle pair, and returns a component of each. The chain and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The other opened component or an older capture as the argument,
+  the other component of the newest or of the middle pair, a component
+  of the oldest pair in place of one of the middle pair, and the two
+  returned components exchanged are each told apart. A second tree opens
+  the three pairs oldest first, the reverse of their binding order, and
+  is one sentence with the first.
+  [Selections of a packed tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Selection laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Selecting in a chain](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Selection interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [The oldest of three opened first](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSelectRegression.lean)
+- The inspection of a reply with several tags may be delayed across one
+  later request: `let₁ (op g a) (let₁ (op h b) (case s l r))`, where `s`
+  is the slot of the reply of `g`. The stored reply is a slot of sum
+  type and not an atom slot, so `h` cannot read it. `h` is one request
+  for all tags, assembled from older captures, and the case on `s`
+  directly follows it. In each arm the payload of the tag is pushed on
+  the stack and the reply of `h` is pending, so the arm continues as the
+  bound reply of `h` does. The grammar of the entries above gets one
+  constructor for the delayed request and one small family for the arms
+  of the delayed case; a chain may now also start with the stack empty.
+  The normal form inspects the reply right after `g` and writes `h` once
+  in each arm. The native equation is
+  `let₁ E (case s L R) = case s (let₁ E↑ L′) (let₁ E↑ R′)` for a slot `s`
+  of sum type, where `E` is typed without the payload. It is derived
+  from typed laws and is not an axiom: a term over a sum slot is the
+  case on the slot around the term at each injection,
+  `K[s] = case s (K[inl a]) (K[inr b])`, by pure-let beta, sum eta and
+  the law that pulls a case out of the scrutinee of a let; case beta at
+  the injection then removes the inner case. Only the pure tag test
+  moves. The request `h` is written once on the left and once in each
+  arm on the right, and on every run exactly one arm is taken, so `h`
+  is asked once on both sides, after `g` and before the requests of the
+  arm. No two requests are exchanged and none is added or removed on
+  any run. The lift goes through the stack grammar: the unpackings of
+  the packed tuples move out of both arms as before, and normal forms
+  commute with renaming. Ranked validity and equality of ordered-exit
+  arrows at the original exits follow as for the other spelled trees.
+  In this entry the delay is across exactly one request. A finite
+  prefix of requests and pattern lets is covered in the next entry. The
+  regression asks a request
+  with two tags, then a request on an older capture, and only then
+  cases on the first reply. The delayed chain and the eager spelling,
+  which cases at once and writes the later request in each arm, are
+  valid together with the same ordered-exit arrow. A changed argument of
+  the later request, a changed component under the first tag and a
+  changed order under the second tag are each told apart, so both
+  branches are observed. An eager tree whose arms ask different requests
+  is told apart from the delayed chain. A second tree delays the
+  inspection under a held pair.
+  [Delayed cases in chains](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Sum-slot equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A reply inspected after a later request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDelayedCaseRegression.lean)
+- The inspection may be delayed across a finite prefix. Between the
+  request with several tags and the case on its reply there may be any
+  number of requests, each with its reply bound, and pattern lets on
+  tuple slots. A request of the prefix is assembled from the atom slots
+  of the context in which the stored reply has sum type. So it may use
+  older captures and the atoms of earlier replies of the prefix, opened
+  by pattern lets of the prefix, and neither the stored reply nor its
+  payload. The prefix is a typed shape with two specializations, one
+  for the first tag and one for the remaining tags: the same prefix
+  weakened past the payload, followed by the arm with the payload
+  beneath the slots of the prefix. The shape computes the terms of the
+  specializations. The finite-prefix equation is
+  `P[case s L R] = case s (P↑[L′]) (P↑[R′])`, proved by induction on the
+  prefix with the equation that moves a case in front of a binding at
+  each request and the equation that moves a pattern let out of both
+  arms of a case at each pattern let. No effect interchange is assumed
+  and no law is added: the requests of the prefix keep their order, and
+  on every run each is asked once. The grammar gets one constructor,
+  which takes the shape and the two specializations as trees of the
+  grammar; their terms must be the ones the shape computes. The normal
+  form is that of the eager tree, with the case right after its request
+  and a copy of the prefix in each arm. The native equation, naturality
+  under renaming, ranked validity and equality of ordered-exit arrows at
+  the original exits follow, sharing the proof of the eager case. For
+  three or more tags the specialization to the remaining tags is again
+  a delayed tree. The constructor takes its specializations as given
+  trees and takes the two term equations as proofs; the next item
+  computes them for two tags. A prefix that branches, with a case of its
+  own, is outside the class. The
+  regression delays a two-tag reply across two requests, where the
+  second takes a component of the reply of the first, opened by a
+  pattern let of the prefix, and an older capture. The delayed tree and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The removed dependency, a changed component under the first
+  tag and a changed component under the second tag are each told apart.
+  [Prefix shapes and deferred cases](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Finite-prefix equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A reply inspected after two dependent requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomPrefixRegression.lean)
+- Spelled trees have a typed renaming action, and with it the
+  specializations of a delayed case are computed. The action is defined
+  on all the spelled families at once: trees in body position, heads of
+  requests, pending replies and tuples, chains over a stack, their bound
+  replies, the arms of a case delayed across one request, and the shape
+  of a deferred prefix. The result is a tree of the same family over the
+  target context together with the equation that its term is the renamed
+  term, so no tree is transported along an equation; a chain is renamed
+  onto given slots of its stack with a proof that they are the renamed
+  slots. The normal form of the renamed tree along a renaming is the
+  normal form of the tree along the composite, so ranked validity
+  between two renamed trees is equality of the normal forms along the
+  renaming. A finite nonbranching prefix is a family of its own:
+  requests whose replies have one tag and are pushed on the stack,
+  pattern lets on the top tuple, and selections. From a prefix and the
+  arm of a tag at its end, with the payload newest and on top of the
+  stack, the specialization is computed as a tree: at each slot of the
+  prefix the arm built so far is renamed past that slot by the action,
+  and the payload is selected back to the top of the stack. The shape of
+  the prefix is computed as well. One definition then builds a reply
+  with two tags inspected after the prefix from the prefix and the two
+  arms alone; it is the checked constructor of the previous item on the
+  computed shape and trees, so every theorem about the grammar applies.
+  Its term is natively equal to the case on the reply slot around the
+  two computed specializations, and its normal form is the normal form
+  of the eager spelling. No law is added and no requests are exchanged.
+  The limit is the number of tags. With three or more, the
+  specialization to the remaining tags is again a delayed case, on the
+  prefix placed under the slot of the remaining tags. That needs the
+  renaming action on the prefix itself, with its end context, and the
+  equation between the term of the renamed prefix and the specialization
+  term; it is not built, and for more tags the checked constructor with
+  given specializations is used. A branching prefix stays outside. The
+  regression builds the delayed tree of the previous item from its
+  prefix of two dependent requests with the pattern let between them and
+  from its two arms. It has the term of the original tree, the normal
+  form of the eager spelling written by hand, and the same ordered-exit
+  arrow. The removed dependency and a changed component under either tag
+  are told apart, and a selection in the prefix changes nothing. Renamed
+  into a context with one more capture, the tree has the renamed term
+  and the renamed normal form, and the renamed trees are valid together
+  there.
+  [Renaming action and computed specializations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Renaming/Defs.lean) ·
+  [Normal forms and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Renaming/Thms.lean) ·
+  [A delayed case built from its prefix and its arms](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomPrefixBuiltRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

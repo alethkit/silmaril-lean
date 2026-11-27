@@ -5,6 +5,7 @@ public import Silmaril.Logic.Institution.Observational.Sentence
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Satisfaction
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.Room
 import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.RTLBehavior
+import Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution.CrossBackend
 
 /-! Satisfaction for RTL.SSA behaviours and the λSSA room in the concrete word model. -/
 
@@ -172,5 +173,48 @@ theorem rtl_equation_holds_iff (leftChecked : lowerChecked left = some leftTarge
     (∀ input : WordTuple arity, (Sentence.eq leftTargets.1 rightTargets.1).Holds (rtlBehaviors input initial)) ↔
       (Loop.Institution.Sentence.equation (equation left right)).Holds model :=
   forall_congr' fun input => rtl_equation_at_iff leftChecked rightChecked input initial
+
+/-- Compare a room observation with actual RTL outcomes at the initial memory
+recorded by that observation. Returns agree on the word and the whole memory. -/
+theorem rtl_room_observation_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity)
+    (observation : Silmaril.Isotope.Institution.Observational.Observation (Nat × Value (Atom model)) Memory) :
+    observation ∈ ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) ↔
+    observation.Holds
+      (fun initial (label, payload) final => ∃ value : Word,
+        label = 0 ∧ payload = Generic.packResult model (out := word) value ∧ final = initial ∧
+          Behavior.returned [value] final ∈ rtlBehaviors input initial leftTargets.1)
+      (fun _ _ => False)
+      (fun initial => Behavior.diverges ∈ rtlBehaviors input initial leftTargets.1) :=
+  Proofs.rtl_room_observation_iff accepted input observation
+
+/-- Query both emitted programs for an exact word and final memory. -/
+theorem rtl_room_return_iff (accepted : lowerChecked left = some leftTargets)
+    (input : WordTuple arity) (initial final : Memory) (value : Word) :
+    Behavior.returned [value] final ∈ rtlBehaviors input initial leftTargets.1 ↔
+      Observation.ret initial (0, Generic.packResult model (out := word) value) final ∈
+        ssaBeh 1 (inputModel (P := Rows.wordSignature) model Memory input) (scope accepted) :=
+  Proofs.rtl_room_return_iff accepted input initial final value
+
+/-- At one typed input, the RTL equation at any common initial memory reflects
+the full λSSA room equation, which quantifies over all memories. -/
+theorem rtl_room_equation_at_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (input : WordTuple arity) (initial : Memory) :
+    (Sentence.eq leftTargets.1 rightTargets.1).Holds (rtlBehaviors input initial) ↔
+    (fiberRoom Rows.wordSignature (wordSorts arity).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory input))
+      (Sentence.eq (scope leftChecked) (scope rightChecked)) :=
+  (rtl_equation_at_iff leftChecked rightChecked input initial).trans
+    (room_equation_at_iff leftChecked rightChecked input initial).symm
+
+/-- The same checked equation holds at all typed inputs in RTL exactly when
+it holds in the corresponding family of concrete λSSA room models. -/
+theorem rtl_room_equation_holds_iff (leftChecked : lowerChecked left = some leftTargets)
+    (rightChecked : lowerChecked right = some rightTargets) (initial : Memory) :
+    (∀ input : WordTuple arity, (Sentence.eq leftTargets.1 rightTargets.1).Holds (rtlBehaviors input initial)) ↔
+    (∀ input : WordTuple arity, (fiberRoom Rows.wordSignature (wordSorts arity).length).Sat
+      (Discrete.mk (inputModel (P := Rows.wordSignature) model Memory input))
+      (Sentence.eq (scope leftChecked) (scope rightChecked))) :=
+  forall_congr' fun input => rtl_room_equation_at_iff leftChecked rightChecked input initial
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Institution

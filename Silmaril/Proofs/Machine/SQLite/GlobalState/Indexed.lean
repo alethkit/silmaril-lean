@@ -11,7 +11,7 @@ namespace Silmaril.Proofs.Machine.SQLite.GlobalState.IndexedStore
 open Silmaril.Machine.SQLite.GlobalState
 
 private theorem setMap_self (store : IndexedStore) (kind : ObjectKind)
-    (entries : Std.ExtTreeMap Nat (ObjectFields kind)) :
+    (entries : Std.ExtTreeMap Nat (LocalFields kind)) :
     (store.setMap kind entries).byKind kind = entries := by
   simp [IndexedStore.setMap]
 
@@ -20,7 +20,7 @@ theorem lookup_empty {kind : ObjectKind} (id : LocalId kind) :
   Std.ExtTreeMap.getElem?_empty
 
 theorem lookup_insert_self (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind)
-    (fields : ObjectFields kind) : (store.insert id fields).lookup id = some fields := by
+    (fields : LocalFields kind) : (store.insert id fields).lookup id = some fields := by
   simp only [IndexedStore.lookup, IndexedStore.insert, setMap_self]
   exact Std.ExtTreeMap.getElem?_insert_self
 
@@ -30,7 +30,7 @@ theorem lookup_erase_self (store : IndexedStore) {kind : ObjectKind} (id : Local
   exact Std.ExtTreeMap.getElem?_erase_self
 
 theorem lookup_insert_of_ne (store : IndexedStore) {kind otherKind : ObjectKind}
-    (id : LocalId kind) (fields : ObjectFields kind) (other : LocalId otherKind)
+    (id : LocalId kind) (fields : LocalFields kind) (other : LocalId otherKind)
     (different : other.tagged ≠ id.tagged) : (store.insert id fields).lookup other = store.lookup other := by
   by_cases sameKind : kind = otherKind
   · subst otherKind
@@ -65,7 +65,7 @@ private theorem lookup_kindsOfKeys (keys : List TaggedId) (id : TaggedId) :
 private theorem mem_kinds (kind : ObjectKind) : kind ∈ IndexedStore.kinds := by
   cases kind <;> decide
 
-private theorem mem_taggedKeys_iff (store : IndexedStore) (id : TaggedId) :
+theorem mem_taggedKeys_iff (store : IndexedStore) (id : TaggedId) :
     id ∈ store.taggedKeys ↔ (store.lookup id.localId).isSome := by
   simp only [IndexedStore.taggedKeys, List.mem_flatMap, List.mem_map]
   constructor
@@ -87,7 +87,7 @@ theorem hasKind_erasePayloads_iff (store : IndexedStore) (id : TaggedId) (kind :
   cases store.lookup id.localId <;> simp
 
 theorem erasePayloads_insert (store : IndexedStore) {kind : ObjectKind} (id : LocalId kind)
-    (fields : ObjectFields kind) :
+    (fields : LocalFields kind) :
     (store.insert id fields).erasePayloads = store.erasePayloads.insert id.tagged kind := by
   apply ObjectStore.ext
   intro query

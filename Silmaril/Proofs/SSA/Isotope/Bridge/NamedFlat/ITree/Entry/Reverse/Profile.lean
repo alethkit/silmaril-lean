@@ -101,6 +101,16 @@ section PacketClosure
 
 variable {V K : Type w} {F : Type v} [DecidableEq V] [DecidableEq K] {n blocks : Nat}
 
+omit [DecidableEq K] in
+theorem block_packetClosed {index : K → Option (Fin blocks)} (block : CFG.Block V K F)
+    {flat : LambdaSSA.Flat F blocks (n + 1)} (read : body index (blockNames block.param) block.body = some flat) :
+    block.body.toRegion.fv ⊆ {block.param} := by
+  intro reg free
+  have bound := body_reads read reg ((Version.mem_fvList_iff _ _).mpr free)
+  by_cases same : reg = block.param
+  · exact Finset.mem_singleton.mpr same
+  · simp [blockNames, bindName, same] at bound
+
 theorem elaborateAt_packetClosed (graph : CFG V K F) (exits : List K) (names : Fin n → V)
     (count : graph.blocks.length = blocks) {code : FiniteCFG F blocks exits.length n}
     (readback : elaborateAt graph exits names blocks count = some code) :
@@ -114,7 +124,7 @@ theorem elaborateAt_packetClosed (graph : CFG V K F) (exits : List K) (names : F
     (fun entry => (tabulate blocks readBlock).map fun rows => ⟨entry, rows⟩) = some code at readback
   obtain ⟨_, _, table⟩ := Option.bind_eq_some_iff.mp readback
   obtain ⟨rows, tabulated, _⟩ := Option.map_eq_some_iff.mp table
-  intro item member reg free
+  intro item member
   obtain ⟨i, hi, eq⟩ := List.getElem_of_mem member
   let slot : Fin blocks := Fin.cast count ⟨i, hi⟩
   have read := Silmaril.Isotope.Bridge.NamedFlat.tabulate_at tabulated slot
@@ -122,10 +132,7 @@ theorem elaborateAt_packetClosed (graph : CFG V K F) (exits : List K) (names : F
   change body index (blockNames (n := n) graph.blocks[Fin.cast count.symm slot].2.param)
     graph.blocks[Fin.cast count.symm slot].2.body = some (rows slot) at read
   rw [block] at read
-  have bound := body_reads read reg ((Version.mem_fvList_iff _ _).mpr free)
-  by_cases same : reg = item.2.param
-  · exact Finset.mem_singleton.mpr same
-  · simp [blockNames, bindName, same] at bound
+  exact block_packetClosed item.2 read
 
 end PacketClosure
 

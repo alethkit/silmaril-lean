@@ -947,6 +947,75 @@ typed provider block, and resumption through the client suffix. A
 same-signature import with a stale capture fails admission.
 [Provider composition fixture](../../../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Regression.lean)
 
+### Looking up demand indices in a checked provider assembly
+
+`CheckedProviderAssembly.lookup name ty` returns a `LookupReceipt` indexed by
+the assembly, name and requested port type. Its `values` projection supplies
+the exact left and right closure with membership in the accumulated dispatch
+families. `LookupReceipt.values_left` and `values_right` identify these
+values with the original exports at the requested type.
+`LookupReceipt.checkImports` can certify equality when a client already
+has materialized imports.
+
+`LookupReceipt.entry.provider` retains the original
+`CheckedProviderReceipt`, including its typed `port`, full `outcomeL` and
+`outcomeR`, and `chain.checked.linkedL` and `linkedR`.
+`CheckedProviderReceipt.selectedL` and `selectedR` are singleton outcomes
+at that provider's own post-link stores. With a summary for `provider.fn`,
+use them as the indices of `Export actions summary` for the selected
+closure. The lookup supplies the indices and exact import values. The demand
+certificate still supplies the summary, static dispatch and common-store
+evidence. These projections read stored link results.
+
+`matchNamedExport` checks that an existing demand receipt belongs to
+the selected closure and its original store on each side. Use those
+equalities to reindex the receipt as a `NamedDemand`. `NamedImports`
+combines the checked dispatches in typed import order and checks the
+materialized tuple with each name's `checkImports`. The allocating
+entry point takes a successful client initializer receipt at the
+assembly's common final store and returns the usual `ExportAnalysis`.
+The client still supplies static resolution for its checked imports.
+[Named provider demand API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Named/Thms.lean)
+
+`NamedImports.analyzeLayouts` accepts independent typed initializer and
+capture layouts for the same λ body. It checks each import against its
+actual named export, reads the captures from the corresponding successful
+initializer row, and computes one GenKill summary. The two rows share a
+post-link store and the client supplies static resolution for each side.
+Pass the resulting receipt for both sides of
+`ExportAnalysis.relocated_substituted_starts` with the existing related-link
+and dispatch certificates. The two-provider fixture moves the second
+provider and client allocations to vertex 1 on the right, checks exact
+return, typed block and non-tail resumption, and rejects the stale provider
+closure with the same payload from vertex 0.
+
+`LookupReceipt.entry.traceL` and `traceR` are
+`AllocationHistory.Segment` witnesses with exact entry and exit stores.
+Use `AllocationHistory.Segment.reassemble` with the provider's own
+`chain.historyL` or `historyR` to recover the full trace. The witnesses
+cover certified links in disjoint allocation histories. Opaque allocations
+and shared ancestors are outside this interface.
+[Typed provider lookup](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/Isomorphism/RecursiveCall/Numbered/Admission/Prefix/Graph/Import/Allocation/Thms.lean)
+
+### Analyzing relocated allocating layouts
+
+`AllocationPlan.analyze` also accepts the allocating layout with an empty
+φ before δ. It rebuilds the typed demand scope from the actual linked δ
+row. `AllocationPlan.analyzeImported` checks each head import against a
+provider demand receipt for its own numbered links. The outer capture
+wires may move while the exported λ uses the same demand summary.
+
+Use `ExportAnalysis.relocated_substituted_starts` with two such receipts,
+the existing related-link evidence, and `admitAllocatingClient`'s dispatch
+certificate. Related original and replacement arguments yield related
+substituted starts. The linked family transports returns and blocks at
+exact stores. `relocated_resume` reuses the reached related frames with
+typed, related, admitted response packets at a common store. The fixture
+moves both allocations from vertex 0 to 1 and checks exact success, block
+and resumption in both layouts. The right client rejects a same-payload
+provider closure that still captures vertex 0.
+[Relocated allocation API](../../../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/PartialLink/StaticDemand/Ordered/Prefix/Analysis/Provider/Relocation/Thms.lean)
+
 ### Synthesizing direct call resolution
 
 `Plan.lambdaDirect` and `Plan.finishDirect` construct the existing local

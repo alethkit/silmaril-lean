@@ -17,6 +17,24 @@ open LambdaSSA.Semantics.Interaction.Typed.Ordered
 
 universe u v
 
+/-- Successful source checks give packet closure, exact readback and
+pointwise typing for the actual empty-record versioner. -/
+theorem packetLocalSource_sound {Base V K : Type u} {F : Type v} {n : Nat}
+    [DecidableEq Base] [DecidableEq V] [DecidableEq K] [HasTy F (Ty Base)]
+    (graph : CFG V K F) (names : Fin n → V) (ctx : BoundCtx (Ty Base) n)
+    (exits : List K) (external : Fin exits.length → Ty Base)
+    (R : Fin (CFG.Cyclic.Versioning.compilePacketLocal graph).blocks.length → Ty Base)
+    (checked : packetLocalSourceChecks graph names ctx exits external R = true) :
+    CFG.Cyclic.RoundTrip.PacketClosed graph ∧
+      ∃ table, NamedFlat.elaborate (CFG.Cyclic.Versioning.compilePacketLocal graph) exits
+          (fun i => (names i, 0)) = some table ∧
+        let profile := fun i => Ty.product (R i) .unit
+        let types := SSA.FiniteSum.append profile external
+        checkBody types ctx table.entry = true ∧
+          ∀ i, checkBody types (.snoc ctx (profile i)) (table.block i) = true :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.packetLocalSource_sound
+    graph names ctx exits external R checked
+
 variable {κ K : Type (u + 1)} [DecidableEq K]
   {n blocks : Nat} {P : FlatInstitution.Signature.{u, v} κ}
   {context : BoundCtx (Ty κ) n} {exits : List K} {external : Fin exits.length → Ty κ}
@@ -46,7 +64,8 @@ theorem compiled_success_packetLocal (R : Fin blocks → Ty κ) (checked : packe
       let types := SSA.FiniteSum.append (packetLocalProfile a R) exitTypes
       checkBody types context table.entry = true ∧
         ∀ i, checkBody types (.snoc context (packetLocalProfile a R i)) (table.block i) = true :=
-  Proofs.SSA.Isotope.Bridge.NamedFlat.Entry.Reverse.Straight.compiled_success_packetLocal a R checked
+  (packetLocalSource_sound attached (fun i : Fin n => (⟨i.val⟩ : Register)) context exits exitTypes
+    (fun i => R (Fin.cast (packetLocalCount a) i)) checked).2
 
 /-- The actual compiler reads back and typechecks when every destination
 uses its declared projection of the entry slots and each block can supply

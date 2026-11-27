@@ -22,9 +22,9 @@ theorem v1_label_context_iff {H : Type} {host : HostSemantics H} {s : Store H} {
     (seq : Sequence H) (args : List Value) (labels : List (OpenLabel H)) {body : List Admin} {dst : Config H} :
     Step host ⟨s, outer, (seq.context args labels).plug value body⟩ dst ↔
       ∃ nextStore nextFrame code,
-        Step host ⟨s, outer, [.frame (OpenLabel.results seq.root.function labels).length (seq.root.function.declaration.frame args)
-          [.label (OpenLabel.results seq.root.function labels).length [] body]]⟩
-          ⟨nextStore, outer, [.frame (OpenLabel.results seq.root.function labels).length nextFrame code]⟩ ∧
+        Step host ⟨s, outer, [.frame (OpenLabel.labelArity seq.root.function labels) (seq.root.function.declaration.frame args)
+          [.label (OpenLabel.labelArity seq.root.function labels) (seq.labelCode labels) body]]⟩
+          ⟨nextStore, outer, [.frame (OpenLabel.labelArity seq.root.function labels) nextFrame code]⟩ ∧
         dst = ⟨nextStore, outer, [.frame seq.root.function.declaration.results.length nextFrame
           ((seq.insert labels).plug value code)]⟩ :=
   ControlProofs.scoped_step seq args labels
@@ -52,6 +52,34 @@ theorem Edge.ready (graphChecked : program.checkV1 memory mode calls = true)
     (ready : seq.Ready mode program memory calls initial src source) :
     seq.Ready mode program memory calls initial dst source :=
   Proofs.preserves graphChecked checked layout extent contract edge ready
+
+/-- The checked loop target carries no branch payload, even when normal
+fallthrough delivers a scalar result. -/
+theorem loop_restart_payload {bytes : ByteArray} {stack saved : List Value} {results : List NumType}
+    {result : Option NumType} {region tail : Source H} {skipped : List Admin} {rest : List (OpenLabel H)}
+    (ready : seq.Ready mode program memory calls initial
+      (.branching bytes stack ⟨⟨0⟩, results⟩ skipped (.loop saved region tail result :: rest)) source) : results = [] := by
+  have found : some [] = some results := (decide_eq_true_eq.mp ready.2.1).1
+  exact (Option.some.inj found).symm
+
+/-- Normal completion delivers exactly the checked result above the saved
+operands, in the active frame with the current Memory32. -/
+theorem v1_loop_fallthrough_iff {bytes : ByteArray} {saved stack : List Value} {result : Option NumType}
+    {region tail : Source H} {labels : List (OpenLabel H)} {dst : Config H}
+    (ready : seq.Ready mode program memory calls initial (.completed bytes stack (.loop saved region tail result) labels) source) :
+    Step host (seq.render base memory initial start outer args (.completed bytes stack (.loop saved region tail result) labels)) dst ↔
+      stack.map Value.type = result.toList ∧
+        dst = seq.render base memory initial start outer args (seq.beginBody outer args bytes (saved ++ stack) labels tail) :=
+  Proofs.loop_fallthrough_step ready
+
+/-- A depth-zero branch to a live parameterless loop reinstalls its source loop under
+the same frame and enclosing operands. Opening the label is a later step. -/
+theorem v1_loop_restart_iff {bytes : ByteArray} {stack saved : List Value} {results : List NumType}
+    {result : Option NumType} {region tail : Source H} {skipped : List Admin} {rest : List (OpenLabel H)} {dst : Config H} :
+    Step host (seq.render base memory initial start outer args
+      (.branching bytes stack ⟨⟨0⟩, results⟩ skipped (.loop saved region tail result :: rest))) dst ↔
+      dst = seq.render base memory initial start outer args (.loop bytes saved region tail rest result) :=
+  Proofs.loop_restart_step
 
 /-- At depth zero in the implicit label, the native branch erases the
 scratch operands and skipped suffix. The typed payload is still inside the

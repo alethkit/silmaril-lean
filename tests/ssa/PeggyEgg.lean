@@ -4,17 +4,30 @@ import Silmaril.SSA.PEG.Builder
 import Silmaril.SSA.Peggy.Optimizer.Cyclic.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 import Silmaril.SSA.PEG.Semantics.Thms
+import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
 import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Thms
+import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Defs
+meta import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -25,6 +38,8 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -32,6 +47,8 @@ meta import Silmaril.SSA.Peggy.Optimizer.Contextual.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Extension.Defs
 meta import Silmaril.SSA.Peggy.Worked.EvalScale.Defs
 meta import Silmaril.SSA.Peggy.Worked.StrengthReduction.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Defs
 meta import Silmaril.SSA.PEG.Projection.Defs
 meta import Mathlib.Tactic.FinCases
 
@@ -1134,6 +1151,77 @@ example (initial : Option (ULift Nat)) :
   exact ⟨after, valid, (observed clockZero).trans
     ((secondRedex.observe_eq wf before clockZero).trans (initially initial))⟩
 
+private def twoSiteInput : Output Op [] outputs 1 := ⟨6, twoSites⟩
+private def twoSiteRun := Dedup.Worklist.run Op.zero 2 twoSiteInput
+private def oneVisit := Dedup.Worklist.run Op.zero 1 twoSiteInput
+
+#guard twoSiteRun.report.sites == [4, 5]
+#guard twoSiteRun.report.stop == .fixed
+#guard twoSiteRun.state.1 == 7
+#guard oneVisit.report.sites == [4]
+#guard oneVisit.report.stop == .exhausted
+#guard Dedup.Worklist.enabledAt Op.zero oneVisit.state 5
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput oneVisit.report).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 5], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[5, 4], .fixed⟩).isSome
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4], .fixed⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[6], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 2 twoSiteInput ⟨[4, 4], .exhausted⟩).isNone
+#guard (Dedup.Worklist.check Op.zero 1 twoSiteInput twoSiteRun.report).isNone
+
+private abbrev nestedSort (_ : Fin 4) : Ty Unit := .count
+private def nestedRef (i : Fin 4) : Ref nestedSort .count := ⟨i, rfl⟩
+private def nestedPair (a b : Fin 4) : Tuple (Ref nestedSort) [.count, .count] :=
+  .cons (nestedRef a) (.cons (nestedRef b) .nil)
+
+/-- Sampling the outer theta at zero generates a new sample of the inner
+theta. Both thetas use live self-feedback on the same loop clock. -/
+private def nested : Graph Op [] outputs 4 1 where
+  forest := ⟨fun _ => none⟩
+  sort := nestedSort
+  node i := match i with
+    | 0 => .ofLabel (.op .zero) .nil
+    | 1 => .ofLabel (.theta 0) (nestedPair 0 1)
+    | 2 => .ofLabel (.theta 0) (nestedPair 1 2)
+    | _ => .ofLabel (.eval 0) (nestedPair 2 0)
+  roots := .cons (nestedRef 3) (nestedPair 2 1)
+
+private def nestedInput : Output Op [] outputs 1 := ⟨4, ⟨nested, Classes.discrete⟩⟩
+private def nestedPrefix := Dedup.Worklist.run Op.zero 1 nestedInput
+private def nestedRun := Dedup.Worklist.run Op.zero 2 nestedInput
+
+#guard evalOperands nested == [[2, 0]]
+#guard Dedup.Worklist.next Op.zero nestedInput == some ⟨3, by decide⟩
+#guard (Dedup.Worklist.run Op.zero 0 nestedInput).report.stop == .exhausted
+#guard nestedPrefix.report.sites == [3]
+#guard nestedPrefix.report.stop == .exhausted
+#guard nestedPrefix.state.1 == 5
+#guard (Dedup.close Op.zero nestedInput [3]).1 == 5
+#guard Dedup.Worklist.enabledAt Op.zero (Dedup.close Op.zero nestedInput [3]) 4
+#guard nestedRun.report.sites == [3, 4]
+#guard nestedRun.report.stop == .fixed
+#guard nestedRun.state.1 == 6
+#guard evalOperands nestedRun.state.2.graph == [[2, 0], [1, 0], [0, 0]]
+#guard refNumbers nestedRun.state.2.graph.roots == [3, 2, 1]
+#guard (Dedup.Worklist.run Op.zero 0 nestedRun.state).report.stop == .fixed
+#guard (Dedup.Worklist.check Op.zero 2 nestedInput nestedRun.report).isSome
+
+private theorem nestedWF : WellFounded nested.Demand :=
+  nested.demandWellFounded_of_check
+    [.phase (fun i => if i = 3 then 1 else 0), .counter 0,
+      .phase (fun i => if i = 2 then 2 else if i = 1 then 1 else 0)]
+    (by decide)
+
+example (initial : Option (ULift Nat)) :
+    ∃ after : WellFounded nestedRun.state.2.graph.Demand,
+      nestedRun.state.2.classes.Valid (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) ∧
+      ∀ idx, nestedRun.state.2.graph.observe (arithmetic initial)
+        (nestedRun.state.2.graph.denote (arithmetic initial) .nil after) idx =
+        nested.observe (arithmetic initial) (nested.denote (arithmetic initial) .nil nestedWF) idx := by
+  have preserved : Dedup.Preserves (arithmetic initial) .nil nestedInput nestedRun.state :=
+    Dedup.Worklist.check_sound (Dedup.Worklist.run_checked (zero := Op.zero) 2 nestedInput) rfl
+  exact preserved nestedWF Classes.discrete_valid
+
 /-- The roots anchor a redex and two exact RHS copies to distinct addresses. -/
 private def anchored : Graph Op [] outputs 7 1 :=
   { biggerGraph with
@@ -1282,6 +1370,8 @@ namespace Silmaril.SSA.Peggy.Worked.EvalScale.Tests
 
 open PEG
 open RVSDG (Tuple)
+open PEG.Simple (Stmt Expr Exec)
+open PEG.Simple.Revert.While.Region
 open EPEG (Classes)
 open EPEG.Saturation.Extension (State)
 
@@ -1290,6 +1380,8 @@ private inductive Op : List (Ty Unit) → Ty Unit → Type where
   | five : Op [] .count
   | succ : Op [.count] .count
   | exit : Op [.count] .bool
+  | atLeast : Op [.count, .count] .bool
+  | negate : Op [.bool] .bool
   | mul : Op [.count, .count] .count
   | add : Op [.count, .count] .count
   deriving DecidableEq
@@ -1359,6 +1451,8 @@ private def model (failsAtZero : Bool) : Interpretation.{0,0,0} Op where
     | .five, .nil => some ⟨5⟩
     | .succ, .cons a .nil => some ⟨a.down + 1⟩
     | .exit, .cons a .nil => some ⟨decide (3 ≤ a.down)⟩
+    | .atLeast, .cons a (.cons b .nil) => some ⟨decide (b.down ≤ a.down)⟩
+    | .negate, .cons b .nil => some ⟨!b.down⟩
     | .mul, .cons a (.cons b .nil) =>
       if failsAtZero && b.down == 0 then none else some ⟨a.down * b.down⟩
     | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
@@ -1439,6 +1533,62 @@ private theorem observed (idx : Index 1) :
         (.cons (Rules.readRef (values false) (r 4 rfl) idx)
           (.cons (Rules.readRef (values false) (r 7 rfl) idx) .nil)))) = _
   rw [scaled, sampled, exitIndex]
+
+open EPEG.Saturation.Extension in
+private def extraZeroSample : Row source.graph :=
+  ⟨[.count, .count], .count, .eval 0, pair (r 0 rfl) (r 1 rfl)⟩
+
+open EPEG.Saturation.Extension in
+private def combinedSource : Output Op [] result 1 :=
+  ⟨9, ⟨extraZeroSample.append, Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedOps : Combined.Ops Op := ⟨.zero, .five, .mul⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedDriver := Combined.driver (params := []) (results := result) (l := 1) combinedOps
+
+private def shortRun := combinedDriver.run 1 combinedSource
+private def combinedRun := combinedDriver.run 2 combinedSource
+
+private def classesAt {n : Nat} (state : State Op [] result n 1) : List Nat :=
+  (List.finRange n).map fun i => (state.classes i).val
+
+private def wiring {n : Nat} (state : State Op [] result n 1) : List (List Nat) :=
+  (List.finRange n).map fun i => refNumbers (state.graph.node i).args
+
+#guard shortRun.report.sites == [.zeroSample 8]
+
+#guard shortRun.report.stop == .exhausted
+#guard (combinedDriver.check 1 combinedSource shortRun.report).isSome
+#guard (combinedDriver.check 1 combinedSource ⟨shortRun.report.sites, .fixed⟩).isNone
+#guard combinedRun.report.sites == [.zeroSample 8, .evalScale 7]
+#guard combinedRun.report.stop == .fixed
+#guard combinedRun.state.1 == 12
+#guard ((classesAt combinedRun.state.2)[8]?) == (classesAt combinedRun.state.2)[9]?
+#guard ((classesAt combinedRun.state.2)[7]?) == (classesAt combinedRun.state.2)[11]?
+#guard (wiring combinedRun.state.2).drop 9 == [[1, 1], [6, 0], [10, 4]]
+#guard (combinedDriver.check 2 combinedSource combinedRun.report).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 7, .zeroSample 8], .fixed⟩).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 8], .fixed⟩).isNone
+
+private def combinedObservation : Tuple (fun t => Option ((model false).Value t)) result :=
+  .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil)))
+
+open EPEG.Saturation.Extension.Worklist in
+private theorem combinedPreserves :
+    EPEG.Saturation.Extension.Dedup.Preserves (model false) .nil combinedSource combinedRun.state :=
+  Combined.check_sound (Combined.run_checked (ops := combinedOps) 2 combinedSource) rfl totalLaw
+
+example (idx : Index 1) :
+    ∃ after : WellFounded combinedRun.state.2.graph.Demand,
+      combinedRun.state.2.classes.Valid (combinedRun.state.2.graph.denote (model false) .nil after) ∧
+      combinedRun.state.2.graph.observe (model false)
+        (combinedRun.state.2.graph.denote (model false) .nil after) idx = combinedObservation := by
+  have before := extraZeroSample.demandWellFounded wf
+  obtain ⟨after, valid, agrees⟩ := combinedPreserves before Classes.discrete_valid
+  exact ⟨after, valid, (agrees idx).trans
+    ((extraZeroSample.observe_eq wf before idx).trans (observed idx))⟩
 
 private theorem ranked : (rank 10).check found.extract = true := by
   rw [show found = expectedMatch from rfl]
@@ -1523,17 +1673,424 @@ private theorem strengthRanked : strengthRank.check reduced.candidate = true := 
   intro i _
   fin_cases i <;> decide
 
-example (idx : Index 1) :
-    reduced.candidate.observe (model false)
-      (reduced.candidate.denote (model false) .nil
-        (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx =
-      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) := by
+private theorem figure6_rewrites (idx : Index 1) :
+    source.graph.observe (model false) (values false) idx =
+      reduced.candidate.observe (model false)
+        (reduced.candidate.denote (model false) .nil
+          (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx := by
   have motion := found.extract_sound (m := model false) (env := .nil) wf Classes.discrete_valid totalLaw
     (rank 10) checked idx
   have strength := reduced.candidate_sound (env := .nil) strengthLaw
     ((found.selection (rank 10)).demandWellFounded (Bool.and_eq_true_iff.mp checked).1)
     strengthRank strengthRanked idx
-  exact (motion.trans strength).symm.trans (observed idx)
+  exact motion.trans strength
+
+example (idx : Index 1) :
+    reduced.candidate.observe (model false)
+      (reduced.candidate.denote (model false) .nil
+        (reduced.candidate.demandWellFounded_of_check strengthRank strengthRanked)) idx =
+      .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil))) :=
+  (figure6_rewrites idx).symm.trans (observed idx)
+
+-- The reverter receives instruction identities only. It obtains the
+-- carried vector and the ordered readouts from the actual rewritten PEG.
+private def roles : Closed.Automatic.Roles Op := ⟨.zero, .succ, .negate⟩
+
+private def checkedRegion := Closed.Automatic.extract reduced.candidate roles
+
+private def relocation : Equiv.Perm (Fin 11) :=
+  (Equiv.swap 0 8).trans ((Equiv.swap 4 9).trans (Equiv.swap 3 6))
+
+private def relocated := reduced.candidate.reindex relocation (Equiv.refl (Fin 1))
+private def checkedRelocated := Closed.Automatic.extract relocated roles
+
+-- A second, well-typed pass for the same predicate does not satisfy the
+-- shared-pass boundary when one of the evals names it instead.
+private def wrongPass : Graph Op [] result 11 1 :=
+  { reduced.candidate with node := fun i =>
+    if h : i = 5 then h.symm ▸ Node.ofLabel (.eval 0) (.cons ⟨0, rfl⟩ (.cons ⟨7, rfl⟩ .nil))
+    else if h : i = 7 then h.symm ▸ Node.ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    else reduced.candidate.node i }
+
+-- Keep the tick opcode and zero initializer but wire the tick to the
+-- other θ. Neither carried slot now implements the unit recurrence.
+private def wrongClock : Graph Op [] result 11 1 :=
+  { reduced.candidate with node := fun i =>
+    if h : i = 2 then h.symm ▸ Node.ofLabel (.op Op.succ) (.cons ⟨8, rfl⟩ .nil)
+    else reduced.candidate.node i }
+
+private def asList : {ts : List (Ty Unit)} → Tuple (model false).Value ts → List Nat
+  | _, .nil => []
+  | .count :: _, .cons value rest => value.down :: asList rest
+  | .bool :: _, .cons _ rest | .data _ :: _, .cons _ rest => asList rest
+
+private def runFigure6 {g : Graph Op [] result 11 1}
+    (recovered : Option (Closed.Automatic.Recovered g roles)) (fuel : Nat) : Option (List Nat) := do
+  let cert ← recovered
+  (cert.certificate.runFuel (model false) fuel .nil).map asList
+
+private def opcode {is : List (Ty Unit)} {t : Ty Unit} : Op is t → String
+  | .zero => "zero" | .five => "five" | .succ => "succ" | .exit => "exit"
+  | .atLeast => "atLeast"
+  | .mul => "mul" | .add => "add" | .negate => "negate"
+
+mutual
+private def exprOpcodes {vars : List (Ty Unit)} {t : Ty Unit} : Expr Op vars t → List String
+  | .var _ => []
+  | .op instr args => opcode instr :: argsOpcodes args
+private def argsOpcodes {vars args : List (Ty Unit)} : PEG.Simple.Args Op vars args → List String
+  | .nil => []
+  | .cons e es => exprOpcodes e ++ argsOpcodes es
+end
+
+private def opcodes {loops : Bool} {vars outs : List (Ty Unit)} : Stmt Op loops vars outs → List String
+  | .assign e => exprOpcodes e
+  | .project _ => []
+  | .seq a b => opcodes a ++ opcodes b
+  | .branch e a b => exprOpcodes e ++ opcodes a ++ opcodes b
+  | .while _ e body => exprOpcodes e ++ opcodes body
+
+#guard runFigure6 checkedRegion 3 == some [15, 3, 3, 15]
+#guard (runFigure6 checkedRegion 2).isNone
+#guard (checkedRegion.map fun recovered => opcodes recovered.certificate.revert) ==
+  some ["zero", "exit", "negate", "succ", "five", "add", "exit"]
+#guard (checkedRegion.bind fun recovered => do
+  let cert := recovered.certificate
+  let initial ← cert.startCode.runLoopFree (model false) .nil
+  (cert.body.runLoopFree (model false) initial).map asList) == some [1, 5]
+
+#guard runFigure6 checkedRelocated 3 == some [15, 3, 3, 15]
+#guard (runFigure6 checkedRelocated 2).isNone
+#guard (checkedRelocated.map fun recovered => opcodes recovered.certificate.step.lower) ==
+  some ["five", "add", "succ"]
+#guard (checkedRelocated.map fun recovered =>
+  let d := recovered.certificate.descriptor
+  ((d.theta.get d.clock).id.val, d.pass.id.val, d.exit.id.val)) == some (8, 9, 6)
+
+#guard (Closed.Automatic.inferRank wrongPass).check wrongPass
+#guard (Closed.Automatic.inferRank wrongClock).check wrongClock
+#guard (Closed.Automatic.extract wrongPass roles).isNone
+#guard (Closed.Automatic.extract wrongClock roles).isNone
+
+private theorem figure6Laws : roles.Laws (model false) :=
+  ⟨rfl, fun _ => rfl, fun _ => rfl⟩
+
+example (recovered : Closed.Automatic.Recovered reduced.candidate roles)
+    (idx : Index 1) (out : Tuple (model false).Value result)
+    (ran : Exec (model false) recovered.certificate.revert .nil (some out)) :
+    source.graph.observe (model false) (values false) idx = out.map (fun _ => some) :=
+  (figure6_rewrites idx).trans (recovered.observe_of_exec figure6Laws .nil idx ran)
+
+private abbrev external : List (Ty Unit) := [.count, .bool, .count, .count]
+private abbrev parameterResults : List (Ty Unit) := .bool :: result
+
+private def parameterSort (i : Fin 16) : Ty Unit :=
+  if i = 3 ∨ i = 14 then .bool else .count
+
+private def c (i : Fin 16) (typed : parameterSort i = .count) : Ref parameterSort .count :=
+  ⟨i, typed⟩
+
+private def two (x y : Ref parameterSort .count) : Tuple (Ref parameterSort) [.count, .count] :=
+  .cons x (.cons y .nil)
+
+-- Clock starts at zero. The accumulator starts at base + delta and
+-- advances by delta plus the old clock. Parameter rows 8 and 15 alias
+-- the same input, with one read inside the loop and one in the readout.
+private def parameterLoop : Graph Op external parameterResults 16 1 where
+  forest := ⟨fun _ => none⟩
+  sort := parameterSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (two (c 1 rfl) (c 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (c 0 rfl) .nil)
+    | 3 => .ofLabel (.op .atLeast) (two (c 0 rfl) (c 6 rfl))
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.theta 0) (two (c 9 rfl) (c 11 rfl))
+    | 6 => .ofLabel (.param .head) .nil
+    | 7 => .ofLabel (.param (.tail (.tail .head))) .nil
+    | 8 => .ofLabel (.param (.tail (.tail (.tail .head)))) .nil
+    | 9 => .ofLabel (.op .add) (two (c 7 rfl) (c 8 rfl))
+    | 10 => .ofLabel (.op .add) (two (c 5 rfl) (c 8 rfl))
+    | 11 => .ofLabel (.op .add) (two (c 10 rfl) (c 0 rfl))
+    | 12 => .ofLabel (.eval 0) (two (c 5 rfl) (c 4 rfl))
+    | 13 => .ofLabel (.op .add) (two (c 12 rfl) (c 15 rfl))
+    | 14 => .ofLabel (.param (.tail .head)) .nil
+    | 15 => .ofLabel (.param (.tail (.tail (.tail .head)))) .nil
+    | ⟨k + 16, bounded⟩ => False.elim (by omega)
+  roots := .cons ⟨14, rfl⟩ (.cons (c 13 rfl) (.cons (c 4 rfl) (two (c 12 rfl) (c 13 rfl))))
+
+private def parameterInputFor (m : Interpretation.{0,0,0} Op) (limit base delta : Nat)
+    (echo : Bool) : Tuple m.Value external :=
+  .cons ⟨limit⟩ (.cons ⟨echo⟩ (.cons ⟨base⟩ (.cons ⟨delta⟩ .nil)))
+
+private abbrev parameterInput := parameterInputFor (model false)
+
+private def inferredParameters := Closed.Automatic.extract parameterLoop roles
+
+private def runParameters (fuel limit delta : Nat) (echo : Bool) : Option (Bool × List Nat) := do
+  let recovered ← inferredParameters
+  let .cons flag counts ←
+    recovered.certificate.runFuel (model false) fuel (parameterInput limit 2 delta echo)
+  return (flag.down, asList counts)
+
+#guard runParameters 0 0 4 false == some (false, [10, 0, 6, 10])
+#guard runParameters 3 3 4 true == some (true, [25, 3, 21, 25])
+#guard runParameters 3 3 1 true == some (true, [10, 3, 9, 10])
+#guard (runParameters 2 3 4 true).isNone
+#guard (inferredParameters.map fun recovered => opcodes recovered.certificate.finish.lower) ==
+  some ["add"]
+
+-- The pass is well-ranked but is outside initializer scope.
+private def earlyPass : Graph Op external parameterResults 16 1 :=
+  { parameterLoop with node := fun i =>
+    if h : i = 5 then h.symm ▸ Node.ofLabel (.theta 0) (two (c 4 rfl) (c 11 rfl))
+    else parameterLoop.node i }
+
+#guard (Closed.Automatic.inferRank earlyPass).check earlyPass
+#guard (Closed.Automatic.extract earlyPass roles).isNone
+
+example (recovered : Closed.Automatic.Recovered parameterLoop roles) (idx : Index 1)
+    (input : Tuple (model false).Value external) (fuel : Nat)
+    (output : Tuple (model false).Value parameterResults)
+    (ran : recovered.certificate.runFuel (model false) fuel input = some output) :
+    parameterLoop.observe (model false)
+      (parameterLoop.denote (model false) input recovered.certificate.demandWellFounded) idx =
+      output.map (fun _ => some) :=
+  recovered.observe_of_exec figure6Laws input idx (recovered.certificate.exec_of_runFuel fuel input ran)
+
+private theorem parameterCounter {m : Interpretation.{0,0,0} Op}
+    {input : Tuple m.Value external} {vs : parameterLoop.Valuation m}
+    (solved : parameterLoop.Solves m input vs) (laws : roles.Laws m) (k : Nat) :
+    Rules.readRef vs (c 0 rfl) (clock k) = some ⟨k⟩ := by
+  induction k with
+  | zero =>
+    rw [Rules.theta_zero solved (r := c 0 rfl) (initial := c 1 rfl) (feedback := c 2 rfl)
+      (loop := 0) HEq.rfl rfl]
+    exact (solved (1, clock 0)).trans laws.zero
+  | succ k ih =>
+    rw [Rules.theta_succ solved (r := c 0 rfl) (initial := c 1 rfl) (feedback := c 2 rfl)
+      (loop := 0) HEq.rfl (k := k) rfl, reset,
+      Rules.unary_at solved (r := c 2 rfl) (arg := c 0 rfl) (op := Op.succ) HEq.rfl,
+      ih]
+    exact laws.tick k
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem parameterPass {m : Interpretation.{0,0,0} Op}
+    {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation m}
+    (solved : parameterLoop.Solves m (parameterInputFor m limit base delta echo) vs)
+    (laws : roles.Laws m)
+    (ge : ∀ k : Nat, m.run Op.atLeast (.cons ⟨k⟩ (.cons ⟨limit⟩ .nil)) =
+      some ⟨decide (limit ≤ k)⟩) (idx : Index 1) :
+    Rules.readRef vs (c 4 rfl) idx = some ⟨limit⟩ := by
+  let predRef : Ref parameterSort .bool := ⟨3, rfl⟩
+  have flags (j : Nat) : Rules.readRef vs predRef (clock j) = some ⟨decide (limit ≤ j)⟩ := by
+    have inputRead : Rules.readRef vs (c 6 rfl) (clock j) = some ⟨limit⟩ :=
+      solved (6, clock j)
+    rw [Rules.at_label solved (r := predRef)
+      (label := .op Op.atLeast) (args := two (c 0 rfl) (c 6 rfl)) HEq.rfl]
+    simp only [Label.interpret, two, collect, portAt, Fin.cases_zero, Fin.cases_succ, Option.elim]
+    have left : Rules.readRef vs ((two (c 0 rfl) (c 6 rfl)).get .head) (clock j) = some ⟨j⟩ :=
+      parameterCounter solved laws j
+    have right : Rules.readRef vs ((two (c 0 rfl) (c 6 rfl)).get (.tail .head))
+        (clock j) = some ⟨limit⟩ := inputRead
+    erw [left, right]
+    exact ge j
+  have samples : (fun j => (Rules.readRef vs predRef (idx.set 0 j)).map ULift.down) =
+      fun j => some (decide (limit ≤ j)) := by
+    funext j
+    rw [reset, flags]
+    rfl
+  rw [Rules.pass_at solved (r := c 4 rfl) (cond := predRef) (loop := 0) HEq.rfl, samples]
+  have first : firstTrue (fun j => some (decide (limit ≤ j))) = some limit :=
+    (PEG.Simple.firstTrue_eq_some_iff_samples _ _).mpr
+      ⟨by simp, fun j lt => by simp [Nat.not_le_of_lt lt]⟩
+  rw [first]
+  rfl
+
+private def accAt (base delta : Nat) : Nat → Nat
+  | 0 => base + delta
+  | k + 1 => accAt base delta k + delta + k
+
+private theorem parameterAccumulator {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation (model false)}
+    (solved : parameterLoop.Solves (model false) (parameterInput limit base delta echo) vs)
+    (k : Nat) :
+    Rules.readRef vs (c 5 rfl) (clock k) = some ⟨accAt base delta k⟩ := by
+  have increment (i : Index 1) : Rules.readRef vs (c 8 rfl) i = some ⟨delta⟩ := solved (8, i)
+  induction k with
+  | zero =>
+    have seed : Rules.readRef vs (c 7 rfl) (clock 0) = some ⟨base⟩ := solved (7, clock 0)
+    rw [Rules.theta_zero solved (r := c 5 rfl) (initial := c 9 rfl) (feedback := c 11 rfl)
+      (loop := 0) HEq.rfl rfl,
+      binary_at solved (r := c 9 rfl) (a := c 7 rfl) (b := c 8 rfl) (op := Op.add) HEq.rfl,
+      seed, increment]
+    rfl
+  | succ k ih =>
+    rw [Rules.theta_succ solved (r := c 5 rfl) (initial := c 9 rfl) (feedback := c 11 rfl)
+      (loop := 0) HEq.rfl (k := k) rfl, reset,
+      binary_at solved (r := c 11 rfl) (a := c 10 rfl) (b := c 0 rfl) (op := Op.add) HEq.rfl,
+      binary_at solved (r := c 10 rfl) (a := c 5 rfl) (b := c 8 rfl) (op := Op.add) HEq.rfl,
+      ih, increment, parameterCounter solved figure6Laws k]
+    rfl
+
+private def parameterOutput (limit base delta : Nat) (echo : Bool) :
+    Tuple (model false).Value parameterResults :=
+  let acc := accAt base delta limit
+  .cons ⟨echo⟩
+    (.cons ⟨acc + delta⟩ (.cons ⟨limit⟩ (.cons ⟨acc⟩ (.cons ⟨acc + delta⟩ .nil))))
+
+private theorem parameterObserved {limit base delta : Nat} {echo : Bool}
+    {vs : parameterLoop.Valuation (model false)}
+    (solved : parameterLoop.Solves (model false) (parameterInput limit base delta echo) vs)
+    (idx : Index 1) :
+    parameterLoop.observe (model false) vs idx =
+      (parameterOutput limit base delta echo).map (fun _ => some) := by
+  have pass := parameterPass solved figure6Laws (fun _ => rfl) idx
+  have sampled : Rules.readRef vs (c 12 rfl) idx = some ⟨accAt base delta limit⟩ := by
+    rw [Rules.eval_at solved (r := c 12 rfl) (source := c 5 rfl) (count := c 4 rfl) (loop := 0)
+      HEq.rfl, pass]
+    change monotonize (fun j => Rules.readRef vs (c 5 rfl) (idx.set 0 j)) limit = _
+    simp only [reset]
+    exact (monotonize_eq_some_iff _ _ _).mpr
+      ⟨parameterAccumulator solved limit, fun j _ => by rw [parameterAccumulator solved]; rfl⟩
+  have inc : Rules.readRef vs (c 15 rfl) idx = some ⟨delta⟩ := solved (15, idx)
+  have sum : Rules.readRef vs (c 13 rfl) idx = some ⟨accAt base delta limit + delta⟩ := by
+    rw [binary_at solved (r := c 13 rfl) (a := c 12 rfl) (b := c 15 rfl) (op := Op.add)
+      HEq.rfl, sampled, inc]
+    rfl
+  have flag : Rules.readRef vs (⟨14, rfl⟩ : Ref parameterSort .bool) idx = some ⟨echo⟩ :=
+    solved (14, idx)
+  change Tuple.cons (F := fun t => Option ((model false).Value t))
+    (Rules.readRef vs (⟨14, rfl⟩ : Ref parameterSort .bool) idx)
+    (.cons (Rules.readRef vs (c 13 rfl) idx) (.cons (Rules.readRef vs (c 4 rfl) idx)
+      (.cons (Rules.readRef vs (c 12 rfl) idx) (.cons (Rules.readRef vs (c 13 rfl) idx) .nil)))) = _
+  rw [flag, sum, pass, sampled]
+  rfl
+
+private theorem parameterTotal : ∀ {ins out} (op : Op ins out) args,
+    ∃ val, (model false).run op args = some val
+  | _, _, .zero, .nil => ⟨_, rfl⟩
+  | _, _, .five, .nil => ⟨_, rfl⟩
+  | _, _, .succ, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .exit, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .negate, .cons _ .nil => ⟨_, rfl⟩
+  | _, _, .atLeast, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .add, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+  | _, _, .mul, .cons _ (.cons _ .nil) => ⟨_, rfl⟩
+
+private def isPass {t : Ty Unit} (row : Node Op external (Fin 1) parameterSort t) : Bool :=
+  match t, row with
+  | .count, ⟨_, .pass _, _⟩ => true
+  | _, _ => false
+
+private theorem isPass_cast {a b : Ty Unit} (h : a = b)
+    (row : Node Op external (Fin 1) parameterSort a) : isPass (h ▸ row) = isPass row := by
+  cases h
+  rfl
+
+private theorem parameterPassRef {r : Ref parameterSort .count} {guard : Ref parameterSort .bool}
+    (wired : Closed.nodeAt parameterLoop r = .ofLabel (.pass 0) (.cons guard .nil)) :
+    r = c 4 rfl := by
+  have shape (i : Fin 16) : isPass (parameterLoop.node i) = decide (i = 4) := by
+    fin_cases i <;> rfl
+  have label : isPass (parameterLoop.node r.id) = true :=
+    (isPass_cast r.typed (parameterLoop.node r.id)).symm.trans (congrArg isPass wired)
+  have addr := of_decide_eq_true ((shape r.id).symm.trans label)
+  obtain ⟨i, typed⟩ := r
+  change i = 4 at addr
+  subst i
+  rfl
+
+private theorem runFromPEG (recovered : Closed.Automatic.Recovered parameterLoop roles)
+    (limit base delta : Nat) (echo : Bool) :
+    recovered.certificate.runFuel (model false) limit (parameterInput limit base delta echo) =
+      some (parameterOutput limit base delta echo) := by
+  let cert := recovered.certificate
+  let inputs := parameterInput limit base delta echo
+  have solved := parameterLoop.denote_solves (model false) inputs cert.demandWellFounded
+  have pass : cert.FirstExit (model false)
+      (parameterLoop.denote (model false) inputs cert.demandWellFounded) (clock 0) limit := by
+    unfold Closed.Accepted.FirstExit
+    rw [parameterPassRef cert.boundary.pass]
+    exact parameterPass solved figure6Laws (fun _ => rfl) _
+  exact recovered.runFuel_of_firstExit figure6Laws (cert.total_of_primitives parameterTotal)
+    inputs (clock 0) limit pass (parameterObserved solved _)
+
+/-- Each successful discovery carries a SIMPLE derivation proved from
+the PEG pass and ordered observations. -/
+private def certifiedParameterRun (limit base delta : Nat) (echo : Bool) :
+    Option {a : Closed.Automatic.Recovered parameterLoop roles //
+      Exec (model false) a.certificate.revert (parameterInput limit base delta echo)
+        (some (parameterOutput limit base delta echo))} :=
+  inferredParameters.map fun a =>
+    ⟨a, a.certificate.exec_of_runFuel limit _ (runFromPEG a limit base delta echo)⟩
+
+#guard (certifiedParameterRun 0 2 4 false).isSome
+#guard (certifiedParameterRun 3 2 4 true).isSome
+
+-- Returning only the pass leaves the accumulator unobserved in Figure 11.
+-- SIMPLE still commits the entire vector, whose first update adds 6 and 4.
+private def passOnly := parameterLoop.withRoots (.cons (c 4 rfl) .nil)
+
+private def partialUpdate : Interpretation.{0,0,0} Op where
+  carrier := (model false).carrier
+  run instr args := match instr, args with
+    | .add, .cons a (.cons b .nil) =>
+      if a.down = 6 ∧ b.down = 4 then none else some ⟨a.down + b.down⟩
+    | instr, args => (model false).run instr args
+
+private abbrev partialInput := parameterInputFor partialUpdate 3 2 4 true
+
+private noncomputable def partialValues (a : Closed.Automatic.Recovered passOnly roles) :=
+  passOnly.denote partialUpdate partialInput a.certificate.demandWellFounded
+
+private theorem partialPass (a : Closed.Automatic.Recovered passOnly roles) :
+    Rules.readRef (partialValues a) (c 4 rfl) (clock 0) = some ⟨3⟩ :=
+  parameterPass (passOnly.denote_solves partialUpdate partialInput a.certificate.demandWellFounded)
+    (⟨rfl, fun _ => rfl, fun _ => rfl⟩ : roles.Laws partialUpdate) (fun _ => rfl) (clock 0)
+
+private theorem partialObservations (a : Closed.Automatic.Recovered passOnly roles) :
+    a.certificate.FirstExit partialUpdate (partialValues a) (clock 0) 3 ∧
+    passOnly.observe partialUpdate (partialValues a) (clock 0) = .cons (some ⟨3⟩) .nil := by
+  refine ⟨?_, ?_⟩
+  · unfold Closed.Accepted.FirstExit
+    rw [parameterPassRef a.certificate.boundary.pass]
+    exact partialPass a
+  · change Tuple.cons (F := fun t => Option (partialUpdate.Value t))
+      (Rules.readRef (partialValues a) (c 4 rfl) (clock 0)) .nil = _
+    rw [partialPass]
+
+private theorem noSuccessfulRun (a : Closed.Automatic.Recovered passOnly roles)
+    {store : Tuple partialUpdate.Value a.certificate.storeTypes}
+    (start : a.certificate.startCode.runLoopFree partialUpdate partialInput = some store)
+    (test : a.certificate.test.eval partialUpdate store = some ⟨true⟩)
+    (update : a.certificate.body.runLoopFree partialUpdate store = none) :
+    ¬ ∃ out, Exec partialUpdate a.certificate.revert partialInput (some out) := by
+  rintro ⟨_, ran⟩
+  have failure : Exec partialUpdate a.certificate.revert partialInput none :=
+    .seq (start ▸ a.certificate.startCode.runLoopFree_enableWhile partialInput)
+      (.firstFailed (.whileBodyFailed test (update ▸ a.certificate.body.runLoopFree_enableWhile store)))
+  have impossible := Exec.deterministic failure ran
+  cases impossible
+
+private def partialCounterexample :
+    Option {a : Closed.Automatic.Recovered passOnly roles //
+      (a.certificate.FirstExit partialUpdate (partialValues a) (clock 0) 3 ∧
+        passOnly.observe partialUpdate (partialValues a) (clock 0) = .cons (some ⟨3⟩) .nil) ∧
+        ¬ ∃ out, Exec partialUpdate a.certificate.revert partialInput (some out)} := do
+  let a ← Closed.Automatic.extract passOnly roles
+  match start : a.certificate.startCode.runLoopFree partialUpdate partialInput with
+  | none => none
+  | some store =>
+    match test : a.certificate.test.eval partialUpdate store with
+    | some ⟨true⟩ =>
+      match update : a.certificate.body.runLoopFree partialUpdate store with
+      | none => some ⟨a, partialObservations a, noSuccessfulRun a start test update⟩
+      | some _ => none
+    | _ => none
+
+#guard partialCounterexample.isSome
 
 private def wrongAdd : Interpretation.{0,0,0} Op where
   carrier := (model false).carrier
@@ -1552,3 +2109,347 @@ example : Law wrongAdd Op.five Op.mul ∧ ¬ Nonempty (StrengthReduction.Law wro
   omega
 
 end Silmaril.SSA.Peggy.Worked.EvalScale.Tests
+
+namespace Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests
+
+open RVSDG (Port Tuple)
+open Simple.Revert.While.Region
+
+private inductive Op : InstructionSet Unit where
+  | zero : Op [] .count
+  | succ : Op [.count] .count
+  | atLeast : Op [.count, .count] .bool
+  | add : Op [.count, .count] .count
+  | not : Op [.bool] .bool
+  deriving DecidableEq
+
+private def model : Interpretation Op where
+  carrier _ := Unit
+  run
+    | .zero, .nil => some ⟨0⟩
+    | .succ, .cons n .nil => some ⟨n.down + 1⟩
+    | .atLeast, .cons a (.cons b .nil) => some ⟨decide (b.down ≤ a.down)⟩
+    | .add, .cons a (.cons b .nil) => some ⟨a.down + b.down⟩
+    | .not, .cons b .nil => some ⟨!b.down⟩
+
+private abbrev inputs := ([.count, .count] : List (Ty Unit))
+private abbrev outputs := ([.count, .count, .count, .count] : List (Ty Unit))
+
+private def pair {F : Ty Unit → Type} (a b : F .count) : Tuple F inputs :=
+  .cons a (.cons b .nil)
+
+private def four {F : Ty Unit → Type} (a b c d : F .count) : Tuple F outputs :=
+  .cons a (.cons b (pair c d))
+
+private def stageSort (i : Fin 9) : Ty Unit := if i = 3 then .bool else .count
+private def s (i : Fin 9) (h : stageSort i = .count) : Ref stageSort .count := ⟨i, h⟩
+
+-- The first stage returns succ(eval clock), the forwarded seed, the
+-- pass count, and a repeated first result. The second uses the first
+-- result as its limit and adds the seed to its own final counter.
+private def stage (second : Bool) : Graph Op inputs outputs 9 1 where
+  forest := ⟨fun _ => none⟩
+  sort := stageSort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair (s 1 rfl) (s 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (s 0 rfl) .nil)
+    | 3 => .ofLabel (.op .atLeast) (pair (s 0 rfl) (s 6 rfl))
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (pair (s 0 rfl) (s 4 rfl))
+    | 6 => .ofLabel (.param .head) .nil
+    | 7 => .ofLabel (.param (.tail .head)) .nil
+    | 8 =>
+      if second then .ofLabel (.op .add) (pair (s 5 rfl) (s 7 rfl))
+      else .ofLabel (.op .succ) (.cons (s 5 rfl) .nil)
+  roots := if second then four (s 8 rfl) (s 4 rfl) (s 6 rfl) (s 8 rfl)
+    else four (s 8 rfl) (s 7 rfl) (s 4 rfl) (s 8 rfl)
+
+private def sort (i : Fin 16) : Ty Unit := if i = 3 ∨ i = 12 then .bool else .count
+private def r (i : Fin 16) (h : sort i = .count) : Ref sort .count := ⟨i, h⟩
+
+-- These are the actual original wires. The second guard uses row 8,
+-- which is the first stage's computed exit observation. Row 7 is shared.
+private def graph : Graph Op inputs outputs 16 2 where
+  forest := ⟨fun _ => none⟩
+  sort := sort
+  node i := match i with
+    | 0 => .ofLabel (.theta 0) (pair (r 1 rfl) (r 2 rfl))
+    | 1 => .ofLabel (.op .zero) .nil
+    | 2 => .ofLabel (.op .succ) (.cons (r 0 rfl) .nil)
+    | 3 => .ofLabel (.op .atLeast) (pair (r 0 rfl) (r 6 rfl))
+    | 4 => .ofLabel (.pass 0) (.cons ⟨3, rfl⟩ .nil)
+    | 5 => .ofLabel (.eval 0) (pair (r 0 rfl) (r 4 rfl))
+    | 6 => .ofLabel (.param .head) .nil
+    | 7 => .ofLabel (.param (.tail .head)) .nil
+    | 8 => .ofLabel (.op .succ) (.cons (r 5 rfl) .nil)
+    | 9 => .ofLabel (.theta 1) (pair (r 10 rfl) (r 11 rfl))
+    | 10 => .ofLabel (.op .zero) .nil
+    | 11 => .ofLabel (.op .succ) (.cons (r 9 rfl) .nil)
+    | 12 => .ofLabel (.op .atLeast) (pair (r 9 rfl) (r 8 rfl))
+    | 13 => .ofLabel (.pass 1) (.cons ⟨12, rfl⟩ .nil)
+    | 14 => .ofLabel (.eval 1) (pair (r 9 rfl) (r 13 rfl))
+    | 15 => .ofLabel (.op .add) (pair (r 14 rfl) (r 7 rfl))
+    | ⟨k + 16, bound⟩ => False.elim (by omega)
+  roots := four (r 15 rfl) (r 13 rfl) (r 8 rfl) (r 15 rfl)
+
+private def layout : Layout graph (stage false) (stage true) where
+  first i := match i with
+    | 0 => r 0 rfl
+    | 1 => r 1 rfl
+    | 2 => r 2 rfl
+    | 3 => ⟨3, rfl⟩
+    | 4 => r 4 rfl
+    | 5 => r 5 rfl
+    | 6 => r 6 rfl
+    | 7 => r 7 rfl
+    | 8 => r 8 rfl
+  second i := match i with
+    | 0 => r 9 rfl
+    | 1 => r 10 rfl
+    | 2 => r 11 rfl
+    | 3 => ⟨12, rfl⟩
+    | 4 => r 13 rfl
+    | 5 => r 14 rfl
+    | 6 => r 8 rfl
+    | 7 => r 7 rfl
+    | 8 => r 15 rfl
+  inputs := pair (r 6 rfl) (r 7 rfl)
+  route := pair .head (.tail .head)
+
+private def rank : DemandRank 16 2 :=
+  [.phase (fun i => if 9 ≤ i.val then 1 else 0),
+   .phase (fun i => match i.val with
+      | 8 | 15 => 3 | 5 | 14 => 2 | 4 | 13 => 1 | _ => 0),
+   .counter 0, .counter 1,
+   .phase (fun i => match i.val with | 2 | 3 | 11 | 12 => 2 | 0 | 9 => 1 | _ => 0)]
+
+private def roles : Closed.Automatic.Roles Op := ⟨.zero, .succ, .not⟩
+private theorem laws : roles.Laws model := ⟨rfl, fun _ => rfl, fun _ => rfl⟩
+
+private structure Linked where
+  first : Closed.Automatic.Recovered (stage false) roles
+  second : Closed.Automatic.Recovered (stage true) roles
+  accepted : Accepted graph first.certificate second.certificate
+
+private def linked (d : Layout graph (stage false) (stage true)) : Option Linked := do
+  let first ← Closed.Automatic.extract (stage false) roles
+  let second ← Closed.Automatic.extract (stage true) roles
+  let accepted ← check graph first.certificate second.certificate d rank
+  return ⟨first, second, accepted⟩
+
+private def input (limit : Nat) : Tuple model.Value inputs := pair ⟨limit⟩ ⟨10⟩
+
+private def run (fuel₁ fuel₂ limit : Nat) : Option (List Nat) := do
+  let a ← linked layout
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.accepted.runFuel model fuel₁ fuel₂ (input limit)
+  return [x.down, y.down, z.down, w.down]
+
+private def runFirst : Option (List Nat) := do
+  let a ← linked layout
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.first.certificate.runFuel model 2 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runFirst == some [3, 10, 2, 3]
+#guard rank.check graph
+#guard run 2 3 2 == some [13, 3, 3, 13]
+#guard (run 1 3 2).isNone
+#guard (run 2 2 2).isNone
+#guard run 1 2 1 == some [12, 2, 2, 12]
+-- Both arguments are counts, so a type-only check would allow this swap.
+#guard (linked { layout with route := pair (.tail .head) .head }).isNone
+
+private def certifiedRun :
+    Option {a : Linked //
+      Exec model a.accepted.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ idx, ∃ mid, a.accepted.Observations model
+        (graph.denote model (input 2) a.accepted.demandWellFounded) idx mid (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)} := do
+  let a ← linked layout
+  match result : a.accepted.runFuel model 2 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    have ran := a.accepted.exec_of_runFuel 2 3 (input 2) result
+    return ⟨a, ran, fun idx => a.accepted.observations_of_exec
+      (a.first.laws laws) (a.second.laws laws) (input 2) idx ran⟩
+  | _ => none
+
+#guard certifiedRun.isSome
+
+open Simple.Revert.Schedule (Plan)
+
+private structure Scheduled where
+  accepted : Simple.Revert.Schedule.Accepted graph
+  laws : accepted.plan.Laws model
+
+private def schedule (d : Layout graph (stage false) (stage true)) : Option Scheduled := do
+  let first ← Closed.Automatic.extract (stage false) roles
+  let second ← Closed.Automatic.extract (stage true) roles
+  let a : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage false, .closed first.certificate, d.first, fun _ => 0⟩
+  let b : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage true, .closed second.certificate, d.second, fun _ => 1⟩
+  let plan : Plan graph inputs outputs :=
+    .step (ports inputs) a (.step d.route b (.done (ports outputs)))
+  let accepted ← Simple.Revert.Schedule.check graph plan d.inputs rank
+  return ⟨accepted.val, accepted.property.symm ▸
+    (show plan.Laws model from ⟨first.laws laws, second.laws laws, trivial⟩)⟩
+
+private def scheduleRun :
+    Option {a : Scheduled //
+      Exec model a.accepted.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.accepted.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let a ← schedule layout
+  match ran : a.accepted.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    have exec := a.accepted.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.accepted.observations_of_exec a.laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard scheduleRun.isSome
+#guard (schedule { layout with route := pair (.tail .head) .head }).isNone
+
+open Simple.Revert.Schedule.Automatic (Leaf Found Rejection discover)
+
+-- Submit the leaves in reverse order. Neither has original addresses or
+-- a choice of handoff ports from the other leaf.
+private def inferPlan (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) : Except Rejection (Found original (.counted roles) ranking) := do
+  let some first := Leaf.closed roles (stage false) | throw .noPlan
+  let some second := Leaf.closed roles (stage true) | throw .noPlan
+  discover original (.counted roles) ranking [second, first] budget
+
+private def inferredRun :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := inferPlan graph rank 1000 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard inferredRun.isSome
+
+-- Select a nonidentity final projection, taking some of the leaf's
+-- outputs twice and dropping the pass count.
+private def inferReordered : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := inferPlan original rank 1000 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard inferReordered == some [3, 13, 13, 3]
+
+-- The second guard uses the original limit, which the first stage no
+-- longer exposes. The edge is well typed and the graph still checks.
+private def staleBoundary : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 6 rfl))
+      else graph.node i }
+
+#guard rank.check staleBoundary
+#guard match inferPlan staleBoundary rank 10000 with | .error .noPlan => true | _ => false
+#guard match inferPlan graph rank 1 with | .error .budget => true | _ => false
+#guard match inferPlan graph [] 1000 with | .error .invalidRank => true | _ => false
+
+open Simple.Revert.Schedule.Automatic
+
+-- Only cuts and exported PEG rows. The second candidate comes first,
+-- and its limit comes from the first candidate's actual loop result.
+private def cutCandidates (original : Graph Op inputs outputs 16 2) (sorts : original.sort = sort) :
+    List (Cuts.Boundary original) :=
+  let first : Cuts.Boundary original :=
+    ⟨inputs, inputs, sorts.symm ▸ pair (r 6 rfl) (r 7 rfl), sorts.symm ▸ pair (r 8 rfl) (r 7 rfl)⟩
+  let second : Cuts.Boundary original :=
+    ⟨inputs, outputs, sorts.symm ▸ pair (r 8 rfl) (r 7 rfl), sorts.symm ▸ graph.roots⟩
+  [second, first]
+
+private def runFromCuts :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 10 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runFromCuts.isSome
+
+private def runFromPermutedRoots : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := Cuts.discover original (.counted roles) rank (cutCandidates original rfl) 10 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runFromPermutedRoots == some [3, 13, 13, 3]
+
+#guard match Cuts.discover staleBoundary (.counted roles) rank (cutCandidates staleBoundary rfl) 10 with
+  | .error (.unsupported 0 .coverage) => true
+  | _ => false
+
+#guard match Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 1 with
+  | .error (.schedule .budget) => true
+  | _ => false
+
+-- Both parentless keys are visible when the handoff is left uncut.
+#guard match Cuts.synthesize graph (.counted roles) rank
+    ⟨inputs, outputs, pair (r 6 rfl) (r 7 rfl), graph.roots⟩ with
+  | .error .loopShape => true
+  | _ => false
+
+private def graphOnly (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) :=
+  Simple.Revert.Schedule.Automatic.Siblings.discover original roles ranking budget
+
+-- The seed (7) is forwarded by the first stage. Its own output (8)
+-- drives the second guard and is also part of the final return.
+#guard match Simple.Revert.Schedule.Automatic.Siblings.inferBoundaries graph with
+  | .ok [a, b] =>
+    refNumbers a.inputs == [6, 7] && refNumbers a.outputs == [7, 8] &&
+      refNumbers b.inputs == [7, 8] && refNumbers b.outputs == [8, 13, 15]
+  | _ => false
+
+private def runGraphOnly :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := graphOnly graph rank 2 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runGraphOnly.isSome
+
+private def runGraphOnlyRenumbered : Option (List Nat) := do
+  let keys : Equiv.Perm (Fin 2) := Equiv.swap 0 1
+  let original := (graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))).reindex (Equiv.refl _) keys
+  let .ok a := graphOnly original (rank.reindex (Equiv.refl _) keys) 2 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runGraphOnlyRenumbered == some [3, 13, 13, 3]
+
+-- The second guard now consumes the live recurrence instead of a
+-- completed readout. It has the same sort and still passes the rank.
+private def liveSiblingCapture : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 0 rfl))
+      else graph.node i }
+
+#guard rank.check liveSiblingCapture
+#guard match graphOnly liveSiblingCapture rank 2 with
+  | .error (.iterationValue 0) => true
+  | _ => false
+#guard match graphOnly graph rank 1 with
+  | .error (.checkedCuts (.schedule .budget)) => true
+  | _ => false
+
+end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests

@@ -25,6 +25,13 @@ variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [B
 variable {A : τ}
 variable (s : Loop Φ ε A)
 
+/-- The actual numbered table agrees with iteration of the typed activation
+at its carried value and live-token boundary. -/
+theorem Loop.step_observe (pureFirst : Bool) (input : TyDen A) (initial : σ) :
+    NestedTheta.Partial.observe (model (Φ := Φ) (ε := ε) (σ := σ)) (s.compile pureFirst) (point input initial) =
+      Part.map (fun (output, final) => point output final) ((iter (s.step (σ := σ)) input).run initial) :=
+  Proofs.graph_observe s pureFirst input initial
+
 theorem Loop.region_denote
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u})) (env : Env [A]) :
     Region.denote (ε := ε) (m := StateT σ Part.{u}) s.typing env =

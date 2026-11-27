@@ -24,6 +24,17 @@ theorem Program.merge_bank (old : Bank (regs := regs) m) (occurrence : Occurrenc
     p.mergeBank m old occurrence = (p.pathQuads occurrence).eval m old :=
   Proofs.merge_bank p m old occurrence
 
+/-- If the inner targets coincide, disjointness forces both transfers to
+enter the merge directly. The post-inner test still selects an outgoing slot,
+and either slot carries the post-inner bank after exactly two visits. -/
+theorem Program.parallel_inner_merge (same : p.onInnerTrue = p.onInnerFalse) (old : Bank (regs := regs) m)
+    (outerTaken : (((src p.header).body.eval m old).get p.outerTest).down = true) :
+    let inner := (src p.inner).body.eval m ((src p.header).body.eval m old)
+    let occurrence := p.selected m old
+    p.incomingEdge occurrence = (p.inner, if (inner.get p.innerTest).down then 0 else 1) ∧
+      p.mergeBank m old occurrence = inner ∧ p.mergeVisits occurrence = 2 :=
+  Proofs.parallel_inner_merge p m same old outerTaken
+
 /-- The original source execution enters the merge with the selected
 column's bank and exactly the visits remaining after the chosen path. -/
 theorem Program.run_to_merge (old : Bank (regs := regs) m) (fuel : Nat) :

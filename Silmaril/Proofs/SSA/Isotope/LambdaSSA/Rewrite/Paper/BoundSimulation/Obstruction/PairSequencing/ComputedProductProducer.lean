@@ -69,7 +69,7 @@ private theorem productDestructure_same {Γ L : List (Ty Atom)} {r s : Region Op
 private theorem productJoin_same {Γ L : List (Ty Atom)} {r s : Region Op}
     (eq : Paper.Extension.Eqv Seed Γ r s L) : SameWith productObservation Γ r s :=
   extension_same (fun step =>
-    step.elim (computedCallSeed_same rfl rfl (fun call => computedCall_same call)) productDestructure_same) eq
+    step.elim (computedCallSeed_same rfl rfl rfl (fun call => computedCall_same call)) productDestructure_same) eq
 
 private theorem env_typed : EnvTy [Payload] (fun _ => .unit) := by
   intro i A atInput

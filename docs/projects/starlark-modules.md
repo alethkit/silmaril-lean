@@ -29,7 +29,11 @@ and the same linked function-declaration table. An imported value retains
 its address, so calling an imported closure uses that closure's original
 global slots. A missing catalog entry and a missing exported name are
 distinct failures. Private import names are rejected during validation.
-A single load resolves all its requested exports before binding their aliases.
+A single load calls the host once and looks up its requested exports from
+right to left, following the pinned Starlark-Go `LOAD` instruction. It writes
+aliases in that same order after every lookup succeeds. If more than one export
+is missing, the rightmost missing source item is the reached error and none of
+the command's aliases are written.
 [Load statements][loading] · [Lexical calls](starlark-functions.md)
 
 A new module begins with fresh slots and no inherited active iterators.
@@ -972,8 +976,9 @@ caller on failure.
 
 Callable provenance from parameters, captures, module names, heap
 reads or returned values, calls through untracked values, other
-expression positions, spreads, keyword collection, general dispatch,
-loads, text parsing and module publication remain outside the profile.
+expression positions, untracked dispatch, loads and text parsing
+remain outside the suite profile. The load-free module theorem below
+connects this suite to publication.
 [Provenance rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Checks.lean) · [Pinned Go comparison](../../scripts/starlark/forwarded-default/check.go)
 
 ### Explicit named arguments at tracked local calls
@@ -989,14 +994,14 @@ cells. Its body runs under the existing declaration guard.
 
 For a signature without a positional collector, the independent
 binder checks positional overflow before delivering keyword values
-to formal slots in source order. An unknown
-name or a parameter already filled by another operand ends delivery.
-Saved defaults fill the remaining slots and the binder then reports
-missing required parameters in declaration order. Agreement with
-`bindArguments` is exact for the admitted signatures without
-keyword collection. Binding failure
-allocates no activation. A reached operand failure takes precedence
-over any binding failure and preserves earlier allocations.
+to formal slots in source order. A parameter already filled by another
+operand ends delivery. An unknown name also ends delivery when the
+signature has no keyword collector. Saved defaults fill the remaining
+slots and the binder then reports missing required parameters in
+declaration order. Agreement with `bindArguments` is exact for the
+admitted signatures. Binding failure allocates no activation. A
+reached operand failure takes precedence over any binding failure
+and preserves earlier allocations.
 
 Repeated names in the explicit syntax fail validation even when an
 operand would fail at runtime. Supplying an ordinary parameter
@@ -1011,8 +1016,9 @@ Pinned Go has a separate nullary diagnostic for supplied arguments.
 When a call supplies only keywords to a zero-parameter function,
 the Lean binder reports the unexpected name. Both reject before
 running the body. The Go comparison uses valid identifiers and
-stays within Go's per-kind explicit operand count limits. Spreads,
-arbitrary dispatch and module publication remain separate.
+stays within Go's per-kind explicit operand count limits. The checked
+positional spread profile is described below. Arbitrary dispatch and
+module publication remain separate.
 [Named rules and theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go validation](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512)
 
 ### Keyword-only parameters in checked local suites
@@ -1077,9 +1083,355 @@ cover omitted binding, a reached operand failure and a reached body
 failure. Lean checks ordered retained allocations, the empty tuple key,
 the exact packed contents and restored caller state. The requirements
 and Go differences for bare `*` and nullary calls remain as documented
-above. Keyword collection, call-site spreads, general dispatch and
-module publication remain outside this proof.
+above. Keyword collection composes with this profile as described below.
 [Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/VarargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go binding](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1384-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal keyword collection in checked local suites
+
+A checked nested definition can declare terminal `**kwargs` with or
+without named `*args`. The independent header emits the keyword
+collector at the final parameter slot, after all ordinary slots and any
+positional collector. Definition-time defaults keep their existing order
+and scope.
+
+The independent binder first delivers explicit names to matching
+ordinary positional or keyword-only formals and rejects a second value
+for an already supplied formal. It records unmatched names and values
+in encounter order, fills omitted ordinary formals with saved defaults,
+and checks required formals before packing. The exact surplus theorem
+identifies the unmatched subsequence of the explicit operands, including
+the original references. On success the keyword collector receives a
+fresh unfrozen dictionary, including when that subsequence is empty.
+When both collectors exist, the tuple is allocated first and the
+dictionary occupies the next address.
+
+The guarded suite theorem agrees exactly with resolved execution and
+denotation. Operand and binding errors leave the reached state before
+packing. A reached body error retains both packs and earlier body
+effects, restores the caller, and skips the destination and suite tail.
+The Lean controls check those states and the resolved collector slot.
+Pinned Go checks ordered dictionary items, aliased values, distinct
+empty dictionaries, saved defaults and an explicit override with
+`*args`, and errors before the continuation. Repeated explicit names
+are rejected statically, including when they would be unmatched. A
+positional and named actual for the same ordinary parameter conflict
+at runtime, before a missing-formal error.
+
+Pinned Go creates its private collector objects during binding, with
+the dictionary first when both are present. The Lean heap commits the
+tuple and dictionary only after successful binding. The differential
+checks compare visible results and errors. Allocation order and the
+absence of packs in the residual Lean heap are properties of the Lean
+model. The earlier bare-star and nullary diagnostic differences still
+apply. The checked positional and mapping call-site spreads below
+compose with this binder. Arbitrary dispatch and module publication
+remain outside this checked suite theorem.
+[Binder and packing theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/KwargsChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Pinned Go binder](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1418-L1512) · [Go controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal positional spread in checked local suites
+
+A tracked-local call assignment can supply a single `*` operand
+after all explicit positional and named arguments. The normalized
+shape has one optional positional spread field. It admits direct
+list and tuple displays of checked body operands, including reads of
+live references, and an integer literal as a noniterable control.
+The pinned prose and Go resolver require the same placement, reject
+a second positional spread, and reject explicit arguments after it.
+
+The independent argument rules derive the callee read, ordered
+explicit operands and reached terminal operand before binding.
+The display evaluates its elements left to right and allocates the
+ordinary list or tuple. Expansion then reads its exact element
+sequence with the original references and appends that sequence to
+the explicit positional prefix. It adds no heap cell. The existing
+binder delivers fixed positional and named arguments, saved defaults
+and `*args` from those actuals. Lean proves agreement with resolved
+execution and denotation, including the retained heap and restored
+caller in the same guarded suite.
+
+A reached operand error skips the rest of the operand phase. Once
+all operands and any mapping key validation succeed, a noniterable
+positional spread fails before binding or packing, even if those
+arguments would conflict. A binding error
+after successful expansion retains the allocated display and prior
+effects. These errors skip the destination and suite tail. Pinned
+Go controls check order, alias identity, saved defaults, positional
+and variadic delivery, and error precedence. The exact layout and
+residual private heap are Lean observations.
+
+An arbitrary spread expression yielding a list or tuple needs
+evidence of its reached carrier kind to enter this proof. Other
+iterable carriers, general dispatch and module publication remain
+separate.
+[Call theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/SpreadChecks.lean) · [Pinned spec](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1650-L1727) · [Go call instruction](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L380) · [Differential controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Terminal mapping spread in checked local suites
+
+The normalized call has one optional `**` field after explicit
+positional and named arguments and any positional `*` field. The
+pinned prose describes argument evaluation in source order and dynamic
+errors for explicit names repeated by a mapping. The pinned Go resolver
+requires this terminal placement and rejects a repeated `**` field.
+The checked mapping operand is a direct dictionary display of checked
+body operands and string literals.
+
+The dictionary display allocates its own cell, then evaluates each key
+and value from left to right and checks that pair before the next. A
+reached operand or display error stops the call before expansion.
+After every operand succeeds, expansion reads the mapping entries in
+insertion order and validates that every key is a string. It keeps the
+original value references and appends the resulting pairs after
+explicit names. Mapping validation precedes positional expansion,
+even though the positional spread operand evaluates first.
+
+The ordinary binder runs after both expansions. It checks fixed-slot
+and collector conflicts, including duplicates between explicit names
+and spread entries. A duplicate dictionary display key fails earlier,
+during display insertion. The source, resolved operational and
+denotational paths agree on the exact error and retained heap. A
+binding error keeps the display but skips both collectors and the
+callee. A body error retains the display, reached packs and earlier
+body effects, restores the caller, and skips the destination and tail.
+
+The pinned Go comparisons cover empty and ordered mappings, alias
+identity, fixed and collected delivery, and reached error precedence
+with both spreads. Go's duplicate-display instruction checks uniqueness
+after setting the entry in its private temporary. Lean rejects without
+replacing the accepted prefix. The differential checks compare visible
+errors and effects, while the Lean checks inspect that private prefix and
+the exact retained state. Arbitrary carrier expressions and untracked
+dispatch remain separate. The module theorem below uses the same
+argument rules for reached global aliases.
+[Call and mapping theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Named/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/MappingChecks.lean) · [Pinned prose](https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions) · [Go resolver](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L737-L798) · [Go call instruction](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L380) · [Go dictionary insertion](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L487) · [Differential controls](../../scripts/starlark/forwarded-default/check.go)
+
+### Checked source calls through module publication
+
+The checked load-free plan composes source definition, assignment,
+closure copy and call assignment across an arbitrary finite command
+sequence in this profile. Its global declarations come from the source
+binder order. Each root is linked to the declaration index following
+its checked recursive suite's emissions. Later definitions preserve
+the earlier table entries.
+
+At module entry, the proof derives the global cells and their distinct
+addresses. At a reached definition it selects the module captures
+from those live cells, evaluates defaults in the defining frame, and
+keeps the saved values and captured addresses in the installed closure
+record. The invariant relates each tracked global or explicit alias to
+its actual reached record. Calls through that invariant use the same
+lexical read, argument, binder, collector and guarded activation rules
+as local calls. A write may update a captured binding while preserving
+its address.
+
+`module_agrees` derives the independent source command trace and the
+same resolved operational trace. The existing exact initialization
+result then gives ordered public exports and the reachable frozen heap,
+or the first reached error with the exact retained heap and restored
+caller. The proof begins at actual module entry and uses the checked
+normalized resolver. The premises contain independent source plans and
+checked resolution. They require no reached closure, frame, binder or
+body-execution witnesses.
+
+The Lean and pinned Go checks publish a capturing function and its
+alias after a call using named arguments and both spreads. The captured
+global is initialized after the function is defined. The checks also
+distinguish a duplicate binding before packing from an error in the
+body after packing. Lean observes the captured global slot and exact
+residual allocations. Publication freezes the reachable values and
+leaves the module binding cell itself outside closure-local freezing.
+
+[Module theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Checks.lean) · [Pinned Go controls](../../scripts/starlark/published-checked/check.go)
+
+## Callable returns through module publication
+
+A checked suite can certify a terminal return of a tracked local. The
+same suite induction derives the value from its reached slot and the
+closure record from its reached heap. A separate source-order argument
+links the returned declaration and its independently checked body to
+the final table. Definitions and local copies establish the tracking
+evidence. Rebinding a destination updates or clears its entry.
+
+The module plan can store the resulting callable, copy it to another
+global and call it with explicit arguments and both checked spreads.
+Caller restoration keeps the reached heap. The closure retains the
+addresses of its enclosing and defining-module cells and the values
+saved at definition time. When initialization succeeds, the theorem
+relates each tracked public export to its linked declaration and its
+original closure record in the frozen heap. The first reached error
+retains the exact residual heap and restores the caller without
+publishing the module.
+
+Lean and pinned Go controls cover a factory that copies its child and
+returns the copy. The child saves an enclosing local as a default,
+observes that local's later rebinding and reads a global initialized
+after the factory call. A call through a module alias reaches both
+spreads. An alternate mapping entry makes indexing fail after the
+child's first allocation. Lean checks the retained packs and
+allocations, restored caller, and skipped result assignment and tail.
+Go checks visible effects, saved and live values, and the publication
+freeze.
+
+The checked profile still starts from a load-free normalized module.
+Only a terminal return of a tracked local transfers callable
+provenance, and the returned declaration's body uses the existing suite
+profile. The [checked import profile](#checked-callable-imports) carries an
+escaped closure through a single producer-to-consumer load. General
+carriers, untracked dispatch and broader command and body forms remain
+open.
+[Return theorem](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Defaults/Nested/Sequence/Recursive/Call/Suite/Provenance/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/escaped-checked/check.go)
+
+## Checked callable imports
+
+The checked graph has a load-free normalized producer and one
+normalized consumer. The consumer renames a single public import and
+executes a finite suite of ordinary name assignments and calls through
+tracked names. The producer emits the shared declaration table. The
+consumer's checked elaboration preserves that table and derives its
+imported slot and ordered module globals from the source commands.
+
+Cold loading derives publication from the producer's independent
+source trace. The producer restores the consumer's frame and retains
+the original cell contents, with freezing allowed to update cell flags.
+The import binds the actual exported function address. The warm
+theorem first derives the producer load and cache entry, then transports
+the same record through allocation of the consumer's frame.
+
+The suite invariant relates each tracked name to the closure stored in
+its reached file-local or global slot. A name copy transfers the
+closure's link, and a checked call updates its destination using the
+actual return and reached heap. Successive calls use the closure's
+original defining environment, captured addresses and saved defaults.
+The reusable suite theorem retains the invariant at the end of a
+successful suite and stops at the first reached error.
+
+The independent source rules and loader denotation agree on exact
+exports, heap, cache and errors. A missing export stops before any
+consumer work. A later call error retains the earlier calls and writes,
+as well as the producer publication, and skips consumer publication.
+The Lean and pinned Go controls call an imported factory through an
+alias, copy the new child and call it with named arguments and both
+spreads. The returned function and the child result are distinct
+observations. The child shares the producer's global cell with an
+earlier closure and owns a different captured local. A second-call
+error leaves the earlier factory and ordinary assignment effects.
+
+The same suite admits any finite number of consumer definitions whose return
+calls the file-local import. Elaboration appends
+each declaration at the current table size, in source order, and retains
+every earlier lookup. The reached-prefix proof carries the extended table
+and live provenance across definitions, copies, assignments and calls.
+Installing a wrapper captures the actual import cell. Every subsequent
+invocation reads that cell, and the reduced call guard retains the
+producer's declaration IDs. A tracked closure returned through the wrapper
+keeps its address and defining record when the caller frame is restored.
+The operands support the existing explicit named arguments and checked
+tuple/list and dict-display spreads.
+
+The cold and preloaded source rules agree with loader denotation on
+publication and freezing, first error, residual heap, caller restoration
+and cache. The two-definition control calls an alias copied before the
+second definition, then calls the second wrapper with an explicit default
+override. A failing override retains the first result and skips the final
+assignment. Another control invokes a fresh producer closure returned
+through the consumer wrapper.
+
+The UTF-8 adapter compiles normalized modules in manifest order and feeds
+the final linked table to the loader. The source theorem starts at
+normalized commands. The checked wrapper header admits required and
+defaulted positional parameters and required and defaulted keyword-only
+formals. Defaults use the existing lexical operand profile of reads,
+integer literals, singleton list allocation and indexing. Definition-time
+calls, collectors and broader wrapper bodies remain separate.
+[Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
+
+### Composing checked imports
+
+A topologically numbered graph may contain checked load-free roots and
+consumers with an ordered list of leading loads. Each consumer supplies its
+normalized suite and checked link into the common declaration table.
+The prefix induction reads each dependency's actual publication once per load
+command. The independent selection rules derive the ordered exported function
+addresses from that publication. Only full selection enables the separate
+installation proof, which fills distinct file-local alias cells. The suite
+inherits the reached importer frame and live provenance for all aliases.
+The singleton edge theorem remains available.
+
+The graph theorem follows strictly earlier dependencies. It preserves
+earlier cache entries, the original closure records and their capture
+addresses, and the caller's slots, bindings and iterator context. A missing
+label, reached dependency failure or missing export skips all later loads and
+the suite. The independent source trace agrees with the loader on exact
+publication and heap, or on the first reached error and residual session.
+Requests from an empty cache establish the same invariant for later mixed
+cold and cached loads.
+
+The graph transports regular closures, factory results, and exported
+consumer wrappers. Recursive wrapper provenance follows the actual published
+function address through its captured file-local cell to the imported closure
+in the same heap. Each wrapper's declaration index is strictly greater than
+its captured callee's index. Removing the active wrapper leaves the lower
+declaration range required by the next activation. Validation makes load
+aliases and global destinations distinct. The importer fills blank cells,
+preserving initialized captures and function records across cache reuse.
+
+The three-module controls exercise direct and nested calls through a published
+wrapper. A diamond control shares one producer between two separately linked
+wrappers. It runs from an empty cache and after an actual request for the left
+branch. A downstream wrapper invokes the second alias of a grouped load under
+the same declaration-index guard. A missing first or last export retains both
+dependency publications and the earlier load's alias while leaving both alias
+cells in the failed load, later load cells and body cells blank. With both
+exports missing, the controls check that the rightmost one is reported. The
+pinned Go checks observe the error, loader calls, cache hits and public effect
+order. Lean additionally checks the residual file-local cells and restored
+caller. Go's public initialization result does not expose the file-local cells.
+
+The checked prefix admits a nonempty group of public callable imports per load.
+Its static missing-export evidence requires the name to be outside the
+dependency's declared globals. Grouped syntax already lowers through the normal
+frontend load adapter. The positional wrapper uses the ordinary binder to
+deliver values to its own formals in header order. Its body reads operands in
+the order written at the inner call. Formal names stay distinct from the
+captured alias, preserving the original import cell and lower declaration
+index. Arguments supply no callable provenance.
+
+During initialization, positional defaults evaluate left to right in the
+reached defining frame. The wrapper records the resulting values, including
+addresses of allocated lists, before binding its name. Publication freezes
+reachable values and preserves those addresses. A later call or cache hit
+uses the saved record. Explicit arguments take precedence through the ordinary
+binder. A reached default error retains earlier effects and skips installation,
+the remaining defaults and commands, and importer publication.
+
+The three-module controls check a wrapper calling the second import of a
+grouped load. They cover ordered forwarding, omitted defaults, explicit
+overrides followed by another omission, missing and surplus arguments, and a
+failure after an earlier default allocates. Lean checks the retained cells,
+restored caller and cache; pinned Go checks the outcomes, call order,
+saved default identity and visible pre-error bindings. The controls run
+cold and after actual preloads. They preload the producer when the wrapper
+definition itself fails.
+
+For keyword-only wrappers, positional capacity comes from the positional
+prefix. Named operands can supply required formals or override saved
+defaults. The binder uses the reached closure record and installs its
+original capture vector on success. Repeated explicit names fail during
+validation. An unknown name or a positional-and-named conflict reaches
+binding only after all operands succeed. A reached operand error keeps
+earlier effects and preempts binding and subsequent operands.
+
+Cold and wrapper-preloaded controls check a required keyword-only name and
+a list-valued keyword default. They cover both kinds of duplicate, unknown
+and missing names, positional overflow, and a later operand error that
+preempts an unknown-name error. Go instruments reached operands to observe
+their order. Lean checks the exact retained allocations and restored caller
+state. This tranche uses normalized keyword-only headers. The UTF-8
+frontend accepts named call arguments and currently rejects the bare
+`*` header. Arbitrary incoming caches, calls in defaults, collectors,
+untracked exports and calls through parameter values remain outside this proof.
+[Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
+
+[Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
 
 ## Finite-manifest loader
 

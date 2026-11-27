@@ -2,6 +2,7 @@
 """Check the Python AST emitter, source scope and supported compiler profiles."""
 
 import argparse
+import functools
 import inspect
 import json
 import os
@@ -15,6 +16,20 @@ from types import CodeType
 ROOT = Path(__file__).resolve().parents[4]
 EMITTER = ROOT / "tools/python-source/source_ast.py"
 LAKE = os.environ.get("LAKE", "lake")
+
+# The snapshot goes through a file so nothing Lake prints can corrupt it.
+LAKE_ENVIRONMENT = ("import json, os, pathlib, sys; "
+                    "pathlib.Path(sys.argv[1]).write_text(json.dumps(dict(os.environ)))")
+
+
+@functools.cache
+def lake_environment():
+    """Return the environment Lake gives its children, entering Lake once per driver."""
+    with tempfile.TemporaryDirectory() as tmp:
+        snapshot = Path(tmp) / "environment.json"
+        subprocess.run([LAKE, "env", sys.executable, "-I", "-S", "-c", LAKE_ENVIRONMENT, str(snapshot)],
+                       cwd=ROOT, check=True)
+        return json.loads(snapshot.read_text())
 
 
 def emit(source, destination, text, *, check=True):
@@ -38,8 +53,9 @@ def check_lean(destination, regression, *, extra_imports=(), capture_output=Fals
         encoding="utf-8",
     )
     result = subprocess.run(
-        [LAKE, "env", "lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)],
+        ["lean", "-DautoImplicit=false", "-DwarningAsError=true", str(destination)],
         cwd=ROOT,
+        env=lake_environment(),
         capture_output=capture_output,
         text=True,
     )
@@ -225,7 +241,7 @@ def check_closure_bodies():
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "Example.py"
         destination = Path(tmp) / "Example.lean"
-        emit(source, destination, """
+        fixtures = [("""
 def outer(seed):
     offset = 2
     def middle(increment):
@@ -235,9 +251,7 @@ def outer(seed):
             return seed + offset
         return inner(increment)
     return middle(3)
-""")
-        check_lean(destination, """
-open Silmaril.Languages.Python.Compile.Closure.Body
+""", """
 
 private def captureSlots {parent child : Silmaril.Languages.Python.Core.Closure.Layout}
     (operands : Fin child.captures → Silmaril.Languages.Python.Core.Closure.CaptureSlot parent) :
@@ -269,8 +283,8 @@ private def shape : Bool :=
   | .error _ => false
 
 #guard shape
-""", extra_imports=imports)
-        emit(source, destination, """
+""")]
+        fixtures.append(("""
 def outer():
     def first():
         def inside():
@@ -279,22 +293,16 @@ def outer():
     def second():
         return 2
     return first() + second()
-""")
-        check_lean(destination, """
-open Silmaril.Languages.Python.Compile.Closure.Body
+""", """
 #guard ((compile pythonSource).toOption.map Compiled.paths) ==
   some [[0], [0, 0], [0, 0, 0], [0, 1]]
-""", extra_imports=imports)
-        emit(source, destination, "def outer(value=1): return value\n")
-        check_lean(destination, """
-open Silmaril.Languages.Python.Compile.Closure.Body
+"""))
+        fixtures.append(("def outer(value=1): return value\n", """
 #guard (match compile pythonSource with | .error .parameterProfile => true | _ => false)
-""", extra_imports=imports)
-        emit(source, destination, "def outer(fn): return fn(keyword=1)\n")
-        check_lean(destination, """
-open Silmaril.Languages.Python.Compile.Closure.Body
+"""))
+        fixtures.append(("def outer(fn): return fn(keyword=1)\n", """
 #guard (match compile pythonSource with | .error .argumentProfile => true | _ => false)
-""", extra_imports=imports)
+"""))
         generator_cases = (
             ("def outer():\n    if False: yield 1\n    return 2\n", [0]),
             ("def outer():\n    def child():\n        yield 1\n    return 2\n", [0, 0]),
@@ -302,18 +310,16 @@ open Silmaril.Languages.Python.Compile.Closure.Body
             ("def outer():\n    def child(value=(yield 1)): return value\n    return 2\n", [0]),
         )
         for text, rejected_path in generator_cases:
-            emit(source, destination, text)
-            check_lean(destination, f"""
-open Silmaril.Languages.Python.Compile.Closure.Body
+            fixtures.append((text, f"""
 #guard (match compile pythonSource with
   | .error (.unsupportedGenerator path) => path == {rejected_path}
   | _ => false)
-""", extra_imports=imports)
-        emit(source, destination, "def outer(value=0): yield value\n")
-        check_lean(destination, """
-open Silmaril.Languages.Python.Compile.Closure.Body
+"""))
+        fixtures.append(("def outer(value=0): yield value\n", """
 #guard (match compile pythonSource with | .error .parameterProfile => true | _ => false)
-""", extra_imports=imports)
+"""))
+        check_lean_batch(source, destination, fixtures, f"open {body_header.removesuffix('.Defs')}\n",
+                         extra_imports=imports)
 
 
 if __name__ == "__main__":

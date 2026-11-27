@@ -34,9 +34,9 @@ private def body : Bool → Source Nat
   | false => Source.ofPath path
   | true => .block block (.if_ branch choice.condition .root alternate)
 private def saved : List Value := [i32 0]
-private def outerLabel : OpenLabel Nat := ⟨saved, block.result, .plain block.tail⟩
-private def innerLabel : OpenLabel Nat := ⟨[], branch.result, .plain branch.tail⟩
-private def nestedLabel : OpenLabel Nat := ⟨[], nested.result, .plain nested.tail⟩
+private def outerLabel : OpenLabel Nat := .block saved block.result (.plain block.tail)
+private def innerLabel : OpenLabel Nat := .block [] branch.result (.plain branch.tail)
+private def nestedLabel : OpenLabel Nat := .block [] nested.result (.plain nested.tail)
 private def caller : Frame := ⟨[i32 44], { funcs := [root.address] }⟩
 private def params (condition : BitVec 32) : List Value := [i32 condition, i32 9]
 private def active (condition : BitVec 32) := fn.declaration.frame (params condition)

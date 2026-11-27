@@ -48,12 +48,12 @@ theorem invoke_exact {H : Type} {host : HostSemantics H} {s : Store H} {outer : 
 /-- Invert the already-entered function frame and its initial label. The frame
 itself cannot exit while its leading instruction is the function label. -/
 theorem frame_label_step {H : Type} {host : HostSemantics H} {s : Store H}
-    {outer f : Frame} {n : Nat} {body : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, [.frame n f [.label n [] body]]⟩ dst ↔
+    {outer f : Frame} {n : Nat} {cont : Wasm.V1.Expr} {body : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n f [.label n cont body]]⟩ dst ↔
       (∃ nextStore nextFrame nextBody,
         Step host ⟨s, f, body⟩ ⟨nextStore, nextFrame, nextBody⟩ ∧
-        dst = ⟨nextStore, outer, [.frame n nextFrame [.label n [] nextBody]]⟩) ∨
-      (∃ after, PureStep [.label n [] body] after ∧ dst = ⟨s, outer, [.frame n f after]⟩) := by
+        dst = ⟨nextStore, outer, [.frame n nextFrame [.label n cont nextBody]]⟩) ∨
+      (∃ after, PureStep [.label n cont body] after ∧ dst = ⟨s, outer, [.frame n f after]⟩) := by
   constructor
   · intro move
     obtain ⟨outerEq, inside | ⟨after, pure, _, _⟩⟩ := move.frame_inv (p := []) (q := []) rfl
@@ -62,9 +62,9 @@ theorem frame_label_step {H : Type} {host : HostSemantics H} {s : Store H}
         ⟨next, step, eq⟩ | ⟨next, pure, storeEq, frameEq, eq⟩
       · exact .inl ⟨dst.store, f', next, step, by cases dst; simp_all [values]⟩
       · exact .inr ⟨next, pure, by cases dst; simp_all [values]⟩
-    · exact (pure.not_callHead_frame rfl (by simp) (.label n [] body)).elim
+    · exact (pure.not_callHead_frame rfl (by simp) (.label n cont body)).elim
   · rintro (⟨_, _, _, step, rfl⟩ | ⟨_, pure, rfl⟩)
-    · exact .frame (.label step n []) n outer
+    · exact .frame (.label step n cont) n outer
     · exact .frame (.pure _ _ pure) n outer
 
 theorem first_source (stack : List Value) (i : Wasm.V1.Instr) (tail : List Admin)
@@ -72,38 +72,38 @@ theorem first_source (stack : List Value) (i : Wasm.V1.Instr) (tail : List Admin
     firstRedex (values stack ++ .source i :: tail) = some (.source i) := by
   simp [firstRedex_cons, nonvalue]
 
-private theorem label_exit {n : Nat} {before body after : List Admin}
-    (pure : PureStep before after) (shape : before = [.label n [] body]) :
+private theorem label_exit {n : Nat} {cont : Wasm.V1.Expr} {before body after : List Admin}
+    (pure : PureStep before after) (shape : before = [.label n cont body]) :
     (firstRedex body = none ∧ after = body) ∨
       (∃ depth, firstRedex body = some (.source (.br depth))) ∨
       firstRedex body = some (.source .return_) ∨ (body = [.trap] ∧ after = [.trap]) := by
   cases pure
-  case labelDone n' cont vs =>
-    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧ values vs = body := by simpa using shape
+  case labelDone n' cont' vs =>
+    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont' = cont ∧ values vs = body := by simpa using shape
     exact .inl ⟨firstRedex_values vs, rfl⟩
-  case labelBranch n' cont extra vs tail count =>
-    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧
+  case labelBranch n' cont' extra vs tail count =>
+    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont' = cont ∧
         values extra ++ values vs ++ [.source (.br ⟨0⟩)] ++ tail = body := by simpa using shape
     exact .inr (.inl ⟨⟨0⟩, by
       simpa only [values_append, List.append_assoc, List.singleton_append] using
         first_source (extra ++ vs) (.br ⟨0⟩) tail rfl⟩)
-  case labelBranchOuter n' cont vs tail depth outer =>
-    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧
+  case labelBranchOuter n' cont' vs tail depth outer =>
+    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont' = cont ∧
         values vs ++ [.source (.br depth)] ++ tail = body := by simpa using shape
     exact .inr (.inl ⟨depth, by
       simpa only [List.append_assoc, List.singleton_append] using first_source vs (.br depth) tail rfl⟩)
-  case labelReturn n' cont vs tail =>
-    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont = [] ∧
+  case labelReturn n' cont' vs tail =>
+    obtain ⟨-, -, rfl⟩ : n' = n ∧ cont' = cont ∧
         values vs ++ [.source .return_] ++ tail = body := by simpa using shape
     exact .inr (.inr (.inl (by
       simpa only [List.append_assoc, List.singleton_append] using first_source vs .return_ tail rfl)))
-  case labelTrap n' cont =>
-    obtain ⟨-, -, eq⟩ : n' = n ∧ cont = [] ∧ [AdminInstr.trap] = body := by simpa using shape
+  case labelTrap n' cont' =>
+    obtain ⟨-, -, eq⟩ : n' = n ∧ cont' = cont ∧ [AdminInstr.trap] = body := by simpa using shape
     exact .inr (.inr (.inr ⟨eq.symm, rfl⟩))
   all_goals simp [values] at shape
 
-theorem label_values {n : Nat} {stack : List Value} {before after : List Admin}
-    (pure : PureStep before after) (shape : before = [.label n [] (values stack)]) :
+theorem label_values {n : Nat} {cont : Wasm.V1.Expr} {stack : List Value} {before after : List Admin}
+    (pure : PureStep before after) (shape : before = [.label n cont (values stack)]) :
     after = values stack := by
   rcases label_exit pure shape with ⟨_, done⟩ | ⟨_, branch⟩ | ret | ⟨trap, _⟩
   · exact done
@@ -112,8 +112,8 @@ theorem label_values {n : Nat} {stack : List Value} {before after : List Admin}
   · have head := congrArg firstRedex trap
     simp at head
 
-theorem label_source_live {n : Nat} {body after : List Admin} {i : Wasm.V1.Instr}
-    (pure : PureStep [.label n [] body] after) (head : firstRedex body = some (.source i))
+theorem label_source_live {n : Nat} {cont : Wasm.V1.Expr} {body after : List Admin} {i : Wasm.V1.Instr}
+    (pure : PureStep [.label n cont body] after) (head : firstRedex body = some (.source i))
     (noBranch : ∀ l, i ≠ .br l) (noReturn : i ≠ .return_) : False := by
   rcases label_exit pure rfl with ⟨done, _⟩ | ⟨depth, branch⟩ | ret | ⟨trap, _⟩
   · rw [head] at done
@@ -125,8 +125,8 @@ theorem label_source_live {n : Nat} {body after : List Admin} {i : Wasm.V1.Instr
   · rw [trap] at head
     simp at head
 
-private theorem label_trapped {n : Nat} {saved : List Value} {tail after : List Admin}
-    (pure : PureStep [.label n [] (values saved ++ .trap :: tail)] after) :
+private theorem label_trapped {n : Nat} {cont : Wasm.V1.Expr} {saved : List Value} {tail after : List Admin}
+    (pure : PureStep [.label n cont (values saved ++ .trap :: tail)] after) :
     saved = [] ∧ tail = [] ∧ after = [.trap] := by
   have head : firstRedex (values saved ++ .trap :: tail) = some .trap := by simp
   rcases label_exit pure rfl with ⟨done, _⟩ | ⟨_, branch⟩ | ret | ⟨body, eq⟩
@@ -178,12 +178,12 @@ private theorem entry_body {H : Type} (entry : HostEntry H) :
 
 /-- Numeric steps preserve the enclosing frame, function label and source tail. -/
 theorem framed_numeric_step {H : Type} {host : HostSemantics H} {s : Store H}
-    {outer f : Frame} {n : Nat} {stack : List Value} {op : Prefix.Op} {tail : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, [.frame n f [.label n [] (values stack ++ Prefix.emit v1Syntax op :: tail)]]⟩ dst ↔
+    {outer f : Frame} {n : Nat} {cont : Wasm.V1.Expr} {stack : List Value} {op : Prefix.Op} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n f [.label n cont (values stack ++ Prefix.emit v1Syntax op :: tail)]]⟩ dst ↔
       (∃ next, Prefix.Reduce f.locals stack op (.values next) ∧
-        dst = ⟨s, outer, [.frame n f [.label n [] (values next ++ tail)]]⟩) ∨
+        dst = ⟨s, outer, [.frame n f [.label n cont (values next ++ tail)]]⟩) ∨
       (∃ saved, Prefix.Reduce f.locals stack op (.trap saved) ∧
-        dst = ⟨s, outer, [.frame n f [.label n [] (values saved ++ .trap :: tail)]]⟩) := by
+        dst = ⟨s, outer, [.frame n f [.label n cont (values saved ++ .trap :: tail)]]⟩) := by
   rw [frame_label_step]
   constructor
   · rintro (⟨nextStore, nextFrame, body, step, eq⟩ | ⟨after, premature, eq⟩)
@@ -219,10 +219,10 @@ theorem framed_direct_step {H : Type} {host : HostSemantics H} {s : Store H}
     exact .inl ⟨_, _, _, (HostCall.V1.direct_step_iff linked).mpr rfl, rfl⟩
 
 theorem framed_trapped_step {H : Type} {host : HostSemantics H} {s : Store H}
-    {outer f : Frame} {n : Nat} {saved : List Value} {tail : List Admin} {dst : Config H} :
-    Step host ⟨s, outer, [.frame n f [.label n [] (values saved ++ .trap :: tail)]]⟩ dst ↔
+    {outer f : Frame} {n : Nat} {cont : Wasm.V1.Expr} {saved : List Value} {tail : List Admin} {dst : Config H} :
+    Step host ⟨s, outer, [.frame n f [.label n cont (values saved ++ .trap :: tail)]]⟩ dst ↔
       (∃ kept rest, Prefix.Discard saved tail kept rest ∧
-        dst = ⟨s, outer, [.frame n f [.label n [] (values kept ++ .trap :: rest)]]⟩) ∨
+        dst = ⟨s, outer, [.frame n f [.label n cont (values kept ++ .trap :: rest)]]⟩) ∨
       (saved = [] ∧ tail = [] ∧ dst = ⟨s, outer, [.frame n f [.trap]]⟩) := by
   rw [frame_label_step]
   constructor
@@ -234,7 +234,7 @@ theorem framed_trapped_step {H : Type} {host : HostSemantics H} {s : Store H}
       exact .inr ⟨rfl, rfl, eq⟩
   · rintro (⟨kept, rest, discard, rfl⟩ | ⟨rfl, rfl, rfl⟩)
     · exact .inl ⟨_, _, _, discard_step_iff.mpr ⟨kept, rest, discard, rfl⟩, rfl⟩
-    · exact .inr ⟨_, .labelTrap n [], rfl⟩
+    · exact .inr ⟨_, .labelTrap n cont, rfl⟩
 
 /-- Lift an exact step correspondence with a preserved ready predicate to
 arbitrary finite endpoints. -/

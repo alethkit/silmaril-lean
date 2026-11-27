@@ -87,20 +87,54 @@ theorem toObjects_map (history : History ObjectId Payload)
     (history.map f).toObjects = history.toObjects.map f :=
   Proofs.Machine.SQLite.GlobalState.Store.toObjects_map history f
 
+private theorem lookup_insert_of_ne (history : History ObjectId Payload) {id query : ObjectId}
+    (other : query ≠ id) (entry : HistoryEntry Payload) :
+    History.lookup (Std.ExtHashMap.insert history id entry) query = history.lookup query :=
+  (Std.ExtHashMap.getElem?_insert (m := history)).trans (ite_eq_right (by simpa using Ne.symm other))
+
 @[simp] theorem lookup_allocate_self (history : History ObjectId Payload) (id : ObjectId)
     (kind : ObjectKind) (payload : Payload kind) (fresh : history.Fresh id) :
     (history.allocate id kind payload fresh).lookup id = some (.present ⟨kind, .live, payload⟩) :=
   Std.ExtHashMap.getElem?_insert_self (m := history)
+
+theorem lookup_allocate_of_ne (history : History ObjectId Payload) {id query : ObjectId}
+    (other : query ≠ id) (kind : ObjectKind) (payload : Payload kind) (fresh : history.Fresh id) :
+    (history.allocate id kind payload fresh).lookup query = history.lookup query :=
+  lookup_insert_of_ne history other (.present ⟨kind, .live, payload⟩)
+
+@[simp] theorem lookup_updatePresent_self (history : History ObjectId Payload) (id : ObjectId)
+    {object : Object Payload} (present : history.lookup id = some (.present object))
+    (state : PresentState) (payload : Payload object.kind) :
+    (history.updatePresent id present state payload).lookup id =
+      some (.present ⟨object.kind, state, payload⟩) :=
+  Std.ExtHashMap.getElem?_insert_self (m := history)
+
+theorem lookup_updatePresent_of_ne (history : History ObjectId Payload) {id query : ObjectId}
+    (other : query ≠ id) {object : Object Payload} (present : history.lookup id = some (.present object))
+    (state : PresentState) (payload : Payload object.kind) :
+    (history.updatePresent id present state payload).lookup query = history.lookup query :=
+  lookup_insert_of_ne history other (.present ⟨object.kind, state, payload⟩)
 
 @[simp] theorem lookup_free_self (history : History ObjectId Payload) (id : ObjectId)
     {object : Object Payload} (present : history.lookup id = some (.present object)) :
     (history.free id present).lookup id = some (.freed object.kind) :=
   Std.ExtHashMap.getElem?_insert_self (m := history)
 
+theorem lookup_free_of_ne (history : History ObjectId Payload) {id query : ObjectId}
+    (other : query ≠ id) {object : Object Payload} (present : history.lookup id = some (.present object)) :
+    (history.free id present).lookup query = history.lookup query :=
+  lookup_insert_of_ne history other (.freed object.kind)
+
 theorem fresh_allocate_iff (history : History ObjectId Payload) (id query : ObjectId)
     (kind : ObjectKind) (payload : Payload kind) (fresh : history.Fresh id) :
     (history.allocate id kind payload fresh).Fresh query ↔ query ≠ id ∧ history.Fresh query :=
   Proofs.Machine.SQLite.GlobalState.Store.fresh_allocate_iff history id query kind payload fresh
+
+theorem fresh_updatePresent_iff (history : History ObjectId Payload) (id query : ObjectId)
+    {object : Object Payload} (present : history.lookup id = some (.present object))
+    (state : PresentState) (payload : Payload object.kind) :
+    (history.updatePresent id present state payload).Fresh query ↔ history.Fresh query :=
+  Proofs.Machine.SQLite.GlobalState.Store.fresh_updatePresent_iff history id query present state payload
 
 theorem fresh_free_iff (history : History ObjectId Payload) (id query : ObjectId)
     {object : Object Payload} (present : history.lookup id = some (.present object)) :

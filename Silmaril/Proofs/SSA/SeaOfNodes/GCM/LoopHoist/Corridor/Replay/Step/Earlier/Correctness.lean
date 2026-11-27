@@ -23,8 +23,8 @@ open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Earlier
-open AfterReorder.Second (Candidate checkPrefixCut)
-open AfterReorder.Second.Emit (emitAt? liftCode liftCode_eval rewriteAt?)
+open AfterReorder.Second (checkPrefixCut)
+open AfterReorder.Second.Emit (emitAt?_entry liftCode liftCode_eval liftCode_targets_congr)
 open Loop.MLIR.CF (Program TargetOp evalOp model lower_run)
 
 variable {Input extra : List Width} {saved carried result : Width}
@@ -53,66 +53,19 @@ theorem emit?_spec (accepted : emit? state request = some moved) :
     next => cases accepted
   next => cases accepted
 
-private theorem append_entry {candidate : Candidate Input saved carried result extra}
-    {index : Nat} {target : Cfg TargetOp (Label saved carried result (candidate.width :: extra)) Input [result]}
-    {leading : Saved.Prefix Input ((extra ++ [saved]) ++ Input)}
-    {tail : Block TargetOp (Label saved carried result extra) ((extra ++ [saved]) ++ Input) [result]}
-    (split : Saved.splitPrefix? state.cfg.entry (extra ++ [saved]) = some (leading, tail))
-    (emitted : emitAt? state.cfg index candidate.op candidate.inputs = some target) :
-    target.entry = leading.wrap (.letOp candidate.op candidate.inputs (liftCode Var.there .here tail)) := by
-  cases rewritten : rewriteAt? (consumer := candidate.width) index Var.there .here (state.cfg.block .header) with
-  | none => simp [emitAt?, split, rewritten] at emitted
-  | some header =>
-    cases exit : state.cfg.block .exit with
-    | letOp => simp [emitAt?, split, rewritten, exit] at emitted
-    | terminator term =>
-      cases term with
-      | br => simp [emitAt?, split, rewritten, exit] at emitted
-      | condBr => simp [emitAt?, split, rewritten, exit] at emitted
-      | ret returns =>
-        simp [emitAt?, split, rewritten, exit] at emitted
-        cases emitted
-        rfl
-
-private theorem liftCode_targets {Γ Δ Θ : List Width} {w : Width}
-    (code : Block TargetOp (Label saved carried result extra) Γ [result])
-    (rename : Rename Γ Δ) (keep : Var Δ w) (other : Rename Γ Θ) (otherKeep : Var Θ w) :
-    (shape.ofBlock (liftCode rename keep code)).target = (shape.ofBlock (liftCode other otherKeep code)).target := by
-  induction code generalizing Δ Θ with
-  | letOp op operands rest ih => exact ih (under rename) (.there keep) (under other) (.there otherKeep)
-  | terminator term =>
-    cases term with
-    | ret => rfl
-    | br edge =>
-      rcases edge with ⟨label, _⟩
-      funext slot
-      cases label <;> cases slot <;> rfl
-    | condBr test onTrue onFalse =>
-      rcases onTrue with ⟨positive, _⟩
-      rcases onFalse with ⟨negative, _⟩
-      funext slot
-      cases positive <;> cases negative <;> cases slot <;> rfl
-
-private theorem wrap_targets {Γ newExtra : List Width}
-    (leading : Saved.Prefix Input Γ) (tail : Block TargetOp (Label saved carried result newExtra) Γ [result]) :
-    (shape.ofBlock (leading.wrap tail)).target = (shape.ofBlock tail).target := by
-  induction leading with
-  | nil => rfl
-  | snoc prior op operands ih => exact ih (.letOp op operands tail)
-
 theorem emit?_entry_targets (accepted : emit? state request = some moved) :
     (shape moved.cfg none).target = (shape moved.append.next.cfg none).target := by
   obtain ⟨_, appended, _, leading, split, _⟩ := emit?_spec accepted
   change (shape.ofBlock (moved.splice.leading.wrap (liftCode moved.splice.previous moved.splice.inserted moved.tail))).target =
     (shape.ofBlock moved.append.next.cfg.entry).target
-  rw [append_entry split (Step.emit_spec appended).2.2.2.2.1, wrap_targets, wrap_targets]
-  exact liftCode_targets moved.tail moved.splice.previous moved.splice.inserted Var.there .here
+  rw [emitAt?_entry split (Step.emit_spec appended).2.2.2.2.1, Saved.Prefix.wrap_targets, Saved.Prefix.wrap_targets]
+  exact liftCode_targets_congr moved.tail moved.tail moved.splice.previous moved.splice.inserted Var.there .here rfl
 
 theorem emit?_entry_eq (accepted : emit? state request = some moved) (input : Env Input) :
     moved.cfg.entry.eval evalOp (fun term env => Terminator.eval env term) input =
       moved.append.next.cfg.entry.eval evalOp (fun term env => Terminator.eval env term) input := by
   obtain ⟨_, appended, _, leading, split, inserted⟩ := emit?_spec accepted
-  rw [append_entry split (Step.emit_spec appended).2.2.2.2.1]
+  rw [emitAt?_entry split (Step.emit_spec appended).2.2.2.2.1]
   let old := leading.eval input
   let physical := moved.splice.leading.eval input
   let value := evalOp moved.append.candidate.op (moved.append.candidate.inputs.eval old)
@@ -125,6 +78,20 @@ theorem emit?_entry_eq (accepted : emit? state request = some moved) (input : En
   rw [Saved.Prefix.wrap_eval, Saved.Prefix.wrap_eval, liftCode_eval _ _ _ _ _ reads, kept]
   exact (liftCode_eval moved.tail Var.there .here old (.cons value old) (fun _ => rfl)).symm
 
+theorem emit?_prefix_agree (accepted : emit? state request = some moved) :
+    ∃ leading tail,
+      Saved.splitPrefix? moved.append.next.cfg.entry ((moved.append.candidate.width :: extra) ++ [saved]) =
+        some (leading, tail) ∧
+      ∀ (input : Env Input) {w} (ref : Var _ w),
+        (moved.splice.leading.eval input).get (moved.splice.toPhysical ref) = (leading.eval input).get ref := by
+  obtain ⟨_, appended, _, leading, split, inserted⟩ := emit?_spec accepted
+  refine ⟨.snoc leading moved.append.candidate.op moved.append.candidate.inputs,
+    liftCode Var.there .here moved.tail, ?_, ?_⟩
+  · rw [emitAt?_entry split (Step.emit_spec appended).2.2.2.2.1]
+    exact Saved.splitPrefix?_snoc split _ _ _
+  · intro input w ref
+    exact Saved.Prefix.insert?_eval inserted input ref
+
 theorem emit?_routes (accepted : emit? state request = some moved)
     {input : Env Input} {values : Env (extra ++ [saved])}
     (matched : Saved.Prefix.Matches state.cfg.entry input values) :
@@ -134,13 +101,14 @@ theorem emit?_routes (accepted : emit? state request = some moved)
   have routes := (AfterReorder.Second.Emit.emitAt?_step matched found emitted).1
   exact ⟨(emit?_entry_eq accepted input).trans routes.entry, routes.block⟩
 
-theorem emit?_run_eq (accepted : emit? state request = some moved) (input : Env Input) (fuel : Nat) :
-    moved.cfg.run evalOp fuel input = moved.append.next.cfg.run evalOp fuel input := by
-  have common : ∀ (budget : Nat) {Γ : List Width}
-      (code : Block TargetOp (Label saved carried result (moved.append.candidate.width :: extra)) Γ [result])
-      (env : Env Γ),
-      moved.cfg.runBlock evalOp input budget code env =
-        moved.append.next.cfg.runBlock evalOp input budget code env := by
+theorem run_eq_of_entry {Labels : List Width → Type}
+    (left right : Cfg TargetOp Labels Input [result]) (input : Env Input) (fuel : Nat)
+    (entry : left.entry.eval evalOp (fun term env => Terminator.eval env term) input =
+      right.entry.eval evalOp (fun term env => Terminator.eval env term) input)
+    (blocks : ∀ {args} (label : Labels args), left.block label = right.block label) :
+    left.run evalOp fuel input = right.run evalOp fuel input := by
+  have common : ∀ (budget : Nat) {Γ : List Width} (code : Block TargetOp Labels Γ [result]) (env : Env Γ),
+      left.runBlock evalOp input budget code env = right.runBlock evalOp input budget code env := by
     intro budget
     induction budget with
     | zero => intros; rfl
@@ -148,15 +116,21 @@ theorem emit?_run_eq (accepted : emit? state request = some moved) (input : Env 
       intro Γ code env
       simp only [Cfg.runBlock]
       split
-      · exact ih _ _
+      · rw [blocks]
+        exact ih _ _
       · rfl
   cases fuel with
   | zero => rfl
   | succ fuel =>
-    simp only [Cfg.run, Cfg.runBlock, emit?_entry_eq accepted input]
+    simp only [Cfg.run, Cfg.runBlock, entry]
     split
-    · exact common _ _ _
+    · rw [blocks]
+      exact common _ _ _
     · rfl
+
+theorem emit?_run_eq (accepted : emit? state request = some moved) (input : Env Input) (fuel : Nat) :
+    moved.cfg.run evalOp fuel input = moved.append.next.cfg.run evalOp fuel input :=
+  run_eq_of_entry _ _ input fuel (emit?_entry_eq accepted input) (fun _ => rfl)
 
 open Silmaril.MLIR.CF.SwitchAssert (Cfg) in
 theorem emit?_denotePart (accepted : emit? state request = some moved) (input : Env Input) :
