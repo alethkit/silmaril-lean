@@ -69,7 +69,7 @@ export Silmaril.Parse.Binary (
 )
 
 namespace PrefixFree
-export Silmaril.Parse.Binary.PrefixFree (functional)
+export Silmaril.Parse.Binary.PrefixFree (functional cancel)
 end PrefixFree
 
 namespace Byte
@@ -97,11 +97,11 @@ export Silmaril.Parse.Binary.FN (mk prefixFree)
 end FN
 
 namespace Seq
-export Silmaril.Parse.Binary.Seq (nil cons functional)
+export Silmaril.Parse.Binary.Seq (nil cons functional imp)
 end Seq
 
 namespace Vec
-export Silmaril.Parse.Binary.Vec (mk prefixFree)
+export Silmaril.Parse.Binary.Vec (mk prefixFree imp)
 end Vec
 
 namespace Utf8Char
