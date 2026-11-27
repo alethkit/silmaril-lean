@@ -31,12 +31,26 @@ equality of their normal forms. Two different spellings of one tree have
 the same normal form, so equality of the trees themselves is not the
 criterion.
 
+A pending pair of atoms may also be held across one later request and
+destructured after it. The later request does not use the pair, and its
+reply has one tag with at most one atom. The spelled term is
+`let₁ (op g a) (let₂ x t)` under the pair slot `x`, and the normal form
+destructures the pair first. The two are related by a derived native
+equation, `let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`, in which the two
+components move beneath the binder of the let. It follows from pure-let
+beta, pair eta, the law that pulls a pattern let out of the scrutinee of a
+let, and pair beta. The request is not duplicated or reordered, and no
+case is moved across a request.
+
 The covered syntax is exact. A request is followed by one of the three
 heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
-in order, as in the case trees. Other placements of a destructuring, and
-arbitrary LetCase terms, are outside it.
+in order, as in the case trees, except that a pending pair of atoms may be
+held across one later request as above. Holding a longer tuple, holding
+across a request with a compound or multi-tag reply or across more than
+one request, other placements of a destructuring, and arbitrary LetCase
+terms are outside it.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -56,6 +70,33 @@ open LetCase.Structural.Reply (Γ₀)
 open LetSeq.StraightLine.Structural (Assembly)
 open LetSeq.StraightLine.Structural.Categorical (traceJ)
 open scoped LetSeq.StraightLine.Structural Tagged Binary
+
+/-! ## A pair slot commutes with a later binding -/
+
+section Commute
+
+variable {α Φ : Type} [HasTy Φ (Ty α)]
+
+/-- A let followed by a pattern let on an older pair slot is natively
+equal to the pattern let followed by the let:
+
+`let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`
+
+where `x` is a slot of pair type, `E↑↑` is `E` weakened past the two
+components, and `B′` is `B` with the two components moved beneath the
+binder of the let. `E` may be an effectful request. This is not an axiom
+of the native theory. It is derived from native typed laws: pure-let beta
+at a slot and at a pair of slots, pair eta at a slot, the sequencing law
+that pulls a pattern let out of the scrutinee of a let, and pair beta. -/
+theorem let_pair_comm {m : Nat} {Δ : BoundCtx (Ty α) m} {A B X C : Ty α} (j : Fin m)
+    (slot : Δ.get j = .product A B) {E : LetCase.LocallyNameless.Tm Empty Φ m}
+    {body : LetCase.LocallyNameless.Tm Empty Φ (m + 3)} (hE : HasType Φ Γ₀ Δ E X)
+    (hBody : HasType Φ Γ₀ (((Δ.snoc X).snoc A).snoc B) body C) :
+    Equiv false Γ₀ Δ (.let₁ E (.let₂ (.bv j.succ) body))
+      (.let₂ (.bv j) (.let₁ (E.rename (fun i => i.succ.succ)) (body.rename afterPair))) C :=
+  let_pair_comm_proof j slot hE hBody
+
+end Commute
 
 /-! ## Spelled trees -/
 

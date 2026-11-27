@@ -1137,10 +1137,9 @@ The continuation cannot jump back to its own label.
   forms; two spellings of one tree have the same normal form, so
   equality of the trees is not the criterion. The direct case trees
   above are the spelled trees of the two-tag atom replies with every
-  request cased on directly, and their equation is now this one. Other
-  placements of a destructuring, and arbitrary LetCase terms, are
-  outside the class. The regression destructures a pair reply at its
-  request, then cases on a request whose pair arm is destructured, with
+  request cased on directly, and their equation is now this one. Arbitrary LetCase
+  terms are outside the class. The regression destructures a pair reply
+  at its request, then cases on a request whose pair arm is destructured, with
   a fresh atom and an older capture in the nested request and in the
   returned pair; it also cases on a three-tag request at once. Normal
   forms are checked explicitly, and a changed component, a fresh atom
@@ -1149,6 +1148,34 @@ The continuation cannot jump back to its own label.
   [Spelled trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Native equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [Pair and case heads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSpelledRegression.lean)
+- A pure pair destructuring may be interleaved with a later request. In
+  a spelled tree, a pending pair of atoms may be held as one slot across
+  one later request and destructured after it. The pair is the bound
+  reply of a one-tag request or the payload of an arm. The later request
+  is assembled from the older atom slots, so it does not use the pair,
+  and its reply has one tag with at most one atom. The normal form
+  destructures the pair first. The two are related by a commuting
+  conversion, `let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`, for a slot `x`
+  of pair type: the pattern let moves in front of the let, `E` is
+  weakened past the two components, and in the body the components move
+  beneath the binder of the let. This is not an axiom of the native
+  theory. It is derived from native typed laws: pure-let beta at a slot
+  and at a pair of slots, pair eta at a slot, the sequencing law that
+  pulls a pattern let out of the scrutinee of a let, and pair beta. No
+  model is used. The later request occurs once, in the same place in
+  the order, with the same argument. No case selection is moved across a
+  request. The normalization, the native equation and the completeness
+  theorem for spelled trees extend to this node. Holding a longer tuple,
+  holding across a request with a compound or multi-tag reply, and
+  holding across more than one request are outside the class. The
+  regression holds the bound pair reply of one request across another
+  and returns an old component with the new reply; the held and the
+  eager spellings are valid together, and a changed component, a changed
+  order and an older capture in place of the new reply are each told
+  apart. It also holds the pair arm of a case across a request.
+  [Held pairs in spelled trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Commuting equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A pair held across a request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomHeldRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

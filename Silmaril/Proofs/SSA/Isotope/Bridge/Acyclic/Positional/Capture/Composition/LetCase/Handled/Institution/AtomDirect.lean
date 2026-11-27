@@ -7,7 +7,7 @@ public section
 namespace Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution
 
 open Region (packedExitType)
-open LetCase.LocallyNameless (Derivation Equiv HasType)
+open LetCase.LocallyNameless (Derivation Equiv HasType Pure)
 open LetCase.Structural.Reply (Γ₀)
 open LetSeq.StraightLine.Structural (Slot Assembly)
 open scoped LetSeq.StraightLine.Structural Tagged Binary
@@ -31,6 +31,110 @@ theorem argTerm_rename_proof {A : Ty α} (p : Assembly β A) {m : Nat} {γ : Bou
   | atom s => rfl
   | unit => rfl
   | pair a b iha ihb => exact congrArg₂ LetCase.LocallyNameless.Tm.pair iha ihb
+
+/-! ## A pair slot commutes with a later binding
+
+A pattern let on a pair slot may be moved in front of a let that precedes
+it. The pair slot is a variable, so it is pure. The derivation uses native
+typed laws only: pure-let beta at the slot and at a pair of variables,
+pair eta at the slot, the sequencing law that pulls a pattern let out of
+the scrutinee of a let, and pair beta. -/
+
+section Commute
+
+variable [HasTy Φ (Ty α)]
+
+/-- A let followed by a pattern let on an older pair slot is natively
+equal to the pattern let followed by the let. The bound term is weakened
+past the two components, and the body has its three newest slots moved. -/
+theorem let_pair_comm_proof {m : Nat} {Δ : BoundCtx (Ty α) m} {A B X C : Ty α} (j : Fin m)
+    (hj : Δ.get j = .product A B) {E : LetCase.LocallyNameless.Tm Empty Φ m} {body : LetCase.LocallyNameless.Tm Empty Φ (m + 3)}
+    (hE : HasType Φ Γ₀ Δ E X) (hBody : HasType Φ Γ₀ (((Δ.snoc X).snoc A).snoc B) body C) :
+    Equiv false Γ₀ Δ (.let₁ E (.let₂ (.bv j.succ) body))
+      (.let₂ (.bv j) (.let₁ (E.rename (fun i => i.succ.succ)) (body.rename afterPair))) C := by
+  have hx : HasType Φ Γ₀ Δ (.bv j) (.product A B) := hj ▸ .bv
+  -- the body under the pair slot
+  let ins := (((BoundCtx.Renaming.succ Δ (.product A B)).up X).up A).up B
+  let K : LetCase.LocallyNameless.Tm Empty Φ (m + 1) := .let₁ (E.rename Fin.succ) (.let₂ (.bv 1) (body.rename ins.toFun))
+  have hK : HasType Φ Γ₀ (Δ.snoc (.product A B)) K C :=
+    .let₁ (HasType.rename (BoundCtx.Renaming.succ Δ (.product A B)) hE)
+      (.let₂ (.bv (ι := (1 : Fin (m + 2)))) (HasType.rename ins hBody))
+  have enter := Equiv.letBeta (pureEff := false) Pure.bv hx hK
+  have inst_eq : LetCase.LocallyNameless.Tm.instantiate K (.bv j) = .let₁ E (.let₂ (.bv j.succ) body) := by
+    simp only [K, LetCase.LocallyNameless.Tm.instantiate, LetCase.LocallyNameless.Tm.bsubst,
+      LetCase.LocallyNameless.Tm.bsubst_rename]
+    congr 1
+    · exact (LetCase.LocallyNameless.Tm.bsubst_congr (fun _ => rfl) E).trans
+        (LetCase.LocallyNameless.Tm.bsubst_id E)
+    · congr 1
+      refine (LetCase.LocallyNameless.Tm.bsubst_congr (fun i => ?_) body).trans
+        (LetCase.LocallyNameless.Tm.bsubst_id body)
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+  rw [inst_eq] at enter
+  -- eta-expand the pair slot and pull the pattern let out
+  have eta := Equiv.let₁ (Equiv.pairEta (pureEff := false) hx).symm (.refl hK)
+  have pull := Equiv.bindLetPair (pureEff := false) hx
+    (.pair (.bv (ι := (1 : Fin (m + 2)))) (.bv (ι := (0 : Fin (m + 2))))) hK
+  -- substitute the pair of components for the pair slot
+  have hPair : HasType Φ Γ₀ ((Δ.snoc A).snoc B) (.pair (.bv 1) (.bv 0)) (.product A B) :=
+    .pair (.bv (ι := (1 : Fin (m + 2)))) (.bv (ι := (0 : Fin (m + 2))))
+  have beta := Equiv.letBeta (pureEff := false) (Pure.pair Pure.bv Pure.bv) hPair hK.underBinder.underBinder
+  let past : BoundCtx.Renaming Δ ((Δ.snoc A).snoc B) :=
+    (BoundCtx.Renaming.succ Δ A).comp (BoundCtx.Renaming.succ (Δ.snoc A) B)
+  let ins2 := ((past.up X).up A).up B
+  have beta_eq : LetCase.LocallyNameless.Tm.instantiate K.underBinder.underBinder (.pair (.bv 1) (.bv 0)) =
+      .let₁ (E.rename (fun i => i.succ.succ)) (.let₂ (.pair (.bv 2) (.bv 1)) (body.rename ins2.toFun)) := by
+    simp only [K, LetCase.LocallyNameless.Tm.instantiate, LetCase.LocallyNameless.Tm.underBinder,
+      LetCase.LocallyNameless.Tm.rename_comp, LetCase.LocallyNameless.Tm.bsubst,
+      LetCase.LocallyNameless.Tm.bsubst_rename]
+    congr 1
+    · exact (LetCase.LocallyNameless.Tm.bsubst_congr (fun _ => rfl) E).trans
+        (LetCase.LocallyNameless.Tm.bsubst_bv_eq_rename _ E)
+    · congr 1
+      refine (LetCase.LocallyNameless.Tm.bsubst_congr (fun i => ?_) body).trans
+        (LetCase.LocallyNameless.Tm.bsubst_bv_eq_rename ins2.toFun body)
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+  rw [beta_eq] at beta
+  -- reduce the pattern let on the pair of components
+  have hBody₂ : HasType Φ Γ₀ (((((Δ.snoc A).snoc B).snoc X).snoc A).snoc B) (body.rename ins2.toFun) C :=
+    HasType.rename ins2 hBody
+  have hA : HasType Φ Γ₀ (((Δ.snoc A).snoc B).snoc X) (.bv 2) A := .bv (ι := (2 : Fin (m + 3)))
+  have hB : HasType Φ Γ₀ (((Δ.snoc A).snoc B).snoc X) (.bv 1) B := .bv (ι := (1 : Fin (m + 3)))
+  have split := Equiv.pairBeta (pureEff := false) hA hB hBody₂
+  have first := Equiv.letBeta (pureEff := false) Pure.bv hA (.let₁ hB.lift hBody₂)
+  have first_eq : LetCase.LocallyNameless.Tm.instantiate
+      (.let₁ (LetCase.LocallyNameless.Tm.lift (.bv 1)) (body.rename ins2.toFun))
+      (.bv (2 : Fin (m + 3))) =
+      .let₁ (.bv 1) (LetCase.LocallyNameless.Tm.bsubst
+        (LetCase.LocallyNameless.Tm.upSub (Fin.cases (.bv 2) (fun i => .bv i))) (body.rename ins2.toFun)) := rfl
+  rw [first_eq] at first
+  obtain ⟨-, typed⟩ := first.hasType
+  cases typed with
+  | let₁ hV hZ =>
+    cases hV
+    have second := Equiv.letBeta (pureEff := false) Pure.bv hB hZ
+    have second_eq : LetCase.LocallyNameless.Tm.instantiate
+        (LetCase.LocallyNameless.Tm.bsubst
+          (LetCase.LocallyNameless.Tm.upSub (Fin.cases (.bv 2) (fun i => .bv i))) (body.rename ins2.toFun))
+        (.bv (1 : Fin (m + 3))) = body.rename afterPair := by
+      simp only [LetCase.LocallyNameless.Tm.instantiate, LetCase.LocallyNameless.Tm.bsubst_rename,
+        LetCase.LocallyNameless.Tm.bsubst_comp]
+      refine (LetCase.LocallyNameless.Tm.bsubst_congr (fun i => ?_) body).trans
+        (LetCase.LocallyNameless.Tm.bsubst_bv_eq_rename afterPair body)
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+    rw [second_eq] at second
+    have hE'' : HasType Φ Γ₀ ((Δ.snoc A).snoc B) (E.rename (fun i => i.succ.succ)) X :=
+      HasType.rename past hE
+    exact enter.symm.trans (eta.trans (pull.trans (Equiv.let₂ (.refl hx)
+      (beta.trans (Equiv.let₁ (.refl hE'') (split.trans (first.trans second)))))))
+
+end Commute
 
 /-! ## The native equation between a spelling and its normal form
 
@@ -128,6 +232,84 @@ theorem SpelledTuple.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} → 
   | _, _, _, _, .atom _ body, _, _, ρ => body.normal_equiv (ρ.up _)
   | _, _, _, _, .pair _ _ _ later, _, _, ρ =>
     Equiv.let₂ (.refl .bv) (later.normal_equiv ((ρ.up _).up _))
+  | _, _, _, _, .across a b g argument held, _, γ, ρ => by
+    have request : (LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
+        (argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))))).rename
+          (LetCase.LocallyNameless.Tm.up ρ.toFun) =
+        .op g (argTerm ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _))) :=
+      congrArg (LetCase.LocallyNameless.Tm.op g) (argTerm_rename_proof _ (ρ.up _))
+    have he : HasType Φ Γ₀ (γ.snoc (tupleTy [a, b]))
+        ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
+          (argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))))).rename
+            (LetCase.LocallyNameless.Tm.up ρ.toFun)) (tagsTy (replyTags g)) := by
+      rw [request]
+      exact (Derivation.op (f := g) (argTyping _)).toHasType
+    have h := held.normal_equiv ρ he
+    rw [request] at h
+    have later : (LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
+        ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)))).rename
+          (fun i => i.succ.succ) =
+        .op g (argTerm (((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)).rename
+          ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
+            (BoundCtx.Renaming.succ _ (tupleTy [b]))))) :=
+      congrArg (LetCase.LocallyNameless.Tm.op g)
+        (argTerm_rename_proof ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _))
+          ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
+            (BoundCtx.Renaming.succ _ (tupleTy [b]))))
+    rw [later] at h
+    exact h
+
+theorem SpelledHeld.normal_equiv : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} →
+    {tags : List (List α)} → {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} →
+    (d : SpelledHeld a b tags e β L t) → {m : Nat} → {γ : BoundCtx (Ty α) m} →
+    (ρ : BoundCtx.Renaming β γ) →
+    HasType Φ Γ₀ (γ.snoc (tupleTy [a, b])) (e.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (tagsTy tags) →
+    Equiv false Γ₀ (γ.snoc (tupleTy [a, b])) (t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun))
+      (.let₂ (.bv 0) (.let₁ ((e.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)).rename (fun i => i.succ.succ))
+        (d.normal ρ).1)) (packedExitType L)
+  | a, b, _, _, _, _, _, .atom (t := body) _ _ c tree, _, γ, ρ, he => by
+    have typed : HasType Φ Γ₀ ((((γ.snoc (tupleTy [a, b])).snoc (tupleTy [c])).snoc (.base a)).snoc (.base b))
+        (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+          (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))) (packedExitType L) :=
+      HasType.rename ((((ρ.up _).up _).up _).up _) tree.typing.toHasType
+    have comm := let_pair_comm_proof (0 : Fin (_ + 1)) rfl he typed
+    have moved : (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+        (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))).rename afterPair =
+          body.rename (heldRenaming ρ (tupleTy [a, b]) (tupleTy [c]) (.base a) (.base b)).toFun := by
+      rw [LetCase.LocallyNameless.Tm.rename_comp]
+      apply LetCase.LocallyNameless.Tm.rename_congr
+      intro i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+    rw [moved] at comm
+    exact comm.trans (Equiv.let₂ (.refl .bv) (Equiv.let₁
+      (.refl (HasType.rename ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
+        (BoundCtx.Renaming.succ _ (.base b))) he))
+      (tree.normal_equiv (heldRenaming ρ _ _ _ _))))
+  | a, b, _, _, _, _, _, .unit (t := body) _ _ tree, _, γ, ρ, he => by
+    have typed : HasType Φ Γ₀
+        ((((γ.snoc (tupleTy [a, b])).snoc (tupleTy ([] : List α))).snoc (.base a)).snoc (.base b))
+        (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+          (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))) (packedExitType L) :=
+      HasType.rename ((((ρ.up _).up _).up _).up _) tree.typing.toHasType
+    have comm := let_pair_comm_proof (0 : Fin (_ + 1)) rfl he typed
+    have moved : (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+        (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))).rename afterPair =
+          body.rename (heldRenaming ρ (tupleTy [a, b]) (tupleTy ([] : List α)) (.base a) (.base b)).toFun := by
+      rw [LetCase.LocallyNameless.Tm.rename_comp]
+      apply LetCase.LocallyNameless.Tm.rename_congr
+      intro i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+    rw [moved] at comm
+    exact comm.trans (Equiv.let₂ (.refl .bv) (Equiv.let₁
+      (.refl (HasType.rename ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
+        (BoundCtx.Renaming.succ _ (.base b))) he))
+      (tree.normal_equiv (heldRenaming ρ _ _ _ _))))
 
 end
 

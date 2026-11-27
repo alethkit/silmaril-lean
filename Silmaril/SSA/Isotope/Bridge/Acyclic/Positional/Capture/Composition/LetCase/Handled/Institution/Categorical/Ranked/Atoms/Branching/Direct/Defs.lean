@@ -18,6 +18,12 @@ in the case trees: remaining tags are cased on in order and tuples are
 unpacked in order. Bodies may contain further requests in any of the three
 spellings. Leaves are those of the case trees.
 
+A pending pair of atoms may instead be held across one later request and
+destructured after it: `let₁ (op g a) (let₂ x t)`, where `x` is the pair
+slot. The later request is assembled from the older atom slots, so it does
+not use the pair. Its reply has one tag with at most one atom. The body
+has the two components and the later reply as slots.
+
 The normal form of a spelled tree is the case tree with the same requests
 in the same order, the same exits and the same payloads. Every slot of the
 spelled tree is renamed past the reply slots that the normal form binds.
@@ -44,6 +50,20 @@ def armRenaming {α : Type} {n m : Nat} {β : BoundCtx (Ty α) n} {γ : BoundCtx
     (ρ : BoundCtx.Renaming β γ) (reply payload : Ty α) :
     BoundCtx.Renaming (β.snoc payload) ((γ.snoc reply).snoc payload) :=
   (ρ.comp (BoundCtx.Renaming.succ γ reply)).up payload
+
+/-- Move the three newest slots past two slots inserted beneath them: the
+newest two move up by one and the third becomes newest. -/
+def afterPair {m : Nat} : Fin (m + 3) → Fin (m + 3) :=
+  Fin.cases 1 (Fin.cases 2 (Fin.cases 0 (fun i => i.succ.succ.succ)))
+
+/-- The slots after a held pair is destructured behind a later reply, in
+the normal form that destructures the pair first: the two components come
+before the later reply, and every older slot keeps its place. -/
+def heldRenaming {α : Type} {n m : Nat} {β : BoundCtx (Ty α) n} {γ : BoundCtx (Ty α) m}
+    (ρ : BoundCtx.Renaming β γ) (P X A B : Ty α) :
+    BoundCtx.Renaming ((((β.snoc P).snoc X).snoc A).snoc B) ((((γ.snoc P).snoc A).snoc B).snoc X) where
+  toFun := Fin.cases 1 (Fin.cases 2 (Fin.cases 0 (Fin.cases 3 (fun i => (ρ.toFun i).succ.succ.succ.succ))))
+  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun i => ρ.typed i))))
 
 /-! ## Spelled trees -/
 
@@ -105,6 +125,29 @@ inductive SpelledTuple : {n : Nat} → List α → BoundCtx (Ty α) n → List (
       {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1)}
       (later : SpelledTuple (b :: rest) ((β.snoc (tupleTy (a :: b :: rest))).snoc (.base a)) L t) :
       SpelledTuple (a :: b :: rest) β L (.let₂ (.bv 0) t)
+  | across {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b : α) (g : Φ)
+      (argument : Assembly β (instrSrc g)) {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+      (held : SpelledHeld a b (replyTags g)
+        (.op g (argTerm (argument.rename (BoundCtx.Renaming.succ β (tupleTy [a, b]))))) β L t) :
+      SpelledTuple [a, b] β L t
+
+/-- A later request with a pair of atoms held beneath it, over the base
+context. The request does not use the pair. Its reply has one tag with at
+most one atom and is bound. The held pair is destructured after it, and
+the body has the two components newest. -/
+inductive SpelledHeld : α → α → {n : Nat} → List (List α) → LetCase.LocallyNameless.Tm Empty Φ (n + 1) →
+    BoundCtx (Ty α) n → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (n + 1) → Type where
+  | atom {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b c : α)
+      {e : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+      {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1 + 1)}
+      (body : Spelled ((((β.snoc (tupleTy [a, b])).snoc (tupleTy [c])).snoc (.base a)).snoc (.base b)) L t) :
+      SpelledHeld a b [[c]] e β L (.let₁ e (.let₂ (.bv 1) t))
+  | unit {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b : α)
+      {e : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+      {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1 + 1)}
+      (body : Spelled ((((β.snoc (tupleTy [a, b])).snoc (tupleTy ([] : List α))).snoc (.base a)).snoc (.base b))
+        L t) :
+      SpelledHeld a b [[]] e β L (.let₁ e (.let₂ (.bv 1) t))
 
 end
 
@@ -142,6 +185,17 @@ def SpelledTuple.typing : {n : Nat} → {β : BoundCtx (Ty α) n} → {atoms : L
   | _, _, _, _, .unit body => body.typing
   | _, _, _, _, .atom _ body => body.typing
   | _, _, _, _, .pair _ _ _ later => .let₂ .bv later.typing
+  | _, _, _, _, .across _ _ g argument held =>
+    held.typing (.op (f := g) (argTyping (argument.rename (BoundCtx.Renaming.succ _ _))))
+
+/-- The native typing of a held request, from the typing of the request
+under the held pair. -/
+def SpelledHeld.typing : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → SpelledHeld a b tags e β L t →
+    Derivation Φ Γ₀ (β.snoc (tupleTy [a, b])) e (tagsTy tags) →
+    Derivation Φ Γ₀ (β.snoc (tupleTy [a, b])) t (packedExitType L)
+  | _, _, _, _, _, _, _, .atom _ _ _ body, d => .let₁ d (.let₂ (.bv (ι := 1)) body.typing)
+  | _, _, _, _, _, _, _, .unit _ _ body, d => .let₁ d (.let₂ (.bv (ι := 1)) body.typing)
 
 end
 
@@ -193,6 +247,28 @@ def SpelledTuple.normal : {n : Nat} → {β : BoundCtx (Ty α) n} → {atoms : L
   | _, _, _, _, .atom a body, _, _, ρ => ⟨_, .atom a (body.normal (ρ.up _)).2⟩
   | _, _, _, _, .pair a b rest later, _, _, ρ =>
     ⟨_, .pair a b rest (later.normal ((ρ.up _).up _)).2⟩
+  | _, _, _, _, .across a b g argument held, _, γ, ρ =>
+    ⟨_, .pair a b []
+      (.atom b
+        (.ask g
+          (((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)).rename
+            ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
+              (BoundCtx.Renaming.succ _ (tupleTy [b]))))
+          (held.normal ρ).2))⟩
+
+/-- The normal form of a held request: the case tree that consumes the
+bound reply of the later request, after the pair has been destructured
+first. The two components come before the later reply. -/
+def SpelledHeld.normal : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → SpelledHeld a b tags e β L t →
+    {m : Nat} → {γ : BoundCtx (Ty α) m} → BoundCtx.Renaming β γ →
+    (k : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1 + 1 + 1)) ×
+      CaseTree (.tags tags)
+        ((((γ.snoc (tupleTy [a, b])).snoc (.base a)).snoc (tupleTy [b])).snoc (tagsTy tags)) L k
+  | _, _, _, _, _, _, _, .atom _ _ c body, _, _, ρ =>
+    ⟨_, .only [c] (.atom c (body.normal (heldRenaming ρ _ _ _ _)).2)⟩
+  | _, _, _, _, _, _, _, .unit _ _ body, _, _, ρ =>
+    ⟨_, .only [] (.unit (body.normal (heldRenaming ρ _ _ _ _)).2)⟩
 
 end
 
