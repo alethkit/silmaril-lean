@@ -78,6 +78,45 @@ theorem qlit_congr {D : Ty Empty} {r r' : Region signature.Instr} (e : r = r')
   subst e
   rfl
 
+/-! ## A case on an injected payload, at a one-variable boundary -/
+
+section Reduce
+
+variable {X A B D : Ty Empty} {t : Tm signature.Instr} {l r : Region signature.Instr}
+
+/-- A branch with a left-injected payload followed by a case is the
+branch followed by the left arm. An equation of default Paper. -/
+theorem case_inl_arrow (ht : Tm.BranchValue [X] t A) (hl : ValueBranches [A] l [D])
+    (hr : ValueBranches [B] r [D]) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inl ht))
+        (caseValueBranches hl hr)) =
+      ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [A]) rfl ht) hl) := by
+  have e₁ := (ofRegion_comp (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inl ht))
+    (caseValueBranches hl hr)
+    (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inl ht))
+      (caseValueBranches hl hr))).symm
+  have e₂ := (ofRegion_comp (ValueBranches.br (ℓ := 0) (L := [A]) rfl ht) hl
+    (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [A]) rfl ht) hl)).symm
+  rw [e₁, e₂, br_inl ht, ← coprod_desc_ofRegion hl hr]
+  simp
+
+/-- The same for a right-injected payload. -/
+theorem case_inr_arrow (ht : Tm.BranchValue [X] t B) (hl : ValueBranches [A] l [D])
+    (hr : ValueBranches [B] r [D]) :
+    ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inr ht))
+        (caseValueBranches hl hr)) =
+      ofRegion (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [B]) rfl ht) hr) := by
+  have e₁ := (ofRegion_comp (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inr ht))
+    (caseValueBranches hl hr)
+    (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [Silmaril.coprod A B]) rfl (.inr ht))
+      (caseValueBranches hl hr))).symm
+  have e₂ := (ofRegion_comp (ValueBranches.br (ℓ := 0) (L := [B]) rfl ht) hr
+    (seqValueBranches (ValueBranches.br (ℓ := 0) (L := [B]) rfl ht) hr)).symm
+  rw [e₁, e₂, br_inr ht, ← coprod_desc_ofRegion hl hr]
+  simp
+
+end Reduce
+
 /-! ## The chain followed by the routing, in default Paper -/
 
 theorem bitState_arrow : ofRegion bitState_typed =
