@@ -93,11 +93,11 @@ private def chainWith (joined : Slot afterPing tok) (first second : Slot leafCtx
     (.bind (.only [(), ()]
       (.hold () () []
         (.ask Op.ping (.atom laterUnder)
-          (.atom ()
+          (.bind [()]
             (.ask Op.join (.pair (.atom joined) (.atom earlierAfterPing))
-              (.atom ()
+              (.bind [()]
                 (.ask Op.mark (.atom secondReply)
-                  (.unit
+                  (.bind []
                     (.unpack (.atom () (.ret pairExit (.pair (.atom first) (.atom second))))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and a chosen

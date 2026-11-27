@@ -345,31 +345,106 @@ theorem CaseTree.renamed_body_comp {t : LetCase.LocallyNameless.Tm Empty Φ n} (
       CaseTree.renamed (pending := .body) tree (ρ.comp π) :=
   CaseTree.renamed_comp tree ρ π
 
+/-! ## Telescopes
+
+The renaming that moves a slot bound after a telescope beneath it commutes
+with renaming the context. The move of two slots is composed from it. -/
+
+section Tele
+
+variable {k j i : Nat} {Ω : BoundCtx (Ty α) k} {Ω' : BoundCtx (Ty α) j} {Ω'' : BoundCtx (Ty α) i}
+
+omit [TaggedSignature α Φ] in
+/-- Lifting under a telescope commutes with composition. -/
+theorem upTele_comp (tel : List (Ty α)) (ρ : BoundCtx.Renaming Ω Ω') (π : BoundCtx.Renaming Ω' Ω'') :
+    (upTele ρ tel).comp (upTele π tel) = upTele (ρ.comp π) tel :=
+  upTele_comp_proof tel ρ π
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope commutes with renaming. -/
+theorem weakenTele_natural (tel : List (Ty α)) (ρ : BoundCtx.Renaming Ω Ω') :
+    (weakenTele Ω tel).comp (upTele ρ tel) = ρ.comp (weakenTele Ω' tel) :=
+  weakenTele_natural_proof tel ρ
+
+omit [TaggedSignature α Φ] in
+/-- Moving a slot beneath a telescope commutes with renaming. -/
+theorem swapTele_natural (tel : List (Ty α)) (ω : BoundCtx.Renaming Ω Ω') (T : Ty α) :
+    (swapTele Ω tel T).comp (upTele (ω.up T) tel) = ((upTele ω tel).up T).comp (swapTele Ω' tel T) :=
+  swapTele_natural_proof tel ω T
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope under a new slot, and then moving the slot
+beneath the telescope, is weakening past the telescope over the slot. -/
+theorem swapTele_weaken (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (T : Ty α) :
+    ((weakenTele Ω tel).up T).comp (swapTele Ω tel T) = weakenTele (Ω.snoc T) tel :=
+  swapTele_weaken_proof tel Ω T
+
+omit [TaggedSignature α Φ] in
+/-- Moving two slots beneath a telescope commutes with renaming. -/
+theorem pairPastTele_natural (tel : List (Ty α)) (ω : BoundCtx.Renaming Ω Ω') (A B : Ty α) :
+    (pairPastTele Ω tel A B).comp (upTele ((ω.up A).up B) tel) =
+      (((upTele ω tel).up A).up B).comp (pairPastTele Ω' tel A B) :=
+  pairPastTele_natural_proof tel ω A B
+
+omit [TaggedSignature α Φ] in
+/-- Moving two slots beneath a telescope with one more oldest slot: move
+them beneath the rest, then beneath that slot. -/
+theorem pairPastTele_cons (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (X A B : Ty α) :
+    pairPastTele Ω (X :: tel) A B =
+      (pairPastTele (Ω.snoc X) tel A B).comp (upTele (afterPairRenaming Ω X A B) tel) :=
+  pairPastTele_cons_proof tel Ω X A B
+
+omit [TaggedSignature α Φ] in
+/-- Two pairs of slots move past each other in two steps. -/
+theorem afterPairPair_split (Γ : BoundCtx (Ty α) k) (C D A B : Ty α) :
+    afterPairPairRenaming Γ C D A B =
+      (afterPairRenaming (Γ.snoc C) D A B).comp ((afterPairRenaming Γ C A B).up D) :=
+  afterPairPair_split_proof Γ C D A B
+
+omit [TaggedSignature α Φ] in
+/-- Renaming commutes with the pattern lets that unpack a tuple slot. -/
+theorem unpackAt_rename (atoms : List α) (ρ : BoundCtx.Renaming Ω Ω') (s : Fin k)
+    (u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k (pairsTele atoms))) :
+    (unpackAt atoms s u).rename ρ.toFun =
+      unpackAt atoms (ρ.toFun s) (u.rename (upTele ρ (pairsTele atoms)).toFun) :=
+  unpackAt_rename_proof atoms ρ s u
+
+/-- Renaming the pending tuple whose unpacking ends in a body is the
+pending tuple whose unpacking ends in the renamed body. -/
+theorem CaseTree.packed_renamed (atoms : List α)
+    {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k (unpackTele atoms))}
+    (r : CaseTree .body (extendCtx Ω (unpackTele atoms)) L u) (ω : BoundCtx.Renaming Ω Ω') :
+    CaseTree.renamed (pending := .tuple atoms) (β := Ω.snoc (tupleTy atoms)) (CaseTree.packed atoms r) ω =
+      ⟨_, CaseTree.packed atoms (CaseTree.renamed (pending := .body) r (upTele ω (unpackTele atoms))).2⟩ :=
+  packed_renamed_proof atoms r ω
+
+end Tele
+
 /-! ## Renaming and binding under a pending tuple
 
-Binding a slot under the unpacking of a pending tuple commutes with
+Binding a telescope under the unpacking of a pending tuple commutes with
 renaming the tuple beforehand and with renaming the result. -/
 
-/-- Binding a slot under a renamed pending tuple is binding it under the
-tuple along the composite renaming. -/
+/-- Binding a telescope under a renamed pending tuple is binding it under
+the tuple along the composite renaming. -/
 theorem CaseTree.pushed_renamed {atoms : List α} {T : Ty α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
     (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {j : Nat} {β' : BoundCtx (Ty α) j}
-    (ρ : BoundCtx.Renaming β β') {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
-    (π : BoundCtx.Renaming β' (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X) :
+    (ρ : BoundCtx.Renaming β β') {m : Nat} {Ω : BoundCtx (Ty α) m} {tel : List (Ty α)}
+    (π : BoundCtx.Renaming β' (extendCtx Ω tel)) (wrap : CaseTree.Wrap Φ L Ω tel) :
     CaseTree.pushed (pending := .tuple atoms) (β := β'.snoc T)
       (CaseTree.renamed (pending := .tuple atoms) tree ρ).2 π wrap = CaseTree.pushed tree (ρ.comp π) wrap :=
   pushed_pre_proof tree ρ π wrap
 
-/-- Renaming the result of binding a slot under a pending tuple is binding
-the slot under the tuple along the composite renaming, with the binding
-taken after the renaming. The way to bind the slot must commute with
-renaming. -/
+/-- Renaming the result of binding a telescope under a pending tuple is
+binding the telescope under the tuple along the composite renaming, with
+the binding taken after the renaming. The way to bind the telescope must
+commute with renaming. -/
 theorem CaseTree.renamed_pushed {atoms : List α} {T : Ty α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
-    (π : BoundCtx.Renaming β (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X) (natural : wrap.Natural)
+    (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {m : Nat} {Ω : BoundCtx (Ty α) m} {tel : List (Ty α)}
+    (π : BoundCtx.Renaming β (extendCtx Ω tel)) (wrap : CaseTree.Wrap Φ L Ω tel) (natural : wrap.Natural)
     {j : Nat} {Ω' : BoundCtx (Ty α) j} (ω : BoundCtx.Renaming Ω Ω') :
     CaseTree.renamed (pending := .tuple atoms) (β := Ω.snoc T) (CaseTree.pushed tree π wrap).2 ω =
-      CaseTree.pushed tree (π.comp (ω.up X)) (fun ω' => wrap (ω.comp ω')) :=
+      CaseTree.pushed tree (π.comp (upTele ω tel)) (fun ω' => wrap (ω.comp ω')) :=
   pushed_post_proof tree π wrap natural ω
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution
