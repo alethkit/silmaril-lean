@@ -10,7 +10,7 @@ public import Silmaril.Proofs.Wasm.OCaml.Decode.S64
 
 `Decode.run` runs the **imported OCaml source** of `decode.ml`'s `uN`, `u32`, `sN`, `s32`,
 `u64` and `s64` (`WebAssembly/spec@608711107b`), after linking it with the parts of the OCaml
-standard library it reaches, in the semantics `Silmaril.ML.OCaml`. The theorems below compare
+standard library it reaches, in the semantics `Silmaril.OCaml`. The theorems below compare
 those runs with silmaril-lean's executable transcription `Silmaril.Wasm.Binary.RefInterp`
 (`refUN`, `refSN`, …), which is proved equivalent to the binary grammar relations
 `UN N` / `SN N` (`refUN_eq_some_iff`, `refSN_eq_some_iff`).
@@ -32,7 +32,7 @@ encoding, `FF 7E` (silmaril-lean#803), the 63-bit `int` boundary on the `u32` pa
 @[expose] public section
 namespace Silmaril.Wasm.OCaml.Decode
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 open Silmaril.Wasm.Binary
 open Silmaril.Wasm.Binary.RefInterp
 

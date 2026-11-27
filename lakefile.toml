@@ -155,12 +155,12 @@ globs = [
   "Silmaril.Wasi.Versions.Tcp3Stream.+", "Silmaril.Wasm.SpecTecLean.+",
   # More Wasm: semantics, WASI and networking (docs/projects/wasm-wasi.md). The WIT readers
   # `Silmaril.Wasi.Versions.WitImport.*` are `SilmarilWasiWit` below.
-  "Silmaril.ML.+", "Silmaril.Net.+", "Silmaril.Proofs.Net.+", "Silmaril.Proofs.Wasi.+",
+  "Silmaril.OCaml.+", "Silmaril.Net.+", "Silmaril.Proofs.Net.+", "Silmaril.Proofs.Wasi.+",
   "Silmaril.Proofs.Wasm.Category.+", "Silmaril.Proofs.Wasm.Dataflow.+",
   "Silmaril.Proofs.Wasm.Det.+", "Silmaril.Proofs.Wasm.Institution.+",
   "Silmaril.Proofs.Wasm.LambdaRTL.+", "Silmaril.Proofs.Wasm.OCaml.+",
   "Silmaril.Proofs.Wasm.Replace.+", "Silmaril.Proofs.Wasm.Wasmi.+",
-  "Silmaril.Proofs.Wasm.WatSpec.+", "Silmaril.Raw.ML.+", "Silmaril.Raw.Wasm.LimeCompile.+",
+  "Silmaril.Proofs.Wasm.WatSpec.+", "Silmaril.Raw.OCaml.+", "Silmaril.Raw.Wasm.LimeCompile.+",
   "Silmaril.Raw.Wasm.Models.+", "Silmaril.Raw.Wasm.OCaml.+", "Silmaril.Raw.Wasm.Unified.+",
   "Silmaril.Wasi.Cli.+", "Silmaril.Wasi.Comp.+", "Silmaril.Wasi.Component.+",
   "Silmaril.Wasi.Converse.+", "Silmaril.Wasi.Examples.+", "Silmaril.Wasi.Host.+",

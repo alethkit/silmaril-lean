@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.ML.OCaml.Stdlib.Defs
+public import Silmaril.OCaml.Stdlib.Defs
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.XlAtom
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.XlBool
 public import Silmaril.Raw.Wasm.OCaml.SpecTecPin.Gen.UtilLib
@@ -30,25 +30,25 @@ External units (not imported; modelled in Lean): Z, Q, Stdlib__Printexc, Stdlib_
 
 namespace Silmaril.Wasm.OCaml.SpecTecPin.Gen
 
-open Silmaril.ML.OCaml
+open Silmaril.OCaml
 
 /-- The linked units, in initialisation order. -/
 def program : Program :=
-  [Silmaril.ML.OCaml.Gen.OCamlStdlib.Stdlib.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibArray.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibChar.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibInt.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibSeq.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibSys.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibUchar.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibBytes.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibFun.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibList.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibMap.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibOption.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibPair.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibSet.unit,
-   Silmaril.ML.OCaml.Gen.OCamlStdlib.StdlibString.unit,
+  [Silmaril.OCaml.Gen.OCamlStdlib.Stdlib.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibArray.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibChar.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibInt.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibSeq.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibSys.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibUchar.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibBytes.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibFun.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibList.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibMap.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibOption.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibPair.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibSet.unit,
+   Silmaril.OCaml.Gen.OCamlStdlib.StdlibString.unit,
    Silmaril.Wasm.OCaml.SpecTecPin.Gen.XlAtom.unit,
    Silmaril.Wasm.OCaml.SpecTecPin.Gen.XlBool.unit,
    Silmaril.Wasm.OCaml.SpecTecPin.Gen.UtilLib.unit,
