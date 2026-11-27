@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable.Composite.Silent.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable.Composite.Environment.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable.Router.Prefix.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.SilentRegression
 
 /-! # Request-free rows in mixed tables, at the original entries
@@ -13,10 +14,11 @@ request. No seed is added. Nothing here is inferred from a model.
 
 `Ranked row act rank fuel` ranks the edges out of request-free rows, on
 rows with their entry Bit. A finite forwarding chain has a ranking. A
-silent cycle has none (`spin_not_ranked`), and nothing is proved about
-it. With a ranking every action settles within the fuel: it reaches a
-return or a request row (`resolveN_settled`). The elimination below is
-stated for settled actions.
+silent cycle has none (`spin_not_ranked`); silent cycles are treated
+separately below, with a classification in place of the ranking. With a
+ranking every action settles within the fuel: it reaches a return or a
+request row (`resolveN_settled`). The elimination below is stated for
+settled actions.
 
 ## Default Paper: the elimination over ranked silent paths
 
@@ -53,7 +55,8 @@ and the specialization of #5277 at the request rows.
 ## The opt-in quotient: completeness
 
 * `Landed.eqv_iff_rel`: two loops with landings are equal exactly when
-  their landings agree at each constant.
+  their landings agree at each constant: the same returned Bit, the same
+  constant into equal request trees, or silent divergence on both sides.
 * `Landed.complete`: exactly when they are valid in every supported
   model. The converse reads the request-prefix model: a return and a
   pending request are told apart, a request shows its query, and literal
@@ -77,11 +80,57 @@ row, and a ranking (`hop_ranked`).
   the hop changes the Bit in the same way and the request row is entered
   with the same Bit.
 
+## Silent cycles: a third landing
+
+* `silent_classification`: every finite table of silent states has a
+  closed set `cyc` of states whose silent paths never end, and a fuel
+  that resolves every action to a return, a request state or a state of
+  `cyc`. The set is chosen classically; for a given table a
+  classification is checked by computation.
+* `Router.cycle_eqv_spin`: the canonical-cycle lemma, in the opt-in
+  quotient. In a router table whose repeats carry the Bit of their
+  target, a state of a closed silent set entered with its Bit is the
+  canonical silent self-loop `spinRegion`, whatever Bits the cycle
+  carries. Two steps. In default Paper, by the roll law and resets, the
+  table equals the table whose `cyc` rows are constant rows that repeat
+  with `false`. That table is bisimilar to `spinRouter`, which uses the
+  phase-uniformity fold.
+* `mixWritten_landed3`, `mixWritten_eqv_mixCase3`: a classified mixed
+  table entered with each constant lands in a returned Bit, in literal
+  request trees, or in `spinRegion`. Original entries and exits are kept.
+* `spinRouter_prefixObservations`: in the request-prefix model the
+  canonical silent self-loop has no observation, neither a completed run
+  nor a pending request. So `Landed.eqv_iff_rel` and `Landed.complete`
+  hold with the third landing: silent divergence is separated from an
+  immediate return and from a pending labelled request.
+* `mixWritten_complete3`: two classified mixed tables are equal at given
+  original entries exactly when they are valid in every supported model.
+
+Regression: `flip_landing`, `flip_eqv_spin`, `lead_eqv_flip`: a silent
+cycle that negates the Bit, one that keeps it, and a hop into a cycle
+are equal. `flip_ne_return`, `flip_ne_request`: the cycle differs from an
+immediate return and from every table of literal request trees.
+`tri_cycle`, `tri_request`: one request-free row lands in the cycle on
+one Bit and at the request row on the other.
+
+## The gap: a request followed by silent divergence
+
+`Classified.quiet` requires that no request row repeats into `cyc`. A
+request row whose reply leads into a silent cycle has a visible prefix
+followed by silent divergence, and it is not covered. Two things are
+missing. A table of literal request trees has no leaf that diverges, so
+the normal form needs a table of labelled rows together with the
+canonical silent row. And `Router.labels_eqv_iff`, the reflection of a
+bisimulation from prefix observations, is proved for tables of labelled
+rows only. In the model such a reply contributes no observation, since
+`spinRouter` has none; the reflection for tables with that row is not
+proved here.
+
 ## Scope
 
-Silent cycles are out of scope. The request rows are rows of the
-environment fragment. Nothing is claimed for packed dispatchers in
-general, and no completeness is claimed for default Paper.
+The request rows are rows of the environment fragment. Nothing is claimed
+for packed dispatchers in general, and no completeness is claimed for
+default Paper.
 -/
 
 public section
@@ -239,5 +288,102 @@ theorem hop_eqv_iff (l f s f' s' : Bool) :
     Eqv false [State] ((mixWritten (hopRow l) (hopAct f s)).entered 0)
       ((mixWritten (hopRow l) (hopAct f' s')).entered 0) [Bit] ↔ f = f' ∧ s = s' :=
   Tables.hop_eqv_iff l f s f' s'
+
+/-! ## Silent cycles -/
+
+/-- Every finite table of silent states has a classification. -/
+theorem silent_classification (sil : Fin (M + 1) → Option (Act M)) :
+    ∃ (cyc : Fin (M + 1) → Bool) (fuel : Nat), Cyclic sil cyc ∧
+      ∀ a, (resolveN (cutSil sil cyc) fuel a).Settled (cutSil sil cyc) :=
+  Tables.classification sil
+
+/-- A state of a closed silent set, entered with its Bit, is the
+canonical silent self-loop. -/
+theorem Router.cycle_eqv_spin (t : Router M) (c : Fin (M + 1) → Bool) (cyc : Fin (M + 1) → Bool)
+    (nxt : Fin (M + 1) → Fin (M + 1)) (hact : ∀ x a b, (t.act x a b).Carries c)
+    (hcyc : ∀ y, cyc y = true →
+      ofRegion (seqValueBranches (const_typed (c y)) (t.rows_typed y)) =
+        ofRegion (act_typed M (.go (nxt y) (c (nxt y)))) ∧ cyc (nxt y) = true)
+    (x : Fin (M + 1)) (hx : cyc x = true) :
+    Eqv false [(Ty.unit : Ty Empty)] (constEntry (c x) (t.entered x)) spinRegion [Bit] :=
+  Tables.cycle_spin_eqv t c cyc nxt hact hcyc x hx
+
+/-- In the request-prefix model the canonical silent self-loop has no
+observation. -/
+theorem spinRouter_prefixObservations (g : Bool) : spinRouter.prefixObservations 0 g = ∅ :=
+  TableModel.spin_obs g
+
+section Cycles
+
+variable {row : Fin (K + 1) → MixRow} {act : Fin (K + 1) → Bool → Bool → Act K}
+  {cyc : Fin (K + (K + 1) + 1) → Bool} {fuel : Nat} (hcl : Classified row act cyc fuel)
+
+include hcl in
+/-- A classified mixed table entered with each constant is its landing: a
+returned Bit, literal request trees, or the canonical silent self-loop. -/
+theorem mixWritten_landed3 (j : Fin (K + 1)) :
+    Landed ((mixWritten row act).entered j) (mixLanding3 row act cyc fuel j) :=
+  Tables.written_landed3 row act hcl j
+
+include hcl in
+/-- On an arbitrary state, the table is its two landings entered by a
+case on that state. -/
+theorem mixWritten_eqv_mixCase3 (j : Fin (K + 1)) :
+    Eqv false [State] ((mixWritten row act).entered j) (mixCase3 row act cyc fuel j) [Bit] :=
+  Tables.written_case3 row act hcl j
+
+end Cycles
+
+/-- Two classified mixed tables are equal at given original entries
+exactly when they are valid in every supported model. -/
+theorem mixWritten_complete3 {row : Fin (K₁ + 1) → MixRow} {act : Fin (K₁ + 1) → Bool → Bool → Act K₁}
+    {cyc : Fin (K₁ + (K₁ + 1) + 1) → Bool} {fuel : Nat} (hcl : Classified row act cyc fuel)
+    {row' : Fin (K₂ + 1) → MixRow} {act' : Fin (K₂ + 1) → Bool → Bool → Act K₂}
+    {cyc' : Fin (K₂ + (K₂ + 1) + 1) → Bool} {fuel' : Nat} (hcl' : Classified row' act' cyc' fuel')
+    (i₁ : Fin (K₁ + 1)) (i₂ : Fin (K₂ + 1)) :
+    Eqv false [State] ((mixWritten row act).entered i₁) ((mixWritten row' act').entered i₂) [Bit] ↔
+      Valid ((mixWritten row act).entered_typed i₁).hasType ((mixWritten row' act').entered_typed i₂).hasType :=
+  (mixWritten_landed3 hcl i₁).complete (mixWritten_landed3 hcl' i₂) ((mixWritten row act).entered_typed i₁)
+    ((mixWritten row' act').entered_typed i₂)
+
+theorem flip_classified : Classified spinRow flipAct allCyc 0 := Tables.flip_classified
+
+/-- A silent cycle that negates the Bit lands in the canonical silent
+self-loop at both constants. -/
+theorem flip_landing (q : Bool) : mixLanding3 spinRow flipAct allCyc 0 0 q = .spin :=
+  Tables.flip_landing q
+
+/-- The cycle that negates the Bit equals the cycle that keeps it. -/
+theorem flip_eqv_spin :
+    Eqv false [State] ((mixWritten spinRow flipAct).entered 0) ((mixWritten spinRow spinAct).entered 0) [Bit] :=
+  Tables.flip_eqv_spin
+
+/-- A hop into a cycle equals the cycle. -/
+theorem lead_eqv_flip :
+    Eqv false [State] ((mixWritten leadRow leadAct).entered 0) ((mixWritten spinRow flipAct).entered 0) [Bit] :=
+  Tables.lead_eqv_flip
+
+/-- The silent cycle is not an immediate return. -/
+theorem flip_ne_return :
+    ¬ Eqv false [State] ((mixWritten spinRow flipAct).entered 0) ((mixWritten echoRow echoPure).entered 0)
+      [Bit] :=
+  Tables.flip_ne_return
+
+/-- The silent cycle is not a loop that sends a request. -/
+theorem flip_ne_request (s : LTable M) (i : Fin (M + 1)) :
+    ¬ Eqv false [State] ((mixWritten spinRow flipAct).entered 0) (s.entered i) [Bit] :=
+  Tables.flip_ne_request s i
+
+theorem tri_classified (l : Bool) : Classified (triRow l) triAct triCyc 1 := Tables.tri_classified l
+
+/-- Entered with `false`, the silent path of row zero ends in the cycle. -/
+theorem tri_cycle (l : Bool) : mixLanding3 (triRow l) triAct triCyc 1 0 false = .spin :=
+  Tables.tri_cycle l
+
+/-- Entered with `true`, it reaches the request row. -/
+theorem tri_request (l : Bool) :
+    mixLanding3 (triRow l) triAct triCyc 1 0 true =
+      .at (mixSource3 (triRow l) triAct triCyc 1) (splitIdx 2 true) true :=
+  Tables.tri_request l
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable
