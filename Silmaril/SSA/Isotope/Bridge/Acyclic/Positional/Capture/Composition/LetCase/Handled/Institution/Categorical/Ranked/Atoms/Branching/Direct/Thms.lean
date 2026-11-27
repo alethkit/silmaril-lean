@@ -55,10 +55,21 @@ not an atom slot, so no request can use it or its components until they
 are destructured. A request may use the older atom slots and the atoms
 already destructured on its branch.
 
+The inspection of a reply with several tags may be delayed across one later
+request: `let₁ (op g a) (let₁ (op h b) (case s l r))`, where `s` is the
+slot of the reply of `g`. The stored reply is a slot of sum type and not an
+atom slot, so `h` cannot read it: `h` is the same request whichever tag
+the reply carries, and may use older captures. The case on `s` directly
+follows `h`. In each arm the payload of the tag is pushed on the stack and
+the reply of `h` is pending.
+
 The normal form unpacks every tuple completely right after the request or
-the case that binds it. It keeps every request, with its argument, and
-every case in place: a case is still on the reply of its request and
-directly follows it. No case is moved across a request.
+the case that binds it, and it inspects every reply right after its
+request. For a reply inspected at once, the case is in place. For a delayed
+inspection the pure tag test moves in front of the later request, which is
+then written once in each arm. On every run one arm is taken, so each
+request is asked once, in the same order as in the spelled tree. No two
+requests are exchanged and no request is added or removed on any run.
 
 The spelling and its normal form are related by derived native equations.
 None is an axiom of the native theory. `let₁ E (let₂ x B) = let₂ x (let₁
@@ -68,7 +79,12 @@ slots; and `case s (let₂ x L) (let₂ x R) = let₂ x (case s L′ R′)` move
 out of both arms of a case on a slot. They follow from pure-let beta, pair
 eta, the law that pulls a pattern let out of the scrutinee of a let, pair
 beta, and case congruence on the same scrutinee, through
-`K[x] = let₂ x (K[(a, b)])` for a term over a pair slot. By induction on a
+`K[x] = let₂ x (K[(a, b)])` for a term over a pair slot. The delayed
+inspection uses a fourth derived equation,
+`let₁ E (case s L R) = case s (let₁ E↑ L′) (let₁ E↑ R′)` for a slot `s` of
+sum type. It follows from `K[s] = case s (K[inl a]) (K[inr b])`, which is
+derived from pure-let beta, sum eta and the law that pulls a case out of
+the scrutinee of a let, and from case beta at an injection. By induction on a
 tuple they move its whole unpacking, and by induction on the stack they
 move the unpackings of every packed tuple, in front of any binding that
 moves single pattern lets (`stack_out`) and out of both arms of a case
@@ -91,10 +107,12 @@ heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
 in order, as in the case trees, except that a pending tuple may be held
-and starts a chain over a stack as above. Outside it are: a request whose
-reply is destructured or cased on at the request itself while a tuple is
-packed; a reply with several tags that is kept as one slot, so that its
-case does not directly follow its request; and arbitrary LetCase terms.
+and starts a chain over a stack as above. A chain may also start with the
+stack empty. Outside it are: a request whose reply is destructured or
+cased on at the request itself while a tuple is packed; a reply with
+several tags whose inspection is delayed across two or more requests, or
+across a pattern let, or which is selected again later; and arbitrary
+LetCase terms.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -349,6 +367,49 @@ theorem select_out {C : Ty α} {stack : List (List α)} {atoms : List α} {rest 
       (unpackStack stack H (u.rename (selectRen sel Ω).toFun)) C :=
   select_out_proof sel H hu
 
+/-- A term over a slot of sum type is natively equal to the case on the
+slot around the term at each injection of the payload:
+
+`K[s] = case s (K[inl a]) (K[inr b])`
+
+for a slot `s` of sum type. `K` may be any typed term, with requests. It
+is derived from native typed laws: pure-let beta at the slot, sum eta, the
+sequencing law that pulls a case out of the scrutinee of a let, and
+pure-let beta at an injection of a slot. -/
+theorem slot_sum_split {m : Nat} {Δ : BoundCtx (Ty α) m} {X Y C : Ty α} (j : Fin m)
+    (hj : Δ.get j = .coprod X Y) {K : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+    (hK : HasType Φ Γ₀ (Δ.snoc (.coprod X Y)) K C) :
+    Equiv false Γ₀ Δ (LetCase.LocallyNameless.Tm.instantiate K (.bv j))
+      (.case (.bv j) (LetCase.LocallyNameless.Tm.instantiate K.underBinder (.inl (.bv 0)))
+        (LetCase.LocallyNameless.Tm.instantiate K.underBinder (.inr (.bv 0)))) C :=
+  slot_sum_split_proof j hj hK
+
+/-- A binding followed by a case on an older slot of sum type is natively
+equal to the case followed by the binding in each arm:
+
+`let₁ E (case s L R) = case s (let₁ E↑ L′) (let₁ E↑ R′)`
+
+where `s` is a slot of sum type, `E↑` is `E` weakened past the payload of
+the arm, and `L′`, `R′` are the arms with the payload moved beneath the
+binder of the let. `E` may be an effectful request. It is typed in the
+context where `s` is a slot of sum type, so it is the same term whichever
+tag `s` carries, and it has no access to the payload.
+
+Only the pure tag test moves. The binding is written once on the left and
+once in each arm on the right; on every run exactly one arm is taken, so it
+is evaluated once on both sides, after the same earlier bindings. No two
+requests are exchanged. This is not an axiom of the native theory. It
+follows from the equation above and case beta at an injection. -/
+theorem let_case_comm {m : Nat} {Δ : BoundCtx (Ty α) m} {X Y Z C : Ty α} (i : Fin m)
+    (hi : Δ.get i = .coprod X Y) {E : LetCase.LocallyNameless.Tm Empty Φ m} {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 2)}
+    (hE : HasType Φ Γ₀ Δ E Z) (hl : HasType Φ Γ₀ ((Δ.snoc Z).snoc X) l C)
+    (hr : HasType Φ Γ₀ ((Δ.snoc Z).snoc Y) r C) :
+    Equiv false Γ₀ Δ (.let₁ E (.case (.bv i.succ) l r))
+      (.case (.bv i)
+        (.let₁ (E.rename Fin.succ) (l.rename (swapRenaming Δ Z X).toFun))
+        (.let₁ (E.rename Fin.succ) (r.rename (swapRenaming Δ Z Y).toFun))) C :=
+  let_case_comm_proof i hi hE hl hr
+
 end Commute
 
 /-! ## Spelled trees -/
@@ -486,6 +547,34 @@ theorem spelledStackTags_opened_renamed {stack : List (List α)} {tags : List (L
     CaseTree.renamed (pending := .tags tags) (β := (stackCtx stack γ).snoc (tagsTy tags))
       (d.opened ρ).2 (upStack stack π) = d.opened (ρ.comp π) :=
   d.opened_renamed ρ π
+
+/-- A reply inspected after one later request `h`, with `h` asked in front
+of it, is natively equal to the unpackings of the stack around the case on
+the reply, with `h` asked in each arm. The body is given with the reply
+slot beneath the unpackings of the stack; renamed so that the reply slot is
+newest it is the normal form. -/
+theorem spelledLaterTags_equiv_opened {stack : List (List α)} {tags : List (List α)} {h : Φ}
+    {holds : Holds β stack} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (d : SpelledLaterTags stack tags h β holds L t) {m : Nat} {γ : BoundCtx (Ty α) m}
+    (ρ : BoundCtx.Renaming β γ) (arg : Assembly (γ.snoc (tagsTy tags)) (instrSrc h)) :
+    ∃ U : LetCase.LocallyNameless.Tm Empty Φ (stackSize (m + 1) stack),
+      Equiv false Γ₀ (γ.snoc (tagsTy tags))
+        (.let₁ (.op h (argTerm arg)) (t.rename ((ρ.up (tagsTy tags)).up (tagsTy (replyTags h))).toFun))
+        (unpackStack stack ((holds.rename ρ).rename (weakenTele γ [tagsTy tags])) U) (packedExitType L) ∧
+      HasType Φ Γ₀ (stackCtx stack (γ.snoc (tagsTy tags))) U (packedExitType L) ∧
+      U.rename (swapStack stack γ [tagsTy tags]).toFun = (d.opened ρ arg).1 :=
+  d.opened_equiv ρ arg
+
+/-- The normal form of a reply inspected after one later request commutes
+with renaming. -/
+theorem spelledLaterTags_opened_renamed {stack : List (List α)} {tags : List (List α)} {h : Φ}
+    {holds : Holds β stack} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1)}
+    (d : SpelledLaterTags stack tags h β holds L t) {m k : Nat} {γ : BoundCtx (Ty α) m}
+    {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ)
+    (arg : Assembly (γ.snoc (tagsTy tags)) (instrSrc h)) :
+    CaseTree.renamed (pending := .tags tags) (β := (stackCtx stack γ).snoc (tagsTy tags))
+      (d.opened ρ arg).2 (upStack stack π) = d.opened (ρ.comp π) (arg.rename (π.up (tagsTy tags))) :=
+  d.opened_renamed ρ π arg
 
 /-- An operand natively equal to a spelled tree is a branching operand: it
 is natively equal to the normal form. -/

@@ -30,8 +30,14 @@ continues its own chain. A packed tuple of two or more atoms is not an
 atom slot, so no request uses it or its components before they are
 destructured.
 
+The inspection of a reply with several tags may be delayed across one later
+request, which cannot read the stored reply. The case then directly follows
+the later request.
+
 The normal form unpacks every tuple right after the request or the case
-that binds it, and keeps every request and every case in place.
+that binds it, and keeps every request in place. A case that directly
+follows its request stays in place. A delayed case moves in front of the
+one later request, which is then written in each arm.
 
 The normal form of a spelled tree is the case tree with the same requests
 in the same order, the same exits and the same payloads. Every slot of the
@@ -132,6 +138,23 @@ def CaseTree.PushedSpec : (pending : Pending α) → {n : Nat} → (β : BoundCt
         (term (BoundCtx.Renaming.succ Ω T) (t.rename ((π.up T).comp (swapTele Ω tel T)).toFun))
         (CaseTree.pushed tree π wrap).1 (packedExitType L)
 
+/-- The native typing of a renamed term. -/
+def renameTyping : {n m : Nat} → {β : BoundCtx (Ty α) n} → {γ : BoundCtx (Ty α) m} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → {A : Ty α} → (ρ : BoundCtx.Renaming β γ) → Derivation Φ Γ₀ β t A →
+    Derivation Φ Γ₀ γ (t.rename ρ.toFun) A
+  | _, _, _, _, _, _, _, .fv h => .fv h
+  | _, _, _, γ, _, _, ρ, .bv (ι := ι) => cast (congrArg (Derivation Φ Γ₀ γ (.bv (ρ.toFun ι))) (ρ.typed ι)) .bv
+  | _, _, _, _, _, _, ρ, .op ha => .op (renameTyping ρ ha)
+  | _, _, _, _, _, _, ρ, .let₁ ha hb => .let₁ (renameTyping ρ ha) (renameTyping (ρ.up _) hb)
+  | _, _, _, _, _, _, _, .unit => .unit
+  | _, _, _, _, _, _, ρ, .pair ha hb => .pair (renameTyping ρ ha) (renameTyping ρ hb)
+  | _, _, _, _, _, _, ρ, .let₂ ha hc => .let₂ (renameTyping ρ ha) (renameTyping ((ρ.up _).up _) hc)
+  | _, _, _, _, _, _, ρ, .inl ha => .inl (renameTyping ρ ha)
+  | _, _, _, _, _, _, ρ, .inr hb => .inr (renameTyping ρ hb)
+  | _, _, _, _, _, _, ρ, .case he hl hr =>
+    .case (renameTyping ρ he) (renameTyping (ρ.up _) hl) (renameTyping (ρ.up _) hr)
+  | _, _, _, _, _, _, ρ, .abort ha => .abort (renameTyping ρ ha)
+
 /-- The native typing of the pattern lets that unpack a tuple slot. -/
 def unpackTyping : (atoms : List α) → {k : Nat} → {Γ : BoundCtx (Ty α) k} → (s : Slot Γ (tupleTy atoms)) →
     {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize k (pairsTele atoms))} → {C : Ty α} →
@@ -151,13 +174,15 @@ variable {α Φ : Type} [TaggedSignature α Φ]
 mutual
 
 /-- A spelled tree in body position: a leaf, or a request followed by one
-of the head spellings. -/
+of the head spellings, or a chain over the empty stack. -/
 inductive Spelled : {n : Nat} → BoundCtx (Ty α) n → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ n → Type where
   | ret {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} {A : Ty α} (exit : ExitAt L A)
       (payload : Assembly β A) : Spelled β L (exit.term (argTerm payload))
   | ask {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
       {t : LetCase.LocallyNameless.Tm Empty Φ n}
       (head : SpelledHead (replyTags f) (.op f (argTerm argument)) β L t) : Spelled β L t
+  | chain {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n}
+      (c : SpelledStack [] β .nil L t) : Spelled β L t
 
 /-- The head of a request, consuming the request term itself. It binds the
 reply; or destructures a one-tag reply of two or more atoms as a pair; or
@@ -256,7 +281,9 @@ newest slot. A reply with one tag is a tuple of atoms and is pushed on the
 stack. A reply with more tags is cased on right after its request: the
 payload of the first tag is pushed on the stack in its arm, and the other
 arms case on the remaining tags. Each arm continues its own chain over the
-older tuples, so the chain branches. -/
+older tuples, so the chain branches. With `later` the inspection of the
+reply is delayed across one request, which is asked while the reply is one
+slot. -/
 inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m : Nat} → (Δ : BoundCtx (Ty α) m) →
     Holds Δ stack → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (m + 1) → Type where
   | bind {stack : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
@@ -273,6 +300,42 @@ inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m 
       (right : SpelledStackTags stack (next :: more) (Δ.snoc (tagsTy (atoms :: next :: more)))
         (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: next :: more)))) L r) :
       SpelledStackTags stack (atoms :: next :: more) Δ holds L (.case (.bv 0) l r)
+  | later {stack : List (List α)} {tags : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {holds : Holds Δ stack} {L : List (Ty α)} (h : Φ)
+      (argument : Assembly (Δ.snoc (tagsTy tags)) (instrSrc h)) {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+      (arms : SpelledLaterTags stack tags h Δ holds L k) :
+      SpelledStackTags stack tags Δ holds L (.let₁ (.op h (argTerm argument)) k)
+
+/-- A reply whose inspection is delayed across one later request. The
+reply is one slot, beneath the reply of the later request `h`, which is the
+newest slot. The term cases on the stored reply right after `h`:
+`case (bv 1) l r`. A stored reply with several tags is a slot of sum type
+and not an atom slot, so `h` cannot read it: `h` is the same request
+whichever tag the stored reply carries. In each arm the payload of the tag
+is pushed on the stack and the reply of `h` is pending, so each arm
+continues as the bound reply of `h` does. The arms are given with the reply
+of `h` newest, and the term has them with the payload newest. -/
+inductive SpelledLaterTags : (stack : List (List α)) → List (List α) → Φ → {m : Nat} →
+    (Δ : BoundCtx (Ty α) m) → Holds Δ stack → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1) → Type where
+  | only {stack : List (List α)} {h : Φ} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
+      {L : List (Ty α)} (atoms : List α) {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+      (next : SpelledStackTags (atoms :: stack) (replyTags h) (Δ.snoc (tupleTy atoms))
+        (.cons ⟨0, rfl⟩ (holds.rename (BoundCtx.Renaming.succ Δ (tupleTy atoms)))) L k) :
+      SpelledLaterTags stack [atoms] h Δ holds L k
+  | split {stack : List (List α)} {h : Φ} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
+      {L : List (Ty α)} (atoms next : List α) (more : List (List α))
+      {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1 + 1)}
+      (left : SpelledStackTags (atoms :: stack) (replyTags h)
+        ((Δ.snoc (tagsTy (atoms :: next :: more))).snoc (tupleTy atoms))
+        (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: next :: more)) (tupleTy atoms)))) L l)
+      (right : SpelledLaterTags stack (next :: more) h (Δ.snoc (tagsTy (atoms :: next :: more)))
+        (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: next :: more)))) L r) :
+      SpelledLaterTags stack (atoms :: next :: more) h Δ holds L
+        (.case (.bv 1)
+          (l.rename (swapRenaming (Δ.snoc (tagsTy (atoms :: next :: more))) (tupleTy atoms)
+            (tagsTy (replyTags h))).toFun)
+          (r.rename (swapRenaming (Δ.snoc (tagsTy (atoms :: next :: more))) (tagsTy (next :: more))
+            (tagsTy (replyTags h))).toFun))
 
 end
 
@@ -286,6 +349,7 @@ def Spelled.typing : {n : Nat} → {β : BoundCtx (Ty α) n} → {t : LetCase.Lo
     Spelled β L t → Derivation Φ Γ₀ β t (packedExitType L)
   | _, _, _, .ret exit payload => exit.typing (argTyping payload)
   | _, _, _, .ask f argument head => head.typing (.op (f := f) (argTyping argument))
+  | _, _, _, .chain c => c.typing
 
 /-- The native typing of a head, from the typing of the request it
 consumes. -/
@@ -330,6 +394,21 @@ def SpelledStackTags.typing : {stack : List (List α)} → {tags : List (List α
     SpelledStackTags stack tags Δ holds L t → Derivation Φ Γ₀ (Δ.snoc (tagsTy tags)) t (packedExitType L)
   | _, _, _, _, _, _, .bind _ next => next.typing
   | _, _, _, _, _, _, .split _ _ _ left right => .case .bv left.typing right.typing
+  | _, _, _, _, _, _, .later h argument arms => .let₁ (.op (f := h) (argTyping argument)) arms.typing
+
+/-- The native typing of a reply inspected after one later request, under
+the slot of the reply and the slot of the reply of the later request. -/
+def SpelledLaterTags.typing : {stack : List (List α)} → {tags : List (List α)} → {h : Φ} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {holds : Holds Δ stack} → {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)} →
+    SpelledLaterTags stack tags h Δ holds L t →
+    Derivation Φ Γ₀ ((Δ.snoc (tagsTy tags)).snoc (tagsTy (replyTags h))) t (packedExitType L)
+  | _, _, _, _, _, _, _, .only _ next => next.typing
+  | _, _, h, _, Δ, _, _, .split atoms nxt more left right =>
+    .case (slotTyping (β := (Δ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tagsTy (replyTags h))) ⟨1, rfl⟩)
+      (renameTyping (swapRenaming (Δ.snoc (tagsTy (atoms :: nxt :: more))) (tupleTy atoms)
+        (tagsTy (replyTags h))) left.typing)
+      (renameTyping (swapRenaming (Δ.snoc (tagsTy (atoms :: nxt :: more))) (tagsTy (nxt :: more))
+        (tagsTy (replyTags h))) right.typing)
 
 end
 
@@ -344,6 +423,7 @@ def Spelled.normal : {n : Nat} → {β : BoundCtx (Ty α) n} → {t : LetCase.Lo
     (u : LetCase.LocallyNameless.Tm Empty Φ m) × CaseTree .body γ L u
   | _, _, _, .ret exit payload, _, _, ρ => ⟨_, .ret exit (payload.rename ρ)⟩
   | _, _, _, .ask f argument head, _, _, ρ => ⟨_, .ask f (argument.rename ρ) (head.normal ρ).2⟩
+  | _, _, _, .chain c, _, _, ρ => c.opened ρ
 
 /-- The normal form of a head: the case tree that consumes the bound
 reply. A bound head is already of that form. A pair head becomes the
@@ -425,6 +505,45 @@ def SpelledStackTags.opened : {stack : List (List α)} → {tags : List (List α
       (CaseTree.renamed (pending := .tags (nxt :: more))
         (β := (stackCtx stack (Θ.snoc (tagsTy (atoms :: nxt :: more)))).snoc (tagsTy (nxt :: more)))
         (right.opened (ρ.up (tagsTy (atoms :: nxt :: more)))).2
+        (swapStack stack Θ [tagsTy (atoms :: nxt :: more)])).2⟩
+  | _, tags, _, _, _, _, .later _ argument arms, _, _, ρ =>
+    arms.opened ρ (argument.rename (ρ.up (tagsTy tags)))
+
+/-- The normal form of a reply inspected after one later request `h`,
+pending under the unpackings of the stack. The case on the reply comes
+first. In the arm of each tag the payload is unpacked and then `h` is
+asked, with the argument given over the base context and the reply slot.
+So `h` occurs once in every arm, and once on every run. -/
+def SpelledLaterTags.opened : {stack : List (List α)} → {tags : List (List α)} → {h : Φ} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {holds : Holds Δ stack} → {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)} →
+    SpelledLaterTags stack tags h Δ holds L t → {k : Nat} → {Θ : BoundCtx (Ty α) k} →
+    BoundCtx.Renaming Δ Θ → Assembly (Θ.snoc (tagsTy tags)) (instrSrc h) →
+    (u : LetCase.LocallyNameless.Tm Empty Φ (stackSize k stack + 1)) ×
+      CaseTree (.tags tags) ((stackCtx stack Θ).snoc (tagsTy tags)) L u
+  | stack, _, h, _, _, _, _, .only atoms next, _, Θ, ρ, arg =>
+    ⟨_, .only atoms (CaseTree.packed atoms (.ask h
+      (arg.rename ((weakenStack (atoms :: stack) (Θ.snoc (tupleTy atoms))).comp
+        (upTele (swapStack stack Θ [tupleTy atoms]) (pairsTele atoms))))
+      (CaseTree.renamed (pending := .tags (replyTags h))
+        (β := (stackCtx (atoms :: stack) (Θ.snoc (tupleTy atoms))).snoc (tagsTy (replyTags h)))
+        (next.opened (ρ.up (tupleTy atoms))).2
+        (upTele (swapStack stack Θ [tupleTy atoms]) (pairsTele atoms))).2))⟩
+  | stack, _, h, _, _, _, _, .split atoms nxt more left right, _, Θ, ρ, arg =>
+    ⟨_, .split atoms nxt more
+      (CaseTree.packed atoms (.ask h
+        (arg.rename (((BoundCtx.Renaming.succ (Θ.snoc (tagsTy (atoms :: nxt :: more))) (tupleTy atoms)).comp
+          (weakenStack (atoms :: stack) ((Θ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tupleTy atoms)))).comp
+          (upTele (swapStack stack Θ [tagsTy (atoms :: nxt :: more), tupleTy atoms]) (pairsTele atoms))))
+        (CaseTree.renamed (pending := .tags (replyTags h))
+          (β := (stackCtx (atoms :: stack) ((Θ.snoc (tagsTy (atoms :: nxt :: more))).snoc
+            (tupleTy atoms))).snoc (tagsTy (replyTags h)))
+          (left.opened ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))).2
+          (upTele (swapStack stack Θ [tagsTy (atoms :: nxt :: more), tupleTy atoms]) (pairsTele atoms))).2))
+      (CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := (stackCtx stack (Θ.snoc (tagsTy (atoms :: nxt :: more)))).snoc (tagsTy (nxt :: more)))
+        (right.opened (ρ.up (tagsTy (atoms :: nxt :: more)))
+          (arg.rename (BoundCtx.Renaming.succ (Θ.snoc (tagsTy (atoms :: nxt :: more)))
+            (tagsTy (nxt :: more))))).2
         (swapStack stack Θ [tagsTy (atoms :: nxt :: more)])).2⟩
 
 end
