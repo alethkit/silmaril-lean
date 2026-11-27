@@ -101,13 +101,19 @@ def legacyTextSeed (placement : SeedPlacement) : Namespace :=
 
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
+  | .intDivMod op numerator divisor => .intDivMod op numerator divisor
   | .intTrueDiv numerator divisor => .intTrueDiv numerator divisor
+  | .floatDivMod op operands => .floatDivMod op operands
+  | .floatDiv operands => .floatDiv operands
   | .mixedAdd integer floating => .mixedAdd integer floating
   | .floatAdd left right => .floatAdd left right
+  | .floatSub operands => .floatSub operands
+  | .floatMul operands => .floatMul operands
   | .tuple items => .tuple items
   | .textSlice receiver bounds => .textSlice receiver bounds
   | .literal (.int value) => .literal (.int value)
   | .literal (.bool value) => .literal (.bool value)
+  | .literal .none => .literal .none
   | .literal (.float64 value) => .literal (.float64 value)
   | .literal (.text value) => .literal (.text value)
   | .literal _ => .unsupported
@@ -156,29 +162,32 @@ decreasing_by
     | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
       omega
 
-def truth : Value → Bool
+def truth (value : Value) (heap : Heap := .empty) : Bool :=
+  match value with
   | .int value => decide (value ≠ 0)
   | .bool value => value
-  | .float64 value => (Core.Closure.Value.float64 value).truth
+  | .float64 value => (Core.Closure.Value.float64 value).truth heap
   | .text value => value.truth
   | .none => false
   | .listObject object => !object.contents.isEmpty
-  | .exceptionClass _ | .helper _ | .builtin _ => true
-  | .function closure => (Core.Closure.Value.function closure).truth
+  | .exceptionClass _ | .exceptionInstance _ | .helper _ | .builtin _ => true
+  | .function closure => (Core.Closure.Value.function closure).truth heap
   | .returnedTuple items => !items.isEmpty
   | .tupleObject object => !object.contents.isEmpty
+  | .dictionary object => (Core.Closure.Value.dictionary object).truth heap
+  | .dictionaryData _ => false
 
-def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
-  if truth value = expected then .ok () else .error (.raised (.assertionError .empty))
+def assertTruthAs (expected : Bool) (value : Value) (heap : Heap := .empty) : Except Failure Unit :=
+  if truth value heap = expected then .ok () else .error (.raised (.assertionError .empty))
 
 def assertTruth : Value → Except Failure Unit := assertTruthAs true
 
-def acceptCall (destination : Core.Module.Functions.Destination) (value : Value) :
+def acceptCall (destination : Core.Module.Functions.Destination) (value : Value) (heap : Heap := .empty) :
     Except Failure (Option (String × Value)) :=
   match destination with
   | .discard => .ok none
   | .bindGlobal name => .ok (some (name, value))
-  | .assert => (assertTruth value).map fun _ => none
+  | .assert => (assertTruthAs true value heap).map fun _ => none
 
 structure CallEvent where
   callee : String
@@ -203,6 +212,12 @@ def ModuleFailure.ofCall : Failure → ModuleFailure
 structure Effect where
   binding : Except ModuleFailure (Option (String × Value))
   calls : List CallEvent
+  reachedGlobals : Option Bindings := none
+
+@[simp] def Effect.reachedNamespace (effect : Effect) (space : Namespace) : Namespace :=
+  match effect.reachedGlobals with
+  | none => space
+  | some globals => { space with moduleGlobals := globals }
 
 def ordinaryValue? : Value → Option Core.Closure.Value
   | .int value => some (.int value)
@@ -213,6 +228,10 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .function closure => some (.function closure)
   | .returnedTuple items => some (.tuple items)
   | .tupleObject object => some (.tupleObject object)
+  | .dictionary object => some (.dictionary object)
+  | .dictionaryData entries => some (.dictionaryData entries)
+  | .exceptionClass .exception => some .stockException
+  | .exceptionInstance value => some (.exceptionInstance value)
   | .exceptionClass _ | .helper _ | .builtin _ | .listObject _ => none
 
 def seededValue : Core.Closure.Value → Value
@@ -220,10 +239,14 @@ def seededValue : Core.Closure.Value → Value
   | .bool value => .bool value
   | .float64 value => .float64 value
   | .text value => .text value
+  | .exceptionClass kind => .exceptionClass kind
+  | .exceptionInstance value => .exceptionInstance value
   | .none => .none
   | .function closure => .function closure
   | .tuple items => .returnedTuple items
   | .tupleObject object => .tupleObject object
+  | .dictionary object => .dictionary object
+  | .dictionaryData entries => .dictionaryData entries
 
 def callbackSession (space : Namespace) (heap : Heap) : Core.Module.Functions.Session :=
   ⟨fun name => (space.lookupGlobal name).bind ordinaryValue?, heap, .empty⟩
@@ -329,6 +352,8 @@ def invokeDescriptor (heap : Heap) (callee : Value) (arguments : List Value) : C
   | .builtin .tuple, [.text text] =>
     let (value, reached) := heap.materializeFreshTuple (text.singletons.map .text)
     (⟨.ok (seededValue value), none⟩, reached)
+  | .helper .assertEqual, [.dictionary left, .dictionary right] =>
+    (⟨Core.Module.SeededCall.assertDictionaryEqual heap left right, none⟩, heap)
   | _, _ => (Core.Module.SeededCall.invokeObserved callee arguments, heap)
 
 def invokeCall (space : Namespace) (context : CallContext) (callee : Value) (arguments : List Value) :
@@ -378,8 +403,10 @@ def observeFactory (space : Namespace) (state : Core.Closure.Executor.State) :
     Except ModuleFailure CallObservation × Heap :=
   match state with
   | .finished heap (.ok (.int _)) | .finished heap (.ok (.bool _)) | .finished heap (.ok .none)
-  | .finished heap (.ok (.float64 _))
-  | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _)) =>
+  | .finished heap (.ok (.float64 _)) | .finished heap (.ok (.exceptionClass _))
+  | .finished heap (.ok (.exceptionInstance _))
+  | .finished heap (.ok (.text _)) | .finished heap (.ok (.tuple _)) | .finished heap (.ok (.tupleObject _))
+  | .finished heap (.ok (.dictionary _)) | .finished heap (.ok (.dictionaryData _)) =>
     (.ok ⟨.error .unsupported, none⟩, heap)
   | _ => observeDirectCall space state
 
@@ -441,14 +468,30 @@ def invokeAdjacentKeywordDiscard (space : Namespace) (context : CallContext)
   | some _ => (.ok ⟨.error .unsupported, none⟩, context.heap)
 
 def acceptObservation (destination : Core.Module.Functions.Destination)
-    (name : String) (observed : CallObservation) : Effect :=
-  ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall, [⟨name, observed⟩]⟩
+    (name : String) (observed : CallObservation) (heap : Heap := .empty) : Effect :=
+  ⟨(observed.result.bind fun value => acceptCall destination value heap).mapError ModuleFailure.ofCall, [⟨name, observed⟩], none⟩
 
 def observeNamedCall (space : Namespace) (name : String)
     (arguments : List Core.Module.Functions.Operand) : CallEvent :=
   ⟨name, Core.Module.SeededCall.runObserved space #v[] (.global name) (arguments.map lowerCallOperand)⟩
 
+def dictionaryFailure : Core.Module.Dictionary.Failure → Failure
+  | .missingName name => .raised (.runtime (.nameError name))
+  | .clearArity actual => .raised (.runtime (.positionalArity 0 actual))
+  | .unsupported => .unsupported
+
+def evalDictionaryGet (space : Namespace) (heap : Heap) (test : Core.Module.Dictionary.Get) : Result :=
+  (test.eval (fun name => (space.lookupGlobal name).map Value.dictionaryRead) heap.dictionaryEntries?).map
+    Value.ofTupleElement |>.mapError dictionaryFailure
+
+def observeDictionaryGet (space : Namespace) (heap : Heap) (test : Core.Module.Dictionary.Get) : CallEvent :=
+  ⟨test.receiver ++ ".get", ⟨evalDictionaryGet space heap test, none⟩⟩
+
 def observeArgument (space : Namespace) : Argument → Result × List CallEvent
+  | .dictionaryDisplay _ => (.error .unsupported, [])
+  | .dictionaryGet test =>
+    let event := observeDictionaryGet space .empty test
+    (event.observation.result, [event])
   | .scalar operand => ((lowerCallOperand operand).eval space #v[], [])
   | .call name arguments =>
     let event := observeNamedCall space name arguments
@@ -470,15 +513,15 @@ Only after those arguments return does it invoke the saved value. -/
 def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.Destination)
     (name : String) (arguments : List Argument) : Effect :=
   match space.lookupGlobal name with
-  | none => ⟨.error (.raised (.runtime (.nameError name))), []⟩
+  | none => ⟨.error (.raised (.runtime (.nameError name))), [], none⟩
   | some callee =>
     let (values, calls) := observeArguments space arguments
     match values with
-    | .error error => ⟨.error (.ofCall error), calls⟩
+    | .error error => ⟨.error (.ofCall error), calls, none⟩
     | .ok values =>
       let observed := Core.Module.SeededCall.invokeObserved callee values
       ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall,
-        calls ++ [⟨name, observed⟩]⟩
+        calls ++ [⟨name, observed⟩], none⟩
 
 /-- Invoke a resolved same-run publication with checked integer operands.
 The authorization of the call site belongs to the caller. Ordinary entry
@@ -519,6 +562,12 @@ def observeArgumentIn (space : Namespace) (context : CallContext) (argument : Ar
   match argument with
   | .scalar operand =>
     (((lowerCallOperand operand).eval space #v[]).mapError .ofCall, [], context.heap)
+  | .dictionaryDisplay entries =>
+    let (object, heap) := context.heap.materializeDictionary entries
+    (.ok (.dictionary object), [], heap)
+  | .dictionaryGet test =>
+    let event := observeDictionaryGet space context.heap test
+    (event.observation.result.mapError .ofCall, [event], context.heap)
   | .call name arguments =>
     argumentObservation name <|
       match Core.Module.SeededCall.resolveCall space #v[] (.global name) (arguments.map lowerCallOperand) with
@@ -556,13 +605,13 @@ def observeRemainingCallIn (space : Namespace) (context : CallContext)
     (initial : List Value) (arguments : List Argument) : Effect × Heap :=
   let (values, calls, heap) := observeArgumentsIn space context arguments (allowsEscapedArgument destination callee)
   match values with
-  | .error error => (⟨.error error, calls⟩, heap)
+  | .error error => (⟨.error error, calls, none⟩, heap)
   | .ok values =>
     match invokeNestedTarget space { context with heap } callee (initial ++ values) with
     | (.ok result, residual) =>
-      let observed := acceptObservation destination name result
+      let observed := acceptObservation destination name result residual
       ({ observed with calls := calls ++ observed.calls }, residual)
-    | (.error error, residual) => (⟨.error error, calls⟩, residual)
+    | (.error error, residual) => (⟨.error error, calls, none⟩, residual)
 
 /-- Read the outer callee before the arguments and retain the heap reached
 even when an ordinary argument faults or has yet to settle. -/
@@ -570,7 +619,7 @@ def observeNestedCallIn (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) (name : String)
     (arguments : List Argument) : Effect × Heap :=
   match space.lookupGlobal name with
-  | none => (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap)
+  | none => (⟨.error (.raised (.runtime (.nameError name))), [], none⟩, context.heap)
   | some callee => observeRemainingCallIn space context destination name callee [] arguments
 
 inductive EvaluatesArguments (space : Namespace) :
@@ -585,9 +634,9 @@ inductive EvaluatesArguments (space : Namespace) :
       EvaluatesArguments space (argument :: rest) (values.map (value :: ·)) (calls ++ later)
 
 def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Operand scope)
-    (expected : Bool) : Effect :=
-  let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
-  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
+    (expected : Bool) (heap : Heap := .empty) : Effect :=
+  let checked := (evaluateScalar space false operand).bind fun value => assertTruthAs expected value heap
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [], none⟩
 
 /-- The checked argument cannot escape this call. Only the exact stock
 descriptor consumes its certified length. -/
@@ -596,7 +645,7 @@ def readSequenceLength (space : Namespace) (length : Nat) : Except Failure Int :
   | none => .error (.raised (.runtime (.nameError "len")))
   | some (.builtin .len) => .ok (Int.ofNat length)
   | some (.int _) | some (.bool _) | some (.float64 _) | some (.text _) | some .none | some (.returnedTuple _)
-  | some (.tupleObject _) =>
+  | some (.tupleObject _) | some (.exceptionInstance _) | some (.dictionary _) | some (.dictionaryData _) =>
     .error (.raised (.runtime .notCallable))
   | some _ => .error .unsupported
 
@@ -621,7 +670,7 @@ def assertIntegerBuiltin {scope : Scope} (space : Namespace) (test : IntegerBuil
   let result := readIntegerBuiltin space test.argument
   let checked := result.bind (checkIntegerBuiltinResult space test)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall,
-    [⟨test.argument.name, ⟨result.map .int, none⟩⟩]⟩
+    [⟨test.argument.name, ⟨result.map .int, none⟩⟩], none⟩
 
 abbrev checkSequenceLengthResult {scope : Scope} (space : Namespace) (test : SequenceLengthTest scope) :=
   checkIntegerBuiltinResult space test.toIntegerBuiltin
@@ -654,7 +703,7 @@ def checkBoolIdentityResult {scope : Scope} (space : Namespace) (test : BoolIden
 def assertBoolIdentity {scope : Scope} (space : Namespace) (test : BoolIdentityTest scope) : Effect :=
   let result := readBoolCall space test.argument
   let checked := result.bind (checkBoolIdentityResult space test)
-  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"bool", ⟨result.map .bool, none⟩⟩]⟩
+  ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [⟨"bool", ⟨result.map .bool, none⟩⟩], none⟩
 
 /-- Only a checked list argument allocates a list before constructor dispatch. -/
 def prepareListArgument (heap : ListHeap) : ListConstructorArgument → List Core.Module.Value × ListHeap
@@ -674,7 +723,8 @@ def constructList (space : Namespace) (heap : ListHeap) (argument : ListConstruc
     | .builtin .list =>
       let (object, updated) := reached.allocate contents
       (.ok object, updated)
-    | .int _ | .bool _ | .float64 _ | .text _ | .none | .listObject _ | .returnedTuple _ | .tupleObject _ =>
+    | .int _ | .bool _ | .float64 _ | .text _ | .none | .listObject _ | .returnedTuple _
+    | .tupleObject _ | .exceptionInstance _ | .dictionary _ | .dictionaryData _ =>
       (.error (.raised (.runtime .notCallable)), reached)
     | _ => (.error .unsupported, reached)
 
@@ -708,13 +758,14 @@ def ListConstructionOutcome.receipt (outcome : ListConstructionOutcome) : CallEv
   ⟨"list", ⟨outcome.result.map .listObject, none⟩⟩
 
 def ListConstructionOutcome.effect (outcome : ListConstructionOutcome) : Effect :=
-  ⟨(outcome.checked.map fun _ => none).mapError ModuleFailure.ofCall, [outcome.receipt]⟩
+  ⟨(outcome.checked.map fun _ => none).mapError ModuleFailure.ofCall, [outcome.receipt], none⟩
 
 def tupleBinding (space : Namespace) : Option Core.Module.TupleDispatch.TypeBinding :=
   (space.lookupGlobal "tuple").map fun
     | .builtin .tuple => .stockTuple
     | .none => .noneValue
-    | .int _ | .bool _ | .float64 _ | .text _ | .returnedTuple _ | .listObject _ | .tupleObject _ => .nonCallable
+    | .int _ | .bool _ | .float64 _ | .text _ | .returnedTuple _ | .listObject _
+    | .tupleObject _ | .exceptionInstance _ | .dictionary _ | .dictionaryData _ => .nonCallable
     | .exceptionClass _ | .helper _ | .builtin _ | .function _ => .outsideProfile
 
 def tupleLookup (space : Namespace) : TupleChain.Lookup :=
@@ -742,15 +793,37 @@ def observeTupleFromListDisplayCall (space : Namespace) (context : CallContext)
     ((acceptObservation destination "tuple" converted, heap), reached)
   | some (name, remaining) =>
     match space.lookupGlobal name with
-    | none => ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists)
+    | none => ((⟨.error (.raised (.runtime (.nameError name))), [], none⟩, context.heap), lists)
     | some callee =>
       let ((converted, heap), reached) := observeTupleFromListDisplay space context.heap lists contents
       let receipt : CallEvent := ⟨"tuple", converted⟩
       match converted.result with
-      | .error error => ((⟨.error (.ofCall error), [receipt]⟩, heap), reached)
+      | .error error => ((⟨.error (.ofCall error), [receipt], none⟩, heap), reached)
       | .ok value =>
         let (later, residual) := observeRemainingCallIn space { context with heap } destination name callee [value] remaining
         (({ later with calls := receipt :: later.calls }, residual), reached)
+
+def readListItem (space : Namespace) (name : String) : Except Failure Core.Module.Value := do
+  let some value := space.lookupGlobal name | throw (.raised (.runtime (.nameError name)))
+  let some scalar := value.scalar? | throw .unsupported
+  return scalar
+
+def listDisplayArgument (display : ListDisplay.Display) (object : ListObject) : Value :=
+  if display.negated then .bool object.contents.isEmpty else .listObject object
+
+def observeListDisplayCall (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (name : String) (display : ListDisplay.Display)
+    (lists : ListHeap) : (Effect × Heap) × ListHeap :=
+  match space.lookupGlobal name with
+  | none => ((acceptObservation destination name ⟨.error (.raised (.runtime (.nameError name))), none⟩,
+      context.heap), lists)
+  | some callee =>
+    let (result, reached) := display.prepare (readListItem space) lists
+    let observed := match result with
+      | .error error => (acceptObservation destination name ⟨.error error, none⟩, context.heap)
+      | .ok object => observeRemainingCallIn space context destination name callee
+          [listDisplayArgument display object] []
+    (observed, reached)
 
 def checkTupleChain {scope : Scope} (space : Namespace) (test : TupleChainTest scope) : Except Failure Unit :=
   let compared := (TupleChain.evaluate (tupleLookup space) test).result
@@ -777,12 +850,12 @@ def observeTupleIdentityCall (space : Namespace) (context : CallContext)
     let answer ← test.evaluate context.heap (fun name => (read name).map ordinaryValue?) .unsupported
     return (callee, answer)
   match checked with
-  | .error error => (⟨.error (.ofCall error), []⟩, context.heap)
+  | .error error => (⟨.error (.ofCall error), [], none⟩, context.heap)
   | .ok (callee, answer) =>
     let (observed, heap) := invokeFlatCall space context destination callee [.bool answer]
     match observed with
-    | .ok result => (acceptObservation destination name result, heap)
-    | .error error => (⟨.error error, []⟩, heap)
+    | .ok result => (acceptObservation destination name result heap, heap)
+    | .error error => (⟨.error error, [], none⟩, heap)
 
 def checkTextSliceGuard (space : Namespace) (test : TextSlice.Guard) : Except Failure Unit :=
   (test.eval space.lookupGlobal (fun
@@ -792,48 +865,124 @@ def checkTextSliceGuard (space : Namespace) (test : TextSlice.Guard) : Except Fa
       | .zeroStep => .raised (.runtime .zeroSliceStep)
       | .outsideTextProfile | .reachedRaise => .unsupported
 
+def scalarBinding {scope : Scope} (space : Namespace) (heap : Heap := .empty) :
+    ModuleEntry.Action scope → Except ModuleFailure (Option (String × Value))
+  | .assign name _ operand =>
+    ((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall
+  | .assertion operand => (assertOperand space operand true heap).binding
+
+@[simp] def applyBinding (space : Namespace) (binding : Option (String × Value)) : Namespace :=
+  binding.elim space fun (name, value) => space.bindGlobal name value
+
+def scalarStep {scope : Scope} (space : Namespace) (action : ModuleEntry.Action scope) (heap : Heap := .empty) :
+    Except ModuleFailure Namespace :=
+  (scalarBinding space heap action).map (applyBinding space)
+
+def ModuleFailure.isPythonError : ModuleFailure → Bool
+  | .raised _ => true
+  | _ => false
+
+def raiseValue : Value → ExceptionalTry.RaiseValue
+  | .exceptionClass kind => .stockClass kind
+  | .exceptionInstance value => .exceptionInstance value
+  | .helper _ | .builtin _ | .function _ => .otherCallable
+  | _ => .nonCallable
+
+def raiseText? : Value → Option Core.Text
+  | .text text => some text
+  | _ => none
+
+def exceptionalStep {scope : Scope} (heap : Heap) (space : Namespace) : ExceptionalTry.Step scope → Except ModuleFailure Namespace
+  | .scalar action => scalarStep space action heap
+  | .raiseName operand => .error (.raised (.runtime (operand.error space.lookupGlobal raiseValue)))
+  | .raiseCall call =>
+    .error ((call.error space.lookupGlobal raiseValue raiseText?).elim .unsupported (.raised ∘ .runtime))
+  | .raiseInactive => .error (.raised (.runtime .noActiveException))
+
+def handlerClass : Value → ExceptionalTry.HandlerClass
+  | .exceptionClass kind => .stock kind
+  | .returnedTuple _ | .tupleObject _ => .outsideProfile
+  | _ => .invalid
+
+def matchHandler (space : Namespace) (error : ModuleFailure) (name : String) : Except ModuleFailure Bool :=
+  match error with
+  | .raised raised =>
+    (ExceptionalTry.matchClass space.lookupGlobal handlerClass raised.classify name).mapError
+      (fun failure => failure.elim .unsupported (.raised ∘ .runtime))
+  | _ => .error .unsupported
+
+def ModuleFailure.handlerInstance? : ModuleFailure → Option Core.Closure.ExceptionInstance
+  | .raised error => error.handlerInstance?
+  | _ => none
+
+def bindCaught (space : Namespace) (name : String) (pending : ModuleFailure) : Except ModuleFailure Namespace :=
+  pending.handlerInstance?.elim (.error .unsupported) fun value =>
+    .ok (space.bindGlobal name (.exceptionInstance value))
+
+def handlerOperations : ExceptionalTry.HandlerOperations Namespace ModuleFailure :=
+  ⟨matchHandler, bindCaught, Namespace.unbindGlobal⟩
+
+def runExceptionalTry {scope : Scope} (space : Namespace) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
+    (heap : Heap := .empty) :
+    ExceptionalTry.Outcome Namespace ModuleFailure :=
+  ExceptionalTry.run (ExceptionalTry.runSuite (exceptionalStep heap)) ModuleFailure.isPythonError handlerOperations space plan
+
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope)
     (lists : ListHeap := .empty) : Effect × Heap :=
   match instruction with
-  | .scalar (.assign name _ operand) =>
-    (⟨((evaluateScalar space false operand).map fun value => some (name, value)).mapError ModuleFailure.ofCall,
-      []⟩, context.heap)
-  | .bindText name value => (⟨.ok (some (name, .text value)), []⟩, context.heap)
+  | .scalar action => (⟨scalarBinding space context.heap action, [], none⟩, context.heap)
+  | .exceptionalTry plan =>
+    let outcome := runExceptionalTry space plan context.heap
+    (⟨outcome.completion.map (fun _ => none), [], some outcome.reached.moduleGlobals⟩, context.heap)
+  | .bindText name value => (⟨.ok (some (name, .text value)), [], none⟩, context.heap)
+  | .bindDictionary name display =>
+    let (object, heap) := context.heap.materializeDictionary display
+    (⟨.ok (some (name, .dictionary object)), [], none⟩, heap)
+  | .readDictionary name test =>
+    let event := observeDictionaryGet space context.heap test
+    (acceptObservation (.bindGlobal name) event.callee event.observation, context.heap)
+  | .clearDictionary target call =>
+    let destination := target.elim .discard Core.Module.Functions.Destination.bindGlobal
+    let result := Core.Closure.clearDictionary context.heap (fun name => (space.lookupGlobal name).map Value.dictionaryRead) call
+    let heap := result.toOption.getD context.heap
+    let observed : Result := (result.map fun _ => .none).mapError dictionaryFailure
+    (acceptObservation destination (call.receiver ++ ".clear") ⟨observed, none⟩, heap)
   | .bindTuple name items trackClosed =>
     match Core.Module.SeededCall.evalTupleContents space items with
-    | .error error => (⟨.error (.ofCall error), []⟩, context.heap)
+    | .error error => (⟨.error (.ofCall error), [], none⟩, context.heap)
     | .ok contents =>
       let (value, reached) := context.heap.materializeModuleTuple items contents trackClosed
-      (⟨.ok (some (name, seededValue value)), []⟩, reached)
-  | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
-  | .assertNot operand => (assertOperand space operand false, context.heap)
+      (⟨.ok (some (name, seededValue value)), [], none⟩, reached)
+  | .assertNot operand => (assertOperand space operand false context.heap, context.heap)
   | .assertIntegerBuiltin test => (assertIntegerBuiltin space test, context.heap)
   | .assertBoolIdentity test => (assertBoolIdentity space test, context.heap)
   | .assertListConstruction test => ((evaluateListConstruction space lists test).effect, context.heap)
   | .assertTupleChain test =>
-    (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
+    (⟨((checkTupleChain space test).map fun _ => none).mapError ModuleFailure.ofCall, [], none⟩, context.heap)
   | .textSliceGuard test =>
-    (⟨((checkTextSliceGuard space test).map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap)
+    (⟨((checkTextSliceGuard space test).map fun _ => none).mapError ModuleFailure.ofCall, [], none⟩, context.heap)
   | .assertVarNames receiver needle =>
-    (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
+    (⟨(checkVarNames space context.table receiver needle).map fun _ => none, [], none⟩, context.heap)
   | .publish name function =>
     let resolved := Core.Closure.Dispatch.resolve context.table function.ref
-    (⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩, context.heap)
+    (⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, [], none⟩, context.heap)
   | .call destination name arguments =>
     match Core.Module.SeededCall.resolveCall space #v[] (.global name) (arguments.map lowerCallOperand) with
     | .error error => (acceptObservation destination name ⟨.error error, none⟩, context.heap)
     | .ok (callee, values) =>
       let (observed, heap) := invokeFlatCall space context destination callee values
       match observed with
-      | .ok result => (acceptObservation destination name result, heap)
-      | .error error => (⟨.error error, []⟩, heap)
+      | .ok result => (acceptObservation destination name result heap, heap)
+      | .error error => (⟨.error error, [], none⟩, heap)
   | .callTupleIdentity destination name test => observeTupleIdentityCall space context destination name test
   | .callTupleFromListDisplay destination contents outer =>
     (observeTupleFromListDisplayCall space context destination contents outer lists).1
+  | .callListDisplay destination name display =>
+    (observeListDisplayCall space context destination name display lists).1
   | .adjacentKeywordDiscard name value =>
     match invokeAdjacentKeywordDiscard space context name value with
     | (.ok observed, heap) => (acceptObservation .discard name observed, heap)
-    | (.error error, heap) => (⟨.error error, []⟩, heap)
+    | (.error error, heap) => (⟨.error error, [], none⟩, heap)
   | .nestedCall destination name arguments => observeNestedCallIn space context destination name arguments
 
 structure Observation where
@@ -851,20 +1000,23 @@ def effectWithLists {scope : Scope} (space : Namespace) (context : CallContext)
     ((outcome.effect, context.heap), outcome.lists)
   | .callTupleFromListDisplay destination contents outer =>
     observeTupleFromListDisplayCall space context destination contents outer lists
+  | .callListDisplay destination name display =>
+    observeListDisplayCall space context destination name display lists
   | instruction => (effect space context instruction lists, lists)
 
-/-- A failed instruction keeps its incoming namespace and the heap reached
-by its effects. Successful publications authorize checked ordinary calls. -/
+/-- Settle reached effects before choosing whether to continue.
+A compound instruction can carry several completed writes through a failure. -/
 def runInstructionsIn {scope : Scope} (space : Namespace) (context : CallContext)
     (instructions : List (Instruction scope)) (lists : ListHeap := .empty) : Observation :=
   match instructions with
   | [] => ⟨space, .ok (), [], context.heap, lists⟩
   | instruction :: rest =>
     let ((item, heap), updatedLists) := effectWithLists space context instruction lists
+    let reached := item.reachedNamespace space
     match item.binding with
-    | .error error => ⟨space, .error error, item.calls, heap, updatedLists⟩
+    | .error error => ⟨reached, .error error, item.calls, heap, updatedLists⟩
     | .ok binding =>
-      let updated := binding.elim space fun (name, value) => space.bindGlobal name value
+      let updated := applyBinding reached binding
       let published := match instruction with
         | .publish _ function => function.closure :: context.published
         | _ => context.published

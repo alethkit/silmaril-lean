@@ -46,7 +46,7 @@ theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
     observeNestedCallIn space context .discard outer [.call inner [operand, .readGlobal className]] =
       (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
         [⟨inner, ⟨.ok (.bool result), none⟩⟩,
-         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩], none⟩,
         context.heap) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_instance
     helper probe evaluated classBinding tested
@@ -59,7 +59,7 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
     (classBinding : space.lookupGlobal className = some (.builtin .int)) :
     observeNestedCallIn space context .discard outer
       [.call inner [.literal (.int value), .readGlobal className]] =
-      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩], none⟩, context.heap) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_intInstance
     value helper probe classBinding
 
@@ -71,9 +71,30 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
     (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
       .error error) :
     observeNestedCallIn space context .discard outer [.call inner operands] =
-      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) :=
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩], none⟩, context.heap) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCallIn_innerPreparationError
     outerFound failed
+
+theorem evalDictionaryGet_agrees (space : Namespace) (heap : Heap)
+    (globals : Core.Closure.Executor.GlobalLookup) (test : Core.Module.Dictionary.Get)
+    (same : (fun name => (space.lookupGlobal name).map Value.dictionaryRead) =
+      fun name => (globals name).map Core.Closure.Value.dictionaryRead) :
+    evalDictionaryGet space heap test =
+      ((Core.Closure.evalDictionaryGet heap globals test).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.evalDictionaryGet_agrees space heap globals test same
+
+theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
+    (lowerCallOperand (.intDivMod op numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intDivMod op numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intDivMod_operand_agrees
+    space globals heap frame op numerator divisor
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
@@ -85,6 +106,28 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
           | _ => .unsupported) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.intTrueDiv_operand_agrees
     space globals heap frame numerator divisor
+
+theorem floatDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDivMod op operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDivMod op operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatDivMod_operand_agrees
+    space globals heap frame op operands
+
+theorem floatDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDiv operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDiv operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatDiv_operand_agrees
+    space globals heap frame operands
 
 theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
@@ -108,6 +151,28 @@ theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatAdd_operand_agrees
     space globals heap frame left right
 
+theorem floatSub_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatSub operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatSub operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatSub_operand_agrees
+    space globals heap frame operands
+
+theorem floatMul_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatMul operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatMul operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.floatMul_operand_agrees
+    space globals heap frame operands
+
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
     observeArguments space arguments = (values, calls) ↔ EvaluatesArguments space arguments values calls :=
@@ -115,14 +180,14 @@ theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
 
 theorem observeNestedCall_missing {space : Namespace} {destination : Core.Module.Functions.Destination}
     {name : String} {arguments : List Argument} (missing : space.lookupGlobal name = none) :
-    observeNestedCall space destination name arguments = ⟨.error (.raised (.runtime (.nameError name))), []⟩ :=
+    observeNestedCall space destination name arguments = ⟨.error (.raised (.runtime (.nameError name))), [], none⟩ :=
   by simp [observeNestedCall, missing]
 
 theorem observeNestedCall_failedArguments {space : Namespace} {destination : Core.Module.Functions.Destination}
     {name : String} {callee : Value} {arguments : List Argument} {error : Failure} {calls : List CallEvent}
     (found : space.lookupGlobal name = some callee)
     (failed : EvaluatesArguments space arguments (.error error) calls) :
-    observeNestedCall space destination name arguments = ⟨.error (.ofCall error), calls⟩ :=
+    observeNestedCall space destination name arguments = ⟨.error (.ofCall error), calls, none⟩ :=
   by simp [observeNestedCall, found, observeArguments_iff.mpr failed]
 
 theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (compiled : Compiled source)
@@ -156,7 +221,7 @@ theorem evaluateScalar_identityContext {scope : Source.Scope} (space : Namespace
 theorem run_identityAssertion {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (left : Operand scope) (links : List (Core.Module.IdentityOperator × Operand scope)) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (.assertion (.identityChain left links)) :: rest) =
-      match (assertOperand space (.identityChain left links) true).binding with
+      match (assertOperand space (.identityChain left links) true context.heap).binding with
       | .ok _ => runInstructionsIn space context rest
       | .error error => ⟨space, .error error, [], context.heap, Core.Module.ListHeap.empty⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Identity.run_identityAssertion space context left links rest
@@ -229,33 +294,34 @@ theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (cont
 theorem effect_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value) :
     effect space context (.scalar (.assign name reference (.scalarResult value))) =
-      (⟨.ok (some (name, seededValue (Run.embed value))), []⟩, context.heap) := by
-  simp only [effect, evaluateScalar_scalarResult]
+      (⟨.ok (some (name, seededValue (Run.embed value))), [], none⟩, context.heap) := by
+  simp only [effect, scalarBinding, evaluateScalar_scalarResult]
   rfl
 
-theorem truth_scalar {value : Core.Module.Value} : truth (seededValue (Run.embed value)) = value.truth := by
+theorem truth_scalar {value : Core.Module.Value} (heap : Heap := .empty) : truth (seededValue (Run.embed value)) heap = value.truth := by
   cases value <;> rfl
 
 theorem assertOperand_scalarResult {scope : Source.Scope} (space : Namespace) (value : Core.Module.Value)
-    (expected : Bool) :
-    assertOperand space (ModuleEntry.Operand.scalarResult (scope := scope) value) expected =
-      ⟨if value.truth = expected then .ok none else .error (.raised (.assertionError .empty)), []⟩ := by
+    (expected : Bool) (heap : Heap := .empty) :
+    assertOperand space (ModuleEntry.Operand.scalarResult (scope := scope) value) expected heap =
+      ⟨if value.truth = expected then .ok none else .error (.raised (.assertionError .empty)), [], none⟩ := by
   simp only [assertOperand, evaluateScalar_scalarResult, Except.bind, assertTruthAs, truth_scalar]
   split <;> rfl
 
 theorem run_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value)
-    (rest : List (Instruction scope)) :
-    runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) =
-      runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest := by
-  simp [runInstructionsIn, effectWithLists, effect_scalarResultAssign]
+    (rest : List (Instruction scope)) (lists : ListHeap := .empty) :
+    runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) lists =
+      runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest lists := by
+  simp [runInstructionsIn, effectWithLists, effect, scalarBinding, evaluateScalar_scalarResult]
+  rfl
 
 theorem run_scalarResultAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (value : Core.Module.Value) (rest : List (Instruction scope)) :
     runInstructionsIn space context (.scalar (.assertion (.scalarResult value)) :: rest) =
       if value.truth then runInstructionsIn space context rest
       else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap, Core.Module.ListHeap.empty⟩ := by
-  by_cases h : value.truth <;> simp [runInstructionsIn, effectWithLists, effect, assertOperand_scalarResult, h]
+  by_cases h : value.truth <;> simp [runInstructionsIn, effectWithLists, effect, scalarBinding, assertOperand_scalarResult, h]
 
 theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (selected : ModuleEntry.Operand scope) :
@@ -263,8 +329,8 @@ theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (con
       let result : Core.Module.SeededCall.Result := match selected with
         | .boolean value => .ok (.bool value)
         | other => evaluateScalar space false other
-      (⟨(result.map fun value => some (name, value)).mapError ModuleFailure.ofCall, []⟩, context.heap) := by
-  simp only [effect, evaluateScalar_conditionalResult]
+      (⟨(result.map fun value => some (name, value)).mapError ModuleFailure.ofCall, [], none⟩, context.heap) := by
+  simp only [effect, scalarBinding, evaluateScalar_conditionalResult]
 
 theorem effect_conditionalAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (selected : ModuleEntry.Operand scope) :
@@ -272,9 +338,9 @@ theorem effect_conditionalAssert {scope : Source.Scope} (space : Namespace) (con
       let result : Core.Module.SeededCall.Result := match selected with
         | .boolean value => .ok (.bool value)
         | other => evaluateScalar space false other
-      let checked := result.bind (assertTruthAs true)
-      (⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩, context.heap) := by
-  simp only [effect, assertOperand, evaluateScalar_conditionalResult]
+      let checked := result.bind fun value => assertTruthAs true value context.heap
+      (⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, [], none⟩, context.heap) := by
+  simp only [effect, scalarBinding, assertOperand, evaluateScalar_conditionalResult]
 
 theorem callback_path (space : Namespace) (context : CallContext) (closure : Function) :
     let invocation := callbackInvocation space context.heap closure
@@ -318,17 +384,17 @@ theorem callback_seedOnlyGlobal {space : Namespace} {heap : Heap} {name : String
 theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruction : Instruction scope}
     {rest : List (Instruction scope)} {error : ModuleFailure}
     {context : CallContext} {lists : Core.Module.ListHeap}
-    (failed : (effect space context instruction lists).1.binding = .error error) :
+    (failed : (effectWithLists space context instruction lists).1.1.binding = .error error) :
     runInstructionsIn space context (instruction :: rest) lists =
-      ⟨space, .error error, (effect space context instruction lists).1.calls,
-        (effect space context instruction lists).2, (effectWithLists space context instruction lists).2⟩ := by
-  cases instruction <;> simp_all [runInstructionsIn, effectWithLists, effect]
+      let ((item, heap), reachedLists) := effectWithLists space context instruction lists
+      ⟨item.reachedNamespace space, .error error, item.calls, heap, reachedLists⟩ := by
+  simp only [runInstructionsIn, failed]
 
 theorem observeTupleIdentityCall_missing (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) {name : String} (test : TupleIdentity.Test)
     (missing : space.lookupGlobal name = none) :
     observeTupleIdentityCall space context destination name test =
-      (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap) := by
+      (⟨.error (.raised (.runtime (.nameError name))), [], none⟩, context.heap) := by
   simp only [observeTupleIdentityCall, Core.Module.SeededCall.Operand.eval, missing, Option.elim]
   rfl
 
@@ -339,7 +405,7 @@ theorem observeTupleIdentityCall_argument_failure (space : Namespace) (context :
       (fun name => ((Core.Module.SeededCall.Operand.global name).eval space #v[]).map ordinaryValue?)
       .unsupported = .error error) :
     observeTupleIdentityCall space context destination name test =
-      (⟨.error (.ofCall error), []⟩, context.heap) := by
+      (⟨.error (.ofCall error), [], none⟩, context.heap) := by
   have saved : (Core.Module.SeededCall.Operand.global name).eval space #v[] = .ok callee := by
     simp [Core.Module.SeededCall.Operand.eval, found]
   simp only [observeTupleIdentityCall, saved, failed]
@@ -391,11 +457,42 @@ theorem observeTupleFromListDisplay_mask (space : Namespace) (heap : Heap) (list
   simp [observeTupleFromListDisplay, tupleBinding, masked,
     (Core.Module.TupleDispatch.constructFromListDisplay_mask lists contents).1, TupleChain.runtimeError?]
 
+theorem observeListDisplayCall_missing (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (display : ListDisplay.Display) (lists : ListHeap)
+    {name : String} (missing : space.lookupGlobal name = none) :
+    observeListDisplayCall space context destination name display lists =
+      ((acceptObservation destination name ⟨.error (.raised (.runtime (.nameError name))), none⟩,
+        context.heap), lists) := by
+  simp [observeListDisplayCall, missing]
+
+theorem observeListDisplayCall_prepared (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (display : ListDisplay.Display) (lists : ListHeap)
+    {name : String} {callee : Value} {contents : List Core.Module.Value}
+    (resolved : space.lookupGlobal name = some callee)
+    (evaluated : display.items.mapM (ListDisplay.Item.eval (readListItem space)) = .ok contents) :
+    observeListDisplayCall space context destination name display lists =
+      (observeRemainingCallIn space context destination name callee
+        [listDisplayArgument display (lists.allocate contents).1] [], (lists.allocate contents).2) := by
+  simp only [observeListDisplayCall, resolved, display.prepare_allocated _ _ _ evaluated]
+
+theorem observeListDisplayCall_assertTrue (space : Namespace) (context : CallContext)
+    (name : String) (items : List ListDisplay.Item) (lists : ListHeap) (contents : List Core.Module.Value)
+    (resolved : space.lookupGlobal name = some (.helper .assertTrue))
+    (evaluated : items.mapM (ListDisplay.Item.eval (readListItem space)) = .ok contents) :
+    let object := (lists.allocate contents).1
+    let result := if contents.isEmpty then .error (.raised (.assertionError (.listObject object))) else .ok .none
+    observeListDisplayCall space context .discard name ⟨items, false⟩ lists =
+      ((acceptObservation .discard name ⟨result, none⟩ context.heap, context.heap), (lists.allocate contents).2) := by
+  rw [observeListDisplayCall_prepared space context .discard ⟨items, false⟩ lists resolved evaluated]
+  simp [observeRemainingCallIn, observeArgumentsIn, listDisplayArgument, invokeNestedTarget, invokeDescriptor,
+    Core.Module.SeededCall.invokeObserved, Core.Module.SeededCall.Request.decode,
+    Core.Module.SeededCall.invoke_assertTrue_listObject, Core.Module.ListHeap.allocate]
+
 theorem observeTupleFromListDisplayCall_outer_missing (space : Namespace) (context : CallContext)
     (destination : Core.Module.Functions.Destination) (lists : ListHeap) {name : String}
     (contents : List Core.Module.Value) (remaining : List Argument) (missing : space.lookupGlobal name = none) :
     observeTupleFromListDisplayCall space context destination contents (some (name, remaining)) lists =
-      ((⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap), lists) := by
+      ((⟨.error (.raised (.runtime (.nameError name))), [], none⟩, context.heap), lists) := by
   simp [observeTupleFromListDisplayCall, missing]
 
 theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (context : CallContext)
@@ -403,7 +500,7 @@ theorem run_literalArmBoolean {scope : Source.Scope} (space : Namespace) (contex
     runInstructionsIn space context (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: rest) =
       if value then runInstructionsIn space context rest
       else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap, Core.Module.ListHeap.empty⟩ := by
-  cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effectWithLists, effect, assertOperand,
+  cases value <;> simp [Action.inLiteralArm, runInstructionsIn, effectWithLists, effect, scalarBinding, assertOperand,
     evaluateScalar, lowerScalarOperand, Core.Module.SeededCall.Operand.eval] <;> rfl
 
 theorem readSequenceLength_ok_iff (space : Namespace) (length : Nat) (value : Int) :
@@ -617,8 +714,31 @@ theorem run_readAssign {scope : Source.Scope} (space : Namespace) (context : Cal
       | some value => runInstructionsIn (space.bindGlobal name value) context rest lists
       | none => ⟨space, .error (.raised (.runtime (.nameError source))), [], context.heap, lists⟩ := by
   cases found : space.lookupGlobal source <;>
-    simp [runInstructionsIn, effectWithLists, effect, evaluateScalar, lowerScalarOperand,
+    simp [runInstructionsIn, effectWithLists, effect, scalarBinding, evaluateScalar, lowerScalarOperand,
       Core.Module.SeededCall.Operand.eval, found, Except.map, Except.mapError, ModuleFailure.ofCall]
+
+theorem effect_bindDictionary {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : String) (display : List Core.Module.Dictionary.Entry) (lists : ListHeap) :
+    let (object, heap) := context.heap.materializeDictionary display
+    effect space context (.bindDictionary name display : Instruction scope) lists =
+      (⟨.ok (some (name, .dictionary object)), [], none⟩, heap) := rfl
+
+theorem effect_clearDictionary_ok {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    {target : Option String} {call : Core.Module.Dictionary.Clear} {heap : Heap}
+    (cleared : Core.Closure.clearDictionary context.heap
+      (fun name => (space.lookupGlobal name).map Value.dictionaryRead) call = .ok heap) :
+    effect space context (.clearDictionary target call : Instruction scope) =
+      (⟨.ok (target.map fun name => (name, .none)), [⟨call.receiver ++ ".clear", ⟨.ok .none, none⟩⟩], none⟩, heap) := by
+  cases target <;> simp [effect, cleared, acceptObservation, acceptCall, Except.map, Except.mapError, Except.bind, Except.toOption]
+
+theorem effect_clearDictionary_error {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    {target : Option String} {call : Core.Module.Dictionary.Clear} {error : Core.Module.Dictionary.Failure}
+    (failed : Core.Closure.clearDictionary context.heap
+      (fun name => (space.lookupGlobal name).map Value.dictionaryRead) call = .error error) :
+    effect space context (.clearDictionary target call : Instruction scope) =
+      (⟨.error (.ofCall (dictionaryFailure error)),
+        [⟨call.receiver ++ ".clear", ⟨.error (dictionaryFailure error), none⟩⟩], none⟩, context.heap) := by
+  simp [effect, failed, acceptObservation, Except.map, Except.mapError, Except.bind, Except.toOption]
 
 theorem run_bindTuple_ok {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {items : List Core.Closure.GlobalTupleItem} {trackClosed : Bool} {values : List Core.Module.TupleDispatch.Element}
@@ -640,13 +760,13 @@ theorem run_bindTuple_failure {scope : Source.Scope} {space : Namespace} {contex
 theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {operand : ModuleEntry.Operand scope} {error : Failure}
     (failed : evaluateScalar space false operand = .error error) :
-    effect space context (.assertNot operand) = (⟨.error (.ofCall error), []⟩, context.heap) :=
+    effect space context (.assertNot operand) = (⟨.error (.ofCall error), [], none⟩, context.heap) :=
   by simp [effect, assertOperand, failed, Except.bind, Except.map, Except.mapError]
 
 theorem effect_assertVarNames {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (receiver : String) (needle : List UInt32) :
     effect space context (.assertVarNames receiver needle : Instruction scope) =
-      (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap) := rfl
+      (⟨(checkVarNames space context.table receiver needle).map fun _ => none, [], none⟩, context.heap) := rfl
 
 /-- The guarded call follows the ordinary executor state. A settled
 call contributes one receipt, with heap and tail behavior from that state. -/
@@ -861,7 +981,7 @@ theorem observeNestedCallIn_missing {space : Namespace} {context : CallContext}
     {destination : Core.Module.Functions.Destination} {name : String} {arguments : List Argument}
     (missing : space.lookupGlobal name = none) :
     observeNestedCallIn space context destination name arguments =
-      (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap) := by
+      (⟨.error (.raised (.runtime (.nameError name))), [], none⟩, context.heap) := by
   simp [observeNestedCallIn, missing]
 
 theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallContext}
@@ -870,8 +990,22 @@ theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallC
     (found : space.lookupGlobal name = some callee)
     (failed : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
       (.error error, calls, heap)) :
-    observeNestedCallIn space context destination name arguments = (⟨.error error, calls⟩, heap) := by
+    observeNestedCallIn space context destination name arguments = (⟨.error error, calls, none⟩, heap) := by
   simp [observeNestedCallIn, observeRemainingCallIn, found, failed]
+
+theorem observeArgumentIn_dictionaryDisplay (space : Namespace) (context : CallContext)
+    (display : List Core.Module.Dictionary.Entry) (allowEscaped : Bool) :
+    let (object, reached) := context.heap.materializeDictionary display
+    observeArgumentIn space context (.dictionaryDisplay display) allowEscaped =
+      (.ok (.dictionary object), [], reached) := rfl
+
+theorem invokeDescriptor_dictionaryEqual (heap : Heap) (left right : Core.Module.Dictionary.Object)
+    {lhs rhs : List Core.Module.Dictionary.Entry}
+    (leftLive : heap.dictionaryEntries? left = some lhs) (rightLive : heap.dictionaryEntries? right = some rhs) :
+    invokeDescriptor heap (.helper .assertEqual) [.dictionary left, .dictionary right] =
+      (⟨if Core.Module.Dictionary.equalContents lhs rhs then .ok .none
+        else .error (.raised (.assertionError (.dictionaryPair lhs rhs))), none⟩, heap) := by
+  simp [invokeDescriptor, Core.Module.SeededCall.assertDictionaryEqual, leftLive, rightLive]
 
 theorem observeNestedCallIn_settledArguments {space : Namespace} {context : CallContext}
     {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
@@ -882,9 +1016,9 @@ theorem observeNestedCallIn_settledArguments {space : Namespace} {context : Call
     observeNestedCallIn space context destination name arguments =
       match invokeNestedTarget space { context with heap } callee values with
       | (.ok result, residual) =>
-        let outer := acceptObservation destination name result
+        let outer := acceptObservation destination name result residual
         ({ outer with calls := calls ++ outer.calls }, residual)
-      | (.error error, residual) => (⟨.error error, calls⟩, residual) := by
+      | (.error error, residual) => (⟨.error error, calls, none⟩, residual) := by
   simp [observeNestedCallIn, observeRemainingCallIn, found, evaluated]
   rfl
 

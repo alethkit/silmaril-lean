@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.Bridge.Acyclic.Native.Replay.Calls.SumBind.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Defs
 
 /-! # Returning a computed case into a subsequent primitive -/
 
@@ -11,19 +12,29 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Continuation
 
 open Region.Paper
 open Region.Paper.RetainedLet (returnOnce)
+open Region.Paper.UnaryReturn.Beta.Constructors (inlSequence inrSequence)
 open Silmaril.DeBruijn (lift)
 
 universe u v w
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
-/-- Expose a returned case as a region case at its singleton result
-interface. The discriminator and both arms can have effects. -/
+/-- Expose the evaluation of an effectful operand at the same singleton
+result interface before case analysis, destructuring, tagging or empty elimination. -/
 inductive ReturnStep : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | split {Γ : VCtx τ} {A B D : τ} {e l r : Tm Φ}
       (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType (A :: Γ) l D)
       (hr : Tm.HasType (B :: Γ) r D) :
       ReturnStep Γ (returnOnce (.case e l r)) (.case e (returnOnce l) (returnOnce r)) [D]
+  | splitPair {Γ : VCtx τ} {A B D : τ} {a b : Tm Φ}
+      (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D) :
+      ReturnStep Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D]
+  | splitInl {Γ : VCtx τ} {A B : τ} {a : Tm Φ} (ha : Tm.HasType Γ a A) :
+      ReturnStep Γ (returnOnce (.inl a)) (inlSequence a) [coprod A B]
+  | splitInr {Γ : VCtx τ} {A B : τ} {a : Tm Φ} (ha : Tm.HasType Γ a B) :
+      ReturnStep Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B]
+  | splitAbort {Γ : VCtx τ} {D : τ} {a : Tm Φ} (ha : Tm.HasType Γ a empty) :
+      ReturnStep Γ (returnOnce (.abort a)) (.let₁ a (returnOnce (.abort (.var 0)))) [D]
 
 abbrev Seed {ε : Type w} [HasEff Φ ε] (pe : ε)
     (Γ : VCtx τ) (p q : Region Φ) (L : LCtx τ) : Prop :=

@@ -38,6 +38,10 @@ assert True == 1
     ("literal_sequence_indexing", """result = [-7, 4, 9][-3]
 assert (8, -7)[0] == 8
 """, {}, {"result": -7}, "normal", ".normal", 2),
+    ("literal_dictionary_get", """result = {1: 2, True: 7}.get(1, 9)
+assert {}.get(False) is None
+assert result == 7
+""", {}, {"result": 7}, "normal", ".normal", 2),
     ("indexed_assertion_failure", """before = 1
 assert (2, 4)[-1] == 2
 after = 2

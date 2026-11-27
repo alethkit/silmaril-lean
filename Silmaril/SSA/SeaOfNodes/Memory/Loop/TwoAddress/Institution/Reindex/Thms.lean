@@ -11,7 +11,7 @@ import Silmaril.SSA.SeaOfNodes.Memory.Diamond.Institution.Thms
 namespace Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution
 
 open CategoryTheory Silmaril.Logic.Institution
-open Memory.Diamond.Institution (reduct reduct_id reduct_comp)
+open Memory.Diamond.Institution (pullInput reduct reduct_id reduct_comp)
 open Memory.Diamond.Institution renaming Signature → EntrySignature, Model → EntryModel
 
 variable {P Q R : EntrySignature}
@@ -22,6 +22,11 @@ variable {P Q R : EntrySignature}
 theorem mapGraph_comp (h : P ⟶ Q) (k : Q ⟶ R) (graph : Graph P.args) :
     mapGraph (h ≫ k) graph = mapGraph k (mapGraph h graph) :=
   Proofs.mapGraph_comp h k graph
+
+/-- Pull back the captured operands while retaining both live header addresses. -/
+theorem pull_operands (h : P ⟶ Q) (model : EntryModel Q) (header : Header model.cells) :
+    pullInput (liftAddresses h).port (header.operands model.input) = header.operands (reduct h model).input :=
+  Proofs.pull_operands h model header
 
 theorem step_mapGraph (h : P ⟶ Q) (graph : Graph P.args) (model : EntryModel Q)
     (header : Header model.cells) :

@@ -24,6 +24,8 @@ public inductive Observation where
   | duplicateExplicitKeyword (name : String)
   | requiredAfterDefault (name : String)
   | uninitializedGlobal (name : String)
+  | uninitializedLocal (name : String)
+  | invalidStar | invalidStarStar
   deriving DecidableEq
 
 public structure Control where
@@ -75,9 +77,12 @@ private def observe (source : String) : Option Observation :=
     | some (.scalar (.int value)) => some (.exportedInt value)
     | _ => none
   | .ok (.error (.runtime (.missingArguments [name])) _) => some (.missingArgument name)
+  | .ok (.error (.runtime .invalidStar) _) => some .invalidStar
+  | .ok (.error (.runtime .invalidStarStar) _) => some .invalidStarStar
   | .ok (.error (.runtime (.multipleArgumentValues name)) _) => some (.multipleValues name)
   | .ok (.error (.runtime (.duplicateKey (.string key))) _) => some (.duplicateKey key)
   | .ok (.error (.runtime (.uninitialized ⟨.global, name⟩)) _) => some (.uninitializedGlobal name)
+  | .ok (.error (.runtime (.uninitialized ⟨.local, name⟩)) _) => some (.uninitializedLocal name)
   | .error (.validation (.validation (.syntax (.duplicateExplicitKeyword name)))) =>
     some (.duplicateExplicitKeyword name)
   | .error (.validation (.validation (.syntax (.requiredAfterDefault name)))) =>
@@ -142,8 +147,8 @@ example : frontendDiagnostic "out = f(x=7, 8)" =
 example : frontendDiagnostic "out = f(*[7], x=8)" =
     some ⟨.callOrder .argumentAfterStar, ⟨⟨14, 1, 15⟩, ⟨15, 1, 16⟩⟩⟩ := by decide +kernel
 
-example : frontendDiagnostic "out = f(*xs)" =
-    some ⟨.unsupported .callArguments, ⟨⟨9, 1, 10⟩, ⟨11, 1, 12⟩⟩⟩ := by decide +kernel
+example : frontendDiagnostic "out = f(*xs().value)" =
+    some ⟨.unsupported .attribute, ⟨⟨13, 1, 14⟩, ⟨14, 1, 15⟩⟩⟩ := by decide +kernel
 
 example : frontendDiagnostic "out = f(1=7)" =
     some ⟨.expected "',' or ')'", ⟨⟨9, 1, 10⟩, ⟨10, 1, 11⟩⟩⟩ := by decide +kernel
@@ -166,7 +171,7 @@ example : parameterSpans = some [("a", ⟨⟨6, 1, 7⟩, ⟨7, 1, 8⟩⟩, none)
 private def explicitNames : Option (List (String × Span)) := do
   let commands ← (parseFile "out = f(b=7, a=8, b=9)").toOption
   match commands with
-  | [⟨_, .assignCall _ _ arguments⟩] =>
+  | [⟨_, .assignCall _ (.call _ _ arguments)⟩] =>
     some (arguments.named.map fun item => (item.name, item.nameSpan))
   | _ => none
 

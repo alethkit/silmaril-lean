@@ -26,6 +26,38 @@ universe u
 variable {Φ : Type u} [HasTy Φ Syntax.Ty] [DecidableEq Φ] {S : RequestSignature Φ} {R T : List Syntax.Ty}
   {states : Nat}
 
+theorem check_all_iff (replies : ReplyEnumeration S) (stores : StateInventory states)
+    (keys : List (InterpreterScript.Query Φ states)) (test : Syntax.Primitives Φ states → Fin states → Bool)
+    (stable : ∀ (prim other : Syntax.Primitives Φ states),
+      (∀ q ∈ keys, q.read prim = q.read other) → ∀ s, test prim s = test other s) :
+    InterpreterScript.checkAll replies stores keys test = true ↔
+      ∀ (prim : Syntax.Primitives Φ states) (s : Fin states), test prim s = true := by
+  simp only [InterpreterScript.checkAll, List.all_eq_true]
+  constructor
+  · intro checked prim s
+    obtain ⟨script, listed, agrees⟩ := restricted replies stores keys prim
+    rw [← stable (InterpreterScript.interpret script) prim agrees s]
+    exact checked script listed s (stores.complete s)
+  · intro checked script _ s _
+    exact checked (InterpreterScript.interpret script) s
+
+theorem check_results_by (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) :
+    g.checkAllInterpretersBy h caller caller' replies left right stores compare = true ↔
+      ∀ (prim : Syntax.Primitives Φ states) (s : Fin states),
+        compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+          (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) = true := by
+  unfold Table.checkAllInterpretersBy
+  apply check_all_iff
+  intro prim other agrees s
+  rw [runFinite_congr g caller left stores
+      (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_left _ mem))),
+    runFinite_congr h caller' right stores
+      (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_right _ mem)))]
+
+
 theorem check_results (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
@@ -34,19 +66,8 @@ theorem check_results (g : Table S R) (h : Table S T)
       ∀ (prim : Syntax.Primitives Φ states) (s : Fin states),
         (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s).refines
           (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s) := by
-  let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
-  simp only [Table.checkAllInterpreters, List.all_eq_true, decide_eq_true_eq]
-  constructor
-  · intro checked prim s
-    obtain ⟨script, listed, agrees⟩ := restricted replies stores keys prim
-    have lower := runFinite_congr g caller left stores
-      (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_left _ mem))) ⟨g.entry, caller⟩ s
-    have upper := runFinite_congr h caller' right stores
-      (fun q mem => agrees q (List.mem_dedup.mpr (List.mem_append_right _ mem))) ⟨h.entry, caller'⟩ s
-    rw [← lower, ← upper]
-    exact checked script listed s (stores.complete s)
-  · intro checked script _ s _
-    exact checked (InterpreterScript.interpret script) s
+  simpa only [Table.checkAllInterpreters, decide_eq_true_eq] using
+    check_results_by g h caller caller' replies left right stores (fun result other => decide (result.refines other))
 
 theorem checkAllInterpreters_iff (g : Table S R) (h : Table S T)
     (raw : CFG.Dependent.Native.Typed Φ [R.get g.entry] Exits)

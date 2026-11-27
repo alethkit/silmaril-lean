@@ -14,6 +14,7 @@ namespace Silmaril.Isotope.LambdaSSA.Acyclic.Native.SumBind.Continuation
 open Region (HasType ValueBranches)
 open Region.Paper
 open Region.Paper.RetainedLet (returnOnce)
+open Region.Paper.UnaryReturn.Beta.Constructors (inlSequence inrSequence)
 open Region.CfgEta.TypeCategory (returnRegion)
 open Region.Paper.WithComputedCallReturns
 open Silmaril.DeBruijn (lift)
@@ -42,6 +43,29 @@ theorem split_return_proof (he : Tm.HasType Γ e (coprod A B)) (hl : Tm.HasType 
   .extra (UnaryReturn.returnOnce_valueBranches (.case he hl hr)).hasType
     (.case he (UnaryReturn.returnOnce_valueBranches hl).hasType (UnaryReturn.returnOnce_valueBranches hr).hasType)
     (.inr (.split he hl hr))
+
+theorem split_let₂_proof {a b : Tm Φ}
+    (ha : Tm.HasType Γ a (product A B)) (hb : Tm.HasType (B :: A :: Γ) b D) :
+    Eqv pe Γ (returnOnce (.let₂ a b)) (.let₂ a (returnOnce b)) [D] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.let₂ ha hb)).hasType
+    (.let₂ ha (UnaryReturn.returnOnce_valueBranches hb).hasType)
+    (.inr (.splitPair ha hb))
+
+theorem split_inl_proof {a : Tm Φ} (ha : Tm.HasType Γ a A) :
+    Eqv pe Γ (returnOnce (.inl a)) (inlSequence a) [coprod A B] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.inl ha)).hasType
+    (.let₁ ha (.br (ℓ := 0) rfl (.inl (.var (i := 0) rfl)))) (.inr (.splitInl ha))
+
+theorem split_inr_proof {a : Tm Φ} (ha : Tm.HasType Γ a B) :
+    Eqv pe Γ (returnOnce (.inr a)) (inrSequence a) [coprod A B] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.inr ha)).hasType
+    (.let₁ ha (.br (ℓ := 0) rfl (.inr (.var (i := 0) rfl)))) (.inr (.splitInr ha))
+
+theorem split_abort_proof {a : Tm Φ} (ha : Tm.HasType Γ a empty) :
+    Eqv pe Γ (returnOnce (.abort a)) (.let₁ a (returnOnce (.abort (.var 0)))) [D] :=
+  .extra (UnaryReturn.returnOnce_valueBranches (.abort ha)).hasType
+    (.let₁ ha (UnaryReturn.returnOnce_valueBranches (.abort (.var (i := 0) rfl))).hasType)
+    (.inr (.splitAbort ha))
 
 private theorem invoke_typed (hq : HasType (instrTrg f :: Γ) q L) :
     HasType (instrSrc f :: Γ) (invoke f q) L :=
@@ -106,6 +130,22 @@ theorem sound_proof {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Categor
       have native := denote_case_boundReturn_fusion J M (L := [_]) (i := 0) rfl he hl hr
       change denoteRegion J M tq = denoteRegion J M tp at native
       exact ⟨_, denoteRegion_spec J M tp, native ▸ denoteRegion_spec J M tq⟩
+    | splitPair ha hb =>
+      have native := denote_let₂_boundReturn_fusion J M (L := [_]) (i := 0) rfl ha hb
+      change denoteRegion J M tq = denoteRegion J M tp at native
+      exact ⟨_, denoteRegion_spec J M tp, native ▸ denoteRegion_spec J M tq⟩
+    | @splitInl X Y _ ha =>
+      have native := denote_inl_boundReturn_sequencing J M (L := [coprod X Y]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
+    | @splitInr X Y _ ha =>
+      have native := denote_inr_boundReturn_sequencing J M (L := [coprod X Y]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
+    | @splitAbort D _ ha =>
+      have native := denote_abort_boundReturn_sequencing J M (L := [D]) (i := 0) rfl ha
+      change denoteRegion J M tp = denoteRegion J M tq at native
+      exact ⟨_, denoteRegion_spec J M tp, native.symm ▸ denoteRegion_spec J M tq⟩
 
 end Native
 
@@ -115,7 +155,7 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {Γ Δ : VCtx τ} {S L : LCtx τ} {f : Φ} {p q : Region Φ}
   {before after : List (List Φ × Nat)}
 
-private theorem rename_schedule {ρ : Nat → Nat}
+theorem rename_schedule_proof {ρ : Nat → Nat}
     (h : Schedule Γ p L before) (typed : Ren Γ Δ ρ) :
     Schedule Δ (p.renameVars ρ) L before := by
   have move {a : Tm Φ} {A : τ} {Γ Δ : VCtx τ} {ρ : Nat → Nat}
@@ -127,6 +167,8 @@ private theorem rename_schedule {ρ : Nat → Nat}
   | ret exit value => exact .ret exit (move value typed)
   | call value _ ih => exact .call (move value typed) (ih (typed.lift _))
   | caseVar value _ _ ihl ihr => exact .caseVar (typed value) (ihl (typed.lift _)) (ihr (typed.lift _))
+  | unpackVar value _ ih => exact .unpackVar (typed value) (ih ((typed.lift _).lift _))
+  | abortValue value _ ih => exact .abortValue (move value typed) (ih (typed.lift _))
 
 private theorem invoke_subst (f : Φ) (a : Tm Φ) (q : Region Φ) :
     (invoke f q).substVars (Tm.singleSubst a) = .let₁ (.op f a) q := by
@@ -160,14 +202,22 @@ theorem splice_proof (producer : Schedule Γ p S before) (body : Schedule (instr
       using Schedule.call value body
   | @call Γ _ g _ _ _ value _ ih =>
     rw [Region.lsubst, invoke_lift]
-    have moved := rename_schedule body ((Ren.wk Γ (instrTrg g)).lift (instrTrg f))
+    have moved := rename_schedule_proof body ((Ren.wk Γ (instrTrg g)).lift (instrTrg f))
     simpa only [callPaths, List.flatMap_map, List.map_flatMap, List.map_map, Function.comp_def, List.cons_append]
       using Schedule.call value (ih moved single)
   | @caseVar Γ _ _ A B _ _ _ _ value _ _ ihl ihr =>
     rw [Region.lsubst, invoke_lift]
-    have left := rename_schedule body ((Ren.wk Γ A).lift (instrTrg f))
-    have right := rename_schedule body ((Ren.wk Γ B).lift (instrTrg f))
+    have left := rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))
+    have right := rename_schedule_proof body ((Ren.wk Γ B).lift (instrTrg f))
     simpa only [callPaths, List.flatMap_append] using Schedule.caseVar value (ihl left single) (ihr right single)
+  | @unpackVar Γ _ _ A B _ _ value _ ih =>
+    rw [Region.lsubst, invoke_lift, invoke_lift]
+    have left := rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))
+    have moved := rename_schedule_proof left ((Ren.wk (A :: Γ) B).lift (instrTrg f))
+    exact .unpackVar value (ih moved single)
+  | @abortValue Γ _ A _ _ _ value _ ih =>
+    rw [Region.lsubst, invoke_lift]
+    exact .abortValue value (ih (rename_schedule_proof body ((Ren.wk Γ A).lift (instrTrg f))) single)
 
 end Schedule
 

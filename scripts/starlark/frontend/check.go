@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -12,16 +13,20 @@ import (
 )
 
 type fixture struct {
-	Name    string
-	Source  string
-	Accepts bool
-	Module  *moduleControl
-	Loader  *loaderControl
+	Name          string
+	Source        string
+	Accepts       bool
+	Module        *moduleControl
+	Loader        *loaderControl
+	BranchTests   [][4]int32
+	ListDisplays  [][4]int32
+	TupleDisplays [][4]int32
 }
 
 type moduleControl struct {
-	Phase string
-	Want  string
+	Phase  string
+	Want   string
+	Events string
 }
 
 type loaderControl struct {
@@ -30,11 +35,69 @@ type loaderControl struct {
 	Label    string
 	Producer string
 	Marker   string
+	Wrapper  string
 }
 
 func isInteger(value starlark.Value, want string) bool {
 	integer, ok := value.(starlark.Int)
 	return ok && integer.String() == want
+}
+
+func checkNodeSpans(file *syntax.File, want [][4]int32, locate func(syntax.Node) []syntax.Node) error {
+	var got [][4]int32
+	syntax.Walk(file, func(node syntax.Node) bool {
+		for _, located := range locate(node) {
+			start, end := located.Span()
+			// Go's empty tuple reports the closing token, not the half-open end.
+			if tuple, ok := located.(*syntax.TupleExpr); ok && tuple.Lparen.IsValid() {
+				end.Col++
+			}
+			got = append(got, [4]int32{start.Line, start.Col, end.Line, end.Col})
+		}
+		return true
+	})
+	if !slices.Equal(got, want) {
+		return fmt.Errorf("want spans %v, got %v", want, got)
+	}
+	return nil
+}
+
+func branchTestNodes(node syntax.Node) []syntax.Node {
+	if branch, ok := node.(*syntax.IfStmt); ok {
+		return []syntax.Node{branch.Cond}
+	}
+	return nil
+}
+
+func listDisplayNodes(node syntax.Node) []syntax.Node {
+	if display, ok := node.(*syntax.ListExpr); ok {
+		return displayNodes(display, display.List)
+	}
+	return nil
+}
+
+func tupleDisplayNodes(node syntax.Node) []syntax.Node {
+	// A nonempty parenthesized tuple is a ParenExpr over a bare TupleExpr.
+	switch display := node.(type) {
+	case *syntax.ParenExpr:
+		if tuple, ok := display.X.(*syntax.TupleExpr); ok && !tuple.Lparen.IsValid() {
+			return displayNodes(display, tuple.List)
+		}
+	case *syntax.TupleExpr:
+		if display.Lparen.IsValid() {
+			return displayNodes(display, display.List)
+		}
+	}
+	return nil
+}
+
+func displayNodes(display syntax.Node, elements []syntax.Expr) []syntax.Node {
+	nodes := make([]syntax.Node, 1, len(elements)+1)
+	nodes[0] = display
+	for _, element := range elements {
+		nodes = append(nodes, element)
+	}
+	return nodes
 }
 
 func checkModule(file *syntax.File, control moduleControl) error {
@@ -50,6 +113,12 @@ func checkModule(file *syntax.File, control moduleControl) error {
 	}
 
 	globals, err := program.Init(new(starlark.Thread), nil)
+	if control.Events != "" {
+		events, ok := globals["events"].(*starlark.List)
+		if !ok || events.String() != control.Events {
+			return fmt.Errorf("want events %s, got %v", control.Events, globals["events"])
+		}
+	}
 	if control.Phase == "runtime" {
 		if err != nil && strings.Contains(err.Error(), control.Want) && globals["out"] == nil {
 			return nil
@@ -121,8 +190,15 @@ func checkLoader(file *syntax.File, parseError error, control loaderControl) err
 		return fmt.Errorf("unexpected runtime error: %w", err)
 	}
 	globals.Freeze()
-	if len(globals) != 1 || !isInteger(globals["out"], control.Want) {
-		return fmt.Errorf("want only out = %s, got %v", control.Want, globals)
+	wantCount := 1
+	if control.Wrapper != "" {
+		wantCount++
+		if _, ok := globals[control.Wrapper].(*starlark.Function); !ok {
+			return fmt.Errorf("want wrapper function %s, got %v", control.Wrapper, globals)
+		}
+	}
+	if len(globals) != wantCount || !isInteger(globals["out"], control.Want) {
+		return fmt.Errorf("want out = %s among %d globals, got %v", control.Want, wantCount, globals)
 	}
 	return nil
 }
@@ -166,10 +242,33 @@ func main() {
 				failed = true
 			}
 		}
+		if f.BranchTests != nil {
+			if err := checkNodeSpans(file, f.BranchTests, branchTestNodes); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
+		if f.ListDisplays != nil {
+			if err := checkNodeSpans(file, f.ListDisplays, listDisplayNodes); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
+		if f.TupleDisplays != nil {
+			if err := checkNodeSpans(file, f.TupleDisplays, tupleDisplayNodes); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Name, err)
+				failed = true
+			}
+		}
+	}
+	spreads, err := checkGoSpreadControls()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		failed = true
 	}
 	if failed {
 		os.Exit(1)
 	}
-	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, and %d loader controls\n",
-		len(fixtures), modules, loaders)
+	fmt.Printf("Pinned Go matched %d parse expectations, %d module observations, %d loader controls, and %d Go-only controls\n",
+		len(fixtures), modules, loaders, spreads)
 }

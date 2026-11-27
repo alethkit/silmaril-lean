@@ -149,17 +149,79 @@ finite profile at that operand. A decimal literal conversion that produces
 infinity fails checking. Both addition paths use the existing ordered call
 preparation and seeded receipt delivery.
 
+Subtraction checks two closed integer expressions with exact unbounded
+integer arithmetic. A positional subtraction with a finite decimal
+literal on at least one side keeps the source operand order and defers
+evaluation until argument preparation. The runner first rounds the
+integer operand, if present, to binary64. It then negates the right
+operand's exact dyadic value, flips its sign bit for the zero rule, and
+rounds the sum once. In particular, `-0.0 - 0` yields negative zero and
+`-0.0 - -0.0` yields positive zero. Integer conversion failure raises
+`OverflowError`. A finite-operand difference that rounds to infinity
+stops at the operand outside the runtime profile. Nonfinite literals
+and nonnumeric pairs remain outside the checked source profile.
+
+Multiplication checks closed integer products exactly. The floating path
+shares the ordered operand check and integer coercion with subtraction.
+It multiplies the resulting exact dyadic values and rounds the product
+once to nearest, ties to even. The exclusive-or of the input signs
+supplies the result sign, including exact zero and underflow to zero.
+Subnormal results use the same rounding rule. Integer conversion
+overflow raises `OverflowError`, including when the other operand is
+zero. A finite-operand product that rounds to infinity stops outside
+the runtime profile. The source profile covers numeric operands.
+
+True division with at least one checked finite decimal literal uses the
+same ordered operand witness. The runner converts the integer operand,
+if present, before checking the divisor. Thus a value beyond the integer
+conversion limit raises `OverflowError` even with a zero float divisor.
+After conversion, either zero sign as divisor raises `ZeroDivisionError`.
+For a nonzero divisor the runner rounds the exact dyadic ratio once,
+ties to even, using the exclusive-or of the operand signs. That sign
+also applies to exact zero and underflow to zero. A ratio that rounds to
+infinity stops outside the finite runtime profile. Integer–integer true
+division uses its exact integer ratio and raises its defined overflow
+error when rounding reaches infinity.
+
+Positional floor division and modulo accept two closed integer expressions
+from the same integer checker. After live callee lookup, both runners
+evaluate the deferred operation as they prepare arguments left to right.
+A zero divisor raises `ZeroDivisionError` before call entry. For a nonzero
+divisor, the quotient and remainder satisfy `numerator = divisor * quotient + remainder`.
+For a positive divisor the remainder lies in `[0, divisor)`. For a negative
+divisor it lies in `(divisor, 0]`. These intervals uniquely determine the
+floor quotient and the remainder for either numerator sign.
+
+Positional floor division and modulo with one or two finite decimal literals
+follow [CPython 3.13.5's float arithmetic](https://github.com/python/cpython/blob/v3.13.5/Objects/floatobject.c).
+The runner converts a mixed integer to binary64 before checking for a zero
+divisor. Conversion overflow and a zero divisor raise their defined errors.
+The finite kernel obtains the truncating remainder and checks that its
+binary64 encoding decodes to the exact value. It rounds the remainder's
+sign correction once or gives a zero remainder the divisor's sign.
+For floor division it rounds the subtraction of the raw remainder, the
+division by the divisor, and the correction by one when selected.
+The quotient snap uses a binary64 subtraction and a strict half comparison.
+A zero input to the snap takes the sign of the original quotient.
+The snap checks exact representability of its integral floor. A nonfinite
+quotient step stops outside the finite runtime profile. Modulo evaluates
+its remainder independently, including when floor division would overflow.
+
 Line 28 of `test_int_float_primitives.py`, `___assertEqual(5 / 2, 2.5)`,
 completes in isolation in both helper placements. Ordinary and empty-seeded
 execution report the missing helper. The closed integer checker also lowers
 the exact sum in line 1, `___assertEqual(4 + 2, 6)`, to an integer call
 operand. Lines 1, 3 and 5 complete in isolation in both helper placements.
-The first eight unchanged lines complete with `legacyNumericIsinstanceSeed`
+All 53 unchanged lines complete with `legacyNumericIsinstanceSeed`
 in both helper placements. It installs the stock `float` class in the
 builtin table and the Boolean assertion helper in the selected placement.
-The probes on lines 2, 4, 6 and 8 record exact Boolean `True` before the
-outer helper's `None` receipt. The two mixed sums and the float–float sum
-supply finite binary64 `6.0`. Instance dispatch uses the live module-first
+All 24 probes record exact Boolean `True` before the outer helper's
+`None` receipt. The mixed and float–float sums, differences, and products
+supply finite binary64 `6.0`, `2.0`, and `8.0` respectively. The four
+true-division pairs supply binary64 `2.5`. Floor division and modulo
+supply integer `2` and `1` for the integer pairs and binary64 `2.0` and
+`1.0` for the float-containing pairs. Each placement records 72 receipts.
+Instance dispatch uses the live module-first
 descriptors. A saved class alias still works after rebinding `float`, and an `int` or `bool`
 mask yields exact `False` before the assertion fails. The checked pairs use
 exact Boolean, integer and finite float values against stock `bool`,
@@ -169,18 +231,82 @@ arguments and calling `float` as a constructor are outside this profile.
 Ordinary and empty-seeded runs stop at the missing equality helper on
 line 1. The fixed stock profiles reach the missing Boolean assertion
 helper on line 2. Supplying that helper and only the integer and Boolean
-classes leaves the `float` lookup on line 4 undefined. The first
-rejected compiler prefix is line 10, `___assertEqual(4 - 2, 2)`,
-and the full file reports `expressionProfile`.
-Run the binary64 addition differential with
+classes leaves the `float` lookup on line 4 undefined. The compiler
+admits the entire file.
+Run the binary64 arithmetic differential with
 `python3.13 -I scripts/check-python-mixed-finite-addition.py --upstream /path/to/pinned/rigorous`.
-Run the equality and positional addition differential with
+Run the equality and positional arithmetic differential with
 `python3.13 -I scripts/check-python-finite-numeric-equality.py --upstream /path/to/pinned/rigorous`.
 Run the transport differential with
 `python3.13 -I scripts/check-python-division-call-transport.py --upstream /path/to/pinned/rigorous`.
 Negative exponent power uses CPython's separate floating power path, which
 includes platform libm behavior. Run the quotient differential with
 `python3.13 -I scripts/check-python-integer-true-division.py --upstream /path/to/pinned/rigorous`.
+
+A bound `get` on a nonescaping dictionary display can use the checked
+scalar operand path. The entire display, key and positional default must
+be literals in the integer, Boolean or None profile. The checker validates
+all entries and the explicit default even when a key matches. Lookup uses
+the last equal key, including Python's shared Boolean and integer key
+equality. A miss returns the exact default or None when omitted. The
+existing scalar runners deliver the selected value to assignments and
+assertions. The three unchanged assertions in `testdicts2.py` complete in
+ordinary and seeded execution with no call receipts. Dictionary bindings,
+unpacking, and dynamic keys and defaults are outside this profile.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-literal-dictionary-get.py --upstream /path/to/pinned/rigorous`.
+
+The function-aware runners also bind exact dictionary displays. Entries
+use literal integers, Booleans, None or text. Construction follows display
+order and replaces an equal key's value while retaining the first key's
+tag and position. Every display, including an empty one, allocates a fresh
+handle. Aliasing copies the handle and rebinding preserves the old object
+for aliases. The shared heap validates each handle and supplies the live
+entries for lookup and truth.
+
+A direct named `get` can assign its result or supply a positional argument.
+The runner resolves the current receiver before preparing the key and
+default from literals or live global reads. It reads the explicit default
+even on a hit, then returns the stored value or the exact fallback.
+A receiver outside the exact dictionary profile stops before argument
+preparation. The seeded runner records the reached method operation and
+uses its existing helper dispatch, including the exact `None is None`
+case. The ordinary runner and empty seed stop at the missing helper on
+line 2 of `dict-get.py`. Both supplied helper placements complete its
+unchanged first eight lines with twelve receipts. Line 9 passes a bound
+method as a callback and remains a compiler cutoff.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-persistent-dictionary.py --upstream /path/to/pinned/rigorous`.
+
+A direct named `clear` with zero positional arguments keeps the same
+handle, replaces the live entries with an empty list, and returns None.
+The ordinary runner reports completion and the seeded runner records the
+method receipt. The direct call may discard or bind the result. Flat
+positional arguments are looked up in order before a stock arity error.
+A missing or unsupported receiver stops before argument preparation.
+Failure leaves the reached heap and namespace intact. The unchanged
+`dict-clear.py` prefix through line 2 completes in all four fixed runner
+profiles.
+Escaping bound methods, keyword or expanded arguments, and `update` are
+outside the checked slice.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-dictionary-clear.py --upstream /path/to/pinned/rigorous`.
+
+Exact dictionary displays can also supply a direct positional call
+argument. Both runners resolve the callee first and allocate an admitted
+display when its operand is reached. Earlier allocations survive a later
+argument or invocation failure. A named argument retains its dictionary
+handle. The live stock equality helper reads the reached entries behind
+both handles. It compares exact key/value pairs independent of insertion
+order and retains both ordered entry lists on an assertion failure.
+
+Both stock helper placements complete the unchanged `dict-clear.py`
+prefix through line 3. Ordinary and empty-seeded execution clear the
+original handle and stop at the missing helper before allocating the
+second display. Line 5 passes a bound method as a callback and remains a
+compiler cutoff. The equality rule covers flat exact dictionaries.
+Run the pinned differential with
+`python3.13 -I scripts/check-python-dictionary-arguments.py --upstream /path/to/pinned/rigorous`.
 
 The function-aware checker can omit an `if` whose closed guard selects an
 empty arm or an arm of `pass` statements. The otherwise unsupported arm
@@ -200,6 +326,101 @@ integer because CPython 3.13.5 warns on Boolean inversion. Emission adds no
 instructions, runtime allocations or receipts. Run the four pinned inputs and the
 CPython 3.13.5 controls with
 `python3.13 -I scripts/check-python-closed-guards.py --upstream /path/to/pinned/rigorous`.
+
+A module `try` can be lowered to its normally reached statements when the
+protected and else suites contain only `pass` and exact scalar literal
+writes. The checked shape has one bare handler with the same grammar, or
+a finally-only clause. The handler contributes no writes. The protected
+writes precede the else writes, and the cleanup sees both. The cleanup
+uses the existing scalar assignment and assertion rules. A reached
+cleanup failure preserves earlier writes, stops the remaining cleanup
+and module statements, and leaves both heaps and prior receipts intact.
+Boolean literal assignment uses the existing tagged scalar result in
+both runners.
+
+The five unchanged no-exception `try` fixtures exercise the handler,
+else, and finally combinations. Their fixed profiles stop at the
+missing assertion helper after producing the exact Boolean flags.
+`try-finally-no-exception.py` also completes in both opt-in placements
+of the stock truth helper. Run the CPython 3.13.5 controls and exact
+pins with `python3.13 -I scripts/check-python-normal-try.py --upstream /path/to/pinned/rigorous`.
+
+Checked exceptional cleanup admits suites of passes, literal or name-read
+assignments, and assertions over the same atoms and single scalar equality
+or inequality comparisons. A checked `try` can have a `finally` suite,
+ordered named handlers followed by an optional bare handler, or both.
+Both module runners commit
+successful actions in order. A reached Python error skips `else` and selects
+the bare handler when present. Cleanup starts from the reached namespace.
+Normal cleanup restores the pending completion and a cleanup error replaces it.
+Profile failures stop outside Python exception transfer.
+
+Both runners settle the reached bindings before returning the final completion.
+The suites preserve both heaps, seeded builtins and earlier call receipts.
+
+An exceptional suite can raise a named stock exception class, call that
+class with zero positional arguments and immediately raise the result, or
+raise an already supplied exact exception instance. Class normalization and
+the explicit zero-argument constructor deliver the same class and empty
+argument tuple. A supplied instance carries its exact payload through name
+reads and aliases. The checked instance payload covers empty arguments for
+the supported stock classes and one exact text argument for `Exception`.
+Exception identity and traceback observations are outside this profile.
+
+The runner saves the live callee before evaluating any argument. A module
+binding masks the builtin fallback, and a saved alias survives rebinding.
+A missing name or invalid named raise operand produces its defined error.
+An explicit call to a known noncallable value produces the call's own
+defined error. Immediate constructors emit no separate module receipt.
+General callable constructors, standalone instance construction, nontext
+stock arguments and explicit causes remain outside this checked path.
+
+The unchanged `testassert1.py` uses the existing scalar truth rule for
+its opening direct Boolean assertion. The protected assertion failure
+precedes the named raise. The ordinary and empty seeded profiles reach
+`NameError:AssertionError` during handler lookup, and both fixed supplied
+profiles finish with `x = 5`. Run the differential with
+`python3.13 -I scripts/check-python-named-exception-raise.py --upstream /path/to/pinned/rigorous`.
+
+A named handler resolves its class from the reached namespace only after a
+defined error. Lookup stops at the first matching arm or first failed class
+lookup. The checked ancestry relation uses the represented stock classes.
+Missing names and invalid class bindings replace the pending error. If
+every class misses, the original error and payload remain pending. Cleanup
+runs with that reached state and can replace the pending error. Tuple
+filters, general handler expressions and exception chaining are outside
+this observation profile.
+
+A selected named handler can bind an explicit stock exception instance or
+an empty `AssertionError` to its module target. Reads and aliases carry
+the exact class and arguments. On either exit from the handler, the runner
+removes the module target before cleanup, even if the handler assigned it
+again. Earlier bindings of that name are discarded, aliases retain their
+payloads, and the seeded lookup resumes builtin fallback. A selected
+target for a runtime error with no represented instance is outside the
+execution profile. The checked rules make no instance identity observation.
+In unchanged `testtry1.py`, the protected suite completes, both handlers
+are skipped, and else and cleanup leave `x = 5`, `y = 6`, `z = 7`. Run
+`python3.13 -I scripts/check-python-handler-targets.py --upstream /path/to/pinned/rigorous`.
+
+The protected suite of a standalone module-level try can use bare
+`raise` when no exception is active. It produces Python's no-active-exception
+`RuntimeError`. Bare re-raise from a handler or cleanup remains separate.
+The unchanged `testtry2.py` reaches `NameError:x` in cleanup under the fixed
+profiles after lookup of `RuntimeError` fails. It finishes normally when the
+stock class is supplied separately. Run the differential with
+`python3.13 -I scripts/check-python-typed-handlers.py --upstream /path/to/pinned/rigorous`.
+
+
+Both unchanged raise pins reach their bare handler and cleanup. Under the
+fixed profiles they stop at the first missing `___assertTrue`. A separate
+seed supplying stock `Exception` and the Boolean assertion helpers exercises
+normal completion. The opt-in `___assertFalse` rule accepts an exact Boolean
+and retains it in a failed assertion's payload.
+Run the CPython 3.13.5 checks with
+`python3.13 -I scripts/check-python-stock-exception-raise.py --upstream /path/to/pinned/rigorous`
+and
+`python3.13 -I scripts/check-python-exceptional-cleanup.py --upstream /path/to/pinned/rigorous`.
 
 Checked call operands can carry exact text code points, including
 surrogates. The ordinary executor transports that tag through argument
@@ -430,6 +651,28 @@ existing stock helper in both `legacyTupleIdentitySeed` placements.
 Both calls settle successful `None` receipts. Profiles without the
 helper reach its first missing-name lookup. The two statements leave
 both modeled heaps intact and add no user bindings.
+
+A direct named call can take one flat list display or its negation as
+its sole positional argument. Entries are checked integer, Boolean, and
+`None` literals and live names that read those exact scalar values. Callee
+lookup comes first. Entries evaluate left to right before the existing list
+table allocates the display. A failed entry leaves that table intact. A
+noncallable binding reports its error after the argument is prepared.
+Negation allocates the display and supplies its Boolean emptiness result.
+
+The stock `___assertTrue` descriptor accepts the existing list carrier. It
+tests nonemptiness, and a failed assertion carries the same empty list
+descriptor as its argument. A saved helper alias remains callable after
+rebinding its original name. An alias of a supplied list retains its
+descriptor and incurs no allocation on read. This profile covers direct
+operand construction and seeded list values with their reached list tables.
+Ordinary linked functions can receive the Boolean negation. Raw list values
+remain outside ordinary closure binding.
+
+The two calls in unchanged `test_list_truth.py` complete with the stock
+helper in both opt-in placements. Their allocations are ordered as `[]`
+and `[42]`. They deliver `True` and `[42]` and settle two `None` receipts.
+Without the helper, the first name lookup fails before allocating a list.
 
 A scalar comparison chain has at least two links. Every link uses one of
 `==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact

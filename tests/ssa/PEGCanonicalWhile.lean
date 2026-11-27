@@ -6,12 +6,17 @@ import Silmaril.SSA.PEG.Simple.Revert.While.Region.Placement.MustEval.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Automatic.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Thms
 import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.PEG.Rules.Thms
 import Mathlib.Data.Fin.Embedding
 import Mathlib.Logic.Equiv.Basic
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Thms
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Pair.Defs
 meta import Silmaril.SSA.PEG.Simple.Revert.While.Nested.Projected.Defs
@@ -1227,5 +1232,78 @@ private def fromPEG (count : Nat) :
 
 #guard (fromPEG 2).isSome
 #guard (fromPEG 0).isSome
+
+open Simple.Revert.Schedule (Plan)
+
+private structure Scheduled (stale : Bool) where
+  accepted : Simple.Revert.Schedule.Accepted (graph stale)
+  laws : accepted.plan.Laws model
+
+-- The same local certificate is proposed against both original tables.
+-- A stale initializer reads the function input instead of the old outer slot.
+private def schedule (stale : Bool) : Option (Scheduled stale) := do
+  let found ← checked
+  let stage : Simple.Revert.Schedule.Stage (graph stale) state [.count] :=
+    ⟨16, 2, graph false, .nested found.certificate, fun i => ⟨i, rfl⟩, id⟩
+  let plan : Plan (graph stale) state [.count] :=
+    .step (ports state) stage (.done (.cons .head .nil))
+  let accepted ← Simple.Revert.Schedule.check (graph stale) plan (pair (r 13 rfl) (r 14 rfl)) rank
+  return ⟨accepted.val, accepted.property.symm ▸
+    (show plan.Laws model from ⟨found.negates (fun _ => rfl), trivial⟩)⟩
+
+private def scheduledRun :
+    Option {a : Scheduled false //
+      Exec model a.accepted.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, (graph false).observe model ((graph false).denote model (input 2) a.accepted.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let a ← schedule false
+  match ran : a.accepted.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    have exec := a.accepted.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.accepted.observations_of_exec a.laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard scheduledRun.isSome
+#guard (schedule true).isNone
+
+open Simple.Revert.Schedule.Automatic (Leaf Found discover)
+
+-- Use the unrelocated leaf. Discovery must pair both loop scopes and
+-- their rows with the original graph's permuted keys and addresses.
+private def inferredRegion :
+    Option {a : Found moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) //
+      Exec model a.gate.val.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, moved.observe model (moved.denote model (input 2) a.gate.val.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let leaf ← Leaf.nested (.nestedOnly Op.not) (graph false) rank
+  let .ok a := discover moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) [leaf] 1000 | none
+  match ran : a.gate.val.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec (fun _ => rfl) (input 2) i exec).2⟩
+  | _ => none
+
+#guard inferredRegion.isSome
+
+open Simple.Revert.Schedule.Automatic
+
+-- Child evals are recovered from the labelled rows. The second child
+-- exit slot is needed for the certificate and is absent from the root slice.
+private def nestedCut : Cuts.Boundary moved :=
+  ⟨state, [.count], pair ((r 13 rfl).reindex relocation) ((r 14 rfl).reindex relocation), moved.roots⟩
+
+private def runFromNestedCut :
+    Option {a : Found moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) //
+      Exec model a.gate.val.plan.revert (input 2) (some (.cons ⟨4⟩ .nil)) ∧
+      ∀ i, moved.observe model (moved.denote model (input 2) a.gate.val.demandWellFounded) i =
+        .cons (some ⟨4⟩) .nil} := do
+  let .ok a := Cuts.discover moved (.nestedOnly Op.not) (rank.reindex relocation loopRelocation) [nestedCut] 4 | none
+  match ran : a.gate.val.plan.runFuel model 2 (input 2) with
+  | some (.cons ⟨4⟩ .nil) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 2 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec (fun _ => rfl) (input 2) i exec).2⟩
+  | _ => none
+
+#guard runFromNestedCut.isSome
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Nested.Region.Tests

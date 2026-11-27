@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports.Defs
+public import Silmaril.Languages.Starlark.Modules.Operational.Defs
 import Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Thms
 
 public section
@@ -8,14 +9,34 @@ public section
 namespace Silmaril.Proofs.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 
 open Silmaril.Languages.Starlark
-open Silmaril.Languages.Starlark.Modules (globalSlot)
+open Silmaril.Languages.Starlark.Modules (globalSlot validateSource)
 open Silmaril.Languages.Starlark.Modules.Resolve
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published
 open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Published.Imports
 open Silmaril.Languages.Starlark.Functions (Program)
+open Silmaril.Languages.Starlark.Modules.Resolve.Capture.Trace.Defaults.Nested.Sequence (PreservesDeclarations)
 open Silmaril.Languages.Starlark.Lists (State)
 open Silmaril.Languages.Starlark.Modules.Loader (Session)
+
+theorem revalidate {producer consumer : Modules.Source} {earlier later : Program}
+    (old : validateSource earlier producer = .ok ())
+    (new : validateSource later consumer = .ok ()) :
+    validateSource later producer = .ok () := by
+  unfold validateSource at old new ⊢
+  split at old
+  · cases old
+  · split at new
+    · cases new
+    · generalize h₁ : Functions.validate earlier (.total (.atomic .pass)) = x at old
+      generalize h₂ : Functions.validate later (.total (.atomic .pass)) = y at new ⊢
+      cases x with
+      | error => cases old
+      | ok result =>
+        cases result
+        cases y with
+        | error => cases new
+        | ok result => cases result; exact old
 
 theorem observed_eq (id : Nat) (source : Modules.Source) (caller : State)
     (before : Session) (out : Modules.Result Unit) :
@@ -24,7 +45,7 @@ theorem observed_eq (id : Nat) (source : Modules.Source) (caller : State)
   | error => rfl
   | ok value _ => cases value; rfl
 
-private theorem plan_executable {globals : List String} {env exports : Environment}
+theorem plan_executable {globals : List String} {env exports : Environment}
     {source : List Modules.Resolve.Command} {code : List Modules.Command} {linked final : Program}
     (profile : Plan globals env source linked code final exports) :
     ∀ command ∈ code, ∃ top, command = .exec top := by
@@ -44,7 +65,7 @@ private theorem loader_command {program : Program} {manifest : Modules.Loader.Ma
   cases native with
   | exec ran => exact .exec ran
 
-private theorem loader_exec {program : Program} {manifest : Modules.Loader.Manifest} {active : List Nat}
+theorem loader_exec {program : Program} {manifest : Modules.Loader.Manifest} {active : List Nat}
     {id : Nat} {state : State} {host : Modules.Catalog} {code : List Modules.Command}
     {out : Modules.Result Unit} (native : Modules.Runs program host state code out)
     (noLoads : ∀ command ∈ code, ∃ top, command = .exec top) (cache : List (Nat × Modules.Published)) :
@@ -59,7 +80,7 @@ private theorem loader_exec {program : Program} {manifest : Modules.Loader.Manif
     obtain ⟨top, rfl⟩ := noLoads first List.mem_cons_self
     exact .failed (loader_command head cache)
 
-private theorem exports_declared {source : Modules.Source} {state : State} {name : String} {value : Lists.Value}
+theorem exports_declared {source : Modules.Source} {state : State} {name : String} {value : Lists.Value}
     (loaded : (Modules.publish source state).1.exports.lookup name = some value) : name ∈ source.globals := by
   obtain ⟨before, after, shape, _⟩ := List.lookup_eq_some_iff.mp loaded
   have present : (name, value) ∈ (Modules.publish source state).1.exports := by
@@ -82,32 +103,37 @@ theorem cached_publication {exports : Environment} {program : Program} {publishe
   obtain ⟨value, flag, found⟩ := record.live capture member
   exact ⟨value, flag, kept _ _ found⟩
 
-theorem producer_cold {commands : List Modules.Resolve.Command} {linked final : Program}
+theorem producer_cold_extending {commands : List Modules.Resolve.Command} {linked final : Program}
     {code : List Modules.Command} {producer consumer : ResolvedModule} {exports : Environment}
     (profile : Plan (Trace.names commands) (fun _ => none) commands linked code final exports)
     (checked : resolve commands linked = .ok producer)
-    (plan : Consumer) (active : List Nat) (permitted : 0 ∉ active) (session : Session)
+    {consumerCommands : List Modules.Resolve.Command} {consumerSeed : Program}
+    (consumerChecked : resolve consumerCommands consumerSeed = .ok consumer)
+    (extension : PreservesDeclarations producer.program consumer.program)
+    (valid : Modules.validateSource consumer.program producer.source = .ok ())
+    {manifest : Modules.Loader.Manifest} (bound : 0 < manifest.size) (entry : manifest[0].source = producer.source)
+    (active : List Nat) (permitted : 0 ∉ active) (session : Session)
     (cold : session.cache.lookup 0 = none) :
     ∃ out, Producer commands producer.source session out ∧
-      Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0) session out ∧
+      Modules.Loader.Runs consumer.program manifest active (.initialize 0) session out ∧
       (reachedSession out).runtime.slots = session.runtime.slots ∧
       KeepsContents session.runtime (reachedSession out).runtime ∧
       ∀ published next, out = .ok published next →
         next.cache = (0, published) :: session.cache ∧
-        PublishedLive exports producer.program published next.runtime ∧
+        PublishedLive exports consumer.program published next.runtime ∧
         ∀ name value, published.exports.lookup name = some value → name ∈ Trace.names commands := by
-  obtain ⟨out, source, native, _, _, kept, live⟩ :=
-    module_agrees_preserving profile checked (fun _ => none) session.runtime
+  obtain ⟨out, source, native, kept, live⟩ :=
+    module_runs_extending profile checked consumerChecked extension (fun _ => none) session.runtime
   have noLoads : ∀ command ∈ producer.source.commands, ∃ top, command = .exec top := by
     rw [(plan_code profile checked).1]
     exact plan_executable profile
-  have valid := (checked_of_resolve checked).2.2.2
-  have ran := loader_exec (manifest := graph producer consumer plan) (active := 0 :: active) (id := 0)
+  have ran := loader_exec (manifest := manifest) (active := 0 :: active) (id := 0)
     native noLoads session.cache
-  have initialized : Modules.Loader.Runs producer.program (graph producer consumer plan) active (.initialize 0)
+  have initialized : Modules.Loader.Runs consumer.program manifest active (.initialize 0)
       session (observed 0 producer.source session.runtime session.cache out) := by
     rw [observed_eq 0 producer.source session.runtime session]
-    exact .initialize (by simp [graph]) permitted cold valid ran
+    rw [← entry] at valid ran ⊢
+    exact .initialize bound permitted cold valid ran
   refine ⟨_, .cold cold source, initialized, ?_, ?_, ?_⟩
   · cases out with
     | error => rfl

@@ -28,35 +28,51 @@ def messagePrefix (tag payload bodyLength : Nat) : KBytes :=
   words [24, halfwords 12 24, halfwords 4 6, halfwords 8 16, 0, 0,
     20, halfwords 4 tag, payload - 32, 0] ++ longs [bodyLength]
 
-/-- Each field fragment starts on an eight-byte boundary. Its table, type
-table, and name are at relative offsets 12, 36, and 48. The type union uses
-the Int or the empty Utf8 table as specified in Schema.fbs. -/
+/-- Assemble a field with a 20-byte type fragment. The field table, type
+table and name are at relative offsets 12, 36 and 48. -/
+def fieldFragment (name : String) (nullable : Bool) (tag : Nat) (typeBytes : KBytes) : KBytes :=
+  let nullableWord := if nullable then 1 else 0
+  let nameBytes := Writer.emitWords 1 (name.toByteArray.data.toList.map UInt8.toNat)
+  pad (words [halfwords 12 16, halfwords 4 8, halfwords 9 12,
+      12, 32, nullableWord + tag * 256, 12] ++
+      (typeBytes ++ (words [nameBytes.len] ++ (nameBytes ++ KBytes.zeros 1))))
+
+/-- Encode the primitive Int or empty Utf8 table as specified in Schema.fbs. -/
 def fieldBytes (field : Field) : KBytes :=
-  let nullable := if field.nullable then 1 else 0
   let typeBytes := match field.type with
     | .int32 => words [halfwords 8 12, halfwords 4 8, 8, 32, 1]
     | .utf8 => words [halfwords 4 4, 0, 8, 0, 0]
   let tag := match field.type with
     | .int32 => 2
     | .utf8 => 5
-  let nameBytes := Writer.emitWords 1 (field.name.toByteArray.data.toList.map UInt8.toNat)
-  pad (words [halfwords 12 16, halfwords 4 8, halfwords 9 12,
-      12, 32, nullable + tag * 256, 12] ++
-      (typeBytes ++ (words [nameBytes.len] ++ (nameBytes ++ KBytes.zeros 1))))
+  fieldFragment field.name field.nullable tag typeBytes
 
 def fieldOffsets : Nat → Nat → List KBytes → List Nat
   | _, _, [] => []
   | slot, start, field :: rest =>
     (start + 12 - slot) :: fieldOffsets (slot + 4) (start + field.len) rest
 
-def schemaBytes (fields : List Field) (bodyLength : Nat) : KBytes :=
-  let objects := fields.map fieldBytes
-  let vectorEnd := 68 + fields.length * 4
+/-- Assemble ordered field fragments under the relocatable Schema table at
+byte eight. Place this payload at an eight-byte boundary. -/
+def schemaPayloadOf (objects : List KBytes) : KBytes :=
+  let vectorEnd := 20 + objects.length * 4
   let gap := Writer.padding vectorEnd
-  let offsets := fieldOffsets 68 (vectorEnd + gap) objects
-  messagePrefix 1 56 bodyLength ++
-    (words (halfwords 8 8 :: halfwords 0 4 :: 8 :: 4 :: fields.length :: offsets) ++
-      (KBytes.zeros gap ++ objects.foldr (· ++ ·) KBytes.empty))
+  let offsets := fieldOffsets 20 (vectorEnd + gap) objects
+  words (halfwords 8 8 :: halfwords 0 4 :: 8 :: 4 :: objects.length :: offsets) ++
+    (KBytes.zeros gap ++ objects.foldr (· ++ ·) KBytes.empty)
+
+def schemaPayload (fields : List Field) : KBytes :=
+  schemaPayloadOf (fields.map fieldBytes)
+
+def schemaPayloadSize (fields : List Field) : Nat :=
+  let vectorEnd := 20 + fields.length * 4
+  vectorEnd + Writer.padding vectorEnd +
+    (fields.map fun field =>
+      let size := 53 + field.name.utf8ByteSize
+      size + Writer.padding size).sum
+
+def schemaBytes (fields : List Field) (bodyLength : Nat) : KBytes :=
+  messagePrefix 1 56 bodyLength ++ schemaPayload fields
 
 /-- The RecordBatch table starts at 64. The inline struct vectors have
 four-byte length words and eight-byte-aligned 16-byte elements. -/
@@ -76,12 +92,7 @@ open Wire
 /-- Compute the metadata extent before encoding field names or building vectors. -/
 def wireSize (message : Message) : Nat :=
   match message.header with
-  | .schema fields =>
-    let vectorEnd := 68 + fields.length * 4
-    vectorEnd + Writer.padding vectorEnd +
-      (fields.map fun field =>
-        let size := 53 + field.name.utf8ByteSize
-        size + Writer.padding size).sum
+  | .schema fields => 48 + schemaPayloadSize fields
   | .recordBatch batch => 104 + 16 * batch.nodes.length + 16 * batch.buffers.length
 
 def checkDomain (limits : Limits) (message : Message) : Except Error Unit := do

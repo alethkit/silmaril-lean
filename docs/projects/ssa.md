@@ -768,6 +768,160 @@ The continuation cannot jump back to its own label.
   ordered exit interface.
   [Witness and model obstruction](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Institution/Rewrite/Thms.lean) ·
   [Existing independence proof](../../Silmaril/SSA/Isotope/LetIter/Categorical/Empty/Thms.lean)
+- At a fixed finite structural primitive signature and structural older
+  context, the native LetCase equation classes at literal packed inputs
+  form a category. The typed input variable is the identity and the typed
+  let is composition. The let weakens its receiver below the bound
+  intermediate result, so every hom keeps the same older captures. The
+  actual ranked emitter and the checked readback are functors between the
+  written linking category and this native category. They compose to the
+  identity functor in both orders, which gives an equivalence of
+  categories with identity unit and counit. Objects are nonempty ordered
+  interfaces, and the native laws are transported along the emission and
+  readback squares. The regression composes independently written terms
+  and graphs under two older captures, takes both round trips, and
+  separates two terms that differ only in the capture they read.
+  [Written category and hom squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/Thms.lean) ·
+  [Native category and equivalence](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Thms.lean) ·
+  [Captured composition and round trips](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Regression.lean)
+- A semantic functor takes the native captured LetCase category to the
+  handled-trace program category at one primitive tree interpretation and
+  one reply policy. Handled-trace programs have a single input, so every
+  older capture is carried beside the input in a product and returned
+  beside the result. With no older captures the packed program is the
+  operand itself. Composing with the actual ranked emitter gives the
+  functor on written graphs, and both triangles over the emitter and the
+  checked readback commute. The source equality is the native equation
+  relation and the target equality is mutual handled-trace inclusion at
+  the fixed policy. The identity and composition equations are equalities
+  of interaction trees in every older environment, including for the
+  emitted written link. The functor is not faithful at one policy: the
+  regression has two different native classes that a state-flipping
+  policy sends to the same arrow. That regression packs an independently
+  written term with one older capture and two unit-payload exits, and
+  checks the pending request, the exit chosen by the handler state, and
+  the second request of a composite.
+  [Packing](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Defs.lean) ·
+  [Functors and contextual equations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Thms.lean) ·
+  [State-dependent handler](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Regression.lean)
+- At the free request and reply interpretation, handled traces reflect
+  native equality of captured operands over a structural older context.
+  Each primitive is one request with its typed argument, answered at its
+  declared result type. The outcomes of the ordered trace semantics are
+  the complete finite histories of the free tree. Two operands that are
+  not natively equal therefore have a complete history, at some packed
+  input, that one shows and the other does not. A reply policy that can
+  replay every complete history from some state gives a faithful semantic
+  functor, on native classes and on written graphs. The permissive policy
+  and the policy scripted by an expected history are of this kind. The
+  premise cannot be dropped: the state-flipping policy never repeats a reply,
+  cannot replay the history in which a reply repeats, and identifies two
+  different native classes that the scripted and permissive policies
+  separate. The result is for this free interpretation, for the finite
+  structural signature, and for acyclic captured terms.
+  [Free interpretation and policies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Defs.lean) ·
+  [Reflection and faithfulness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Thms.lean) ·
+  [Separating history](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Reflection/Regression.lean)
+- The directed version compares three relations on captured operands at
+  the free interpretation. The tree relation includes every finite
+  observation of one free tree in the other, in every older environment,
+  with pending requests. The outcome relation includes the ordered
+  complete outcomes of the ordered trace semantics. The third is
+  handled-trace inclusion of the packed programs at a reply policy. Replay
+  reads only the completed exchanges of an observation, so a policy that
+  replays every complete history replays every finite observation. At
+  such a policy, handled-trace inclusion is the tree relation, and the
+  comparison commutes with the ranked emitter and the checked readback.
+  Acyclic terms never diverge silently, and a tree without divergence is
+  maximal for inclusion of observations. All three relations are therefore
+  native equality on this fragment, and the hom order on the image of the
+  semantic functor is discrete. The outcome relation needs the inhabited
+  reply types of the signature. A tree-level example with an empty reply
+  type has no complete observation and loses its pending request, and
+  silent divergence is strictly below a request.
+  [Directed relations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Defs.lean) ·
+  [Bridge and collapse](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Thms.lean) ·
+  [Pending request and limits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Refinement/Regression.lean)
+- The captured comparison is connected to the existing institutions. The
+  sentences are the existing ranked, grammar and LetCase equations at the
+  finite structural signature, each read as a directed sentence. The
+  models are the existing handled-trace models over the free requests. A
+  directed sentence holds when the existing trace-refinement sentence
+  between the two free trees holds in every environment. The existing
+  emission and readback of sentences are corridors with the identity on
+  models, and they give exactly the endpoints of the written and native
+  captured categories. On those endpoints, satisfaction is the hom order
+  under the semantic functors. A model that replays every complete
+  history from an initial state satisfies a directed captured sentence
+  exactly when its sides are natively equal, over a structural older
+  context. The model that admits every reply is of this kind, so validity
+  in all handled models is native equality. The state-flipping model
+  satisfies a sentence between two different native classes. An injective
+  renaming of primitives that keeps each argument and reply shape is a
+  morphism of the handled-trace signatures. The free tree of a renamed
+  operand is the request translation of the original tree, so a renamed
+  sentence holds in a model exactly when the original holds in the
+  reduct. The renamed sentence keeps its typing index. It is the sentence
+  map of the existing LetCase institution at the relabelling, and the
+  existing type-changing sentence map at the relabelling. Grammar and
+  ranked sentences are renamed by their existing signature maps. Every
+  relabelling between finite structural signatures is such a renaming, so
+  LetCase, grammar and ranked sentences form institutions over the
+  category of structural signatures and injective relabellings. Emission
+  of ranked sentences and rendering of grammar sentences are natural in
+  the renaming, and readback is natural up to satisfaction. Signature
+  morphisms that translate types are not morphisms of this category.
+  [Sentences, models and rooms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Defs.lean) ·
+  [Satisfaction squares](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Thms.lean) ·
+  [Renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Thms.lean) ·
+  [Institutions over renamings](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Renaming/Category/Thms.lean) ·
+  [Three models and a renaming](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Regression.lean)
+- The handled-trace reading is compared with the existing categorical
+  model class on the same structural signatures. That class has objects
+  in `Type 1` and homs in `Type`. The free request tree monad sends
+  `Type 1` to `Type 1`, so its Kleisli category meets every condition of
+  the class with objects in `Type 2` and homs in `Type 1`. The validity
+  class is therefore also stated at chosen universes. The native equations
+  are sound in it at every universe, and the Kleisli category of a lawful
+  Elgot monad is a member one universe above the monad. Over a structural
+  older context, captured operands are equal in every model of the class
+  one universe up exactly when they are natively equal, with the free
+  request tree model as the separating model. The same holds in the
+  existing class, with the ordered trace model as the separating model.
+  The ordered trace model is a model of the existing ranked room, and
+  there the original ordered-exit arrows of two written graphs agree
+  exactly when their emitted operands are natively equal. A handled-trace
+  model that replays every history satisfies the same captured and ranked
+  sentences as these categorical models. A model with one fixed policy
+  can satisfy a sentence that is not valid in the class. The free tree
+  model is not made a model of the existing rooms, which fix the smaller
+  universes.
+  [Validity at chosen universes](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Defs.lean) ·
+  [Kleisli adapter and comparisons](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Thms.lean) ·
+  [Composites in the categorical class](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/CategoricalRegression.lean)
+- In the existing categorical ranked room, soundness and completeness are
+  stated at the original ordered-exit arrows. In every model of the room,
+  two ranked entries have the same ordered-exit arrow exactly when their
+  emitted LetCase operands have the same arrow. This uses only the checked
+  emitter factorization. Native equations between the emitted operands are
+  sound in the supported models of the room: those with coherent
+  expression typing, a tensor shared with the value category, and pure
+  interpretations of pure primitives. Membership in the room gives
+  coherence of region witnesses only, so soundness is not claimed for
+  every model of the room. For the finite structural signature the
+  ordered trace model is supported, and over a separated bound context it
+  reflects native equality. A ranked sentence then holds in all supported
+  models exactly when its emitted operands are natively equal, and
+  validity is decided at that one model. A bound context is separated when
+  it is structural, or when it is a structural older context below any
+  input type. On written graphs this validity agrees with validity in all
+  handled-trace models, and it is preserved and reflected by injective
+  renamings that keep the typed interface. The existing signature reduct
+  transfers satisfaction in all models of the room. It is not shown that
+  the reduct of a supported model is supported.
+  [Supported models and validity](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Defs.lean) ·
+  [Soundness and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Thms.lean) ·
+  [Ranked sentences in the room](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/RankedValidityRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

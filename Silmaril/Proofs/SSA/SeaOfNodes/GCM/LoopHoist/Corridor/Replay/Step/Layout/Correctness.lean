@@ -18,6 +18,7 @@ namespace Silmaril.Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layo
 
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Cfg Terminator)
+open Silmaril.MLIR.Pure (Operands)
 open Silmaril.SSA.SeaOfNodes
 open Silmaril.SSA.SeaOfNodes.GCM
 open Silmaril.SSA.SeaOfNodes.GCM.LoopHoist
@@ -222,6 +223,41 @@ theorem state_denotePart (valid : Invariant state) (input : Env Input) :
   apply Part.ext
   intro value
   simp only [Cfg.mem_denotePart_iff, Cfg.embed_run, state_run_eq valid]
+
+/-- The anonymous entry is a member of every path to any block, reachable
+or not: paths are only ever built by prepending to the `entry` case. -/
+private theorem none_mem_of_entryPath {Op : Silmaril.MLIR.Pure.OpSignature} {Label : List Width → Type}
+    {Input Result : List Width} {cfg : Cfg Op Label Input Result} {b : BlockId Label}
+    {past : List (BlockId Label)} (path : EntryPath cfg b past) : none ∈ past := by
+  induction path with
+  | entry => simp
+  | step _ _ _ ih => simp [ih]
+
+/-- The anonymous entry dominates every block of any CFG. -/
+private theorem dominates_none {Op : Silmaril.MLIR.Pure.OpSignature} {Label : List Width → Type}
+    {Input Result : List Width} {cfg : Cfg Op Label Input Result} (b : BlockId Label) :
+    Dominates cfg none b := fun _ path => none_mem_of_entryPath path
+
+/-- Every physical site is valid and available at any named read, given the
+entry has at least `count` bindings. This does not depend on a pending
+insertion: it is immediate from `Point.Valid`, `Point.AvailableAt` and the
+entry's universal dominance, once the physical reference is counted
+backwards against a sufficient entry binding bound. -/
+theorem physicalSites_available
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {count : Nat} (bound : count ≤ (shape cfg none).bindings)
+    {Γ args : List Width} (ops : Operands Γ args)
+    {read : Point (Label saved carried result extra)} (named : read.block ≠ none) :
+    ∀ p ∈ physicalSites count ops, p.Valid cfg ∧ p.AvailableAt cfg read := by
+  induction ops with
+  | nil => simp [physicalSites]
+  | cons ref rest ih =>
+    intro p mem
+    simp only [physicalSites, List.mem_cons] at mem
+    rcases mem with rfl | mem
+    · exact ⟨⟨⟨[none], .entry⟩, le_trans (Nat.sub_le _ _) bound⟩,
+        dominates_none _, fun h => (named h.symm).elim⟩
+    · exact ih p mem
 
 theorem run_fromTwo_run_eq {entrySigs headerSigs : List (List (Diamond.Ty Width))}
     {g : Program Input carried result entrySigs headerSigs}

@@ -39,13 +39,15 @@ private theorem unpack_typed (hk : HasType (B :: A :: Γ) k L) :
     HasType (product A B :: Γ) (unpack k) L :=
   .let₂ (.var (i := 0) rfl) (hk.renameVars (((Ren.wk Γ (product A B)).lift A).lift B))
 
-theorem bind_replay_proof (ha : Tm.HasType Γ a (product A B)) (hr : ValueBranches Γ r [product A B])
-    (producer : Eqv pe Γ ((Region.br 0 a).bindBranchArguments) r [product A B])
-    (body : Eqv pe (B :: A :: Γ) k k' L) :
-    Eqv pe Γ (.let₂ a k) (r.lsubst (fun _ => unpack k')) L := by
+theorem bind_replay_proof {seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+    (includeBind : ∀ {Δ K p q}, Region.BinaryLetBind.Step Δ p q K → seed Δ p q K)
+    (ha : Tm.HasType Γ a (product A B)) (hr : ValueBranches Γ r [product A B])
+    (producer : Extension.Eqv seed Γ ((Region.br 0 a).bindBranchArguments) r [product A B])
+    (body : Extension.Eqv seed (B :: A :: Γ) k k' L) :
+    Extension.Eqv seed Γ (.let₂ a k) (r.lsubst (fun _ => unpack k')) L := by
   let step := Region.BinaryLetBind.Step.bind ha body.typed.2
-  have bind : Eqv pe Γ (.let₂ a k') (Region.BinaryLetBind.rebound a k') L :=
-    .extra step.typed.1 step.typed.2 (.inr step)
+  have bind : Extension.Eqv seed Γ (.let₂ a k') (Region.BinaryLetBind.rebound a k') L :=
+    .extra step.typed.1 step.typed.2 (includeBind step)
   have plug := Extension.Eqv.lsubstPost (K := L) (σ := fun _ => unpack k') producer
     (.let₁ ha (.br (ℓ := 0) rfl (.var rfl))) hr
     (fun _ _ hi => (List.mem_singleton.mp (List.mem_of_getElem? hi)).symm ▸ unpack_typed body.typed.2)
@@ -170,8 +172,8 @@ theorem operand_schedule_proof
   rw [move] at tailReified
   obtain ⟨s, scheduled, finish⟩ := splice_proof (pe := pe) exit rp kq rfl
   have a := erase_hasType producer.2.toHasType
-  have first := bind_replay_proof a rp.valueBranches (ofPairs_proof eqp) tail
-  have second := bind_replay_proof a rp.valueBranches (ofPairs_proof eqp) tailReified
+  have first := bind_replay_proof (seed := Seed pe) Or.inr a rp.valueBranches (ofPairs_proof eqp) tail
+  have second := bind_replay_proof (seed := Seed pe) Or.inr a rp.valueBranches (ofPairs_proof eqp) tailReified
   exact ⟨s, scheduled, first.trans finish, second.trans finish⟩
 
 end Normalize

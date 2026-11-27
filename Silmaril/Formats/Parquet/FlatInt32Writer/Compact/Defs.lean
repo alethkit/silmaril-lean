@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Formats.Parquet.Footer.Defs
 
-/-! Bounded Compact serialization for the one-row-group flat INT32 footer. -/
+/-! Bounded Compact serialization for flat INT32 footers. -/
 
 @[expose] public section
 
@@ -75,14 +75,31 @@ def root (width : Nat) : Write Unit := do
   integer .i32 width
   octet 0
 
-def leaf (column : ColumnIndex) : Write Unit := do
+inductive LeafAnnotation where
+  | unannotated
+  | date
+
+def leafAnnotated (annotation : LeafAnnotation) (column : ColumnIndex) : Write Unit := do
   field 1 5
   integer .i32 1
   field 2 5
   integer .i32 (if column.optional then 1 else 0)
   field 1 8
   text column.name
+  match annotation with
+  | .unannotated => pure ()
+  | .date =>
+    -- From SchemaElement.name (4) to ConvertedType.DATE (6).
+    field 2 5
+    integer .i32 6
+    -- LogicalType (10) contains only DATE (6) with an empty DateType struct.
+    field 4 12
+    field 6 12
+    octet 0
+    octet 0
   octet 0
+
+def leaf (column : ColumnIndex) : Write Unit := leafAnnotated .unannotated column
 
 def chunk (rows : Nat) (column : ColumnIndex) : Write Unit := do
   field 2 6
@@ -120,22 +137,39 @@ def group (rows : Nat) (columns : List ColumnIndex) : Write Unit := do
   integer .i64 rows
   octet 0
 
-def footer (rows : Nat) (columns : List ColumnIndex) : Write Unit := do
+def Internal.footerGroups (annotation : LeafAnnotation) (columns : List ColumnIndex)
+    (groups : List (Nat × List ColumnIndex)) : Write Unit := do
   field 1 5
   integer .i32 1
   field 1 9
   listHeader 12 (columns.length + 1)
   root columns.length
-  for column in columns do leaf column
+  for column in columns do leafAnnotated annotation column
   field 1 6
-  integer .i64 rows
+  integer .i64 (groups.map Prod.fst).sum
   field 1 9
-  listHeader 12 1
-  group rows columns
+  listHeader 12 groups.length
+  for (rows, chunks) in groups do group rows chunks
   octet 0
 
+/-- Encode one shared schema and the ordered list of row counts and chunk indices. -/
+def encodeGroups (annotation : LeafAnnotation) (limit : Nat) (columns : List ColumnIndex)
+    (groups : List (Nat × List ColumnIndex)) : Except Error Bytes :=
+  ((Internal.footerGroups annotation columns groups).run ⟨limit, .empty⟩).map (·.2.bytes)
+
+def footerAnnotated (annotation : LeafAnnotation) (rows : Nat) (columns : List ColumnIndex) :
+    Write Unit :=
+  Internal.footerGroups annotation columns [(rows, columns)]
+
+def footer (rows : Nat) (columns : List ColumnIndex) : Write Unit :=
+  footerAnnotated .unannotated rows columns
+
 /-- Each write consumes part of the caller's exact Compact byte budget. -/
+def encodeAnnotated (annotation : LeafAnnotation) (limit rows : Nat) (columns : List ColumnIndex) :
+    Except Error Bytes :=
+  encodeGroups annotation limit columns [(rows, columns)]
+
 def encode (limit rows : Nat) (columns : List ColumnIndex) : Except Error Bytes :=
-  ((footer rows columns).run ⟨limit, .empty⟩).map (·.2.bytes)
+  encodeAnnotated .unannotated limit rows columns
 
 end Silmaril.Formats.Parquet.FlatInt32Writer.Compact

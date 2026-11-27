@@ -102,4 +102,18 @@ theorem query_mem (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
     (head : (g.head caller p).query? s = some q) : q ∈ g.queries caller configs stores :=
   List.mem_filterMap.mpr ⟨(p, s), configs.invocation_mem stores _, head⟩
 
+omit [DecidableEq Φ] in
+theorem head_execute_congr (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
+    (configs : ConfigurationEnumeration R) (stores : StateInventory states) {prim other : Syntax.Primitives Φ states}
+    (agree : ∀ q ∈ g.queries caller configs stores, q.read prim = q.read other)
+    (p : Packet R) (s : Fin states) :
+    (g.head caller p).execute prim s = (g.head caller p).execute other s := by
+  cases head : g.head caller p with
+  | exit | diverge => rfl
+  | request f arg next =>
+    let q : InterpreterScript.Query Φ states := ⟨f, arg, s⟩
+    have listed := query_mem g caller configs stores p s (q := q) (by rw [head]; rfl)
+    have reply : prim f arg s = other f arg s := agree q listed
+    simp only [Head.execute, reply]
+
 end Silmaril.Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.DependentRequestTree.NativeExtraction.OpenOperands.FixedCarrier

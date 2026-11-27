@@ -40,6 +40,7 @@ def atExit (i : TwoRequest.Tag) : Cursor R := ⟨.inl i⟩
 keeps its tag. Selected UB is interpreted by the separate shaped semantics. -/
 def headStep (query : Query S E) : Head S R → Tree E (B ⊕ Cursor R)
   | .exit i _ => pure (.inr (atExit i))
+  | .diverge => Silmaril.Elgot.ITree.diverge
   | .request f arg next => query f arg >>= fun r =>
       pure (.inr (atBlock (next r.down.1 r.down.2)))
 
@@ -65,12 +66,13 @@ packet. The step equation uses the ordered exit codec of the original
 interface and compares full query trees, including the typed replies. -/
 structure Corresponds (a : Admission P I fields source)
     (g : Table N R) (caller : Syntax.Payload (R.get g.entry)) (query : Query N E)
-    (instr : Primitive E P.Instr α) (input : V × Nat → Value α) where
+    (instr : Primitive E P.Instr α) (input : V × Nat → Value α)
+    (result : TwoRequest.Tag → Transfer α := unitExit) where
   encode : Cursor R → K × Value α
   entry : a.versioned.source.entry.evalJump (treeModel instr) input =
     pure (encode (atBlock ⟨g.entry, caller⟩))
   localStep : ∀ c,
-    (step g caller query unitExit c >>= (liftPure (Sum.map id encode))) =
+    (step g caller query result c >>= (liftPure (Sum.map id encode))) =
       mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks input)
         (liftPure fun p => FiniteCFG.packedTreeOutput (treeExitNumber I.exits p)) (encode c)
 

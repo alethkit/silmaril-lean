@@ -30,8 +30,8 @@ private theorem callOperandStep_same {Γ L : List (Ty Empty)} {r s : Region Op} 
     SameWith callOperandObservation Γ r s :=
   h.elim
     (fun joined => joined.elim projectionUnitSeed_same
-      (fun returns => returns.elim unary_fusion_same (caseReturnSeed_same rfl)))
-    (constructorStep_same rfl)
+      (fun returns => returns.elim (unary_fusion_same rfl) (caseReturnSeed_same rfl)))
+    (constructorStep_same rfl rfl)
 
 theorem callOperand_fails :
     ¬ Paper.WithConstructorSequencing.Joined.Eqv false [U] nestedReturn sequencedReturn [U] := by

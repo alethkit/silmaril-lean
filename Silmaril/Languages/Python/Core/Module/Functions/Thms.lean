@@ -17,6 +17,13 @@ theorem Session.bind_other (session : Session) {name query : GlobalName}
     (value : Closure.Value) (different : query ≠ name) :
     (session.bindGlobal name value).globals query = session.globals query := by simp [Session.bindGlobal, different]
 
+theorem Session.unbind_lookup (session : Session) (name : GlobalName) :
+    (session.unbindGlobal name).globals name = none := by simp [Session.unbindGlobal]
+
+theorem Session.unbind_other (session : Session) {name query : GlobalName} (different : query ≠ name) :
+    (session.unbindGlobal name).globals query = session.globals query := by
+  simp [Session.unbindGlobal, different]
+
 theorem Session.publish_iff {session updated : Session} {table : Executor.CodeTable} {name : GlobalName}
     {function : TopFunction} : session.publish table name function = .ok updated ↔
       (∃ definition, Dispatch.Resolves table function.ref definition) ∧

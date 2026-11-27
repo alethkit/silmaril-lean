@@ -4,12 +4,23 @@ import Silmaril.SSA.Peggy.SimpleValidation.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Thms
 import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.PEG.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Thms
+import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Infer.Thms
 meta import Silmaril.SSA.Peggy.SimpleValidation.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Source.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Defs
 meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Combined.Defs
 meta import Silmaril.SSA.PEG.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Multi.Defs
+meta import Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Cost.Bundle.Worklist.Generate.Infer.Defs
 
 namespace Silmaril.SSA.Peggy.SimpleValidation.Tests
 
@@ -163,6 +174,7 @@ open PEG.Simple
 open RVSDG (Tuple)
 
 private inductive Op : InstructionSet Unit where
+  | zero : Op [] .count
   | one : Op [] .count
   | sub : Op [.count, .count] .count
   | subTwice : Op [.count, .count, .count] .count
@@ -173,6 +185,7 @@ private inductive Op : InstructionSet Unit where
 private def model : Interpretation Op where
   carrier _ := Unit
   run
+    | .zero, .nil => some ⟨0⟩
     | .one, .nil => some ⟨1⟩
     | .sub, .cons n (.cons k .nil) => some ⟨n.down - k.down⟩
     | .subTwice, .cons n (.cons a (.cons b .nil)) => some ⟨n.down - a.down - b.down⟩
@@ -509,6 +522,264 @@ example (a : Cost.Bundle.Accepted bundleGraph bundleClasses) (idx : Index 1)
   let valid := passRows.merge_sound (bundleGraph.denote_solves model bundleInput bundleWF)
     EPEG.Classes.discrete_valid (by decide)
   Exists.elim (a.firstExit_of_exec bundleWF valid neg idx ran) (fun _ seen => seen.2.2)
+
+private def zeroRow : EPEG.Saturation.Extension.Row bundleGraph :=
+  ⟨[], .count, .op .zero, .nil⟩
+
+private def sampleRow {n : Nat} {g : Graph Op bundleParams bundleResults n 1}
+    (stream index : Ref g.sort .count) : EPEG.Saturation.Extension.Row g :=
+  ⟨[.count, .count], .count, .eval 0, .cons stream (.cons index .nil)⟩
+
+private def firstSite := sampleRow (g := zeroRow.append) (zeroRow.liftRef ⟨2, rfl⟩) zeroRow.fresh
+
+private def secondSite := sampleRow (g := firstSite.append)
+  (firstSite.liftRef (zeroRow.liftRef ⟨3, rfl⟩)) (firstSite.liftRef zeroRow.fresh)
+
+-- A dead eval uses the first zero sample as its index. The emitter still
+-- reads the three original shared-pass roots.
+private def sampleConsumer := sampleRow (g := secondSite.append)
+  (secondSite.liftRef (firstSite.liftRef (zeroRow.liftRef ⟨3, rfl⟩)))
+  (secondSite.liftRef firstSite.fresh)
+
+open EPEG.Saturation EPEG.Saturation.Extension in
+private def receiptSource : Extension.Output Op bundleParams bundleResults 1 :=
+  ⟨16, ⟨sampleConsumer.append, EPEG.Classes.discrete⟩⟩
+
+private def evalArgsWithIndex {n : Nat} {sort : Fin n → Ty Unit} {t : Ty Unit}
+    (rhs : Ref sort .count) :
+    (row : Node Op bundleParams (Fin 1) sort t) → Tuple (Ref sort) row.inputs
+  | ⟨_, .eval _, .cons stream (.cons _ .nil)⟩ => .cons stream (.cons rhs .nil)
+  | row => row.args
+
+open EPEG.Saturation.Extension in
+private def runAfterReplay (fuel : Nat) :
+    Option (Dedup.Worklist.Stop × List Nat × Nat × Bool × List Nat) := do
+  let report := (Dedup.Worklist.run Op.zero fuel receiptSource).report
+  let receipt ← Cost.Bundle.Worklist.check Op.zero fuel receiptSource report
+  let graph := receipt.endpoint.2.graph
+  let rhs ← Ref.check graph.sort .count 16
+  let candidate := Cost.Candidate.wire graph id
+    (fun i => if i.val = 15 then evalArgsWithIndex rhs (graph.node i) else (graph.node i).args)
+    graph.roots
+  let chosen ← receipt.select Cost.Candidate.primitiveRows [candidate]
+  let out ← chosen.reversion.runFuel model 3 bundleInput
+  -- The same table with singleton classes cannot justify the redirected index.
+  let needsMerge := (Cost.Bundle.check EPEG.Classes.discrete candidate).isNone
+  return (receipt.report.stop, receipt.report.sites, receipt.endpoint.1, needsMerge, returnedCounts out)
+
+#guard runAfterReplay 1 == some (.exhausted, [13], 17, true, [2, 17, 2])
+#guard runAfterReplay 2 == some (.fixed, [13, 14], 18, true, [2, 17, 2])
+#guard (Cost.Bundle.Worklist.check Op.zero 1 receiptSource ⟨[13], .fixed⟩).isNone
+
+private theorem receiptSourceWF : WellFounded receiptSource.2.graph.Demand :=
+  sampleConsumer.demandWellFounded
+    (secondSite.demandWellFounded (firstSite.demandWellFounded (zeroRow.demandWellFounded bundleWF)))
+
+example {fuel : Nat} (receipt : Cost.Bundle.Worklist.CheckedReceipt Op.zero fuel receiptSource)
+    (a : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run a.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : a.reversion.runFuel model 3 bundleInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    receiptSource.2.graph.observe model (receiptSource.2.graph.denote model bundleInput receiptSourceWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  receipt.observe_of_exec a receiptSourceWF EPEG.Classes.discrete_valid rfl neg idx
+    (a.reversion.runFuel_exec 3 ran)
+
+-- Use both occurrences of one in the live decrement, so the candidate
+-- can share the binding or give the second occurrence its own row.
+private def doubleStep : Graph Op bundleParams bundleResults 12 1 :=
+  { bundleGraph with
+    node := fun i =>
+      if step : i = 5 then
+        step.symm ▸ (Node.ofLabel (.op .subTwice) (.cons ⟨2, rfl⟩ (.cons ⟨4, rfl⟩ (.cons ⟨4, rfl⟩ .nil))) :
+          Node Op bundleParams (Fin 1) bundleSort (bundleSort 5))
+      else bundleGraph.node i }
+
+open EPEG.Saturation.Extension in
+private def taggedZero : Row doubleStep := ⟨[], .count, .op .zero, .nil⟩
+
+private def taggedSample := sampleRow (g := taggedZero.append) (taggedZero.liftRef ⟨2, rfl⟩) taggedZero.fresh
+
+open EPEG.Saturation.Extension in
+private def taggedScale : Row taggedSample.append :=
+  ⟨[.count, .count], .count, .op .sub,
+    .cons (taggedSample.liftRef (taggedZero.liftRef ⟨4, rfl⟩)) (.cons taggedSample.fresh .nil)⟩
+
+private def taggedZeroUser := sampleRow (g := taggedScale.append)
+  (taggedScale.liftRef (taggedSample.liftRef (taggedZero.liftRef ⟨3, rfl⟩)))
+  (taggedScale.liftRef taggedSample.fresh)
+
+private def taggedScaleUser := sampleRow (g := taggedZeroUser.append)
+  (taggedZeroUser.liftRef (taggedScale.liftRef (taggedSample.liftRef (taggedZero.liftRef ⟨3, rfl⟩))))
+  (taggedZeroUser.liftRef taggedScale.fresh)
+
+open EPEG.Saturation.Extension in
+private def taggedSource : Output Op bundleParams bundleResults 1 :=
+  ⟨17, ⟨taggedScaleUser.append, EPEG.Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension in
+private def taggedOps : Worklist.Combined.Ops Op := ⟨.zero, .one, .sub⟩
+
+open EPEG.Saturation.Extension in
+private def taggedDriver := Worklist.Combined.driver (params := bundleParams)
+  (results := bundleResults) (l := 1) taggedOps
+
+-- Remove the old zero sample and the old scaling row from the layout.
+-- The duplicate layout adds a second representative for the constant
+-- and lets the generator vary the live update's last operand.
+private def taggedLayout {n : Nat} (g : Graph Op bundleParams bundleResults n 1) (duplicate : Bool) :
+    Option (Cost.Bundle.Worklist.Generate.Skeleton g) := do
+  let neutral ← Ref.check g.sort .count 0
+  let replacement ← Ref.check g.sort .count (if duplicate then 4 else 0)
+  let rep (i : Fin n) := if i.val = 13 then neutral.id else if i.val = 14 then replacement.id else i
+  if duplicate then
+    let step ← Ref.check g.sort .count 5
+    if slot : 2 < (g.node (rep step.id)).inputs.length then
+      some ⟨n, rep, some ⟨step.id, ⟨2, slot⟩⟩⟩
+    else none
+  else some ⟨n, rep, none⟩
+
+private def taggedInput : Tuple model.Value bundleParams := .cons ⟨8⟩ (.cons ⟨17⟩ .nil)
+
+open EPEG.Saturation.Extension Cost.Bundle.Worklist in
+private def runGeneratedSelection :
+    Option (List Worklist.Combined.Action × Worklist.Stop × List Nat × Nat × (Nat × Nat) × Bool × List Nat) := do
+  let report := (taggedDriver.run 2 taggedSource).report
+  let receipt ← Cost.Bundle.Worklist.Combined.check taggedOps 2 taggedSource report
+  let graph := receipt.endpoint.2.graph
+  let duplicate ← taggedLayout graph true
+  let shared ← taggedLayout graph false
+  let layouts := [duplicate, shared]
+  let pool := Generate.pool receipt.endpoint.2.classes layouts
+  let liveDuplicate ← pool[1]?
+  let slower ← receipt.select Cost.Candidate.primitiveRows [liveDuplicate]
+  let chosen ← Generate.select receipt Cost.Candidate.primitiveRows layouts
+  let slowOrder ← PEG.Simple.Revert.While.Region.sliceOrder
+    (PEG.Simple.Revert.While.Region.Bundle.scalarView slower.candidate.graph)
+    slower.reversion.scalar.descriptor slower.reversion.scalar.descriptor.next
+  let order ← PEG.Simple.Revert.While.Region.sliceOrder
+    (PEG.Simple.Revert.While.Region.Bundle.scalarView chosen.candidate.graph)
+    chosen.reversion.scalar.descriptor chosen.reversion.scalar.descriptor.next
+  let out ← chosen.reversion.runFuel model 3 taggedInput
+  let zeroSite ← Ref.check graph.sort .count 13
+  let zeroRhs ← Ref.check graph.sort .count 17
+  let onlyZero := EPEG.Classes.discrete.merge zeroSite.id zeroRhs.id
+  let missingScale := (Generate.pool onlyZero layouts).isEmpty
+  return (receipt.report.sites, receipt.report.stop, pool.map Cost.Candidate.primitiveRows,
+    chosen.candidate.primitiveRows, (slowOrder.length, order.length), missingScale, returnedCounts out)
+
+#guard (taggedDriver.run 2 taggedSource).state.1 == 20
+#guard runGeneratedSelection == some ([.zeroSample 13, .evalScale 14], .fixed, [7, 7, 6], 6, (3, 2), true, [2, 17, 2])
+#guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .exhausted⟩).isSome
+#guard (Cost.Bundle.Worklist.Combined.check taggedOps 1 taggedSource ⟨[.zeroSample 13], .fixed⟩).isNone
+
+open EPEG.Saturation.Extension in
+private def multiSource (joinPasses : Bool) : Output Op bundleParams bundleResults 1 :=
+  ⟨12, ⟨bundleGraph, if joinPasses then bundleClasses else EPEG.Classes.discrete⟩⟩
+
+-- Put both output evals after the two candidate pass rows. A choice is
+-- made for each eval's pass edge, and both must use the same pass address.
+private def multiLayout {n : Nat} (g : Graph Op bundleParams bundleResults n 1) :
+    Option (Cost.Bundle.Worklist.Generate.Multi.Layout g) := do
+  let firstEval ← Ref.check g.sort .count 9
+  let secondEval ← Ref.check g.sort .count 10
+  let alternatePass ← Ref.check g.sort .count 11
+  let rep (i : Fin n) := if i = firstEval.id then alternatePass.id
+    else if i = alternatePass.id then firstEval.id else i
+  if first : 1 < (g.node (rep alternatePass.id)).inputs.length then
+    if second : 1 < (g.node (rep secondEval.id)).inputs.length then
+      some ⟨n, rep, [⟨alternatePass.id, ⟨1, first⟩⟩, ⟨secondEval.id, ⟨1, second⟩⟩]⟩
+    else none
+  else none
+
+-- The test objective charges the pass edge span at each ordered result port.
+private def passSpan {n : Nat} {g : Graph Op bundleParams bundleResults n 1} (c : Cost.Candidate g) : Nat :=
+  let span (r : Ref c.graph.sort .count) :=
+    match c.graph.node r.id with
+    | ⟨_, .eval _, .cons _ (.cons pass .nil)⟩ => r.id.val - pass.id.val + (pass.id.val - r.id.val)
+    | _ => 0
+  span (c.graph.roots.get .head) + span (c.graph.roots.get (.tail .head)) +
+    span (c.graph.roots.get (.tail (.tail .head)))
+
+open EPEG.Saturation.Extension Cost.Bundle.Worklist in
+private def runMulti (joinPasses : Bool) : Option (List (Option Nat) × Nat × Nat × List Nat) := do
+  let receipt ← Combined.check taggedOps 0 (multiSource joinPasses) ⟨[], .fixed⟩
+  let layout ← multiLayout receipt.endpoint.2.graph
+  let pool := Generate.Multi.pool receipt.endpoint.2.classes [layout]
+  let admitted := pool.map fun c => (Cost.Bundle.check receipt.endpoint.2.classes c).map fun _ => passSpan c
+  let chosen ← Generate.Multi.select receipt passSpan [layout]
+  let out ← chosen.reversion.runFuel model 3 bundleInput
+  return (admitted, passSpan chosen.candidate, chosen.reversion.scalar.descriptor.pass.id.val, returnedCounts out)
+
+-- Either single change splits the passes and fails admission. Changing
+-- both makes the nearer pass usable, and the ordered result is unchanged.
+#guard runMulti true == some ([some 8, none, none, some 5], 5, 9, [2, 17, 2])
+#guard runMulti false == some ([some 8], 8, 8, [2, 17, 2])
+
+example (receipt : Cost.Bundle.Worklist.Combined.CheckedReceipt taggedOps 0 (multiSource true))
+    (chosen : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run chosen.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : chosen.reversion.runFuel model 3 bundleInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    bundleGraph.observe model (bundleGraph.denote model bundleInput bundleWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  let valid := passRows.merge_sound (bundleGraph.denote_solves model bundleInput bundleWF)
+    EPEG.Classes.discrete_valid (by decide)
+  receipt.observe_of_exec chosen bundleWF valid rfl ⟨⟨1⟩, rfl, fun _ => rfl⟩ neg idx
+    (chosen.reversion.runFuel_exec 3 ran)
+
+private theorem doubleStepWF : WellFounded doubleStep.Demand :=
+  doubleStep.demandWellFounded_of_check (PEG.Simple.Revert.While.Region.Automatic.inferDemandRank doubleStep)
+    (by decide)
+
+private theorem taggedSourceWF : WellFounded taggedSource.2.graph.Demand :=
+  taggedScaleUser.demandWellFounded (taggedZeroUser.demandWellFounded
+    (taggedScale.demandWellFounded (taggedSample.demandWellFounded (taggedZero.demandWellFounded doubleStepWF))))
+
+example {fuel : Nat} (receipt : Cost.Bundle.Worklist.Combined.CheckedReceipt taggedOps fuel taggedSource)
+    (a : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run a.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : a.reversion.runFuel model 3 taggedInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    taggedSource.2.graph.observe model (taggedSource.2.graph.denote model taggedInput taggedSourceWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  receipt.observe_of_exec a taggedSourceWF EPEG.Classes.discrete_valid rfl ⟨⟨1⟩, rfl, fun _ => rfl⟩ neg idx
+    (a.reversion.runFuel_exec 3 ran)
+
+open EPEG.Saturation.Extension in
+private def inferenceSource : Output Op bundleParams bundleResults 1 :=
+  ⟨14, ⟨taggedSample.append, EPEG.Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension Cost.Bundle.Worklist.Generate in
+private def runInferred : Option (List Nat × List Nat × List (Option (Nat × Nat)) × Nat × List Nat) := do
+  let report := (Dedup.Worklist.run Op.zero 1 inferenceSource).report
+  let receipt ← Cost.Bundle.Worklist.check Op.zero 1 inferenceSource report
+  let layouts := Infer.layouts receipt.endpoint.2.graph
+  let pool := Multi.pool receipt.endpoint.2.classes layouts
+  let admitted := pool.map fun c => do
+    let a ← Cost.Bundle.check receipt.endpoint.2.classes c
+    let out ← a.reversion.runFuel model 3 taggedInput
+    if returnedCounts out = [2, 17, 2] then
+      some (c.primitiveRows, (Infer.scheduledRows a.reversion.scalar.update).length)
+    else none
+  let chosen ← Infer.select receipt Cost.Candidate.primitiveRows
+  let out ← chosen.reversion.runFuel model 3 taggedInput
+  return (receipt.report.sites, layouts.map Multi.Layout.size, admitted,
+    chosen.candidate.primitiveRows, returnedCounts out)
+
+-- Read the repeated occurrence in the checked live update. The copied
+-- layout includes a wiring with both constant computations live.
+#guard runInferred == some ([13], [11, 12], [some (4, 2), some (5, 2), some (5, 3)], 4, [2, 17, 2])
+#guard (Cost.Bundle.Worklist.Generate.Infer.layouts splitPass.graph).isEmpty
+
+private theorem inferenceSourceWF : WellFounded inferenceSource.2.graph.Demand :=
+  taggedSample.demandWellFounded (taggedZero.demandWellFounded doubleStepWF)
+
+example (receipt : Cost.Bundle.Worklist.CheckedReceipt Op.zero 1 inferenceSource)
+    (chosen : Cost.Bundle.Accepted receipt.endpoint.2.graph receipt.endpoint.2.classes) (idx : Index 1)
+    (neg : ∀ b : Bool, model.run chosen.reversion.scalar.descriptor.negate (.cons ⟨b⟩ .nil) = some ⟨!b⟩)
+    (ran : chosen.reversion.runFuel model 3 taggedInput = some (.cons ⟨2⟩ (.cons ⟨17⟩ (.cons ⟨2⟩ .nil)))) :
+    inferenceSource.2.graph.observe model (inferenceSource.2.graph.denote model taggedInput inferenceSourceWF) idx =
+      .cons (some ⟨2⟩) (.cons (some ⟨17⟩) (.cons (some ⟨2⟩) .nil)) :=
+  receipt.observe_of_exec chosen inferenceSourceWF EPEG.Classes.discrete_valid rfl neg idx
+    (chosen.reversion.runFuel_exec 3 ran)
 
 end Silmaril.SSA.Peggy.SimpleValidation.Cyclic.Tests
 

@@ -4,12 +4,14 @@ import Silmaril.SSA.PEG.Builder
 import Silmaril.SSA.Peggy.Optimizer.Cyclic.Thms
 import Silmaril.SSA.PEG.Rules.Thms
 import Silmaril.SSA.PEG.Semantics.Thms
+import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 import Silmaril.SSA.Peggy.Bridge.Figure11.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Thms
 import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Thms
+import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Thms
 import Silmaril.SSA.Peggy.EPEG.Selection.Thms
 import Silmaril.SSA.Peggy.Optimizer.Thms
 import Silmaril.SSA.Peggy.Optimizer.Contextual.Thms
@@ -17,8 +19,15 @@ import Silmaril.SSA.Peggy.Worked.EvalScale.Thms
 import Silmaril.SSA.Peggy.Worked.StrengthReduction.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Region.Closed.Automatic.Thms
 import Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Thms
+import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Thms
 import Silmaril.SSA.PEG.Simple.Thms
 import Silmaril.SSA.PEG.Projection.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Cuts.Defs
+meta import Silmaril.SSA.PEG.Simple.Revert.Schedule.Automatic.Siblings.Defs
+meta import Silmaril.SSA.PEG.Semantics.Reindex.Defs
 meta import Silmaril.SSA.Peggy.Optimizer.Cyclic.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Selection.Legality.Defs
 meta import Silmaril.SSA.Peggy.Bridge.Egg.Defs
@@ -30,6 +39,7 @@ meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.ZeroSample
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Comparison.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
 meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist.Defs
+meta import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Combined.Defs
 meta import Silmaril.Logic.Egg.Core.Replay.Defs
 meta import Silmaril.SSA.PEG.Builder
 meta import Silmaril.SSA.Peggy.Optimizer.Defs
@@ -1524,6 +1534,62 @@ private theorem observed (idx : Index 1) :
           (.cons (Rules.readRef (values false) (r 7 rfl) idx) .nil)))) = _
   rw [scaled, sampled, exitIndex]
 
+open EPEG.Saturation.Extension in
+private def extraZeroSample : Row source.graph :=
+  ⟨[.count, .count], .count, .eval 0, pair (r 0 rfl) (r 1 rfl)⟩
+
+open EPEG.Saturation.Extension in
+private def combinedSource : Output Op [] result 1 :=
+  ⟨9, ⟨extraZeroSample.append, Classes.discrete⟩⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedOps : Combined.Ops Op := ⟨.zero, .five, .mul⟩
+
+open EPEG.Saturation.Extension.Worklist in
+private def combinedDriver := Combined.driver (params := []) (results := result) (l := 1) combinedOps
+
+private def shortRun := combinedDriver.run 1 combinedSource
+private def combinedRun := combinedDriver.run 2 combinedSource
+
+private def classesAt {n : Nat} (state : State Op [] result n 1) : List Nat :=
+  (List.finRange n).map fun i => (state.classes i).val
+
+private def wiring {n : Nat} (state : State Op [] result n 1) : List (List Nat) :=
+  (List.finRange n).map fun i => refNumbers (state.graph.node i).args
+
+#guard shortRun.report.sites == [.zeroSample 8]
+
+#guard shortRun.report.stop == .exhausted
+#guard (combinedDriver.check 1 combinedSource shortRun.report).isSome
+#guard (combinedDriver.check 1 combinedSource ⟨shortRun.report.sites, .fixed⟩).isNone
+#guard combinedRun.report.sites == [.zeroSample 8, .evalScale 7]
+#guard combinedRun.report.stop == .fixed
+#guard combinedRun.state.1 == 12
+#guard ((classesAt combinedRun.state.2)[8]?) == (classesAt combinedRun.state.2)[9]?
+#guard ((classesAt combinedRun.state.2)[7]?) == (classesAt combinedRun.state.2)[11]?
+#guard (wiring combinedRun.state.2).drop 9 == [[1, 1], [6, 0], [10, 4]]
+#guard (combinedDriver.check 2 combinedSource combinedRun.report).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 7, .zeroSample 8], .fixed⟩).isSome
+#guard (combinedDriver.check 2 combinedSource ⟨[.evalScale 8], .fixed⟩).isNone
+
+private def combinedObservation : Tuple (fun t => Option ((model false).Value t)) result :=
+  .cons (some ⟨15⟩) (.cons (some ⟨3⟩) (.cons (some ⟨3⟩) (.cons (some ⟨15⟩) .nil)))
+
+open EPEG.Saturation.Extension.Worklist in
+private theorem combinedPreserves :
+    EPEG.Saturation.Extension.Dedup.Preserves (model false) .nil combinedSource combinedRun.state :=
+  Combined.check_sound (Combined.run_checked (ops := combinedOps) 2 combinedSource) rfl totalLaw
+
+example (idx : Index 1) :
+    ∃ after : WellFounded combinedRun.state.2.graph.Demand,
+      combinedRun.state.2.classes.Valid (combinedRun.state.2.graph.denote (model false) .nil after) ∧
+      combinedRun.state.2.graph.observe (model false)
+        (combinedRun.state.2.graph.denote (model false) .nil after) idx = combinedObservation := by
+  have before := extraZeroSample.demandWellFounded wf
+  obtain ⟨after, valid, agrees⟩ := combinedPreserves before Classes.discrete_valid
+  exact ⟨after, valid, (agrees idx).trans
+    ((extraZeroSample.observe_eq wf before idx).trans (observed idx))⟩
+
 private theorem ranked : (rank 10).check found.extract = true := by
   rw [show found = expectedMatch from rfl]
   decide
@@ -2207,5 +2273,183 @@ private def certifiedRun :
   | _ => none
 
 #guard certifiedRun.isSome
+
+open Simple.Revert.Schedule (Plan)
+
+private structure Scheduled where
+  accepted : Simple.Revert.Schedule.Accepted graph
+  laws : accepted.plan.Laws model
+
+private def schedule (d : Layout graph (stage false) (stage true)) : Option Scheduled := do
+  let first ← Closed.Automatic.extract (stage false) roles
+  let second ← Closed.Automatic.extract (stage true) roles
+  let a : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage false, .closed first.certificate, d.first, fun _ => 0⟩
+  let b : Simple.Revert.Schedule.Stage graph inputs outputs :=
+    ⟨9, 1, stage true, .closed second.certificate, d.second, fun _ => 1⟩
+  let plan : Plan graph inputs outputs :=
+    .step (ports inputs) a (.step d.route b (.done (ports outputs)))
+  let accepted ← Simple.Revert.Schedule.check graph plan d.inputs rank
+  return ⟨accepted.val, accepted.property.symm ▸
+    (show plan.Laws model from ⟨first.laws laws, second.laws laws, trivial⟩)⟩
+
+private def scheduleRun :
+    Option {a : Scheduled //
+      Exec model a.accepted.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.accepted.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let a ← schedule layout
+  match ran : a.accepted.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    have exec := a.accepted.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.accepted.observations_of_exec a.laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard scheduleRun.isSome
+#guard (schedule { layout with route := pair (.tail .head) .head }).isNone
+
+open Simple.Revert.Schedule.Automatic (Leaf Found Rejection discover)
+
+-- Submit the leaves in reverse order. Neither has original addresses or
+-- a choice of handoff ports from the other leaf.
+private def inferPlan (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) : Except Rejection (Found original (.counted roles) ranking) := do
+  let some first := Leaf.closed roles (stage false) | throw .noPlan
+  let some second := Leaf.closed roles (stage true) | throw .noPlan
+  discover original (.counted roles) ranking [second, first] budget
+
+private def inferredRun :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := inferPlan graph rank 1000 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard inferredRun.isSome
+
+-- Select a nonidentity final projection, taking some of the leaf's
+-- outputs twice and dropping the pass count.
+private def inferReordered : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := inferPlan original rank 1000 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard inferReordered == some [3, 13, 13, 3]
+
+-- The second guard uses the original limit, which the first stage no
+-- longer exposes. The edge is well typed and the graph still checks.
+private def staleBoundary : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 6 rfl))
+      else graph.node i }
+
+#guard rank.check staleBoundary
+#guard match inferPlan staleBoundary rank 10000 with | .error .noPlan => true | _ => false
+#guard match inferPlan graph rank 1 with | .error .budget => true | _ => false
+#guard match inferPlan graph [] 1000 with | .error .invalidRank => true | _ => false
+
+open Simple.Revert.Schedule.Automatic
+
+-- Only cuts and exported PEG rows. The second candidate comes first,
+-- and its limit comes from the first candidate's actual loop result.
+private def cutCandidates (original : Graph Op inputs outputs 16 2) (sorts : original.sort = sort) :
+    List (Cuts.Boundary original) :=
+  let first : Cuts.Boundary original :=
+    ⟨inputs, inputs, sorts.symm ▸ pair (r 6 rfl) (r 7 rfl), sorts.symm ▸ pair (r 8 rfl) (r 7 rfl)⟩
+  let second : Cuts.Boundary original :=
+    ⟨inputs, outputs, sorts.symm ▸ pair (r 8 rfl) (r 7 rfl), sorts.symm ▸ graph.roots⟩
+  [second, first]
+
+private def runFromCuts :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 10 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runFromCuts.isSome
+
+private def runFromPermutedRoots : Option (List Nat) := do
+  let original := graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))
+  let .ok a := Cuts.discover original (.counted roles) rank (cutCandidates original rfl) 10 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runFromPermutedRoots == some [3, 13, 13, 3]
+
+#guard match Cuts.discover staleBoundary (.counted roles) rank (cutCandidates staleBoundary rfl) 10 with
+  | .error (.unsupported 0 .coverage) => true
+  | _ => false
+
+#guard match Cuts.discover graph (.counted roles) rank (cutCandidates graph rfl) 1 with
+  | .error (.schedule .budget) => true
+  | _ => false
+
+-- Both parentless keys are visible when the handoff is left uncut.
+#guard match Cuts.synthesize graph (.counted roles) rank
+    ⟨inputs, outputs, pair (r 6 rfl) (r 7 rfl), graph.roots⟩ with
+  | .error .loopShape => true
+  | _ => false
+
+private def graphOnly (original : Graph Op inputs outputs 16 2) (ranking : DemandRank 16 2)
+    (budget : Nat) :=
+  Simple.Revert.Schedule.Automatic.Siblings.discover original roles ranking budget
+
+-- The seed (7) is forwarded by the first stage. Its own output (8)
+-- drives the second guard and is also part of the final return.
+#guard match Simple.Revert.Schedule.Automatic.Siblings.inferBoundaries graph with
+  | .ok [a, b] =>
+    refNumbers a.inputs == [6, 7] && refNumbers a.outputs == [7, 8] &&
+      refNumbers b.inputs == [7, 8] && refNumbers b.outputs == [8, 13, 15]
+  | _ => false
+
+private def runGraphOnly :
+    Option {a : Found graph (.counted roles) rank //
+      Exec model a.gate.val.plan.revert (input 2) (some (four ⟨13⟩ ⟨3⟩ ⟨3⟩ ⟨13⟩)) ∧
+      ∀ i, graph.observe model (graph.denote model (input 2) a.gate.val.demandWellFounded) i =
+        four (some ⟨13⟩) (some ⟨3⟩) (some ⟨3⟩) (some ⟨13⟩)} := do
+  let .ok a := graphOnly graph rank 2 | none
+  match ran : a.gate.val.plan.runFuel model 3 (input 2) with
+  | some (.cons ⟨13⟩ (.cons ⟨3⟩ (.cons ⟨3⟩ (.cons ⟨13⟩ .nil)))) =>
+    let exec := a.gate.val.plan.exec_of_runFuel 3 ran
+    return ⟨a, exec, fun i => (a.observations_of_exec laws (input 2) i exec).2⟩
+  | _ => none
+
+#guard runGraphOnly.isSome
+
+private def runGraphOnlyRenumbered : Option (List Nat) := do
+  let keys : Equiv.Perm (Fin 2) := Equiv.swap 0 1
+  let original := (graph.withRoots (four (r 8 rfl) (r 15 rfl) (r 15 rfl) (r 8 rfl))).reindex (Equiv.refl _) keys
+  let .ok a := graphOnly original (rank.reindex (Equiv.refl _) keys) 2 | none
+  let .cons x (.cons y (.cons z (.cons w .nil))) ← a.gate.val.plan.runFuel model 3 (input 2)
+  return [x.down, y.down, z.down, w.down]
+
+#guard runGraphOnlyRenumbered == some [3, 13, 13, 3]
+
+-- The second guard now consumes the live recurrence instead of a
+-- completed readout. It has the same sort and still passes the rank.
+private def liveSiblingCapture : Graph Op inputs outputs 16 2 :=
+  { graph with node := fun i =>
+      if bad : i = 12 then bad.symm ▸ Node.ofLabel (.op .atLeast) (pair (r 9 rfl) (r 0 rfl))
+      else graph.node i }
+
+#guard rank.check liveSiblingCapture
+#guard match graphOnly liveSiblingCapture rank 2 with
+  | .error (.iterationValue 0) => true
+  | _ => false
+#guard match graphOnly graph rank 1 with
+  | .error (.checkedCuts (.schedule .budget)) => true
+  | _ => false
 
 end Silmaril.SSA.PEG.Simple.Revert.While.Siblings.Tests

@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Core.Binary64.Defs
 import Silmaril.Proofs.Languages.Python.Core.Binary64.Addition
 import Silmaril.Proofs.Languages.Python.Core.Binary64.Division
+import Silmaril.Proofs.Languages.Python.Core.Binary64.DivMod
 import Silmaril.Proofs.Languages.Python.Core.Binary64.Equality
 
 public section
@@ -101,6 +102,70 @@ theorem mixedAdd_nonfinite_iff {integer : Int} {floating converted : F64.Finite}
     mixedAdd integer floating = .error .nonfiniteResult ↔ overflowThreshold ≤ |lhs + rhs| :=
   Proofs.Languages.Python.Core.Binary64.mixedAdd_nonfinite_iff coercion leftValue rightValue
 
+theorem subFinite_ok_iff {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    subFinite? left right = some result ↔ |lhs - rhs| < overflowThreshold ∧
+      result.val = F64.ofBits (roundSigned (sumSign left.val.signBit (!right.val.signBit) (lhs - rhs))
+        |lhs - rhs|) :=
+  Proofs.Languages.Python.Core.Binary64.subFinite_ok_iff leftValue rightValue
+
+theorem subFinite_zero {left right : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
+    (zero : lhs - rhs = 0) :
+    (subFinite? left right).map (fun result => result.val.bits) =
+      some (if left.val.signBit && !right.val.signBit then 0x8000000000000000 else 0) :=
+  Proofs.Languages.Python.Core.Binary64.subFinite_zero leftValue rightValue zero
+
+theorem subtract_ok_iff (operands : FloatOperands) (result : F64.Finite) :
+    subtract operands = .ok result ↔ ∃ left right,
+      operands.convert? = some (left, right) ∧ subFinite? left right = some result :=
+  Proofs.Languages.Python.Core.Binary64.subtract_ok_iff operands result
+
+theorem subtract_conversion_overflow_iff (operands : FloatOperands) :
+    subtract operands = .error .conversionOverflow ↔ operands.convert? = none :=
+  Proofs.Languages.Python.Core.Binary64.subtract_conversion_overflow_iff operands
+
+theorem subtract_nonfinite_iff {operands : FloatOperands} {left right : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    subtract operands = .error .nonfiniteResult ↔ overflowThreshold ≤ |lhs - rhs| :=
+  Proofs.Languages.Python.Core.Binary64.subtract_nonfinite_iff converted leftValue rightValue
+
+theorem mulFinite_ok_iff {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    mulFinite? left right = some result ↔ |lhs * rhs| < overflowThreshold ∧
+      result.val = F64.ofBits (roundSigned (left.val.signBit != right.val.signBit) |lhs * rhs|) :=
+  Proofs.Languages.Python.Core.Binary64.mulFinite_ok_iff leftValue rightValue
+
+theorem mulFinite_nearestEven {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
+    (multiplied : mulFinite? left right = some result) :
+    result.val.signBit = (left.val.signBit != right.val.signBit) ∧
+      NearestEven magnitude |lhs * rhs| (magnitudeBits result.val.bits).toNat :=
+  Proofs.Languages.Python.Core.Binary64.mulFinite_nearestEven leftValue rightValue multiplied
+
+theorem mulFinite_zero {left right : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
+    (zero : lhs * rhs = 0) :
+    (mulFinite? left right).map (fun result => result.val.bits) =
+      some (if left.val.signBit != right.val.signBit then 0x8000000000000000 else 0) :=
+  Proofs.Languages.Python.Core.Binary64.mulFinite_zero leftValue rightValue zero
+
+theorem multiply_ok_iff (operands : FloatOperands) (result : F64.Finite) :
+    multiply operands = .ok result ↔ ∃ left right,
+      operands.convert? = some (left, right) ∧ mulFinite? left right = some result :=
+  Proofs.Languages.Python.Core.Binary64.multiply_ok_iff operands result
+
+theorem multiply_conversion_overflow_iff (operands : FloatOperands) :
+    multiply operands = .error .conversionOverflow ↔ operands.convert? = none :=
+  Proofs.Languages.Python.Core.Binary64.multiply_conversion_overflow_iff operands
+
+theorem multiply_nonfinite_iff {operands : FloatOperands} {left right : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    multiply operands = .error .nonfiniteResult ↔ overflowThreshold ≤ |lhs * rhs| :=
+  Proofs.Languages.Python.Core.Binary64.multiply_nonfinite_iff converted leftValue rightValue
+
 theorem trueDivide_zeroDivision_iff (numerator divisor : Int) :
     trueDivide numerator divisor = .error .zeroDivisionError ↔ divisor = 0 :=
   Proofs.Languages.Python.Core.Binary64.trueDivide_zeroDivision_iff numerator divisor
@@ -122,5 +187,116 @@ theorem trueDivide_nearestEven {numerator divisor : Int} {result : F64.Finite}
       NearestEven magnitude |(numerator : ℚ) / (divisor : ℚ)|
         (magnitudeBits result.val.bits).toNat :=
   Proofs.Languages.Python.Core.Binary64.trueDivide_nearestEven computed
+
+theorem divideFloat_conversion_overflow (operands : FloatOperands) (failed : operands.convert? = none) :
+    divideFloat operands = .error .conversionOverflow :=
+  Proofs.Languages.Python.Core.Binary64.divideFloat_conversion_overflow operands failed
+
+theorem divideFloat_zeroDivision_iff {operands : FloatOperands} {left right : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    divideFloat operands = .error .zeroDivisionError ↔ rhs = 0 :=
+  Proofs.Languages.Python.Core.Binary64.divideFloat_zeroDivision_iff converted leftValue rightValue
+
+theorem divideFloat_nonfinite_iff {operands : FloatOperands} {left right : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    divideFloat operands = .error .nonfiniteResult ↔ rhs ≠ 0 ∧ overflowThreshold ≤ |lhs / rhs| :=
+  Proofs.Languages.Python.Core.Binary64.divideFloat_nonfinite_iff converted leftValue rightValue
+
+theorem divideFloat_ok_iff {operands : FloatOperands} {left right result : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    divideFloat operands = .ok result ↔ rhs ≠ 0 ∧ |lhs / rhs| < overflowThreshold ∧
+      result.val = F64.ofBits (roundSigned (left.val.signBit != right.val.signBit) |lhs / rhs|) :=
+  Proofs.Languages.Python.Core.Binary64.divideFloat_ok_iff converted leftValue rightValue
+
+theorem divideFloat_nearestEven {operands : FloatOperands} {left right result : F64.Finite} {lhs rhs : ℚ}
+    (converted : operands.convert? = some (left, right))
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs)
+    (divided : divideFloat operands = .ok result) :
+    result.val.signBit = (left.val.signBit != right.val.signBit) ∧
+      NearestEven magnitude |lhs / rhs| (magnitudeBits result.val.bits).toNat :=
+  Proofs.Languages.Python.Core.Binary64.divideFloat_nearestEven converted leftValue rightValue divided
+
+theorem truncatingRemainder_bounds {lhs rhs : ℚ} (nonzero : rhs ≠ 0) :
+    |truncatingRemainder lhs rhs| < |rhs| ∧
+      (lhs < 0 → truncatingRemainder lhs rhs ≤ 0) ∧
+      (0 ≤ lhs → 0 ≤ truncatingRemainder lhs rhs) :=
+  Proofs.Languages.Python.Core.Binary64.truncatingRemainder_bounds nonzero
+
+theorem fmodFinite_ok_iff {left right result : F64.Finite} {lhs rhs : ℚ}
+    (leftValue : left.val.toRat? = some lhs) (rightValue : right.val.toRat? = some rhs) :
+    fmodFinite? left right = some result ↔
+      rhs ≠ 0 ∧
+        |truncatingRemainder lhs rhs| < overflowThreshold ∧
+        result.val = F64.ofBits (roundSigned left.val.signBit |truncatingRemainder lhs rhs|) ∧
+        result.val.toRat? = some (truncatingRemainder lhs rhs) :=
+  Proofs.Languages.Python.Core.Binary64.fmodFinite_ok_iff leftValue rightValue
+
+theorem signRemainder_zero (right remainder : F64.Finite) :
+    (signRemainder? right remainder 0).map (fun result => result.val.bits) =
+      some (if right.val.signBit then 0x8000000000000000 else 0) :=
+  Proofs.Languages.Python.Core.Binary64.signRemainder_zero right remainder
+
+theorem signRemainder_nonzero_ok_iff {right remainder result : F64.Finite} {rhs value : ℚ}
+    (rightValue : right.val.toRat? = some rhs) (remainderValue : remainder.val.toRat? = some value)
+    (nonzero : value ≠ 0) :
+    signRemainder? right remainder value = some result ↔
+      if needsDivModCorrection right remainder value then
+        |value + rhs| < overflowThreshold ∧
+        result.val = F64.ofBits (roundSigned (sumNegative remainder right (value + rhs)) |value + rhs|)
+      else result = remainder :=
+  Proofs.Languages.Python.Core.Binary64.signRemainder_nonzero_ok_iff
+    rightValue remainderValue nonzero
+
+theorem snapQuotient_zero {negative : Bool} {quotient : F64.Finite}
+    (zero : quotient.val.toRat? = some 0) :
+    (snapQuotient? negative quotient).map (fun result => result.val.bits) =
+      some (if negative then 0x8000000000000000 else 0) :=
+  Proofs.Languages.Python.Core.Binary64.snapQuotient_zero zero
+
+theorem snapQuotient_nonzero_ok_iff {negative : Bool} {quotient integral fraction result : F64.Finite}
+    {value delta : ℚ} (quotientValue : quotient.val.toRat? = some value) (nonzero : value ≠ 0)
+    (encoded : encodeExact? (decide (value.floor < 0)) (value.floor : ℚ) = some integral)
+    (fractional : subFinite? quotient integral = some fraction) (readFraction : fraction.val.toRat? = some delta) :
+    snapQuotient? negative quotient = some result ↔
+      if delta > 1 / 2 then
+        |(value.floor : ℚ) + 1| < overflowThreshold ∧
+        result.val = F64.ofBits (roundSigned (sumNegative integral divModOne ((value.floor : ℚ) + 1))
+          |(value.floor : ℚ) + 1|)
+      else result = integral :=
+  Proofs.Languages.Python.Core.Binary64.snapQuotient_nonzero_ok_iff
+    quotientValue nonzero encoded fractional readFraction
+
+theorem floorQuotient_ok_iff {left right remainder result : F64.Finite} {rhs : ℚ}
+    (rightValue : right.val.toRat? = some rhs) (adjust : Bool) :
+    floorQuotient? left right remainder adjust = some result ↔
+      ∃ (difference : F64.Finite) (delta : ℚ),
+        subFinite? left remainder = some difference ∧ difference.val.toRat? = some delta ∧
+        ∃ quotient : F64.Finite,
+          |delta / rhs| < overflowThreshold ∧
+          quotient.val = F64.ofBits (roundSigned (difference.val.signBit != right.val.signBit) |delta / rhs|) ∧
+          ∃ corrected : F64.Finite,
+            (if adjust then subFinite? quotient divModOne else some quotient) = some corrected ∧
+            snapQuotient? (left.val.signBit != right.val.signBit) corrected = some result :=
+  Proofs.Languages.Python.Core.Binary64.floorQuotient_ok_iff rightValue adjust
+
+theorem floatDivMod_conversion_overflow (op : FloatDivModOp) {operands : FloatOperands}
+    (failed : operands.convert? = none) :
+    op.eval operands = .error .conversionOverflow :=
+  Proofs.Languages.Python.Core.Binary64.floatDivMod_conversion_overflow op failed
+
+theorem floatDivMod_zeroDivision_iff (op : FloatDivModOp) {operands : FloatOperands}
+    {left right : F64.Finite} {rhs : ℚ}
+    (converted : operands.convert? = some (left, right)) (rightValue : right.val.toRat? = some rhs) :
+    op.eval operands = .error .zeroDivisionError ↔ rhs = 0 :=
+  Proofs.Languages.Python.Core.Binary64.floatDivMod_zeroDivision_iff op converted rightValue
+
+theorem floatDivMod_ok_iff (op : FloatDivModOp) {operands : FloatOperands}
+    {left right result : F64.Finite} {rhs : ℚ}
+    (converted : operands.convert? = some (left, right)) (rightValue : right.val.toRat? = some rhs) :
+    op.eval operands = .ok result ↔ rhs ≠ 0 ∧ op.finite? left right = some result :=
+  Proofs.Languages.Python.Core.Binary64.floatDivMod_ok_iff op converted rightValue
 
 end Silmaril.Languages.Python.Core.Binary64

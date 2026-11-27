@@ -209,7 +209,7 @@ theorem Head.reflect_proof {A : Types} {t u : Term Φ 0} (p : Head A t) (q : Hea
       obtain ⟨rfl, same⟩ := request_head_eq p q hp hq eq
       obtain rfl := eq_of_heq same
       apply Equiv.let₁ (.refl (.op a.typing.toHasType))
-      apply constructor_ext_proof (Signature.target f) dk.toHasType dl.toHasType
+      apply constructor_ext_type_proof (Signature.target f).ty dk.toHasType dl.toHasType
       intro x
       exact (hp x).trans ((ih x (q x) (request_head_replies p q hp hq eq x)).trans (hq x).symm)
 

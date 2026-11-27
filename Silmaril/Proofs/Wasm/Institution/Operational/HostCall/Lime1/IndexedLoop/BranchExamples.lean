@@ -28,8 +28,8 @@ private def outerTail : List (Op Nat) := [.call ⟨4⟩ outerJoin]
 private def innerControl : List (Op Nat) := .if_ innerIf innerArm innerArm :: outerTail
 private def outerArm : List (Op Nat) := .get ⟨0⟩ :: .call ⟨1⟩ prepare :: innerControl
 private def finalTail : List (Op Nat) := [.call ⟨5⟩ finalJoin]
-private def outerLabel : Label Nat := ⟨outerIf, [i64 42], finalTail⟩
-private def innerLabel : Label Nat := ⟨innerIf, [i64 55], outerTail⟩
+private def outerLabel : Label Nat := ⟨outerIf, [i64 42], finalTail, none⟩
+private def innerLabel : Label Nat := ⟨innerIf, [i64 55], outerTail, none⟩
 
 private def program : Program Nat where
   module := {
@@ -49,7 +49,7 @@ private def base : Store Nat :=
       .host prepare.type prepare.code, .host choose.type choose.code, .host innerJoin.type innerJoin.code,
       .host outerJoin.type outerJoin.code, .host finalJoin.type finalJoin.code] }
 
-private def memory : Memory32 base := ⟨⟨0⟩, initial, rfl⟩
+private def memory : Memory32 base := ⟨⟨0⟩, initial, rfl, .fixed⟩
 private def caller : Frame := ⟨[i32 9], {funcs := [⟨0⟩]}⟩
 
 private abbrev Check := Continuation.Checked base program.module [num64]
@@ -141,7 +141,7 @@ private theorem atOuter : BodyPath ⟨bytes 1, .source [] outerArm, [outerLabel]
   have exit : BodyPath ⟨bytes 1, .source [i64 42, i32 1] program.continuation, []⟩ :=
     (((producer.tail returned).tail (.control (.test 1 88 0))).tail
       (.control (.dropInput 1 88))).tail (.control (.loopResult 1))
-  exact (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step .block
+  exact (exit.step (.if_ (saved := [i64 42]) (args := []) (guard := 1) rfl)).step (.block rfl)
 
 private theorem atBranch (guard : BitVec 32) : BodyPath
     ⟨bytes 3, .source [i32 99, i64 77, i32 22, i32 guard] branch, [innerLabel, outerLabel]⟩ := by
@@ -150,7 +150,7 @@ private theorem atBranch (guard : BitVec 32) : BodyPath
   have prepared : BodyPath ⟨bytes 2, .source [i64 55, i32 1] innerControl, [outerLabel]⟩ :=
     preparing.step (.returned (vs := [i64 55, i32 1]) rfl rfl ⟨rfl, rfl, rfl⟩)
   have inner : BodyPath ⟨bytes 2, .source [] innerArm, [innerLabel, outerLabel]⟩ :=
-    (prepared.step (.if_ (saved := [i64 55]) (args := []) (guard := 1) rfl)).step .block
+    (prepared.step (.if_ (saved := [i64 55]) (args := []) (guard := 1) rfl)).step (.block rfl)
   have choosing : BodyPath ⟨bytes 2, .invoke [] choose [i64 7] branch, [innerLabel, outerLabel]⟩ :=
     (inner.step (.get rfl)).step (.resolve (saved := []) (args := [i64 7]) rfl)
   exact choosing.step (.returned (vs := [i32 99, i64 77, i32 22, i32 guard]) rfl rfl ⟨rfl, rfl, guard, rfl⟩)
@@ -164,7 +164,7 @@ private theorem lowered : BodyPath ⟨bytes 3, .branch [i64 55, i32 99, i64 77, 
   taken.step (.branchLower (by decide))
 
 private theorem delivered : BodyPath ⟨bytes 3, .source [i64 42, i64 77, i32 22] finalTail, []⟩ :=
-  lowered.step (.branchDeliver (scratch := [i64 55, i32 99]) (payload := [i64 77, i32 22]) rfl rfl)
+  lowered.step (.branchDeliver (scratch := [i64 55, i32 99]) (payload := [i64 77, i32 22]) rfl rfl rfl)
 
 -- Selection consumes only the test. The first transfer skips the inner host,
 -- lowers the depth, and exposes the outer host while retaining scratch values.

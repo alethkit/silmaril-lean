@@ -32,6 +32,8 @@ private theorem expand_fits (g : Table S R) (input : Syntax.Payload (R.get g.ent
     rw [Table.expand]
     split
     · trivial
+    · rename_i row
+      exact (g.ranked_not_diverge ranked row).elim
     · exact fun j a => ih _ _ _ _
 
 private theorem extract_fits (g : Table S R) (ok : g.entryCheck = true)

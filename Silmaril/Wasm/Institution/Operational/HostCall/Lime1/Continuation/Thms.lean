@@ -28,7 +28,15 @@ Normal label exit delivers the declared result stack to the saved prefix.
 A direct or taken conditional branch crosses one intervening label per native
 step. The target transfer delivers the ordered results and discards the
 target's remaining instructions. A function-label target leaves a value-only
-frame for the subsequent native caller-restoration step. -/
+frame for the subsequent native caller-restoration step. A checked branch
+table consumes its unsigned i32 selector and hands the chosen depth to the
+same native branch transfer. A loop-target transfer reinstates the source
+loop with its declared parameters. Normal loop exit delivers the declared
+results and discards the restart instruction. Indirect lookup reaches a
+pending host, direct graph callee, Memory32 callee, or a trap. The checked
+growth mode retains each native grow outcome.
+The memory callee keeps its current bytes through the native frame exit and
+resumes the checked suffix with its ordered results or a trap. -/
 theorem step_iff (ready : Ready mem host active results a.phase a.labels) (live : mem.Live a.bytes) :
     Step host (render mem outer active results a) dst ↔
       ∃ next, Edge mem host active results a next ∧ dst = render mem outer active results next :=

@@ -29,7 +29,11 @@ and the same linked function-declaration table. An imported value retains
 its address, so calling an imported closure uses that closure's original
 global slots. A missing catalog entry and a missing exported name are
 distinct failures. Private import names are rejected during validation.
-A single load resolves all its requested exports before binding their aliases.
+A single load calls the host once and looks up its requested exports from
+right to left, following the pinned Starlark-Go `LOAD` instruction. It writes
+aliases in that same order after every lookup succeeds. If more than one export
+is missing, the rightmost missing source item is the reached error and none of
+the command's aliases are written.
 [Load statements][loading] · [Lexical calls](starlark-functions.md)
 
 A new module begins with fresh slots and no inherited active iterators.
@@ -1311,14 +1315,123 @@ observations. The child shares the producer's global cell with an
 earlier closure and owns a different captured local. A second-call
 error leaves the earlier factory and ordinary assignment effects.
 
-The UTF-8 adapter hands normalized commands to the same resolver and
-loader. It keeps module IDs in manifest order, so the producer-first
-layout uses the same linked table when the importer only has the
-checked commands above. The suite theorem's source input starts at
-normalized commands and their checked step judgments. Multiple imports,
-consumer declaration emission, arbitrary cache histories and general
-source graphs remain open.
-[Theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
+The same suite admits any finite number of consumer definitions whose return
+calls the file-local import. Elaboration appends
+each declaration at the current table size, in source order, and retains
+every earlier lookup. The reached-prefix proof carries the extended table
+and live provenance across definitions, copies, assignments and calls.
+Installing a wrapper captures the actual import cell. Every subsequent
+invocation reads that cell, and the reduced call guard retains the
+producer's declaration IDs. A tracked closure returned through the wrapper
+keeps its address and defining record when the caller frame is restored.
+The operands support the existing explicit named arguments and checked
+tuple/list and dict-display spreads.
+
+The cold and preloaded source rules agree with loader denotation on
+publication and freezing, first error, residual heap, caller restoration
+and cache. The two-definition control calls an alias copied before the
+second definition, then calls the second wrapper with an explicit default
+override. A failing override retains the first result and skips the final
+assignment. Another control invokes a fresh producer closure returned
+through the consumer wrapper.
+
+The UTF-8 adapter compiles normalized modules in manifest order and feeds
+the final linked table to the loader. The source theorem starts at
+normalized commands. The checked wrapper header admits required and
+defaulted positional parameters and required and defaulted keyword-only
+formals. Defaults use the existing lexical operand profile of reads,
+integer literals, singleton list allocation and indexing. Definition-time
+calls, collectors and broader wrapper bodies remain separate.
+[Suite theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Thms.lean) · [Lean controls](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/ReturnChecks.lean) · [Pinned Go controls](../../scripts/starlark/imported-checked/check.go)
+
+### Composing checked imports
+
+A topologically numbered graph may contain checked load-free roots and
+consumers with an ordered list of leading loads. Each consumer supplies its
+normalized suite and checked link into the common declaration table.
+The prefix induction reads each dependency's actual publication once per load
+command. The independent selection rules derive the ordered exported function
+addresses from that publication. Only full selection enables the separate
+installation proof, which fills distinct file-local alias cells. The suite
+inherits the reached importer frame and live provenance for all aliases.
+The singleton edge theorem remains available.
+
+The graph theorem follows strictly earlier dependencies. It preserves
+earlier cache entries, the original closure records and their capture
+addresses, and the caller's slots, bindings and iterator context. A missing
+label, reached dependency failure or missing export skips all later loads and
+the suite. The independent source trace agrees with the loader on exact
+publication and heap, or on the first reached error and residual session.
+Requests from an empty cache establish the same invariant for later mixed
+cold and cached loads.
+
+The graph transports regular closures, factory results, and exported
+consumer wrappers. Recursive wrapper provenance follows the actual published
+function address through its captured file-local cell to the imported closure
+in the same heap. Each wrapper's declaration index is strictly greater than
+its captured callee's index. Removing the active wrapper leaves the lower
+declaration range required by the next activation. Validation makes load
+aliases and global destinations distinct. The importer fills blank cells,
+preserving initialized captures and function records across cache reuse.
+
+The three-module controls exercise direct and nested calls through a published
+wrapper. A diamond control shares one producer between two separately linked
+wrappers. It runs from an empty cache and after an actual request for the left
+branch. A downstream wrapper invokes the second alias of a grouped load under
+the same declaration-index guard. A missing first or last export retains both
+dependency publications and the earlier load's alias while leaving both alias
+cells in the failed load, later load cells and body cells blank. With both
+exports missing, the controls check that the rightmost one is reported. The
+pinned Go checks observe the error, loader calls, cache hits and public effect
+order. Lean additionally checks the residual file-local cells and restored
+caller. Go's public initialization result does not expose the file-local cells.
+
+The checked prefix admits a nonempty group of public callable imports per load.
+Its static missing-export evidence requires the name to be outside the
+dependency's declared globals. Grouped syntax already lowers through the normal
+frontend load adapter. The positional wrapper uses the ordinary binder to
+deliver values to its own formals in header order. Its body reads operands in
+the order written at the inner call. Formal names stay distinct from the
+captured alias, preserving the original import cell and lower declaration
+index. Arguments supply no callable provenance.
+
+During initialization, positional defaults evaluate left to right in the
+reached defining frame. The wrapper records the resulting values, including
+addresses of allocated lists, before binding its name. Publication freezes
+reachable values and preserves those addresses. A later call or cache hit
+uses the saved record. Explicit arguments take precedence through the ordinary
+binder. A reached default error retains earlier effects and skips installation,
+the remaining defaults and commands, and importer publication.
+
+The three-module controls check a wrapper calling the second import of a
+grouped load. They cover ordered forwarding, omitted defaults, explicit
+overrides followed by another omission, missing and surplus arguments, and a
+failure after an earlier default allocates. Lean checks the retained cells,
+restored caller and cache; pinned Go checks the outcomes, call order,
+saved default identity and visible pre-error bindings. The controls run
+cold and after actual preloads. They preload the producer when the wrapper
+definition itself fails.
+
+For keyword-only wrappers, positional capacity comes from the positional
+prefix. Named operands can supply required formals or override saved
+defaults. The binder uses the reached closure record and installs its
+original capture vector on success. Repeated explicit names fail during
+validation. An unknown name or a positional-and-named conflict reaches
+binding only after all operands succeed. A reached operand error keeps
+earlier effects and preempts binding and subsequent operands.
+
+Cold and wrapper-preloaded controls check a required keyword-only name and
+a list-valued keyword default. They cover both kinds of duplicate, unknown
+and missing names, positional overflow, and a later operand error that
+preempts an unknown-name error. Go instruments reached operands to observe
+their order. Lean checks the exact retained allocations and restored caller
+state. This tranche uses normalized keyword-only headers. The UTF-8
+frontend accepts named call arguments and currently rejects the bare
+`*` header. Arbitrary incoming caches, calls in defaults, collectors,
+untracked exports and calls through parameter values remain outside this proof.
+[Pinned compiler](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1223-L1237) · [Pinned interpreter](https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L580-L617)
+
+[Chain theorems](../../Silmaril/Languages/Starlark/Modules/Resolve/Capture/Trace/Published/Imports/Chain/Thms.lean)
 
 ## Finite-manifest loader
 

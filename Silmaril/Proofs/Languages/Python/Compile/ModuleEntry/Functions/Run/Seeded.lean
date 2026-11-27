@@ -26,7 +26,7 @@ theorem observeNestedCallIn_instance {space : Namespace} {context : CallContext}
       [.call inner [operand, .readGlobal className]] =
       (⟨if result then .ok none else .error (.raised (.assertionError (.boolean false))),
         [⟨inner, ⟨.ok (.bool result), none⟩⟩,
-         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩]⟩,
+         ⟨outer, ⟨if result then .ok .none else .error (.raised (.assertionError (.boolean false))), none⟩⟩], none⟩,
         context.heap) := by
   have resolved : Core.Module.SeededCall.resolveCall space #v[] (.global inner)
       [lowerCallOperand operand, lowerCallOperand (.readGlobal className)] =
@@ -62,7 +62,7 @@ theorem observeNestedCallIn_intInstance {space : Namespace} {context : CallConte
     (classBinding : space.lookupGlobal className = some (.builtin .int)) :
     observeNestedCallIn space context .discard outer
       [.call inner [.literal (.int value), .readGlobal className]] =
-      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩]⟩, context.heap) :=
+      (⟨.ok none, [⟨inner, ⟨.ok (.bool true), none⟩⟩, ⟨outer, ⟨.ok .none, none⟩⟩], none⟩, context.heap) :=
   observeNestedCallIn_instance helper probe rfl classBinding
     (Core.Module.SeededCall.invoke_isinstance_int_int value)
 
@@ -72,9 +72,38 @@ theorem observeNestedCallIn_innerPreparationError {space : Namespace} {context :
     (failed : Core.Module.SeededCall.resolveCall space #v[] (.global inner) (operands.map lowerCallOperand) =
       .error error) :
     observeNestedCallIn space context .discard outer [.call inner operands] =
-      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩]⟩, context.heap) := by
+      (⟨.error (.ofCall error), [⟨inner, ⟨.error error, none⟩⟩], none⟩, context.heap) := by
   simp [observeNestedCallIn, observeRemainingCallIn, observeArgumentsIn, observeArgumentIn, argumentObservation,
     outerFound, failed, Except.mapError]
+
+theorem evalDictionaryGet_agrees (space : Namespace) (heap : Core.Closure.Heap)
+    (globals : Core.Closure.Executor.GlobalLookup) (test : Core.Module.Dictionary.Get)
+    (same : (fun name => (space.lookupGlobal name).map Value.dictionaryRead) =
+      fun name => (globals name).map Core.Closure.Value.dictionaryRead) :
+    evalDictionaryGet space heap test =
+      ((Core.Closure.evalDictionaryGet heap globals test).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) := by
+  unfold evalDictionaryGet Core.Closure.evalDictionaryGet
+  rw [same]
+  cases test.eval (fun name => (globals name).map Core.Closure.Value.dictionaryRead) heap.dictionaryEntries? with
+  | error error => cases error <;> rfl
+  | ok value =>
+    cases value with
+    | text _ => rfl
+    | scalar value => cases value <;> rfl
+
+theorem intDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Closure.IntDivModOp) (numerator divisor : Int) :
+    (lowerCallOperand (.intDivMod op numerator divisor)).eval space #v[] =
+      (((Core.Module.Functions.Operand.intDivMod op numerator divisor).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases op.eval numerator divisor <;> rfl
 
 theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
@@ -88,6 +117,40 @@ theorem intTrueDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namesp
     Core.Closure.Executor.Operand.evalIn]
   cases Core.Closure.trueDivideInt numerator divisor <;> rfl
 
+theorem floatDivMod_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDivMod op operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDivMod op operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn, Core.Module.SeededCall.floatDivisionResult]
+  cases Core.Closure.floatDivMod op operands <;> rfl
+
+theorem floatDiv_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatDiv operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatDiv operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) := by
+  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
+    Core.Closure.Executor.Operand.evalIn]
+  cases Core.Closure.trueDivideFloat operands <;> rfl
+
+private theorem floatArithmeticResult_agrees
+    (result : Except Core.Binary64.FloatArithmeticError Silmaril.Numeric.Ieee754.F64.Finite) :
+    Core.Module.SeededCall.floatArithmeticResult result =
+      ((Core.Closure.floatArithmeticResult result).map seededValue).mapError (fun
+        | .defined error => .raised (.runtime error)
+        | _ => .unsupported) := by
+  cases result with
+  | ok _ => rfl
+  | error error => cases error <;> rfl
+
 theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
     (integer : Int) (floating : Silmaril.Numeric.Ieee754.F64.Finite) :
@@ -95,12 +158,8 @@ theorem mixedAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
       (((Core.Module.Functions.Operand.mixedAdd integer floating).lower.evalIn globals heap frame).map
         seededValue).mapError (fun
           | .defined error => .raised (.runtime error)
-          | _ => .unsupported) := by
-  simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
-    Core.Closure.Executor.Operand.evalIn, Core.Closure.mixedAdd]
-  cases Core.Binary64.mixedAdd integer floating with
-  | ok _ => rfl
-  | error error => cases error <;> rfl
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.mixedAdd integer floating)
 
 theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
     (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
@@ -113,6 +172,26 @@ theorem floatAdd_operand_agrees {layout : Core.Closure.Layout} (space : Namespac
   simp only [lowerCallOperand, Core.Module.SeededCall.Operand.eval, Core.Module.Functions.Operand.lower,
     Core.Closure.Executor.Operand.evalIn, Core.Closure.floatAdd]
   cases Core.Binary64.addFinite? left right <;> rfl
+
+theorem floatSub_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatSub operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatSub operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.subtract operands)
+
+theorem floatMul_operand_agrees {layout : Core.Closure.Layout} (space : Namespace)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap) (frame : Core.Closure.Frame layout)
+    (operands : Core.Binary64.FloatOperands) :
+    (lowerCallOperand (.floatMul operands)).eval space #v[] =
+      (((Core.Module.Functions.Operand.floatMul operands).lower.evalIn globals heap frame).map
+        seededValue).mapError (fun
+          | .defined error => .raised (.runtime error)
+          | _ => .unsupported) :=
+  floatArithmeticResult_agrees (Core.Binary64.multiply operands)
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
@@ -150,14 +229,18 @@ theorem preserves_builtins {scope : Languages.Python.Source.Scope} (space : Name
   induction instructions generalizing space context lists with
   | nil => rfl
   | cons instruction rest ih =>
+    have reached : ((effectWithLists space context instruction lists).1.1.reachedNamespace space).builtins =
+        space.builtins := by
+      simp only [Effect.reachedNamespace]
+      split <;> rfl
     cases selected : (effectWithLists space context instruction lists).1.1.binding with
-    | error error => simp [runInstructionsIn, selected]
+    | error error => simpa [runInstructionsIn, selected] using reached
     | ok binding =>
       cases binding with
-      | none => simp [runInstructionsIn, selected, ih]
+      | none => simpa [runInstructionsIn, selected, ih, applyBinding] using reached
       | some assignment =>
         obtain ⟨name, value⟩ := assignment
-        simp [runInstructionsIn, selected, ih, Namespace.bind_preserves_builtins]
+        simpa [runInstructionsIn, selected, ih, applyBinding, Namespace.bind_preserves_builtins] using reached
 
 
 theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}

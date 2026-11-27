@@ -1214,6 +1214,368 @@ has worst-case exponential size in the number of keys. The result applies
 to the guarded grammar at fixed callers and the supplied carrier.
 [Fixed-carrier refinement][ssa-ub-open-guarded-fixed-carrier]
 
+The payload-aware endpoint uses the same guarded control and emits a
+typed constructor expression at each terminal row. The expression can
+read the incoming packet and the caller. Its finite result code indexes
+the complete typed exit packet, including the ordered tag. Exit selection
+runs after decoding that packet. It hides the payload at a selected
+exit and preserves the payload and final state at ordinary exits.
+The decision reuses the existing fixed-carrier interpreter scan.
+
+For the named weak-tree observer, agreement at each request and each
+typed reply continuation, plus exact decoding at returns, gives
+agreement with the exact native readback. The named regression reads
+one register assigned by the incoming block packet and compares it to a
+pure assignment of false. Two reconstructed interpreters produce
+different projected bits at ordered exit zero in final state one.
+The true reply rejects refinement into the fixed projection at those
+same endpoints.
+[Payload-aware native endpoint][ssa-ub-open-guarded-payload]
+[Named weak-tree transport][ssa-ub-named-guarded-payload]
+
+The packet-local recognizer checks the existing versioner's exact entry,
+request decoder, typed reply dispatch, and terminal rows. It infers the
+destinations and the ordered exit at each terminal row. The projected
+bit can be the terminal bit parameter or a unit-to-bit instruction from
+the supplied pure literal table. The unit-packet row needs the literal
+form. The recognizer derives the full weak-tree root and typed decoder
+equations for every accepted table. A comparison that cannot recognize
+a named program or validate a native readback returns no verdict.
+A negative verdict after both checks has a witness on the original
+named runners on the supplied finite carrier. The regression sends a
+changed bit and machine state around a backedge before taking the second
+ordered exit.
+[Recognized packet-local live-outs][ssa-ub-recognized-liveout]
+
+The two-field profile projects an ordered pair of `Bit` registers beside
+the old unit payload. At the bit-packet terminal, either slot may read
+the packet parameter. At either terminal, a slot may use a pure literal
+assignment from the supplied table. Exact readback checks the resulting
+record order and the literal prefix in slot order. The unit-packet
+terminal requires both assignments. The observer validates the packed
+constructor value at the native exit type and reuses the dependent
+packet decoder. The named decision uses the same complete packet and
+selected-exit rule as the native decision. The regression holds the
+first field, exit position, and final state equal while the second
+field witnesses a negative verdict.
+[Ordered two-field live-outs][ssa-ub-ordered-liveout]
+
+The ordered named observer also runs over arbitrary deterministic
+stores. Exact root and decoder replay agrees with the original native
+endpoint before and after exit selection. The theorem specializes to
+the existing finite named observer at an accepted readback.
+
+The fixed packet profile has entry rank one exactly when the bit reply
+leaves the request block for the bit terminal. Both unit replies go to
+the unit terminal. If either endpoint is ranked, the existing cutoff
+computes two stores. A differing root query can be tested at the first
+store. For a common successful reply, at least one continuation is
+terminal. A second store preserves a terminal packet comparison or
+lets a remaining request diverge. This gives the ranked decision for
+the original named ordered-live-out observations at a supplied typed
+caller, with complete packet and result inventories for this profile.
+The regression takes a backedge on the unranked side under a Nat store
+interpreter and distinguishes its primitive divergence from the
+ranked side's selected exit.
+[One-ranked ordered live-outs][ssa-ub-ranked-ordered-liveout]
+
+`Table.compareEntries?` lifts the fixed-carrier comparison to the
+existing exhaustive `CallerEnumeration` of a shared typed domain. Each
+caller is decoded separately into the exact entry type of each original
+CFG. The two entry types need no equality proof. A single deduplicated
+query support covers both decodings for every caller, and the checker
+enumerates the restrictions on that support once.
+
+A positive verdict is equivalent to exact readback at both endpoints and
+the shaped order for every caller, every initial store and every total
+deterministic interpreter on the supplied `Fin n` carrier. A negative
+verdict carries the representative, initial store, and a script whose
+reconstructed interpreter refutes that same order at the original
+endpoints. An empty domain accepts after both readbacks pass. A failed
+readback yields no verdict even there. The theorem fixes the carrier
+size. It supplies no completeness or cutoff across different sizes.
+[Shared-entry refinement][ssa-ub-open-guarded-entries]
+
+A concrete shared-entry refutation transports along any injection
+`Fin n ↪ Fin m`. Map the script's query states and the final states of
+successful replies and faults, then reconstruct the total interpreter
+with ordinary divergence as fallback. At the mapped initial state both
+original decorated observations are the images of their old observations.
+The existing bounded rows run inside the image of the injection, retaining
+divergence and fresh top. Injectivity reflects the ordinary subset order,
+so the refutation still has the same caller and direction.
+
+A rejected shared-entry check therefore rejects on the larger carrier
+with exhaustive inventories and the same exact-readback endpoints and
+caller domain. The proof supplies the transported witness. The larger
+enumeration can find a different witness first. The regression shifts a
+three-state script into five states and checks a return, fault, selected
+exit and infinite replay. This is an upward rejection law. It gives no
+finite cutoff or downward rejection guarantee.
+[Carrier embedding][ssa-ub-open-guarded-carrier-embedding]
+
+The guarded observation proof also accepts a deterministic interpreter
+on an arbitrary store type. Two finite external derivations of the
+installed native feedback graphs give typed query rows, including the
+whole reply at each query. `RunSupport.ofRows` takes the deduplicated union
+of the common start and the returned or fault stores. Every queried store
+and both terminal stores belong to that support. With (q_L) and (q_R)
+recorded queries, the carrier has at most (1 + q_L + q_R) states. One
+script replays both runs. Its decoded observations equal the original
+decorated observations, retaining ordered exits, store equality and
+distinction, faults, and fresh top. A refutation therefore yields a
+negative pointwise check at the same caller and a negative shared-entry
+verdict. The bound depends on these derivations.
+
+A primitive divergence reply is a finite terminal row. An infinite
+replay has no terminal row. Exact state coding of an infinite replay
+would require finite support containing the states at all its invocations
+and closed under their successful replies. The finite typed configuration
+inventory would then bound the query keys, and replay would still need to
+preserve the infinite internal path. A regression advances a natural
+number at every backedge, so no finite list covers that run. The
+compression theorem applies to the finite branch.
+[Finite refutation support][ssa-ub-open-guarded-finite-support]
+
+For a mixed finite and infinite pair, preserving the observation needs
+only the finite side's full typed query table. The infinite side follows
+every recorded reply up to its first unlisted key. That lookup gives
+primitive divergence, with no further replay. If every key is listed,
+the compressed runner has a genuine infinite path. All stores through the
+cut or along the retained path belong to the finite run's support, so the
+bound is one plus the finite run's query count. Both cases give the same
+ordinary divergence as the original infinite run, while the finite
+observation still decodes exactly. A mixed refutation in either direction
+therefore gives a negative pointwise check at the same caller and a
+negative shared-entry verdict. The bound is specific to the finite run.
+
+Ordinary divergence refines itself and a selected-exit top. Returns,
+faults and selected-exit top all fail to refine ordinary divergence.
+Two infinite guarded runs give the same singleton divergence and cannot
+refute each other in this order. The regression exercises a shared first
+reply of a Nat run, a first missing key at the changed store, and a retained
+one-state replay.
+[Mixed finite and infinite refutations][ssa-ub-open-guarded-mixed-support]
+
+The guarded runner has a finite typed derivation or an actual infinite
+feedback path at every typed start. This gives the finite-model property
+for independently exact-readback native endpoints and the exhaustive
+shared caller domain. `Table.finite_model_property` equates refinement
+over every deterministic store type in any chosen Lean universe with
+`some true` from every finite-carrier check. A finite checker counterexample
+can be lifted from `Fin n` into that universe using `ULift`. The observation
+map preserves ordered returns, stores, primitive and infinite divergence,
+and fresh top. Its injectivity reflects the order.
+
+`Table.finite_refutation_iff` gives the existential version. A refuting
+caller and initial store yield a positive carrier size, with the existing
+query-count bound from the finite derivations on each side. The pointwise
+check rejects at that caller and the shared check returns a rejection.
+The bound depends on the witnessed derivations and supplies no fixed
+cutoff. The Boolean projection returns `none` for unsupported readback,
+including at size zero or for an empty caller inventory. Those cases are
+vacuously positive after admission when there is no caller or no initial
+store. A regression proves arbitrary-store validity for two genuine
+request-guarded cycles with different entry labels by checking a closed
+product certificate on every finite carrier.
+[Finite-model property][ssa-ub-open-guarded-finite-model]
+
+The guarded subclass with at least one ranked entry has a single executable
+cutoff. `Table.checkRankedEntries?` checks both native readbacks and requires
+an entry-rank certificate on either side. It compares on `Fin (rank + 1)`,
+using the smaller rank when both are available. Neither ranked entry or a
+failed readback produces `none`.
+
+Under a shared deterministic interpreter, equal exposed queries have the
+same answer. Shared faults and primitive divergence agree. Successful
+replies move both runners and decrease the rank on the ranked side. The
+proof follows an arbitrary-store refutation through these shared replies.
+At a differing head, one store suffices for the terminal test, including
+when a pending request has no successful reply. Divergence separates a
+pending request from an ordinary exit, and a fault versus divergence can
+separate different pending queries. A selected target exit is greatest, so
+that case cannot refute the order. A selected source exit is fresh top and
+can fail against ordinary divergence.
+
+Prepending a shared reply reserves a fresh store and embeds the existing
+suffix interpreter into the remaining stores. This preserves complete
+native observations, with no finite-run premise on the cyclic side.
+The resulting finite countermodel proves that acceptance at the computed
+size implies arbitrary-store deterministic refinement. The converse
+follows from the finite-model property. Regressions compare a genuine
+cycle with a ranked selected exit in both orders, reject a cycle against
+an ordinary return, and return `none` for two unranked entries. The
+earlier two-ranked fixture still needs both stores at its cutoff.
+[Ranked carrier cutoff][ssa-ub-open-guarded-ranked-cutoff]
+
+For exact guarded tables with exhaustive finite typed configuration and reply
+inventories, neither entry needs a rank. At a fixed shared caller, the product
+visits exactly the reachable pairs of typed configurations. It advances only
+on equal opcodes and evaluated arguments followed by a shared successful
+reply. A closed certificate proves refinement on arbitrary deterministic
+stores. Shared faults agree at their final store. If the two runners keep
+taking matched successful replies forever, both observe ordinary divergence.
+
+A reachable local mismatch has a terminal test. An ordinary exit differs
+from another ordered exit or from a pending request forced to diverge. For
+distinct queries, a fault at one key and divergence at the other suffice.
+A selected source exit can fail against an ordinary outcome. A selected
+target exit is greatest. Prepending each shared reply uses a fresh store
+and embeds the suffix interpreter, preserving the order of its full
+observations. This needs no finite derivation for either original runner.
+A shortest path to a mismatch visits distinct configuration pairs, even
+when the product has backedges.
+
+`Table.checkReachableEntries?` uses the maximum distinct reachable-pair
+count over the exhaustive caller inventory as a single carrier size. It
+includes the terminal pair, so a path of length `k` needs only `k + 1`
+stores. A supported verdict decides arbitrary-store deterministic
+refinement. Failed exact readback yields `none`. The regressions accept
+two relabelled productive loops and reject two unranked peers whose first
+mismatch requires a packet-changing reply. A longer path to the same
+mismatch takes an avoidable self-edge.
+[Reachable-product cutoff][ssa-ub-open-guarded-reachable-cutoff]
+
+`OrderedLiveOut.compareReachable?` applies the same cutoff to two checked
+named packet-local RTL endpoints with an agreed constructor-bit caller.
+The ordered result codec retains the original exit and both Bit fields.
+Product edges still depend only on shared typed requests and replies.
+The terminal test compares the full return packet at ordinary exits.
+Selected exits still produce fresh top, which hides the packet. State
+embedding carries the store of each return or fault, and genuine infinite
+replay produces ordinary divergence.
+
+Both native readbacks are checked before a verdict. The inventories come
+from the recognized profile. At the supplied caller, the two verdicts are
+equivalent to refinement or a counterexample over deterministic stores
+of type `Type` at the original named observations. The cyclic regressions
+use a state-changing shared handler for matched infinite replay and a
+handler that returns after one backedge. On the latter run the exit, final
+state and first field agree, and the second field separates the endpoints.
+[Named ordered live-out cutoff][ssa-ub-named-ordered-liveout-reachable]
+
+The native silent-head profile adds unconditional exact-typed constructor
+jumps to guarded rows. Constructor substitution composes the carried
+payload into the next request operand while keeping the caller binding.
+The label scan stops within the number of written labels when the silent
+prefix reaches an existing request or ordered exit. The request itself
+still uses the interpreter at the store left by the preceding reply.
+The exact native readback check precedes normalization.
+
+`Silent.Table.head_correct` certifies an exposed head at a typed invocation
+by actual native transfers. Exhausting the scan certifies ordinary
+divergence in the original native evaluator. The proof builds an infinite
+silent path at the unchanged store, and an exhaustive typed packet
+inventory supplies a repeated configuration on it. A selected exit
+remains fresh top only when reached. The cycle regression separates its
+ordinary divergence from an ordinary exit and checks the directed order
+against a selected exit.
+
+`Silent.Table.checkEntries?` specializes the existing reachable-product
+checker to the normalized heads. The cutoff counts synchronized label
+and packet pairs after silent normalization. Silent transfers contribute
+no interpreter query or extra prefix store. Productive infinite replay
+expands into nonempty native segments.
+
+A certified exhausted scan is an ordinary-divergence terminal in the
+product. It matches another divergent terminal or a selected target exit.
+A pending request differs from a divergent terminal in either direction
+because a primitive fault can separate them. The normalized emitter
+implements the terminal with a silent unit self-loop. Its native
+observation is exactly the divergence singleton. Shortest mismatch paths
+still use one store per shared reply and one store for the terminal test.
+
+The finite comparison is exact for the original decorated packed CFGs at
+the computed cutoff, and acceptance there is equivalent to arbitrary-store
+deterministic refinement. Exhaustion at a written label, including an
+unreachable label, needs no further admission gate. Failed exact readback
+still returns `none`. Regressions cover two native silent cycles and a
+shared state-changing request that reaches a silent cycle on one side and
+an ordered return on the other.
+[Silent head normalization][ssa-ub-open-guarded-silent]
+
+`OrderedLiveOut.Silent.compare?` connects the silent terminal to the
+original packet-local named RTL runner. Either of the two non-request
+rows may be an ordinary ordered return or an identity self-transfer.
+A successful versioned readback checks the leading decoder, self label,
+and unchanged packet variable. The named iterator consumes that
+self-transfer forever. The native readback represents it by the
+certified silent terminal, with no request or store update.
+
+The check uses the existing payload-aware reachable cutoff. The supplied
+typed caller must agree with the seed in both named stores. Failed
+recognition, caller agreement, or exact native readback yields unknown.
+The observations retain the two ordered fields and final state on
+ordinary returns and preserve the selected UB order. The regression
+takes a state-changing shared reply to a silent loop on one side and a
+return on the other. An extra request would fault under the witness
+handler. The actual loop produces ordinary divergence.
+[Named silent terminal transport][ssa-ub-named-ordered-liveout-silent]
+
+`OrderedLiveOut.Identity.admit?` accepts a supplied finite layout with a
+Bit entry and Bit or unit internal packets. Each row uses the existing
+guarded request shape, projected return, or a checked identity packet
+jump to a declared internal label of the same type. The original named
+compiler checks the supplied argument types and the recognizer
+reconstructs the exact numbered syntax and bindings.
+
+The native typed resolver from the silent-terminal checker normalizes
+control. Its label scan also identifies the row whose live-out
+expression supplies a finite return. Packet equality transports that
+expression back to the incoming typed packet. The original named
+iterator follows the same prefix, and an exhausted scan yields a
+genuine silent orbit. The reachable cutoff applies at the common
+typed caller and the exact normalized readbacks. A rejected admission,
+seed binding, or readback yields unknown. The named regressions exercise
+a two-label cycle and a finite chain to an ordered return after the same
+state-changing reply.
+[Named identity packet transfers][ssa-ub-named-ordered-identity]
+
+The packet-indexed profile also admits native pure sum dispatch with a
+constructor jump from each arm. The selected arm binds its sum payload and
+can read the incoming packet and fixed caller. The executable scan counts
+full typed label/packet configurations in an exhaustive inventory.
+Exhaustion gives an infinite silent path with a repeated full configuration.
+Silent transfers keep the store and issue no query.
+
+`Silent.Dispatch.Table.observe_entry` identifies the complete decorated
+observation of an exact-readback original CFG with feedback over the
+computed heads, including productive request replay, fault states and
+selected ordered exits.
+[Packet-indexed silent dispatch][ssa-ub-packet-dispatch]
+
+The dispatcher product explores paired full typed configurations at each
+fixed caller. Equal exposed requests generate a successor pair for every
+typed reply payload, and terminal heads have no reply edges. A certified
+closed product proves refinement over arbitrary deterministic stores.
+The maximum distinct reachable-pair count over the caller inventory
+suffices for a single finite-carrier comparison. A shortest mismatch path
+uses a fresh state per shared reply and one state for the terminal test.
+Rejection gives a caller, interpreter and initial state on this carrier
+that refute the original decorated endpoints. A failed exact readback
+returns unknown. Ordinary divergence remains distinct from both faults
+and selected UB. The regressions exercise two original CFGs in which the
+same effectful reply position reaches an ordered exit or a silent cycle
+at the same label depending on the returned packet.
+[Packet-indexed reachable product][ssa-ub-packet-dispatch-product]
+
+The dispatcher cutoff also decides the refinement sentence between the
+original decorated entries. The sentence uses the existing observational
+inclusion syntax. Its satisfaction adapter records a separate observation
+for fresh top at each initial state, so expanding the ordinary outcomes
+does not lose the lifted order. The native LambdaSSA room accepts scoped
+native CFGs. The adapter agrees with satisfaction in that room when both
+entries use the ambient capture unchanged and every exit forwards.
+
+The supported models fix the atomic carrier to Unit and use the exact
+success, fault and primitive-divergence graph of a shared total typed
+deterministic interpreter. Each endpoint rebinds the caller through its
+own typed decoder while keeping all three relations. The validity theorem
+quantifies over any machine-state type at the chosen universe. A negative
+verdict supplies failure of satisfaction in a model whose state carrier is
+the computed finite cutoff. Failed exact readback still returns unknown.
+[Dispatcher refinement sentences][ssa-ub-packet-dispatch-institution]
+
 ## Coverage and gaps
 
 | Language | Refinement and institutions in the repository | UB construction and remaining hypotheses |
@@ -1380,5 +1742,25 @@ lake build --wfail +Silmaril.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSS
 [ssa-ub-open-guarded-replay]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Thms.lean
 [ssa-ub-open-guarded-schedule]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Product/Search/Replay/Schedule/Thms.lean
 [ssa-ub-open-guarded-fixed-carrier]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Thms.lean
+[ssa-ub-open-guarded-entries]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/Thms.lean
+[ssa-ub-open-guarded-carrier-embedding]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Entry/State/Thms.lean
+[ssa-ub-open-guarded-finite-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Thms.lean
+[ssa-ub-open-guarded-mixed-support]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Infinite/Thms.lean
+[ssa-ub-open-guarded-finite-model]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Thms.lean
+[ssa-ub-open-guarded-ranked-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Ranked/Thms.lean
+[ssa-ub-open-guarded-reachable-cutoff]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FiniteSupport/Model/Reachable/Thms.lean
+[ssa-ub-named-ordered-liveout-reachable]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Reachable/Thms.lean
+[ssa-ub-named-ordered-liveout-silent]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Silent/Thms.lean
+[ssa-ub-named-ordered-identity]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Silent/Identity/Thms.lean
+[ssa-ub-open-guarded-silent]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Thms.lean
+[ssa-ub-packet-dispatch]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Thms.lean
+[ssa-ub-packet-dispatch-product]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Product/Thms.lean
+[ssa-ub-packet-dispatch-institution]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/Silent/Dispatch/Product/Institution/Thms.lean
 [ssa-ub-open-ranks]: ../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Rank/Thms.lean
 [ssa-ub-cyclic-native-checker]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Category/Iteration/Finite/CFG/Dependent/Native/Thms.lean
+
+[ssa-ub-open-guarded-payload]: ../../Silmaril/SSA/Isotope/Institution/UndefinedBehaviour/LambdaSSA/Overlay/Shape/Separation/DependentRequestTree/Native/OpenOperands/Step/FixedCarrier/Payload/Thms.lean
+[ssa-ub-ranked-ordered-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Ranked/Thms.lean
+[ssa-ub-ordered-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Ordered/Thms.lean
+[ssa-ub-recognized-liveout]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Recognize/Thms.lean
+[ssa-ub-named-guarded-payload]: ../../Silmaril/SSA/Isotope/Bridge/NamedFlat/ITree/Entry/LiveOut/PacketLocal/Guarded/FixedCarrier/Payload/Thms.lean

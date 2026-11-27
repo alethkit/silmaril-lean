@@ -391,7 +391,7 @@ private theorem candidate_same (h : Candidate Γ r s L) : SameWith obs Γ r s :=
   rcases h with h | h
   · cases h with
     | @unary n Γ L A a body bs R ha hr hb =>
-      simp only [evalRegionWith]
+      simp only [evalRegionWith, Bool.and_false, Bool.false_eq_true, ite_false]
       cases hv : evalTermWith obs a env with
       | none => exact cfgRun_fault n _
       | some v =>
@@ -410,7 +410,7 @@ private theorem candidate_same (h : Candidate Γ r s L) : SameWith obs Γ r s :=
           rw [eval_weaken _ (extend env v) w p, eval_weaken _ env v p]
   · cases h with
     | @bind L A B a left right ha hl hr =>
-      simp only [Paper.RetainedCase.boundCase, evalRegionWith]
+      simp only [Paper.RetainedCase.boundCase, evalRegionWith, Bool.and_false, Bool.false_eq_true, ite_false]
       cases hv : evalTermWith obs a env with
       | none => rfl
       | some v =>

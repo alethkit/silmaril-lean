@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Defs
 public import Silmaril.SSA.RVSDG.NestedTheta.Petri.Defs
 import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Correctness
+import Silmaril.Proofs.SSA.SeaOfNodes.Memory.Loop.TwoAddress.Institution.Sequential.Boundary.Reindex
 
 /-! Packet equality and observation of the existing numbered splice. -/
 
@@ -14,12 +15,26 @@ open RVSDG (Tuple)
 open RVSDG.OrderedRuntime.Structured (Data Threaded)
 open RVSDG.NestedTheta.ExplicitRuntime (EntryChecked)
 open RVSDG.NestedTheta.Institution
+open Memory.Diamond.Institution (PortMap pullInput)
 
 variable {ambient next : List ValueSort} {cells : Nat}
 
 theorem Wiring.select_word (wiring : Wiring ambient next) (word : Word)
     (captures : Tuple (Val cells) ambient) : (wiring.select word captures).get wiring.wordPort = word :=
   Proofs.select_word wiring word captures
+
+theorem Wiring.map_id (wiring : Wiring ambient next) : wiring.map (fun p => p) = wiring :=
+  Proofs.map_id wiring
+
+theorem Wiring.map_comp {target after : List ValueSort} (wiring : Wiring ambient next)
+    (f : PortMap ambient target) (g : PortMap target after) :
+    wiring.map (fun p => g (f p)) = (wiring.map f).map g :=
+  Proofs.map_comp wiring f g
+
+theorem Wiring.select_map {target : List ValueSort} (wiring : Wiring ambient next)
+    (rename : PortMap ambient target) (word : Word) (input : Tuple (Val cells) target) :
+    (wiring.map rename).select word input = wiring.select word (pullInput rename input) :=
+  Proofs.select_map wiring rename word input
 
 /-- The numbered adapter forwards the entire post-heap at any fuel. -/
 theorem adapter_run (wiring : Wiring ambient next) (fuel : Nat) (word : Word)

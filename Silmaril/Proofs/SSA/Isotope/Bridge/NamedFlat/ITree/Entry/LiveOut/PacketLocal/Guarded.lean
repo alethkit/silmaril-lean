@@ -13,7 +13,7 @@ open Silmaril.Elgot (iter mapReturn liftPure)
 open Silmaril.Elgot.ITree (Tree iterate_uniformity iterate_naturality)
 open Silmaril.SSA.LambdaRTL (CFG obs)
 open LambdaSSA (FiniteCFG)
-open LambdaSSA.Semantics.Interaction (Primitive)
+open LambdaSSA.Semantics.Interaction (Primitive Transfer)
 open LambdaSSA.Semantics.Interaction.Typed.Ordered
 open LambdaSSA.UB.Overlay.Shape
 open LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration
@@ -28,9 +28,9 @@ variable {κ V K α : Type 1} [DecidableEq V] [DecidableEq K]
   {I : Interface κ V K} {fields : K → List (V × Ty κ)} {source : CFG V K P.Instr}
   {N : RequestSignature P.Instr} {R : List Syntax.Ty} {E : Type → Type}
   {a : Admission P I fields source} {g : Table N R} {caller : Syntax.Payload (R.get g.entry)}
-  {query : Query N E} {instr : Primitive E P.Instr α} {input : V × Nat → Value α}
+  {result : TwoRequest.Tag → Transfer α} {query : Query N E} {instr : Primitive E P.Instr α} {input : V × Nat → Value α}
 
-theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cursor R)
+theorem mutable_step (c : Corresponds a g caller query instr input result) (state : Cursor R)
     (pending : CFG.Cyclic.Transfer V K (Value α))
     (encoded : c.encode state =
       let m := treeModel instr
@@ -43,7 +43,7 @@ theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cur
       (treeExitNumber I.exits (obs (CFG.Cyclic.LiveOut.project m selected p)))
     let again := fun p => CFG.Cyclic.Versioning.encodePacketLocal m (CFG.Cyclic.LiveOut.attach selected source)
       (CFG.Cyclic.LiveOut.encode m selected source p)
-    (step g caller query unitExit state >>= liftPure (Sum.map id c.encode)) =
+    (step g caller query result state >>= liftPure (Sum.map id c.encode)) =
       Sum.map outgoing again <$> CFG.Cyclic.step m source.blocks pending := by
   let m := treeModel instr
   let selected := fun k => (fields k).map Prod.fst
@@ -71,22 +71,27 @@ theorem mutable_step (c : Corresponds a g caller query instr input) (state : Cur
     rfl
   | inr => rfl
 
-theorem observe_eq (c : Corresponds a g caller query instr input) :
+omit [HasTy P.Instr Syntax.Ty] in
+theorem observe_eq_of_steps {C : Type 1}
+    (start : C) (next : C → Tree E (Transfer α ⊕ C)) (encode : C → K × Value α)
+    (entry : a.versioned.source.entry.evalJump (treeModel instr) input = pure (encode start))
+    (localStep : ∀ c,
+      (next c >>= liftPure (Sum.map id encode)) =
+        mapReturn (CFG.Cyclic.stepSSA (treeModel instr) a.versioned.source.blocks input)
+          (liftPure fun p => FiniteCFG.packedTreeOutput (treeExitNumber I.exits p)) (encode c)) :
     LiveOut.observeRaw instr I.exits (fun k => (fields k).map Prod.fst) source
-      (fun reg => input (reg, 0)) =
-      iter (step g caller query unitExit) (atBlock ⟨g.entry, caller⟩) := by
+      (fun reg => input (reg, 0)) = iter next start := by
   let m := treeModel instr
   let number := fun (p : K × Value α) => FiniteCFG.packedTreeOutput (treeExitNumber I.exits p)
   let lexicalStep := CFG.Cyclic.stepSSA m a.versioned.source.blocks input
   let actual := mapReturn lexicalStep (liftPure number)
-  let start := atBlock (R := R) ⟨g.entry, caller⟩
-  have same := congrFun (iterate_uniformity (step g caller query unitExit) actual c.encode
+  have same := congrFun (iterate_uniformity next actual encode
     (funext fun i => by
-      change (step g caller query unitExit i >>= liftPure (Sum.map id c.encode)) =
-        (pure (c.encode i) >>= actual)
+      change (next i >>= liftPure (Sum.map id encode)) =
+        (pure (encode i) >>= actual)
       rw [pure_bind]
-      exact c.localStep i)) start
-  change iter (step g caller query unitExit) start = (pure (c.encode start) >>= iter actual) at same
+      exact localStep i)) start
+  change iter next start = (pure (encode start) >>= iter actual) at same
   rw [pure_bind] at same
   have versioned := CFG.Cyclic.Versioning.runPacketLocal_commutes m ⟨fun _ _ => rfl⟩
     (CFG.Cyclic.LiveOut.attach (fun k => (fields k).map Prod.fst) source) a.closed input
@@ -95,11 +100,17 @@ theorem observe_eq (c : Corresponds a g caller query instr input) :
       rw [a.compiled, ← versioned, CFG.Cyclic.LiveOut.run_project]
       simp only [LiveOut.observeRaw, bind_map_left]
       rfl
-    _ = iter lexicalStep (c.encode start) >>= liftPure number := by
-      simp only [CFG.Cyclic.runSSA, c.entry, pure_bind, start, lexicalStep, m]
-    _ = iter actual (c.encode start) :=
+    _ = iter lexicalStep (encode start) >>= liftPure number := by
+      simp only [CFG.Cyclic.runSSA, entry, pure_bind, lexicalStep, m]
+    _ = iter actual (encode start) :=
       congrFun (iterate_naturality lexicalStep (liftPure number)) _
     _ = _ := same.symm
+
+theorem observe_eq (c : Corresponds a g caller query instr input result) :
+    LiveOut.observeRaw instr I.exits (fun k => (fields k).map Prod.fst) source
+      (fun reg => input (reg, 0)) =
+      iter (step g caller query result) (atBlock ⟨g.entry, caller⟩) :=
+  observe_eq_of_steps _ _ c.encode c.entry c.localStep
 
 end Named
 
@@ -137,11 +148,15 @@ private theorem pairedHeads (query : Query S E) (rel : Packet R → Packet T →
           exact ⟨pure (.inr (.exit i)), by simp [liftPure, Coupled.left, headStep],
             by simp [liftPure, Coupled.right, headStep]⟩
         · contradiction
-      | request => contradiction
+      | request | diverge => contradiction
     · exact (ordinary j rfl).elim
+  | diverge =>
+    cases p with
+    | exit | request => contradiction
+    | diverge => exact ⟨Silmaril.Elgot.ITree.diverge, by simp [headStep], by simp [headStep]⟩
   | request op arg next =>
     cases p with
-    | exit => contradiction
+    | exit | diverge => contradiction
     | request op' arg' next' =>
       obtain ⟨key, args, matchesReply⟩ := matched
       subst op'
@@ -159,6 +174,7 @@ private theorem head_ordinary (h : Table S T) (caller : Syntax.Payload (T.get h.
   unfold Table.head at same
   split at same
   · simp [ordinary] at same
+  · contradiction
   · contradiction
 
 theorem iter_eq_of_closed (g : Table S R) (h : Table S T)

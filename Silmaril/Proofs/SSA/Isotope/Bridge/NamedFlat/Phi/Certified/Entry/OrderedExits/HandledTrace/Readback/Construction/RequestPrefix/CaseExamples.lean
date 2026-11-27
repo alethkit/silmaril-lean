@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Thms
+import Silmaril.SSA.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.HandledTrace.Readback.Construction.RequestPrefix.EffectfulEntry.Multiple.Computed.Thms
 import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Packed.Thms
 meta import Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.Defs
 
@@ -623,5 +623,882 @@ theorem effectful_entry_reply_exits :
     rw [run_jump effectDispatcher exit, run_result effectDispatcher (result := ⟨⟨1, (second, first)⟩⟩) rfl]
     exact out_ret _
   exact ⟨trace, trace⟩
+
+
+private def multiChoice : PacketType := .coprod bit replyType
+private def multiContext : BoundCtx PacketType 1 := .snoc .nil multiChoice
+
+-- The left leaf captures a bit and routes its sum reply into an old row.
+-- The other request is under a second binder and returns a bit reply
+-- alongside that binder's payload. The remaining arm bypasses both.
+private def multiPolling : FiniteCFG Bool 1 2 1 where
+  entry := .case (.bv 0)
+    (.let₁ (.op true (.pair (.bv 0) (.bv 0)))
+      (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2)))))
+    (.case (.bv 0)
+      (.let₁ (.op false (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 1))))
+      (.br 2 (.pair (.bv 0) (.bv 0))))
+  block _ := .br 1 .unit
+
+private def multiBuild :=
+  EffectfulEntry.Multiple.compile sig multiContext packets exits multiPolling
+
+private def multiBuilt : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling :=
+  multiBuild.get (by decide +kernel)
+
+example : multiBuilt.outlined.count = 4 := by decide +kernel
+
+-- Compare the actual packed erasure at each request label with its
+-- literal row, including the distinct continuation labels.
+private def packedRowMatches {F : Type} [DecidableEq F] {blocks exits captures : Nat}
+    {signature : PrimitiveSignature F}
+    {context : BoundCtx PacketType captures} {inputs : Fin blocks → PacketType} {outputs : Fin exits → PacketType}
+    {source : FiniteCFG F blocks exits captures}
+    (build : Option (EffectfulEntry.Multiple.Compiled signature context inputs outputs source))
+    (index : Nat) (expected : LambdaSSA.Region F) : Bool :=
+  match build with
+  | none => false
+  | some built =>
+    let count := blocks + built.outlined.count + 1
+    if bound : index < count then
+      let label := (⟨index, bound⟩ : Fin count).cast built.publicReadback.provenance.count
+      let publicRow := built.publicReadback.packed.target.block label
+      (commonRow (count + exits) publicRow.erase expected).isSome
+    else false
+
+example : packedRowMatches multiBuild 1
+    (.let₂ (.var 0) (.let₁ (.op true (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 3) (.var 0))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches multiBuild 3
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₁ (.op false (.var 2)) (.br 4 (.pair (.var 5) (.var 0)))))) = true :=
+  by decide +kernel
+
+-- A reply continuation may also request directly without a case.
+example : (EffectfulEntry.Multiple.read sig packets exits [replyType]
+    (.case (.var 0) (.let₁ (.op false (.var 0)) (.let₁ (.op false (.var 0)) (.br 0 (.var 0))))
+      (.br 1 .unit))).isSome = true := rfl
+
+-- A computed request operand remains outside the structural operand grammar.
+example : (EffectfulEntry.Multiple.read sig packets exits [bit]
+    (.let₁ (.op false (.op false (.var 0))) (.br 0 (.var 0)))).isNone = true := rfl
+
+private def multiEnv (choice : Denote multiChoice) : Env Atom := fun _ => multiChoice.encode choice
+
+private def multiRecord (choice : Denote multiChoice) : Env Atom :=
+  fun _ => NamedFlat.Capture.packEnv 1 (multiEnv choice)
+
+private noncomputable def multiWritten (choice : Denote multiChoice) : Tree Events (Transfer Atom) :=
+  resultCodec id <$> (region sig.primitive (multiEnv choice) multiPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private theorem multi_agreement (built : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling)
+    (choice : Denote multiChoice) :
+    multiWritten choice = built.publicReadback.packed.observe (multiEnv choice) (multiRecord choice) :=
+  built.public_run (multiEnv choice) _ _ id primitivesAgree (codec_id _).symm
+
+private def multiBypass (payload : Denote bit) : Denote multiChoice := .inr (.inr payload)
+
+section Observations
+
+variable (built : EffectfulEntry.Multiple.Compiled sig multiContext packets exits multiPolling)
+
+/-- The pure arm bypasses both requests and returns at the second exit. -/
+theorem multiple_entry_bypass (payload : Denote bit) :
+    multiWritten (multiBypass payload) = pure (output payload payload) ∧
+      built.publicReadback.packed.observe (multiEnv (multiBypass payload)) (multiRecord (multiBypass payload)) =
+        pure (output payload payload) := by
+  have source : multiWritten (multiBypass payload) = pure (output payload payload) := by
+    simp [multiWritten, multiBypass, multiPolling, FiniteCFG.erase, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase,
+      region, multiEnv, multiChoice, PacketType.encode, replyType, LambdaSSA.Semantics.Interaction.term,
+      LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+  exact ⟨source, (multi_agreement built _).symm.trans source⟩
+
+private def multiLeft : Denote multiChoice := .inl first
+private def multiRight : Denote multiChoice := .inr (.inl second)
+
+private def multiLeftTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (pollKey first first)) (.inl second) (.result firstExit)
+
+private def multiRightTrace : Trace Events (Transfer Atom) :=
+  .exchange (.ask (primeKey second)) first (.result (output first second))
+
+private theorem poll_read :
+    sig.primitive true (.pair (bit.encode first) (bit.encode first)) =
+      vis (.ask (pollKey first first)) (fun (reply : sig.Reply (pollKey first first)) => pure (replyType.encode reply)) := rfl
+
+private theorem prime_read :
+    sig.primitive false (bit.encode second) =
+      vis (.ask (primeKey second)) (fun (reply : sig.Reply (primeKey second)) => pure (bit.encode reply)) := rfl
+
+private theorem left_entry :
+    region sig.primitive (multiEnv multiLeft) multiPolling.entry.erase =
+      vis (.ask (pollKey first first)) (fun (reply : sig.Reply (pollKey first first)) => region sig.primitive
+        (LambdaSSA.Semantics.extend (LambdaSSA.Semantics.extend (multiEnv multiLeft) (bit.encode first))
+          (replyType.encode reply))
+        (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2))))) := by
+  simp only [multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  change (sig.primitive true (.pair (bit.encode first) (bit.encode first)) >>= _) = _
+  rw [poll_read, vis_bind]
+  simp only [pure_bind]
+  rfl
+
+private theorem right_entry :
+    region sig.primitive (multiEnv multiRight) multiPolling.entry.erase =
+      vis (.ask (primeKey second)) (fun (reply : sig.Reply (primeKey second)) => pure (2, .pair (bit.encode reply) (bit.encode second))) := by
+  simp only [multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  change (sig.primitive false (bit.encode second) >>= _) = _
+  rw [prime_read, vis_bind]
+  simp only [pure_bind]
+  rfl
+
+theorem multiple_entry_left : HasTrace (multiWritten multiLeft) multiLeftTrace ∧
+      HasTrace (built.publicReadback.packed.observe (multiEnv multiLeft) (multiRecord multiLeft)) multiLeftTrace := by
+  have trace : HasTrace (multiWritten multiLeft) multiLeftTrace := by
+    unfold multiWritten multiLeftTrace
+    rw [show multiPolling.erase = .cfg multiPolling.entry.erase 1 (fun i => (multiPolling.block i).erase) from rfl,
+      region, left_entry]
+    simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+    erw [hasTrace_vis_exchange_iff]
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree Events (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region sig.primitive (LambdaSSA.Semantics.extend (multiEnv multiLeft) p.2) (multiPolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode second) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode second) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode second)]
+      simp [step, multiPolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    have routed :
+        region sig.primitive (LambdaSSA.Semantics.extend
+          (LambdaSSA.Semantics.extend (multiEnv multiLeft) (bit.encode first)) (replyType.encode (.inl second)))
+          (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) =
+          pure (0, bit.encode second) := by
+      simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode]
+    rw [routed, pure_bind]
+    change HasTrace (Elgot.ITree.iterate step (0, bit.encode second) >>= _) _
+    rw [oldExit]
+    simp only [pure_bind]
+    exact out_ret _
+  exact ⟨trace, by rw [← multi_agreement built]; exact trace⟩
+
+theorem multiple_entry_right : HasTrace (multiWritten multiRight) multiRightTrace ∧
+      HasTrace (built.publicReadback.packed.observe (multiEnv multiRight) (multiRecord multiRight)) multiRightTrace := by
+  have trace : HasTrace (multiWritten multiRight) multiRightTrace := by
+    unfold multiWritten multiRightTrace
+    rw [show multiPolling.erase = .cfg multiPolling.entry.erase 1 (fun i => (multiPolling.block i).erase) from rfl,
+      region, right_entry]
+    simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+    erw [hasTrace_vis_exchange_iff]
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, resultCodec, codec_id]
+    exact out_ret _
+  exact ⟨trace, by rw [← multi_agreement built]; exact trace⟩
+
+end Observations
+
+example := multiple_entry_bypass multiBuilt
+example := multiple_entry_left multiBuilt
+example := multiple_entry_right multiBuilt
+
+private def recursiveSig : PrimitiveSignature Bool :=
+  ⟨fun _ => .product bit bit, fun op => if op then replyType else bit⟩
+private abbrev RecursiveEvents := Event recursiveSig.Request recursiveSig.Reply
+
+-- A positive reply enables a second opcode using the case payload and
+-- the original capture. The other reply returns at the second exit.
+private def recursivePolling : FiniteCFG Bool 1 2 1 where
+  entry := .let₁ (.op true (.pair (.bv 0) (.bv 0)))
+    (.case (.bv 0)
+      (.let₁ (.op false (.pair (.bv 0) (.bv 2))) (.br 0 (.bv 0)))
+      (.br 2 (.pair (.bv 0) (.bv 2))))
+  block _ := .br 1 .unit
+
+private def recursiveBuild :=
+  EffectfulEntry.Multiple.compile recursiveSig (.snoc .nil bit) packets exits recursivePolling
+
+private def recursiveBuilt : EffectfulEntry.Multiple.Compiled recursiveSig (.snoc .nil bit) packets exits
+    recursivePolling := recursiveBuild.get (by decide +kernel)
+
+example : recursiveBuilt.outlined.count = 4 := by decide +kernel
+
+example : packedRowMatches recursiveBuild 1
+    (.let₁ (.op true (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 2
+    (.let₂ (.var 0) (.case (.var 0)
+      (.br 3 (.pair (.pair (.var 2) (.var 1)) (.var 0))) (.br 7 (.pair (.var 0) (.var 2))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 3
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.let₁ (.op false (.pair (.var 2) (.var 1))) (.br 4 (.pair (.var 5) (.var 0)))))) = true :=
+  by decide +kernel
+
+example : packedRowMatches recursiveBuild 4
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.br 0 (.var 4))))) = true :=
+  by decide +kernel
+
+private def initialKey : recursiveSig.Request := ⟨true, (first, first)⟩
+private def secondaryKey (payload : Denote bit) : recursiveSig.Request := ⟨false, (payload, first)⟩
+
+private theorem recursive_primitive_agreement : PrimitivesAgree recursiveSig.primitive recursiveSig.primitive id := by
+  intro op value
+  rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+
+private theorem recursive_vis_congr (key : recursiveSig.Request)
+    {left right : recursiveSig.Reply key → Tree RecursiveEvents (Transfer Atom)}
+    (agree : ∀ reply, left reply = right reply) :
+    vis (.ask key) left = vis (.ask key) right := congrArg (vis (.ask key)) (funext agree)
+
+private theorem secondary_call (payload : Denote bit) :
+    recursiveSig.primitive false (.pair (bit.encode payload) (bit.encode first)) =
+      vis (.ask (secondaryKey payload))
+        (fun (reply : recursiveSig.Reply (secondaryKey payload)) => pure (bit.encode reply)) := by
+  let argument : Denote (recursiveSig.argument false) := (payload, first)
+  change recursiveSig.primitive false ((recursiveSig.argument false).encode argument) = _
+  unfold PrimitiveSignature.primitive
+  rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode
+    (recursiveSig.argument false) argument]
+  rfl
+
+private theorem recursive_entry :
+    region recursiveSig.primitive (env first) recursivePolling.entry.erase =
+      vis (.ask initialKey) (fun (reply : recursiveSig.Reply initialKey) =>
+        match reply with
+        | .inl payload => vis (.ask (secondaryKey payload))
+            (fun (next : recursiveSig.Reply (secondaryKey payload)) => pure (0, bit.encode next))
+        | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first))) := by
+  simp only [recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, pure_bind]
+  have initial :
+      recursiveSig.primitive true (.pair (bit.encode first) (bit.encode first)) =
+        vis (.ask initialKey) (fun (reply : recursiveSig.Reply initialKey) => pure (replyType.encode reply)) := rfl
+  change (recursiveSig.primitive true (.pair (bit.encode first) (bit.encode first)) >>= _) = _
+  rw [initial, vis_bind]
+  simp only [pure_bind]
+  apply recursive_vis_congr initialKey
+  intro reply
+  cases reply with
+  | inl payload =>
+    change (recursiveSig.primitive false (.pair (bit.encode payload) (bit.encode first)) >>= _) = _
+    rw [secondary_call, vis_bind]
+    simp only [pure_bind]
+    rfl
+  | inr payload => rfl
+
+private noncomputable def recursiveWritten : Tree RecursiveEvents (Transfer Atom) :=
+  resultCodec id <$> (region recursiveSig.primitive (env first) recursivePolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def recursiveExpected : Tree RecursiveEvents (Transfer Atom) :=
+  vis (.ask initialKey) fun (reply : recursiveSig.Reply initialKey) =>
+    match reply with
+    | .inl payload => vis (.ask (secondaryKey payload)) (fun _ => pure firstExit)
+    | .inr payload => pure (output payload first)
+
+/-- The full source tree exposes the second request only on the selected
+reply arm. That arm uses the older capture and reaches exit zero through
+the existing block. The bypass uses the reply payload at exit one. -/
+private theorem recursive_source : recursiveWritten = recursiveExpected := by
+  unfold recursiveWritten recursiveExpected
+  rw [show recursivePolling.erase = .cfg recursivePolling.entry.erase 1
+    (fun i => (recursivePolling.block i).erase) from rfl, region, recursive_entry]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply recursive_vis_congr initialKey
+  intro reply
+  cases reply with
+  | inl payload =>
+    simp only [vis_bind, pure_bind]
+    apply recursive_vis_congr (secondaryKey payload)
+    intro next
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree RecursiveEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        (recursivePolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode next) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode next) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode next)]
+      simp [step, recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    change (Elgot.ITree.iterate step (0, bit.encode next) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+private def recursiveRecord : Env Atom := fun _ => NamedFlat.Capture.packEnv 1 (env first)
+
+theorem recursive_packed
+    (built : EffectfulEntry.Multiple.Compiled recursiveSig (.snoc .nil bit) packets exits recursivePolling) :
+    built.publicReadback.packed.observe (env first) recursiveRecord = recursiveExpected :=
+  (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans recursive_source
+
+example := recursive_packed recursiveBuilt
+
+open EffectfulEntry.Multiple.Computed (Operand)
+
+-- The first effect is still written inside the outer request's argument.
+-- The outward leaf also reads the older capture across the outer reply
+-- binder and its case binder.
+private def computedPolling : FiniteCFG Bool 1 2 1 where
+  entry := .let₁ (.op true (.pair (.op false (.pair (.bv 0) (.bv 0))) (.bv 0)))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+  block := recursivePolling.block
+
+private def computedBuild :=
+  EffectfulEntry.Multiple.Computed.compile recursiveSig (.snoc .nil bit) packets exits computedPolling
+
+private def computedBuilt :
+    EffectfulEntry.Multiple.Computed.Compiled recursiveSig (.snoc .nil bit) packets exits computedPolling :=
+  computedBuild.get (by decide +kernel)
+
+private def computedRowMatches (index : Nat) (expected : LambdaSSA.Region Bool) : Bool :=
+  match computedBuild with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example : computedRowMatches 1
+    (.let₁ (.op false (.pair (.var 0) (.var 0))) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 3
+    (.let₂ (.var 0) (.let₁ (.op true (.pair (.var 0) (.var 1))) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
+  by decide +kernel
+
+example : computedRowMatches 4
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.case (.var 2) (.br 0 (.var 0)) (.br 7 (.pair (.var 0) (.var 2)))))) = true :=
+  by decide +kernel
+
+-- The initializer is checked before adding the binder. The body
+-- synthesizes its result in the extended scope.
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig []
+    (.let₁ .unit (.var 0))).map (fun checked => checked.1) = some .unit := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig []
+    (.let₁ (.var 0) (.var 0))).isNone = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand recursiveSig [bit]
+    (.let₂ (.var 0) (.var 0))).isNone = true := rfl
+
+private def outerKey (innerReply : Denote bit) : recursiveSig.Request := ⟨true, (innerReply, first)⟩
+
+private theorem outer_call (innerReply : Denote bit) :
+    recursiveSig.primitive true (.pair (bit.encode innerReply) (bit.encode first)) =
+      vis (.ask (outerKey innerReply))
+        (fun (reply : recursiveSig.Reply (outerKey innerReply)) => pure (replyType.encode reply)) := by
+  let argument : Denote (recursiveSig.argument true) := (innerReply, first)
+  change recursiveSig.primitive true ((recursiveSig.argument true).encode argument) = _
+  unfold PrimitiveSignature.primitive
+  rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode
+    (recursiveSig.argument true) argument]
+  rfl
+
+private def computedArgument : Operand recursiveSig [bit] (.product bit bit) :=
+  .pair (.call false (.pure (.pair (.var .here) (.var .here)))) (.pure (.var .here))
+
+private theorem computed_entry :
+    region recursiveSig.primitive (env first) computedPolling.entry.erase =
+      vis (.ask (secondaryKey first)) (fun (innerReply : recursiveSig.Reply (secondaryKey first)) =>
+        vis (.ask (outerKey innerReply)) (fun (reply : recursiveSig.Reply (outerKey innerReply)) =>
+          match reply with
+          | .inl payload => pure (0, bit.encode payload)
+          | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first)))) := by
+  change (region recursiveSig.primitive (env first)
+    (.let₁ (.op true computedArgument.written) (.case (.var 0)
+      (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))))) = _
+  have emitted : computedArgument.schedule.term =
+      .let₁ (.op false (.pair (.var 0) (.var 0))) (.pair (.var 0) (.var 1)) := rfl
+  rw [region, LambdaSSA.Semantics.Interaction.term,
+    computedArgument.preserves_run recursiveSig.primitive (env first), emitted,
+    LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.term]
+  have innerArg : LambdaSSA.Semantics.Interaction.term recursiveSig.primitive (env first)
+      (.pair (.var 0) (.var 0)) = pure (.pair (bit.encode first) (bit.encode first)) := by
+    simp [LambdaSSA.Semantics.Interaction.term, env]
+  rw [innerArg, pure_bind]
+  change (((recursiveSig.primitive false (.pair (bit.encode first) (bit.encode first)) >>= fun reply =>
+    LambdaSSA.Semantics.Interaction.term recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) reply)
+      (.pair (.var 0) (.var 1))) >>= recursiveSig.primitive true) >>= _) = _
+  rw [secondary_call first]
+  simp only [bind_assoc, vis_bind, pure_bind]
+  apply recursive_vis_congr (secondaryKey first)
+  intro innerReply
+  simp only [LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero, LambdaSSA.Semantics.extend_succ,
+    pure_bind]
+  change (recursiveSig.primitive true (.pair (bit.encode innerReply) (bit.encode first)) >>= _) = _
+  rw [outer_call innerReply, vis_bind]
+  simp only [pure_bind]
+  apply recursive_vis_congr (outerKey innerReply)
+  intro reply
+  cases reply with
+  | inl payload => simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode]
+  | inr payload => simp [region, LambdaSSA.Semantics.Interaction.term, replyType, PacketType.encode, env]
+
+private noncomputable def computedWritten : Tree RecursiveEvents (Transfer Atom) :=
+  resultCodec id <$> (region recursiveSig.primitive (env first) computedPolling.erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def computedExpected : Tree RecursiveEvents (Transfer Atom) :=
+  vis (.ask (secondaryKey first)) fun (innerReply : recursiveSig.Reply (secondaryKey first)) =>
+    vis (.ask (outerKey innerReply)) fun (reply : recursiveSig.Reply (outerKey innerReply)) =>
+      match reply with
+      | .inl _ => pure firstExit
+      | .inr payload => pure (output payload first)
+
+/-- The original nested expression calls the inner opcode first. The
+outer key sees its reply paired with the older capture, then the original
+case routes a typed reply to either ordered exit. -/
+private theorem computed_source : computedWritten = computedExpected := by
+  unfold computedWritten computedExpected
+  rw [show computedPolling.erase = .cfg computedPolling.entry.erase 1
+    (fun i => (computedPolling.block i).erase) from rfl, region, computed_entry]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply recursive_vis_congr (secondaryKey first)
+  intro innerReply
+  apply recursive_vis_congr (outerKey innerReply)
+  intro reply
+  cases reply with
+  | inl payload =>
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree RecursiveEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region recursiveSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        (computedPolling.block p.1).erase >>=
+        fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode payload) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
+      simp [step, computedPolling, recursivePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    simp only [pure_bind]
+    change (Elgot.ITree.iterate step (0, bit.encode payload) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+theorem computed_packed
+    (built : EffectfulEntry.Multiple.Computed.Compiled recursiveSig (.snoc .nil bit) packets exits computedPolling) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = computedExpected :=
+  (built.public_run (env first) _ _ id recursive_primitive_agreement (codec_id _).symm).symm.trans computed_source
+
+example := computed_packed computedBuilt
+
+private def scheduleSig : PrimitiveSignature (Fin 3) :=
+  ⟨fun op => if op.val = 2 then .product bit (.product replyType bit) else bit,
+    fun op => if op.val = 0 then bit else replyType⟩
+private abbrev ScheduleEvents := Event scheduleSig.Request scheduleSig.Reply
+
+-- An application can itself take a scheduled argument at the right type.
+example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
+    (.op 1 (.op 0 (.var 0)))).isSome = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.readOperand scheduleSig [bit]
+    (.op 1 (.op 1 (.var 0)))).isNone = true := rfl
+
+-- With the written let, the body uses the initializer reply for both
+-- the second request's argument and the outer argument's first field.
+-- The outer request and its outward continuation also read the capture.
+private def schedulePolling (usesLet : Bool) : FiniteCFG (Fin 3) 1 2 1 where
+  entry := .let₁ (.op 2 (if usesLet then
+    .let₁ (.op 0 (.bv 0)) (.pair (.bv 0) (.pair (.op 1 (.bv 0)) (.bv 1)))
+    else .pair (.op 0 (.bv 0)) (.pair (.op 1 (.bv 0)) (.bv 0))))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+  block _ := .br 1 .unit
+
+private def scheduleBuild (usesLet : Bool) :=
+  EffectfulEntry.Multiple.Computed.compile scheduleSig (.snoc .nil bit) packets exits (schedulePolling usesLet)
+
+private def scheduleBuilt (usesLet : Bool) :
+    EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits (schedulePolling usesLet) :=
+  (scheduleBuild usesLet).get (by cases usesLet <;> decide +kernel)
+
+private def scheduleRowMatches (usesLet : Bool) (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
+  match scheduleBuild usesLet with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example (usesLet : Bool) :
+    scheduleRowMatches usesLet 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by cases usesLet <;> decide +kernel
+
+example (usesLet : Bool) : scheduleRowMatches usesLet 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by cases usesLet <;> decide +kernel
+
+example (usesLet : Bool) : scheduleRowMatches usesLet 3
+    (.let₂ (.var 0) (.let₁ (.op 1 (.var (if usesLet then 0 else 1))) (.br 4 (.pair (.var 3) (.var 0))))) = true :=
+  by cases usesLet <;> decide +kernel
+
+example (usesLet : Bool) : scheduleRowMatches usesLet 4
+    (.let₂ (.var 0) (.let₂ (.var 1) (.br 5 (.pair (.pair (.var 1) (.var 0)) (.var 2))))) = true :=
+  by cases usesLet <;> decide +kernel
+
+example (usesLet : Bool) : scheduleRowMatches usesLet 5
+    (.let₂ (.var 0) (.let₂ (.var 1)
+      (.let₁ (.op 2 (.pair (.var 0) (.pair (.var 2) (.var 1)))) (.br 6 (.pair (.var 5) (.var 0)))))) = true :=
+  by cases usesLet <;> decide +kernel
+
+example (usesLet : Bool) : scheduleRowMatches usesLet 6
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.case (.var 4) (.br 0 (.var 0)) (.br 9 (.pair (.var 0) (.var 2))))))) = true :=
+  by cases usesLet <;> decide +kernel
+
+private def scheduleLeft : scheduleSig.Request := ⟨0, first⟩
+private def scheduleRight (usesLet : Bool) (left : Denote bit) : scheduleSig.Request :=
+  ⟨1, if usesLet then left else first⟩
+private def scheduleOuter (left : Denote bit) (right : Denote replyType) : scheduleSig.Request :=
+  ⟨2, (left, right, first)⟩
+
+private theorem typed_call {F : Type} (signature : PrimitiveSignature F) (key : signature.Request) :
+    signature.primitive key.1 ((signature.argument key.1).encode key.2) =
+      vis (.ask key) (fun (reply : signature.Reply key) => pure ((signature.reply key.1).encode reply)) := by
+  cases key with
+  | mk op arg =>
+    unfold PrimitiveSignature.primitive
+    rw [Silmaril.SSA.LambdaRTL.CFG.Cyclic.Link.Fields.Typed.Visible.PacketType.decode_encode]
+
+private theorem typed_request_congr {F : Type} (signature : PrimitiveSignature F) (key : signature.Request)
+    {left right : signature.Reply key → Tree (Event signature.Request signature.Reply) (Transfer Atom)}
+    (agree : ∀ reply, left reply = right reply) :
+    vis (.ask key) left = vis (.ask key) right := congrArg (vis (.ask key)) (funext agree)
+
+private def scheduledArgument (usesLet : Bool) : Operand scheduleSig [bit] (scheduleSig.argument 2) :=
+  if usesLet then
+    .let₁ (.call 0 (.pure (.var .here)))
+      (.pair (.pure (.var .here)) (.pair (.call 1 (.pure (.var .here))) (.pure (.var (.there .here)))))
+  else .pair (.call 0 (.pure (.var .here))) (.pair (.call 1 (.pure (.var .here))) (.pure (.var .here)))
+
+private theorem scheduled_entry (usesLet : Bool) :
+    region scheduleSig.primitive (env first) (schedulePolling usesLet).entry.erase =
+      vis (.ask scheduleLeft) (fun (left : scheduleSig.Reply scheduleLeft) =>
+        vis (.ask (scheduleRight usesLet left)) (fun (right : scheduleSig.Reply (scheduleRight usesLet left)) =>
+          vis (.ask (scheduleOuter left right)) (fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
+            match reply with
+            | .inl payload => pure (0, bit.encode payload)
+            | .inr payload => pure (2, .pair (bit.encode payload) (bit.encode first))))) := by
+  have written : (schedulePolling usesLet).entry.erase = .let₁ (.op 2 (scheduledArgument usesLet).written)
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) := by cases usesLet <;> rfl
+  have scheduled : (scheduledArgument usesLet).schedule.term =
+      .let₁ (.op 0 (.var 0)) (.let₁ (.op 1 (.var (if usesLet then 0 else 1)))
+        (.pair (.var 1) (.pair (.var 0) (.var 2)))) := by cases usesLet <;> rfl
+  rw [written, region, LambdaSSA.Semantics.Interaction.term,
+    (scheduledArgument usesLet).preserves_run scheduleSig.primitive (env first), scheduled]
+  simp only [LambdaSSA.Semantics.Interaction.term, bind_assoc, pure_bind, LambdaSSA.Semantics.extend_zero,
+    LambdaSSA.Semantics.extend_succ]
+  change (scheduleSig.primitive scheduleLeft.1 ((scheduleSig.argument scheduleLeft.1).encode scheduleLeft.2) >>= _) = _
+  rw [typed_call scheduleSig scheduleLeft, vis_bind]
+  simp only [pure_bind]
+  apply typed_request_congr scheduleSig scheduleLeft
+  intro left
+  let next := scheduleRight usesLet left
+  have argument : LambdaSSA.Semantics.extend (env first) (bit.encode left) (if usesLet then 0 else 1) =
+      (scheduleSig.argument next.1).encode next.2 := by cases usesLet <;> rfl
+  change (scheduleSig.primitive next.1
+    (LambdaSSA.Semantics.extend (env first) (bit.encode left) (if usesLet then 0 else 1)) >>= _) = _
+  rw [argument, typed_call scheduleSig next, vis_bind]
+  simp only [pure_bind]
+  apply typed_request_congr scheduleSig next
+  intro right
+  let key := scheduleOuter left right
+  change (scheduleSig.primitive key.1 ((scheduleSig.argument key.1).encode key.2) >>= _) = _
+  rw [typed_call scheduleSig key, vis_bind]
+  simp only [pure_bind]
+  apply typed_request_congr scheduleSig key
+  intro reply
+  cases reply with
+  | inl payload =>
+    change region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) (.inl (bit.encode payload)))
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) = _
+    simp only [region, LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero, pure_bind]
+  | inr payload =>
+    change region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) (.inr (bit.encode payload)))
+      (.case (.var 0) (.br 0 (.var 0)) (.br 2 (.pair (.var 0) (.var 2)))) = _
+    simp only [region, LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.extend_zero,
+      LambdaSSA.Semantics.extend_succ, pure_bind, env]
+
+private noncomputable def scheduleWritten (usesLet : Bool) : Tree ScheduleEvents (Transfer Atom) :=
+  resultCodec id <$> (region scheduleSig.primitive (env first) (schedulePolling usesLet).erase >>=
+    fun out => pure (FiniteCFG.packedTreeOutput out))
+
+private noncomputable def scheduleExpected (usesLet : Bool) : Tree ScheduleEvents (Transfer Atom) :=
+  vis (.ask scheduleLeft) fun (left : scheduleSig.Reply scheduleLeft) =>
+    vis (.ask (scheduleRight usesLet left)) fun (right : scheduleSig.Reply (scheduleRight usesLet left)) =>
+      vis (.ask (scheduleOuter left right)) fun (reply : scheduleSig.Reply (scheduleOuter left right)) =>
+        match reply with
+        | .inl _ => pure firstExit
+        | .inr payload => pure (output payload first)
+
+/-- The let initializer makes one request. Its reply supplies the second
+request and remains in the outer key with the second reply and capture. -/
+private theorem schedule_source (usesLet : Bool) : scheduleWritten usesLet = scheduleExpected usesLet := by
+  unfold scheduleWritten scheduleExpected
+  rw [show (schedulePolling usesLet).erase = .cfg (schedulePolling usesLet).entry.erase 1
+    (fun i => ((schedulePolling usesLet).block i).erase) from rfl, region, scheduled_entry usesLet]
+  simp only [map_eq_pure_bind, bind_assoc, vis_bind]
+  apply typed_request_congr scheduleSig scheduleLeft
+  intro left
+  apply typed_request_congr scheduleSig (scheduleRight usesLet left)
+  intro right
+  apply typed_request_congr scheduleSig (scheduleOuter left right)
+  intro reply
+  cases reply with
+  | inl payload =>
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree ScheduleEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      region scheduleSig.primitive (LambdaSSA.Semantics.extend (env first) p.2)
+        ((schedulePolling usesLet).block p.1).erase >>= fun out => pure (LambdaSSA.Semantics.Interaction.splitTransfer 1 out)
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode payload) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
+      simp [step, schedulePolling, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+        LambdaSSA.Semantics.Interaction.term, LambdaSSA.Semantics.Interaction.splitTransfer]
+    simp only [pure_bind]
+    change (Elgot.ITree.iterate step (0, bit.encode payload) >>= _) = _
+    rw [oldExit]
+    simp only [pure_bind]
+    rfl
+  | inr payload =>
+    simp [LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id]
+
+theorem schedule_packed (usesLet : Bool)
+    (built : EffectfulEntry.Multiple.Computed.Compiled scheduleSig (.snoc .nil bit) packets exits
+      (schedulePolling usesLet)) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = scheduleExpected usesLet := by
+  have primitives : PrimitivesAgree scheduleSig.primitive scheduleSig.primitive id := by
+    intro op value
+    rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+  exact (built.public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans (schedule_source usesLet)
+
+example := schedule_packed false (scheduleBuilt false)
+example := schedule_packed true (scheduleBuilt true)
+
+private def destructureSig : PrimitiveSignature (Fin 3) :=
+  ⟨fun op =>
+    if op.val = 0 then bit
+    else if op.val = 1 then .product bit bit
+    else .product replyType (.product bit (.product replyType bit)),
+    fun op => if op.val = 0 then .product bit replyType else if op.val = 1 then bit else replyType⟩
+private abbrev DestructureEvents := Event destructureSig.Request destructureSig.Reply
+
+-- Dropping both fields still schedules the initializer once.
+example : (EffectfulEntry.Multiple.Computed.readOperand destructureSig [bit]
+    (.let₂ (.op 0 (.var 0)) .unit)).map (fun checked => checked.2.schedule.term) =
+      some (.let₁ (.op 0 (.var 0)) (.let₂ (.var 0) .unit)) := rfl
+
+-- Slot zero is the sum-valued right field. The later request uses the
+-- left field and older capture, while the outer request uses the right
+-- field twice, the later reply, and the capture.
+private def destructureEntry : FiniteCFG (Fin 3) 1 2 1 where
+  entry := .let₁ (.op 2 (.let₂ (.op 0 (.bv 0))
+    (.pair (.bv 0) (.pair (.op 1 (.pair (.bv 1) (.bv 2))) (.pair (.bv 0) (.bv 2))))))
+    (.case (.bv 0) (.br 0 (.bv 0)) (.br 2 (.pair (.bv 0) (.bv 2))))
+  block _ := .br 1 .unit
+
+private def destructureBuild :=
+  EffectfulEntry.Multiple.Computed.compile destructureSig (.snoc .nil bit) packets exits destructureEntry
+
+private def destructureBuilt :
+    EffectfulEntry.Multiple.Computed.Compiled destructureSig (.snoc .nil bit) packets exits destructureEntry :=
+  destructureBuild.get (by decide +kernel)
+
+private def destructureRowMatches (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
+  match destructureBuild with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example : destructureBuilt.checked.outlined.count = 7 := by decide +kernel
+
+example : destructureRowMatches 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by decide +kernel
+
+example : destructureRowMatches 3
+    (.let₂ (.var 0) (.let₂ (.var 0)
+      (.br 4 (.pair (.pair (.pair (.var 3) (.var 2)) (.var 1)) (.var 0))))) = true :=
+  by decide +kernel
+
+example : destructureRowMatches 4
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.let₁ (.op 1 (.pair (.var 2) (.var 1))) (.br 5 (.pair (.var 7) (.var 0))))))) = true :=
+  by decide +kernel
+
+example : destructureRowMatches 6
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.let₁ (.op 2 (.pair (.var 4) (.pair (.var 6) (.pair (.var 4) (.var 1)))))
+        (.br 7 (.pair (.var 9) (.var 0)))))))) = true :=
+  by decide +kernel
+
+example : destructureRowMatches 7
+    (.let₂ (.var 0) (.let₂ (.var 1) (.let₂ (.var 1) (.let₂ (.var 1) (.let₂ (.var 1)
+      (.case (.var 8) (.br 0 (.var 0)) (.br 10 (.pair (.var 0) (.var 2))))))))) = true :=
+  by decide +kernel
+
+private def pairRequest : destructureSig.Request := ⟨0, first⟩
+private def fieldRequest (left : Denote bit) : destructureSig.Request := ⟨1, (left, first)⟩
+private def destructureOuter (right : Denote replyType) (later : Denote bit) : destructureSig.Request :=
+  ⟨2, (right, later, right, first)⟩
+
+private noncomputable def destructureExpected : Tree DestructureEvents (Transfer Atom) :=
+  vis (.ask pairRequest) fun (fields : destructureSig.Reply pairRequest) =>
+    vis (.ask (fieldRequest fields.1)) fun (later : destructureSig.Reply (fieldRequest fields.1)) =>
+      vis (.ask (destructureOuter fields.2 later)) fun (reply : destructureSig.Reply (destructureOuter fields.2 later)) =>
+        match reply with
+        | .inl _ => pure firstExit
+        | .inr payload => pure (output payload first)
+
+/-- Reduce the original evaluator's product bind. Even with repeated
+field reads, the whole tree asks for the pair exactly once. -/
+private theorem destructure_source :
+    (resultCodec id <$> (region destructureSig.primitive (env first) destructureEntry.erase >>=
+      fun out => pure (FiniteCFG.packedTreeOutput out))) = destructureExpected := by
+  unfold destructureExpected
+  rw [show destructureEntry.erase = .cfg destructureEntry.entry.erase 1
+    (fun i => (destructureEntry.block i).erase) from rfl, region]
+  simp only [destructureEntry, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, map_eq_pure_bind, bind_assoc, pure_bind]
+  change (destructureSig.primitive pairRequest.1 ((destructureSig.argument pairRequest.1).encode pairRequest.2) >>= _) = _
+  rw [typed_call destructureSig pairRequest, vis_bind]
+  apply typed_request_congr destructureSig pairRequest
+  rintro ⟨left, right⟩
+  let key := fieldRequest left
+  have pairReply : (destructureSig.reply pairRequest.1).encode (left, right) =
+      .pair (bit.encode left) (replyType.encode right) := rfl
+  simp only [pure_bind, pairReply, bind_assoc]
+  change (destructureSig.primitive key.1 ((destructureSig.argument key.1).encode key.2) >>= _) = _
+  rw [typed_call destructureSig key, vis_bind]
+  apply typed_request_congr destructureSig key
+  intro later
+  let outer := destructureOuter right later
+  simp only [pure_bind]
+  change (destructureSig.primitive outer.1 ((destructureSig.argument outer.1).encode outer.2) >>= _) = _
+  rw [typed_call destructureSig outer, vis_bind]
+  apply typed_request_congr destructureSig outer
+  intro reply
+  have encodeReply : (destructureSig.reply outer.1).encode reply = replyType.encode reply := rfl
+  rw [encodeReply]
+  cases reply with
+  | inl payload =>
+    simp [replyType, PacketType.encode, LambdaSSA.Semantics.Interaction.splitTransfer]
+    let step (_ : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree DestructureEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      pure (.inl (0, .unit))
+    change (fun out => resultCodec id (FiniteCFG.packedTreeOutput out)) <$>
+      Elgot.ITree.iterate step (0, bit.encode payload) = _
+    have oldExit : Elgot.ITree.iterate step (0, bit.encode payload) = pure (0, .unit) := by
+      change Elgot.iter step (0, bit.encode payload) = _
+      rw [congrFun (iterate_fixpoint step) (0, bit.encode payload)]
+      simp only [step, pure_bind, Sum.elim_inl]
+    rw [oldExit]
+    simp only [map_eq_pure_bind, pure_bind, resultCodec, codec_id, firstExit]
+  | inr payload =>
+    simp [replyType, PacketType.encode, LambdaSSA.Semantics.Interaction.splitTransfer, output, resultCodec, codec_id, env]
+
+theorem destructure_packed
+    (built : EffectfulEntry.Multiple.Computed.Compiled destructureSig (.snoc .nil bit) packets exits destructureEntry) :
+    built.checked.publicReadback.packed.observe (env first) recursiveRecord = destructureExpected := by
+  have primitives : PrimitivesAgree destructureSig.primitive destructureSig.primitive id := by
+    intro op value
+    rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+  exact (built.public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans destructure_source
+
+example := destructure_packed destructureBuilt
+
+private def transferPacket : PacketType := .product bit bit
+
+-- The same effectful argument can go straight to the second exit or
+-- enter old block zero, which sends the same payload to the first exit.
+private def computedTransfer (throughBlock : Bool) : FiniteCFG (Fin 3) 1 2 1 where
+  entry := .br (if throughBlock then 0 else 2)
+    (.let₂ (.op 0 (.bv 0)) (.pair (.bv 1) (.bv 2)))
+  block _ := .br 1 (.bv 0)
+
+private def transferBuild (throughBlock : Bool) :=
+  EffectfulEntry.Multiple.Computed.compile destructureSig (.snoc .nil bit)
+    (fun _ => transferPacket) (fun _ => transferPacket) (computedTransfer throughBlock)
+
+private def transferBuilt (throughBlock : Bool) :
+    EffectfulEntry.Multiple.Computed.Compiled destructureSig (.snoc .nil bit)
+      (fun _ => transferPacket) (fun _ => transferPacket) (computedTransfer throughBlock) :=
+  (transferBuild throughBlock).get (by cases throughBlock <;> decide +kernel)
+
+private def transferRowMatches (throughBlock : Bool) (index : Nat) (expected : LambdaSSA.Region (Fin 3)) : Bool :=
+  match transferBuild throughBlock with
+  | none => false
+  | some built => packedRowMatches (some built.checked) index expected
+
+example (throughBlock : Bool) : transferRowMatches throughBlock 0 (.br 5 (.var 0)) = true :=
+  by cases throughBlock <;> decide +kernel
+
+example (throughBlock : Bool) :
+    transferRowMatches throughBlock 1 (.let₁ (.op 0 (.var 0)) (.br 2 (.pair (.var 1) (.var 0)))) = true :=
+  by cases throughBlock <;> decide +kernel
+
+example (throughBlock : Bool) :
+    transferRowMatches throughBlock 2 (.let₂ (.var 0) (.br 3 (.pair (.var 1) (.var 0)))) = true :=
+  by cases throughBlock <;> decide +kernel
+
+example (throughBlock : Bool) : transferRowMatches throughBlock 3
+    (.let₂ (.var 0) (.let₂ (.var 0) (.br (if throughBlock then 0 else 6) (.pair (.var 1) (.var 3))))) = true :=
+  by cases throughBlock <;> decide +kernel
+
+example (throughBlock : Bool) : transferRowMatches throughBlock 4 (.let₂ (.var 0) (.br 1 (.var 0))) = true :=
+  by cases throughBlock <;> decide +kernel
+
+example : (EffectfulEntry.Multiple.Computed.lift destructureSig (.snoc .nil bit)
+    (fun _ => bit) (fun _ => transferPacket) (computedTransfer true)).isNone = true := rfl
+
+example : (EffectfulEntry.Multiple.Computed.lift destructureSig (.snoc .nil bit)
+    (fun _ => transferPacket) (fun _ => bit) (computedTransfer false)).isNone = true := rfl
+
+private noncomputable def transferExpected (throughBlock : Bool) : Tree DestructureEvents (Transfer Atom) :=
+  vis (.ask pairRequest) fun (fields : destructureSig.Reply pairRequest) =>
+    pure (FiniteCFG.packedTreeOutput (if throughBlock then 0 else 1, .pair (bit.encode fields.1) (bit.encode first)))
+
+private theorem transfer_source (throughBlock : Bool) :
+    (resultCodec id <$> (region destructureSig.primitive (env first) (computedTransfer throughBlock).erase >>=
+      fun out => pure (FiniteCFG.packedTreeOutput out))) = transferExpected throughBlock := by
+  unfold transferExpected
+  rw [show (computedTransfer throughBlock).erase = .cfg (computedTransfer throughBlock).entry.erase 1
+    (fun i => ((computedTransfer throughBlock).block i).erase) from rfl, region]
+  simp only [computedTransfer, LambdaSSA.Flat.erase, Morphism.CaseSSA.erase, region,
+    LambdaSSA.Semantics.Interaction.term, map_eq_pure_bind, bind_assoc, pure_bind]
+  change (destructureSig.primitive pairRequest.1 ((destructureSig.argument pairRequest.1).encode pairRequest.2) >>= _) = _
+  rw [typed_call destructureSig pairRequest, vis_bind]
+  apply typed_request_congr destructureSig pairRequest
+  rintro ⟨left, right⟩
+  have pairReply : (destructureSig.reply pairRequest.1).encode (left, right) =
+      .pair (bit.encode left) (replyType.encode right) := rfl
+  cases throughBlock
+  · simp [pairReply, env, LambdaSSA.Semantics.Interaction.splitTransfer, resultCodec, codec_id]
+  · simp [pairReply, env, LambdaSSA.Semantics.Interaction.splitTransfer]
+    let step (p : LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :
+        Tree DestructureEvents (Transfer Atom ⊕ LambdaSSA.Semantics.Interaction.BlockInput Atom 1) :=
+      pure (.inl (0, p.2))
+    let packet : Value Atom := .pair (bit.encode left) (bit.encode first)
+    change (fun out => resultCodec id (FiniteCFG.packedTreeOutput out)) <$>
+      Elgot.ITree.iterate step (0, packet) = _
+    have oldExit : Elgot.ITree.iterate step (0, packet) = pure (0, packet) := by
+      change Elgot.iter step (0, packet) = _
+      rw [congrFun (iterate_fixpoint step) (0, packet)]
+      simp only [step, pure_bind, Sum.elim_inl]
+    rw [oldExit]
+    simp only [map_eq_pure_bind, pure_bind, resultCodec, codec_id]
+    rfl
+
+theorem transfer_packed (throughBlock : Bool) :
+    (transferBuilt throughBlock).checked.publicReadback.packed.observe (env first) recursiveRecord =
+      transferExpected throughBlock := by
+  have primitives : PrimitivesAgree destructureSig.primitive destructureSig.primitive id := by
+    intro op value
+    rw [codec_id, show valueCodec (id : Atom → Atom) = id from funext codec_id, id_map]
+  exact ((transferBuilt throughBlock).public_run (env first) _ _ id primitives (codec_id _).symm).symm.trans
+    (transfer_source throughBlock)
 
 end Silmaril.Isotope.Bridge.NamedFlat.Phi.Certified.Entry.OrderedExits.Readback.RequestPrefix.CaseExamples

@@ -40,6 +40,12 @@ def assignments (replies : ReplyEnumeration S) (stores : StateInventory states) 
 def interpret [DecidableEq Φ] (script : List (Row Φ states)) : Syntax.Primitives Φ states :=
   extend script (fun _ _ _ => .diverge)
 
+/-- Test the existing interpreter restrictions over their common key support. -/
+def checkAll [DecidableEq Φ] (replies : ReplyEnumeration S) (stores : StateInventory states)
+    (keys : List (Query Φ states)) (test : Syntax.Primitives Φ states → Fin states → Bool) : Bool :=
+  (assignments replies stores keys).all fun script =>
+    stores.values.all (test (interpret script))
+
 end InterpreterScript
 
 /-- All typed invocations, including configurations unreachable from the
@@ -55,7 +61,7 @@ theorem ConfigurationEnumeration.invocation_mem (configs : ConfigurationEnumerat
 /-- Use the full typed key at a request head and no key at an exit. -/
 def Head.query? (head : Head S R) (s : Fin states) : Option (InterpreterScript.Query Φ states) :=
   match head with
-  | .exit .. => none
+  | .exit .. | .diverge => none
   | .request f arg _ => some ⟨f, arg, s⟩
 
 def Table.queries (g : Table S R) (caller : Syntax.Payload (R.get g.entry))
@@ -92,16 +98,22 @@ def Table.runFinite (g : Table S R) (caller : Syntax.Payload (R.get g.entry)) (p
 
 variable [DecidableEq Φ]
 
+/-- Compare the existing finite results under each interpreter restriction.
+The comparison can retain extra information determined by each terminal result. -/
+def Table.checkAllInterpretersBy (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
+    (stores : StateInventory states) (compare : Result 2 states → Result 2 states → Bool) : Bool :=
+  let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
+  InterpreterScript.checkAll replies stores keys fun prim s =>
+    compare (g.runFinite caller prim left stores ⟨g.entry, caller⟩ s)
+      (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s)
+
 def Table.checkAllInterpreters (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T)
     (stores : StateInventory states) : Bool :=
-  let keys := (g.queries caller left stores ++ h.queries caller' right stores).dedup
-  (InterpreterScript.assignments replies stores keys).all fun script =>
-    let prim := InterpreterScript.interpret script
-    stores.values.all fun s =>
-      decide ((g.runFinite caller prim left stores ⟨g.entry, caller⟩ s).refines
-        (h.runFinite caller' prim right stores ⟨h.entry, caller'⟩ s))
+  g.checkAllInterpretersBy h caller caller' replies left right stores (fun result other => decide (result.refines other))
 
 /-- Exact readback is a separate admission gate for each original typed CFG. -/
 def Table.checkAllInterpreters? (g : Table S R) (h : Table S T)

@@ -785,8 +785,536 @@ header, rejects a duplicate producer in the alternate row, and checks
 returns after one or two feedbacks on nonempty memory.
 [Checked regression][table-regression]
 
+### A typed family of feedback slots
+
+`Width.Dispatch.Family.Choices` indexes the number of tests, with one
+additional default column. Each `.test` checks a typed word for nonzero
+and otherwise advances. A `.last` supplies the default, including in a
+family with one slot. Each column goes through the ordinary guarded-row
+checker as a projection of the shared producer table. The emitted ABI
+uses the mapped capture width and the same carried bank.
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List PortTy)} (mapping : InputMap 3 4)
+    (source : Family.Source 3 3 entrySigs sigs 2)
+    (rows : ∀ slot, ∃ prior, Table.lowerChecked (source.row slot) = some prior) :
+    Family.lowerChecked mapping source = some (Family.lowerRTL (Family.mapCaptures mapping source)) :=
+  Family.lowerChecked_of_accepted mapping source rows
+```
+
+Slot `i` is successor 0 of RTL block `3 + i`. Full packets pass to block 1.
+`Family.checked_activation` proves the actual chain reaches that
+occurrence, reading the whole packet before rebinding and preserving
+memory. `Family.selected_phi_packet` relates the same packet to the
+existing explicit-Φ view of its native projection.
+
+`Family.rtl_runMain_fuel_iff` relates RTL instructions to the native
+sequence of selected slots. Entry costs one instruction per producer
+plus its jump. A continuing visit costs one per header producer, one
+continue branch, and `i + 1` dispatch instructions for slot `i`. The
+returning visit costs one per header producer, one branch, and one
+return. `Family.rtl_return_iff` relates finite witnesses with the same
+word and whole memory. The earlier two-slot API keeps its single
+dispatch instruction and its cost law. The three-to-four regression
+checks all three packets and return costs, rejects a malformed last
+column, and exercises the one-slot family.
+[Checked regression][table-regression]
+
+### Extract explicit Φ from the emitted RTL
+
+`Family.Phi.extract fn tests` runs the ordinary RTL checker and reads
+the actual header incoming operands from `fn`. Its typed finite index
+enumerates the entry at `(0, 0)` and then feedback slot `i` at
+`(3 + i, 0)`. The pair is the source block and successor position.
+`reemit_roundTrip` decodes the `PhiView` column into the original
+ordered RTL operands at each occurrence. The view presents branch leaves
+in a flat word-register context. `selected` compares a normalized branch's
+actual λSSA evaluation with the RTL transfer from the same pre-rebind frame,
+including the complete bank and memory. [Public API][family-phi]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List PortTy)} (source : Family.Source 4 3 entrySigs sigs 2)
+    (slot : Fin 3) :
+    let fn := Family.lowerFunc source
+    let view := (Family.Phi.extract fn 2).get (Family.Phi.extract_family source)
+    let key := Family.Phi.key slot.succ
+    (fn.block? key.1).bind (fun block => block.term.args[key.2]?) = view.reemit slot.succ :=
+  Family.Phi.reemit_roundTrip _ slot.succ
+```
+
+`region_hasType` and `region_return_iff` concern the whole region emitted by
+the canonical `RTL.SSA.toLambdaSSA` translator. Its packed exit-zero return
+agrees with the machine's word list and final memory. Compose with
+`Family.rtl_return_iff` for the native trace and unchanged full memory.
+`region_no_return_iff` quantifies over all finite return witnesses. The three-to-four regression covers all
+three feedback packets, a missing occurrence, a finite return and a
+fixed bank with no finite return. [Checked regression][table-regression]
+
+### Live header values in MLIR CF
+
+`Family.MLIR.check` reads every dispatch row from the emitted RTL
+function. A row must be the expected empty dispatcher block with a
+positional feedback edge to header 1. Each subsequent test is the next
+dispatcher. Each selector and feedback register must occur in the
+declared live list. `column_eq_phi` recovers the same ordered operands as
+the existing explicit-Φ view at that occurrence.
+[Typed transport API][cf-dispatch]
+
+`Family.MLIR.lower` takes a typed CF bank program and a list of live
+header origins. The existing producer emitter runs its preheader and
+header, including flag-free wrapping subtraction and signed comparison.
+The header passes the live words as block arguments. Each conditional
+dispatcher uses unsigned `0 < selector` to implement RTL's nonzero test.
+A fallthrough forwards the whole live tuple. A selected feedback edge
+projects its ordered operands from that tuple, including any old bank
+words or header temporaries, before the header rebinds its bank.
+[Shared word operations][cf-word-ops] · [CF block scope][cf-scope]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
+
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (Reg)
+open Silmaril.Machine.RTL.SSA (Func)
+open Silmaril.MLIR.Arith (Width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (TargetOp)
+open Silmaril.MLIR.CF (Cfg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+example {entrySigs sigs : List (List (Silmaril.SSA.SeaOfNodes.Diamond.Ty Width))}
+    (fn : Func Reg) (g : Family.MLIR.Program 4 3 entrySigs sigs)
+    (live : Family.MLIR.Live 4 3 sigs) :
+    Option (Cfg TargetOp (Family.MLIR.Label live.length 3 2) (Family.MLIR.wordsTy 4) [i64]) :=
+  (Family.MLIR.check fn (Family.MLIR.liveRegs live) 3 2).map (Family.MLIR.lower g live)
+```
+
+`header_frame` establishes the CF header packet from the supplied CF
+producer table. `checked_dispatch_step` compares execution of every
+emitted dispatcher block with the corresponding actual RTL.SSA step
+when its live arguments match the old RTL frame. The theorem records
+the successor occurrence, exact ordered operands, post-transfer bank
+readback, and unchanged whole memory. A fallthrough preserves the frame
+and transported tuple, so the same relation applies at the next block.
+The three-to-four regression exercises three distinct feedback packets,
+an actually used header result, and refusal when that result is missing
+from the live list. The prefix theorem below composes these dispatcher
+steps under local producer agreement.
+[Checked regression][table-regression]
+
+### Bounded feedback prefixes
+
+`Family.MLIR.Prefix.predecessor_snapshot` derives the live CF words
+from the real RTL producer frame. `Setup` associates each declared CF
+live origin with its typed native origin at the same RTL register.
+`HeaderMatch` states the local agreement of the supplied producer table
+on the guard and those words at the current carried bank. It requires
+agreement at each visited header. The RTL execution supplies the
+register reads, so subsequent visits rebuild the snapshot from the
+new bank established by the previous Φ latch.
+[Prefix API][cf-prefix]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.RTL (Frame)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
+open Silmaril.MLIR.Arith (Width)
+
+example {old new tests : Nat} {rtlEntry rtlHeader : List (List PortTy)}
+    {entrySigs sigs : List (List (Silmaril.SSA.SeaOfNodes.Diamond.Ty Width))}
+    {mapping : InputMap old new} {source : Family.Source old old rtlEntry rtlHeader tests}
+    {g : Family.MLIR.Program new old entrySigs sigs} {wires : Family.MLIR.Live new old sigs}
+    (sys : Family.MLIR.Prefix.Setup mapping source g wires) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {carried finish : WordTuple old}
+    (path : Family.MLIR.Prefix.Admitted sys input slots carried finish) (frame : Frame Reg)
+    (matched : ArgsMatch frame (appendTuple carried input)) :
+    ∃ after, Family.MLIR.Prefix.Realized sys input mem slots carried frame finish after :=
+  Family.MLIR.Prefix.prefix_correct sys input mem path frame matched
+```
+
+The certificate records the real CF path and RTL instruction path at
+each visit, the reached successor occurrence and complete explicit-Φ
+latch, and the untouched RTL memory. A skipped row forwards the same
+live tuple. `realized_run` consumes `rtlHeader.length + 1 + (i + 1)` RTL
+instructions and `i + 2` CF blocks for feedback slot `i`, leaving
+independent continuation budgets at the new header. The empty prefix
+stops at the input header. The checked producer translation below
+discharges local agreement for the shared word profile.
+
+### Generate the CF producer tables from the checked RTL source
+
+`Family.MLIR.Prefix.Producer.compile` takes a native family, a typed
+capture map, and an ordered list of live native header origins. It runs
+the ordinary resized RTL checker, translates that same mapped producer
+table, and checks the dispatcher scope and explicit-Φ view. The
+translator accepts i64 constants, wrapping add/subtract, and signed
+less-than with ordered operands, emitted as existing `arith` operations.
+It preserves captures, old-bank reads and earlier producer references
+by position. Equality and inequality producers are outside this
+translation. The ordinary RTL checker still governs source admission.
+[Producer API][cf-producer] · [Shared arithmetic][cf-word-ops]
+
+`entry_frame` proves the actual CF entry supplies the same initial bank
+as the RTL entry at the pulled capture valuation. `header_match` proves
+the guard and every live word agree at any shared bank. Pass the native
+feedback path to `prefix_correct`; it derives a fresh agreement on each
+visit and establishes the same simultaneous Φ packet and RTL memory
+frame as the original prefix proof. The result covers entry and
+continuing feedback visits. The exit theorem below composes with it.
+[Prefix API][cf-producer]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Thms
+
+open Silmaril.Machine.Lir (Memory)
+open Silmaril.Machine.RTL (Frame)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy Reg)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop (appendTuple)
+open Family.MLIR.Prefix.Producer (compile prefix_correct Feedbacks)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    (mapping : InputMap old new) (source : Family.Source old old entry header tests)
+    (live : List (HeaderWord new old header)) (checked : (compile mapping source live).isSome)
+    (input : WordTuple new) (mem : Memory) {slots : List (Fin (tests + 1))}
+    {carried finish : WordTuple old}
+    (path : Feedbacks source (mapping.pull input) slots carried finish) (frame : Frame Reg)
+    (matched : ArgsMatch frame (appendTuple carried input)) :
+    ∃ after, Family.MLIR.Prefix.Realized (compile mapping source live |>.get checked).setup
+      input mem slots carried frame finish after :=
+  prefix_correct ((compile mapping source live).get checked) input mem path frame matched
+```
+
+In the three-to-four capture fixture, the generated preheader subtracts
+and then adds to the earlier result. The generated header adds two old
+bank words and compares the result against the third. Slot 0 latches
+`[0, 1, 5]`, which zeros the selector for the next visit. Slot 1 then
+latches `[1, 5, 1]`. The regression checks both executions, refuses a
+live scope missing the computed word, and shows that the first snapshot
+fails against the second real RTL dispatcher frame.
+[Checked regression][table-regression]
+
+### Take the first exit after a feedback prefix
+
+`Producer.Exit.after_prefix` uses the same checked compiler, starting
+RTL frame relation, and native slot choices. A native return at the
+final header determines the taken exit. The theorem records both
+actual backend paths and the positional explicit-Φ latches for the
+preceding feedback visits. The RTL header’s zero successor (block 1,
+slot 1) reads the exact result register from the completed producer
+frame, sends it to block 2, and rebinds only the exit parameter. CF
+takes the false arm with one i64 block argument and returns it from
+the exit block. The RTL branch and return preserve the entire memory.
+[Exit API][cf-exit]
+
+`Producer.Exit.check` validates the exact ordered RTL exit operand and
+singleton return block. A different register of the same type fails
+the check. Capture, carried and producer indices survive the typed
+translation. Ordinary native admission restricts the exit result to an
+old bank word or an admitted computed row result. The structural
+profile has a single signed-guard header exit and one i64 return.
+[Definitions][cf-exit-defs]
+
+`Producer.Exit.returns` starts at entry from a native `ReturnsAlong`
+witness. It proves the emitted CF and RTL bounded runs return the
+same word, and the canonical translated λSSA Region returns its packed
+word at exit zero with the full memory preserved. Add one CF block for
+entry and two for the final header/exit. RTL adds the preheader count
+plus one for entry and the header producer count plus two for the
+final branch and return. The feedback costs remain positional as above.
+[Exit API][cf-exit]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {live : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source live) (input : WordTuple new) (mem : Memory)
+    {slots : List (Fin (tests + 1))} {value : Word}
+    (path : source.ReturnsAlong (mapping.pull input) slots
+      (source.primary.initial model (mapping.pull input)) value) :
+    compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) :=
+  (Family.MLIR.Prefix.Producer.Exit.returns compiled input mem path
+    (fun _ => Silmaril.Machine.RTL.packValues (words input)) rfl).2.1
+```
+
+In the resized fixture the two feedback visits latch `[0, 1, 5]`
+and `[1, 5, 1]`. The next header computes `1 + 5` and takes the exit.
+The regression checks word `6` at 16 RTL instructions and 8 CF blocks
+and at λSSA exit zero. The exit check refuses the first capture as the
+operand in place of the sum.
+[Checked regression][table-regression]
+
+### Recover the exit from an observed CF return
+
+`Producer.Exit.Inversion.from_entry` starts with a successful
+`Producer.compile` result and a return from the actual emitted CF
+runner at typed inputs. The checked entry constructs the initial
+RTL frame and bank relation. Inverting the remaining CF budget
+recovers, in order, the reached feedback occurrences and the first
+taken exit. The resulting certificate includes each actual CF and RTL
+feedback path, its full explicit-Φ latch, and the final exit packet.
+`from_header` also works from a caller-provided matched header frame.
+[Inversion API][cf-exit-inversion]
+
+`reflect` gives the same CF result at the recovered path's block cost,
+the bounded RTL return at its own instruction cost, and the typed λSSA
+return at exit zero. The λSSA environment must supply the packed typed
+captures at index zero. RTL and λSSA preserve the full initial memory.
+The theorem applies to the checked single-exit i64 family described above.
+[Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.RTL (packValues)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost rtlCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (fuel : Nat) (value : Word)
+    (observed : compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :
+    ∃ slots : List (Fin (tests + 1)), cfCost slots + 2 + 1 ≤ fuel ∧
+      compiled.rtl.runMain (entry.length + 1 + (rtlCost header.length slots + (header.length + 2)))
+        0 (words input) mem = .returned [value] mem := by
+  obtain ⟨slots, _, bound, rtl, _, _⟩ :=
+    Family.MLIR.Prefix.Producer.Exit.Inversion.reflect compiled input mem fuel value observed
+      (fun _ => packValues (words input)) rfl
+  exact ⟨slots, bound, rtl⟩
+```
+
+The three-to-four fixture returns `8` in three CF blocks and seven RTL
+instructions on an immediate exit. The mixed run returns `6` with CF
+budget nine. Inversion recovers slots `[0, 1]` and certifies the return
+at eight CF blocks and sixteen RTL instructions. Both regressions start
+from the emitted CF result.
+[Checked regression][table-regression]
+
+### Recover the CF run from an observed RTL return
+
+`Producer.Exit.Inversion.from_rtl` starts with a successful return of
+the actual emitted RTL at an arbitrary instruction budget. The RTL
+fuel inversion supplies the finite native path. The checked entry
+and each actual dispatch cut then give the ordered successor
+occurrences, full explicit-Φ packets and the first taken exit.
+The certificate records the singleton returned word and identifies
+the entire final memory with the initial memory.
+[Inversion API][cf-exit-inversion]
+
+The theorem gives an RTL replay at the consumed instruction budget
+`rtlFuel entry header slots` and a CF return at `cfCost slots + 2 + 1`
+blocks. The original RTL budget can include spare instructions.
+`region_of_rtl` gives λSSA exit zero when environment index zero
+contains the packed typed captures.
+[Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new)
+    (initial final : Memory) (fuel : Nat) (returned : List Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) initial = .returned returned final) :
+    ∃ slots : List (Fin (tests + 1)), ∃ value : Word,
+      returned = [value] ∧ final = initial ∧ Family.rtlFuel entry header slots ≤ fuel ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨slots, value, _, _, _, shape, memory, _, bound, _, _, _, _, _, cf⟩ :=
+    Family.MLIR.Prefix.Producer.Exit.Inversion.from_rtl compiled input initial final fuel returned observed
+  exact ⟨slots, value, shape, memory, bound, cf⟩
+```
+
+The resized RTL regressions start with two spare instructions. The
+immediate run consumes seven and yields the three-block CF return of
+`8`. The mixed run consumes sixteen, recovers slots `[0, 1]`, and yields
+the eight-block CF return of `6`.
+[Checked regression][table-regression]
+
+### Consolidate the forward and converse termination laws
+
+`Producer.Exit.Inversion.returns_iff` combines the actual-run forward law
+(`Exit.returns`/`after_prefix`) and its converse (`from_rtl`) into one
+existence statement: a bounded RTL return exists for the typed input and
+initial memory exactly when an ordered dispatch route (the positional Φ
+observations recorded by `Realized`) reaches a taken exit with the same
+word. That single witness also supplies a matching bounded CF return, with
+the whole memory preserved by both backends. `Family.returnsAlong_unique`
+derives that the recovered route is the only one reaching a given value,
+from the deterministic native selector and row step; it does not relate
+the independent CF block and RTL instruction bounds. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (cfCost Realized wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+open Family.MLIR.Prefix.Producer.Exit (Taken)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (fuel : Nat) (value : Word)
+    (observed : compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem) :
+    ∃ slots before finish after,
+      source.ReturnsAlong (mapping.pull input) slots
+        (source.primary.initial model (mapping.pull input)) value ∧
+      Realized compiled.setup input mem slots
+        (source.primary.initial model (mapping.pull input)) before finish after ∧
+      Taken compiled input mem finish after value ∧
+      compiled.setup.cf.run evalOp (cfCost slots + 2 + 1) (wordEnv input) = some (.cons value .nil) := by
+  obtain ⟨slots, before, finish, after, route, realized, taken, _, cf⟩ :=
+    (Family.MLIR.Prefix.Producer.Exit.Inversion.returns_iff compiled input mem value).mp ⟨fuel, observed⟩
+  exact ⟨slots, before, finish, after, route, realized, taken, cf⟩
+```
+
+In the resized fixture the immediate run returns `8` along the empty
+route, and `Family.returnsAlong_unique` identifies it as the unique route
+for that word. The mixed run returns `6` along `[0, 1]`, the same route
+the forward and converse directions above separately recover.
+[Checked regression][table-regression]
+
+### Finite-return existence and its absence across both backends
+
+`Producer.Exit.Inversion.returns_exists_iff` fills in the CF side of the
+existing RTL-oracle law (`Family.rtl_return_iff`): a bounded CF return
+exists at some budget for the typed input exactly when the abstract
+native source has a finite return along some ordered dispatch route.
+Composing it with `Family.rtl_return_iff` gives `rtl_oracle_iff`: the RTL
+oracle's unbounded native relation returns some word exactly when the
+emitted CF does, at its own bounded budget. `no_return_iff` negates that
+agreement to state the absence of any finite return in either backend,
+quantifying over every budget rather than reading divergence off one
+insufficient run. Under the packed-capture entry side condition,
+`region_no_return_iff` extends that absence to the canonical λSSA Region,
+composing the existing two-directional `Phi.region_no_return_iff` with
+`no_return_iff`. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy model)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory)
+    (absent : ¬ ∃ slots value, source.ReturnsAlong (mapping.pull input) slots
+      (source.primary.initial model (mapping.pull input)) value) :
+    ¬ ∃ fuel value, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil) :=
+  (not_congr (Family.MLIR.Prefix.Producer.Exit.Inversion.returns_exists_iff compiled input mem)).mpr absent
+```
+
+In the resized fixture, `fixedSource` shares the immediate/mixed-feedback
+fixture's header and producer table but reorders its dispatch tests so
+that every activation from `wideSpin` rebinds the same fixed bank
+(`familyFixedBank`) and never selects the exit. The existing
+`fixedCannotReturn` induction (already used for the native and λSSA
+absence laws) now also certifies that the CF compiled from the same
+source never returns at any budget, and that neither does the canonical
+λSSA Region. [Checked regression][table-regression]
+
+### One fixed word, two independently bounded runners
+
+`Producer.Exit.Inversion.cf_returns_iff` closes the remaining narrow gap
+for a fixed result word: a successful bounded CF run returning that word
+exists exactly when an independent, separately bounded RTL run exists
+returning the same singleton with the initial memory preserved. It
+composes the fixed-value CF inversion (`from_entry`/`Exit.from_return_path`)
+with the actual RTL iff (`returns_iff`); neither direction reads a single
+insufficient budget as evidence of nonreturn. [Inversion API][cf-exit-inversion]
+
+```lean
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
+
+open Silmaril.Machine.Lir (Memory Word)
+open Silmaril.Machine.SeaOfNodes.Diamond.RTL (PortTy)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Family.MLIR.Prefix (wordEnv)
+open Family.MLIR.Prefix.Producer (Compiled)
+
+example {old new tests : Nat} {entry header : List (List PortTy)}
+    {mapping : InputMap old new} {source : Family.Source old old entry header tests}
+    {origins : List (HeaderWord new old header)}
+    (compiled : Compiled mapping source origins) (input : WordTuple new) (mem : Memory) (value : Word)
+    (observed : ∃ fuel, compiled.setup.cf.run evalOp fuel (wordEnv input) = some (.cons value .nil)) :
+    ∃ fuel, compiled.rtl.runMain fuel 0 (words input) mem = .returned [value] mem :=
+  (Family.MLIR.Prefix.Producer.Exit.Inversion.cf_returns_iff compiled input mem value).mp observed
+```
+
+In the resized fixture, the mixed run's CF return of `6` at budget nine
+directly supplies the matching bounded RTL return, without separately
+recovering the dispatch route. [Checked regression][table-regression]
+
 ```sh
 lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fuel.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms \
+  +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Regression \
   +Silmaril.Proofs.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Regression \
@@ -818,3 +1346,12 @@ lake build --wfail +Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Fu
 [table-regression]: ../../Silmaril/Proofs/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Regression.lean
 
 [resized-rtl]: https://github.com/hiloopai/silmaril-lean/pull/4456
+[family-phi]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/Phi/Thms.lean
+[cf-scope]: ../../Silmaril/SSA/MLIR/CF/Basic/Defs.lean
+[cf-word-ops]: sea-of-nodes-loop-mlir-cf.md#signed-i64-operations-shared-with-rtl
+[cf-dispatch]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Thms.lean
+[cf-prefix]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Thms.lean
+[cf-producer]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Thms.lean
+[cf-exit]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Thms.lean
+[cf-exit-defs]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Defs.lean
+[cf-exit-inversion]: ../../Silmaril/Machine/SeaOfNodes/Loop/RTL/Routing/Guarded/Rows/Native/Preheader/Table/Width/Dispatch/Family/MLIR/Prefix/Producer/Exit/Inversion/Thms.lean

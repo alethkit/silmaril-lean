@@ -37,7 +37,7 @@ theorem blockFacts_cover (block : Block Op regs)
   intro t port
   exact native ▸ readWires_cover compiled.outgoing covers locals port
 
-private theorem blockFacts_mono (block : Block Op regs)
+theorem blockFacts_mono (block : Block Op regs)
     {a b : Tuple (Fact m.value) (dataPorts regs)} (le : TupleLE a b) :
     TupleLE (blockFacts m block a) (blockFacts m block b) := by
   let compiled := CFG.compileBlock block (Quads.initial regs)
@@ -67,6 +67,10 @@ private theorem choose_mono {a b : Flat (ULift.{w} Bool)} (test : a ≤ b)
     cases b with
     | bottom | constant => exact False.elim test
     | overdefined => exact Finset.union_subset_union onTrue onFalse
+
+theorem successors_mono {a b s t : Flat (ULift.{w} Bool)} (again : a ≤ b) (select : s ≤ t) :
+    successors a s ⊆ successors b t :=
+  choose_mono again (choose_mono select Finset.Subset.rfl Finset.Subset.rfl) Finset.Subset.rfl
 
 private theorem choose_cover {fact : Flat (ULift.{w} Bool)} {actual : ULift.{w} Bool}
     (covered : fact.Covers actual) (onTrue onFalse : Marked) :
@@ -126,11 +130,7 @@ theorem transfer_mono : Monotone (transfer m p input) := by
     apply Finset.insert_subset_insert
     by_cases marked : incomingIndex .entry ∈ a.1
     · have nextMarked := le.1 marked
-      have sides := choose_mono (header p.select)
-        (Finset.Subset.rfl (s := {incomingIndex (.feedback true)}))
-        (Finset.Subset.rfl (s := {incomingIndex (.feedback false)}))
-      have successors := choose_mono (header p.again) sides (Finset.Subset.rfl (s := {exitIndex}))
-      simpa [marked, nextMarked, SCCP.successors] using successors
+      simpa [marked, nextMarked] using successors_mono (header p.again) (header p.select)
     · simp [marked]
   · change phiFacts a.1 (columns m p input left) ≤ phiFacts b.1 (columns m p input right)
     apply (phiFacts_le_iff _ _ _).mpr

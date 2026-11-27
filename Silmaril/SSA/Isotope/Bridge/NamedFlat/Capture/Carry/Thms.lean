@@ -37,6 +37,16 @@ theorem graphList_hasType {τ : Type u} [TypeFormers τ] [HasTy F τ]
     (graphList g slots).HasType β (packetTypesList R β slots) D :=
   Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graphList_hasType typed slots
 
+/-- Extend an internal entry packet with the selected caller fields.
+An outward entry transfer keeps its original value and label. -/
+theorem graphList_entry_tree {Events : Type w → Type w} {α : Type x}
+    (raw : Primitive Events F α) (g : FiniteCFG F blocks exits n)
+    (slots : List (Fin n)) (env : Env α) :
+    region raw env (graphList g slots).entry.erase =
+      (region raw env g.entry.erase >>= fun out =>
+        pure (out.1, if out.1 < blocks then packValue env slots out.2 else out.2)) :=
+  Proofs.SSA.Isotope.Bridge.NamedFlat.Capture.Carry.graphList_entry_tree raw g slots env
+
 /-- The actual row decoders project the supplied fields out of the ordered
 packet. The row preserves outward transfers and re-encodes internal ones. -/
 theorem graphList_row_tree {Events : Type w → Type w} {α : Type x}

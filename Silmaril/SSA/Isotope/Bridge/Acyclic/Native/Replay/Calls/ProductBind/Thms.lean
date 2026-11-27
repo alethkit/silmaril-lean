@@ -29,13 +29,23 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {ε : Type w
 theorem ofPairs (h : OrderedPairs.Eqv pe Γ r k L) : Eqv pe Γ r k L :=
   ofPairs_proof h
 
+/-- Reuse product binding in a contextual extension containing the native
+binary-let binding step. -/
+theorem bind_replay_with {seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop}
+    (includeBind : ∀ {Δ K p q}, Region.BinaryLetBind.Step Δ p q K → seed Δ p q K)
+    (ha : Tm.HasType Γ a (product A B)) (hr : ValueBranches Γ r [product A B])
+    (producer : Region.Paper.Extension.Eqv seed Γ ((Region.br 0 a).bindBranchArguments) r [product A B])
+    (body : Region.Paper.Extension.Eqv seed (B :: A :: Γ) k k' L) :
+    Region.Paper.Extension.Eqv seed Γ (.let₂ a k) (r.lsubst (fun _ => unpack k')) L :=
+  bind_replay_proof includeBind ha hr producer body
+
 /-- Replay a computed product at the original ordered exits. The inserted
 continuation names the product packet once and retains both field binders. -/
 theorem bind_replay (ha : Tm.HasType Γ a (product A B)) (hr : ValueBranches Γ r [product A B])
     (producer : Eqv pe Γ ((Region.br 0 a).bindBranchArguments) r [product A B])
     (body : Eqv pe (B :: A :: Γ) k k' L) :
     Eqv pe Γ (.let₂ a k) (r.lsubst (fun _ => unpack k')) L :=
-  bind_replay_proof ha hr producer body
+  bind_replay_with Or.inr ha hr producer body
 
 /-- Contract a constructor pair at any typed continuation. Slot zero is
 the right field, slot one is the left, and higher slots are the captures. -/

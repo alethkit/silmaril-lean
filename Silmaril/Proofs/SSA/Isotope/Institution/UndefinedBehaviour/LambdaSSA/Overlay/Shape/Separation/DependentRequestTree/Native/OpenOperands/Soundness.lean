@@ -70,6 +70,8 @@ private theorem expand_agrees (g : Table S R) (input : Payload (R.get g.entry)) 
       unfold after
       rw [CFG.Dependent.Native.denote_exitContinuation (Γ := [R.get g.entry])]
       cases marked : g.selected j <;> rfl
+    · rename_i rowEq
+      exact (g.ranked_not_diverge ranked rowEq).elim
     · rename_i f arg next typed rowEq
       let env := (g.bindings input).push incoming
       have run : graph g input prim (.block i incoming.val s) =
@@ -87,14 +89,14 @@ private theorem expand_agrees (g : Table S R) (input : Payload (R.get g.entry)) 
         change Shape.denote (.native (CFG.Dependent.Native.packedRequestTo f arg
           (S.target f) target type)) (model prim env) s = _
         rw [← CFG.Dependent.Native.packedRequestTo_agrees, CFG.Dependent.observe_packedRequestTo]
-        rfl
+        cases prim f (arg.eval env) s <;> rfl
       rw [Tree.execute]
       cases reply : prim f (arg.eval env) s with
       | ret b t =>
         rw [reply] at run
         let p := CFG.Dependent.unpack (cast (congrArg Payload (S.target f)) b)
         have edge : next p.1 ∈ g.targets i := by
-          rw [Table.targets, rowEq, Row.targets]
+          rw [Table.targets, rowEq]
           exact List.mem_ofFn.mpr ⟨p.1, rfl⟩
         have successor := Rank.ranked_successor g.targets ranked edge
         let carried : Payload (R.get (next p.1)) := cast (congrArg Payload (typed p.1).symm) p.2

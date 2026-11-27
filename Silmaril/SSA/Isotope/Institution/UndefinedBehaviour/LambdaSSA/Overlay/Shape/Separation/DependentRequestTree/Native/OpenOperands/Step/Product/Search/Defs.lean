@@ -56,6 +56,11 @@ inductive ProductPath (edges : ProductConfig R T → List (ProductEdge S R T)) (
   | step {past p edge} : ProductPath edges start past p → edge ∈ edges p →
       ProductPath edges start (past ++ [edge]) edge.2
 
+/-- Every pair visited along a path, including its initial pair. -/
+def ProductPath.vertices (start : ProductConfig R T) (path : List (ProductEdge S R T)) :
+    List (ProductConfig R T) :=
+  start :: path.map (fun edge => edge.2)
+
 namespace ProductSearch
 
 abbrev Visit (S : RequestSignature Φ) (R T : List Syntax.Ty) :=
@@ -78,11 +83,25 @@ def scan (edges : ProductConfig R T → List (ProductEdge S R T)) :
       let remaining' := remaining.filter fun p => !productContains [visit.1] p.1 p.2
       scan edges fuel remaining' (visit :: seen)
 
+/-- Explore from a typed entry with any packet-indexed edge function. -/
+def visits (edges : ProductConfig R T → List (ProductEdge S R T))
+    (entry : ProductConfig R T) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    List (Visit S R T) :=
+  let remaining := (left.configs.product right.configs).filter fun p => !productContains [entry] p.1 p.2
+  scan edges remaining.length remaining [(entry, [])]
+
 inductive Result (S : RequestSignature Φ) (R T : List Syntax.Ty) where
   | accepted (pairs : List (ProductConfig R T))
   | mismatch (pair : ProductConfig R T) (path : List (ProductEdge S R T))
 
 end ProductSearch
+
+/-- Scan the reachable synchronized pairs for this caller, keeping their reply paths. -/
+def Table.productVisits [DecidableEq Φ] (g : Table S R) (h : Table S T)
+    (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
+    (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
+    List (ProductSearch.Visit S R T) :=
+  ProductSearch.visits (g.productEdges h caller caller' replies) (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩) left right
 
 /-- Start with the entry pair and inspect its reachable typed product.
 A mismatch carries the shared reply path from the entry in forward order. -/
@@ -90,9 +109,7 @@ def Table.searchProduct [DecidableEq Φ] (g : Table S R) (h : Table S T)
     (caller : Syntax.Payload (R.get g.entry)) (caller' : Syntax.Payload (T.get h.entry))
     (replies : ReplyEnumeration S) (left : ConfigurationEnumeration R) (right : ConfigurationEnumeration T) :
     ProductSearch.Result S R T :=
-  let entry : ProductConfig R T := (⟨g.entry, caller⟩, ⟨h.entry, caller'⟩)
-  let remaining := (left.configs.product right.configs).filter fun p => !productContains [entry] p.1 p.2
-  let seen := ProductSearch.scan (g.productEdges h caller caller' replies) remaining.length remaining [(entry, [])]
+  let seen := g.productVisits h caller caller' replies left right
   match seen.find? fun v => !g.productLocal h caller caller' replies v.1 with
   | none => .accepted (seen.map Prod.fst)
   | some (pair, path) => .mismatch pair path

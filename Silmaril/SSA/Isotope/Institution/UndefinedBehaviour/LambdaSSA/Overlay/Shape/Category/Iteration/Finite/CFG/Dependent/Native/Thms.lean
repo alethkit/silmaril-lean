@@ -5,6 +5,8 @@ import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Over
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Transport
 import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Comparison
 
+import Silmaril.Proofs.SSA.Isotope.Institution.UndefinedBehaviour.LambdaSSA.Overlay.Shape.Category.Iteration.Finite.CFG.Dependent.Native.Divergence
+
 /-! # Exact transport from native readback to the installed overlay evaluator -/
 
 public section
@@ -77,5 +79,12 @@ theorem check_recognized_iff [DecidableEq Φ] {raw target : Typed Φ [X] L}
       Shape.denote (.native raw) M s ≤ Shape.denote (.native target) M s :=
   Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.check_recognized_iff
     hl hr C prim
+
+/-- The native silent self-loop has exactly the ordinary-divergence singleton. -/
+theorem observe_diverge {Φ : Type u} [HasTy Φ Syntax.Ty] {Γ L : List Syntax.Ty}
+    {σ : Type w} (prim : Syntax.StatePrimitives Φ σ) (env : Syntax.Bindings Γ) (s : σ) :
+    Shape.denote (.native (diverge (Φ := Φ) (Γ := Γ) (L := L))) (Syntax.model prim env) s =
+      WithTop.some {Outcome.diverge} :=
+  Proofs.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native.observe_diverge prim env s
 
 end Silmaril.Isotope.LambdaSSA.UB.Overlay.Shape.Category.FiniteIteration.CFG.Dependent.Native

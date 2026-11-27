@@ -26,6 +26,18 @@ noncomputable def step {A B : Q} (g : A ⟶ B ⨿ A) : A ⨿ (A ⨿ A) ⟶ B ⨿
     (coprod.desc (g ≫ coprod.map (𝟙 B) (coprod.inr ≫ coprod.inr))
       (g ≫ coprod.map (𝟙 B) coprod.inl))
 
+/-- Execute the indicated round at each phase and advance on recurrence.
+Each phase shares the same outward object. -/
+noncomputable def cycleRows {A B : Q} (first middle last : A ⟶ B ⨿ A) :
+    A ⨿ (A ⨿ A) ⟶ B ⨿ (A ⨿ (A ⨿ A)) :=
+  coprod.desc (first ≫ coprod.map (𝟙 B) (coprod.inl ≫ coprod.inr))
+    (coprod.desc (middle ≫ coprod.map (𝟙 B) (coprod.inr ≫ coprod.inr))
+      (last ≫ coprod.map (𝟙 B) coprod.inl))
+
+/-- Batch the three designated rounds, returning as soon as one exits. -/
+noncomputable abbrev batchRows {A B : Q} (first middle last : A ⟶ B ⨿ A) : A ⟶ B ⨿ A :=
+  first ≫ coprod.desc coprod.inl (middle ≫ coprod.desc coprod.inl last)
+
 /-- Run up to three rounds, stopping as soon as any round exits. -/
 noncomputable abbrev triple {A B : Q} (g : A ⟶ B ⨿ A) : A ⟶ B ⨿ A :=
   g ≫ coprod.desc coprod.inl (g ≫ coprod.desc coprod.inl g)

@@ -33,6 +33,25 @@ private theorem split_codec (count : blocks = publicBlocks) (atom : α → β) (
   rcases out with ⟨i, value⟩
   by_cases localLabel : i < blocks <;> simp [splitTransfer, stateCodec, resultCodec, localLabel]
 
+def sameGraph (prim : PrimitivesAgree left right atom) (graph : FiniteCFG F blocks exits captures)
+    (env : Env α) : Alignment graph graph left right env (valueCodec atom ∘ env) atom := by
+  have localTransfer {labels n : Nat} (body : LambdaSSA.Flat F labels n) (localEnv : Env α) :
+      Sum.map (resultCodec atom) (stateCodec (rfl : blocks = blocks) atom) <$>
+        transfer left localEnv blocks body =
+        transfer right (valueCodec atom ∘ localEnv) blocks body := by
+    unfold transfer
+    rw [← flat_codec prim]
+    simp only [← bind_pure_comp, bind_assoc, pure_bind, split_codec]
+  refine ⟨stateCodec rfl atom, localTransfer graph.entry env, fun pending => ?_⟩
+  change _ = transfer right (extend (valueCodec atom ∘ env) (valueCodec atom pending.2))
+    blocks (graph.block pending.1)
+  have mapped : valueCodec atom ∘ extend env pending.2 =
+      extend (valueCodec atom ∘ env) (valueCodec atom pending.2) := by
+    funext i
+    cases i <;> rfl
+  exact (localTransfer (graph.block pending.1) (extend env pending.2)).trans
+    (congrArg (fun localEnv => transfer right localEnv blocks (graph.block pending.1)) mapped)
+
 theorem entry (p : Provenance source target)
     (packet : rightEnv p.slot.val =
       valueCodec atom (packetValue leftEnv p.seed)) :

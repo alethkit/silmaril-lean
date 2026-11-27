@@ -3,6 +3,11 @@ module
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Reindex.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Thms
 import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.Phi.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Thms
+import Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch.Family.MLIR.Prefix.Producer.Exit.Inversion.Thms
 
 namespace Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table
 
@@ -636,5 +641,577 @@ example : (dispatchProg.runMain 10 0 (words rightInput) mem).returnedValues? = n
 example : Width.Dispatch.lowerChecked removeCapture { dispatchSource with
     other := .cons (.output (0 : Fin 2) .head)
       (.cons (.output (0 : Fin 2) .head) (.cons (.arg (old 1)) .nil)) } = none := by cbv
+
+private def familySource : Width.Dispatch.Family.Source 3 3 Entry Header 2 :=
+  ⟨source,
+    .test (.arg (prefixPort (capture 0))) (source.phiInputs .backedge)
+      (.test (.arg (prefixPort (capture 1))) dispatchSource.other
+        (.last (.cons (.output (0 : Fin 2) .head)
+          (.cons (.arg (old 2)) (.cons (.arg (old 0)) .nil)))))⟩
+
+private def familyProg :=
+  Width.Dispatch.Family.lowerRTL (Width.Dispatch.Family.mapCaptures widenCaptures familySource)
+
+private def lastPlan : Plan 3 Entry := (recognize (familySource.row (2 : Fin 3))).get (by cbv)
+private def lastTarget : Checked.Phi.Targets := (lastPlan.rtl, Generic.lower (familySource.row (2 : Fin 3)))
+private theorem lastAccepted : lowerChecked (familySource.row (2 : Fin 3)) = some lastTarget := by cbv
+
+private theorem familyAccepted :
+    Width.Dispatch.Family.lowerChecked widenCaptures familySource = some familyProg := by
+  apply Width.Dispatch.Family.lowerChecked_of_accepted
+  intro slot
+  refine Fin.cases ?_ (fun rest => ?_) slot
+  · exact ⟨targets, accepted⟩
+  · refine Fin.cases ?_ (fun last => ?_) rest
+    · exact ⟨otherTarget, by cbv⟩
+    · have eq : last = 0 := Fin.eq_zero last
+      subst last
+      exact ⟨lastTarget, lastAccepted⟩
+
+example : (familyProg.func? 0).map (·.sig.params) = some 4 :=
+  (Width.Dispatch.Family.lowerChecked_sound widenCaptures familySource familyAccepted).2.2.2
+
+private def middleInput : WordTuple 4 := .cons (0 : Word) (bank 1 99 5)
+private def defaultInput : WordTuple 4 := .cons (0 : Word) (bank 0 99 5)
+
+private def feedbackAt (fuel : Nat) (input : WordTuple 4) : Option (Nat × List Word × Memory) := do
+  let state ← runningState? (familyProg.runMain fuel 0 (words input) mem)
+  let packet ← state.frame.readAll (paramRegs 4 3)
+  pure (state.point.label, packet, state.mem)
+
+-- The extra tests consume real instructions and leave the old bank in place.
+example : feedbackAt 6 wideInput = some (3, [1, 3, 5], mem) := by cbv
+example : feedbackAt 7 wideInput = some (1, [4, 3, 5], mem) := by cbv
+example : feedbackAt 7 middleInput = some (4, [-5, -4, 5], mem) := by cbv
+example : feedbackAt 8 middleInput = some (1, [-9, 5, -4], mem) := by cbv
+example : feedbackAt 8 defaultInput = some (5, [-5, -5, 5], mem) := by cbv
+example : feedbackAt 9 defaultInput = some (1, [-10, 5, -5], mem) := by cbv
+
+example : familyProg.runMain 11 0 (words wideInput) mem = .returned [7] mem := by cbv
+example : familyProg.runMain 12 0 (words middleInput) mem = .returned [-4] mem := by cbv
+
+private theorem defaultReturns :
+    familySource.ReturnsAlong (widenCaptures.pull defaultInput) [2]
+      (source.initial model (widenCaptures.pull defaultInput)) (-5) :=
+  .feedback (next := bank (-10) 5 (-5)) (by cbv) (.exit (by cbv))
+
+example : familyProg.runMain 13 0 (words defaultInput) mem = .returned [-5] mem :=
+  (Width.Dispatch.Family.rtl_runMain_fuel_iff widenCaptures familySource familyAccepted
+    defaultInput mem mem [-5] 13).mpr ⟨[2], -5, defaultReturns, by decide, rfl, rfl⟩
+
+example : (familyProg.runMain 12 0 (words defaultInput) mem).returnedValues? = none := by cbv
+
+-- Duplicate the same computed result within the third column.
+example : Width.Dispatch.Family.lowerChecked widenCaptures { familySource with
+    rows := .test (.arg (prefixPort (capture 0))) (source.phiInputs .backedge)
+      (.test (.arg (prefixPort (capture 1))) dispatchSource.other
+        (.last (.cons (.output (0 : Fin 2) .head)
+          (.cons (.output (0 : Fin 2) .head) (.cons (.arg (old 0)) .nil))))) } = none := by cbv
+
+private def singletonSource : Width.Dispatch.Family.Source 3 3 Entry Header 0 :=
+  ⟨source, .last (source.phiInputs .backedge)⟩
+
+example : (Width.Dispatch.Family.lowerChecked widenCaptures singletonSource).map
+    (fun program => (program.runMain 11 0 (words wideInput) mem).returnedValues?) =
+    some (some [7]) := by cbv
+
+section ExtractedPhi
+
+open Silmaril.Machine.RTL (Opcode packValues)
+open Silmaril.Machine.RTL.SSA (toLambdaSSA)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+open Silmaril.Isotope.LambdaSSA.Semantics (Env)
+open Silmaril.SSA.PhiView (latch)
+
+private def familyFunction := (familyProg.func? 0).get (by rfl)
+private def familyPhi : Family.Phi.Checked familyFunction 2 :=
+  ⟨by decide⟩
+
+example : Family.Phi.extract familyFunction 2 = some familyPhi := by
+  have wf : familyFunction.WellFormed := Family.lowerFunc_wellFormed _
+  simp [Family.Phi.extract, wf, familyPhi.present]
+
+-- Four original occurrences target the same three-word header.
+example : (List.finRange 4).map Family.Phi.key = [(0, 0), (3, 0), (4, 0), (5, 0)] := by decide
+
+example : (List.finRange 4).map familyPhi.reemit = [
+    some (1, [.arg 7, .arg 8, .arg 3]),
+    some (1, [.node 0, .arg 5, .arg 6]),
+    some (1, [.node 0, .arg 6, .arg 5]),
+    some (1, [.node 0, .arg 6, .arg 4])] := by
+  change [familyPhi.reemit 0, familyPhi.reemit 1, familyPhi.reemit 2, familyPhi.reemit 3] = _
+  simp only [← Family.Phi.reemit_roundTrip]
+  rfl
+
+example : (Family.Phi.extract familyFunction 3).isNone := by
+  unfold Family.Phi.extract
+  split
+  · split
+    · rename_i present
+      have absent : Family.Phi.readColumn familyFunction (Family.Phi.key (4 : Fin 5)) = none := rfl
+      have impossible := present (4 : Fin 5)
+      rw [absent] at impossible
+      cases impossible
+    · rfl
+  · rfl
+
+private def extractedAt (fuel : Nat) (input : WordTuple 4) (slot : Fin 3) := do
+  let state ← runningState? (familyProg.runMain fuel 0 (words input) mem)
+  let incoming := slot.succ
+  if state.point.label = (Family.Phi.key incoming).1 then
+    some (latch familyPhi.view (familyPhi.edge incoming) (Family.Phi.snapshot familyFunction.allDefs state.frame),
+      state.mem)
+  else none
+
+example : extractedAt 6 wideInput 0 = some (packValues [4, 3, 5], mem) := by cbv
+example : extractedAt 7 middleInput 1 = some (packValues [-9, 5, -4], mem) := by cbv
+example : extractedAt 8 defaultInput 2 = some (packValues [-10, 5, -5], mem) := by cbv
+example : extractedAt 7 middleInput 0 = none := by cbv
+
+private def machineEnv (input : WordTuple 4) : Env Word :=
+  fun _ => packValues (words input)
+
+example : Eval (Opcode.step (sigs := [⟨4, 1⟩]) familyProg.oracle) (machineEnv defaultInput)
+    (toLambdaSSA [⟨4, 1⟩] familyFunction) mem 0 (packValues [-5]) mem :=
+  (Family.Phi.region_return_iff widenCaptures familySource familyAccepted defaultInput _ rfl mem mem [-5]).mpr
+    ((Family.rtl_return_iff widenCaptures familySource familyAccepted defaultInput mem mem [-5]).mpr
+      ⟨[2], -5, defaultReturns, rfl, rfl⟩)
+
+private def fixedSource : Family.Source 3 3 Entry Header 2 :=
+  { familySource with
+    rows := .test (.arg (prefixPort (capture 1))) (familySource.rows.column 0)
+      (.test (.arg (prefixPort (capture 0))) (familySource.rows.column 1)
+        (.last (familySource.rows.column 2))) }
+
+private def fixedProg := Family.lowerRTL (Family.mapCaptures widenCaptures fixedSource)
+
+private theorem fixedAccepted : Family.lowerChecked widenCaptures fixedSource = some fixedProg :=
+  Family.lowerChecked_of_accepted widenCaptures fixedSource
+    (Family.lowerChecked_sound widenCaptures familySource familyAccepted).1
+
+private def familyFixedBank := source.initial model (widenCaptures.pull wideSpin)
+
+private theorem fixedStep : fixedSource.step (widenCaptures.pull wideSpin) familyFixedBank =
+    .inr (0, familyFixedBank) := by cbv
+
+private theorem fixedCannotReturn {slots : List (Fin 3)} {carried : WordTuple 3} {value : Word}
+    (trace : fixedSource.ReturnsAlong (widenCaptures.pull wideSpin) slots carried value)
+    (atFixed : carried = familyFixedBank) : False := by
+  induction trace with
+  | exit taken =>
+    rw [atFixed, fixedStep] at taken
+    cases taken
+  | feedback taken _ ih =>
+    rw [atFixed, fixedStep] at taken
+    exact ih (congrArg Prod.snd (Sum.inr.inj taken)).symm
+
+example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) fixedProg.oracle) (machineEnv wideSpin)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures fixedSource)))
+    mem 0 value final := by
+  apply (Family.Phi.region_no_return_iff widenCaptures fixedSource fixedAccepted wideSpin _ rfl mem).mpr
+  rintro ⟨returned, final, run⟩
+  obtain ⟨_, _, trace, _, _⟩ :=
+    (Family.rtl_return_iff widenCaptures fixedSource fixedAccepted wideSpin mem final returned).mp run
+  exact fixedCannotReturn trace rfl
+
+end ExtractedPhi
+
+section CFDispatch
+open Silmaril.Machine.RTL (Opcode packValues)
+open Silmaril.Machine.RTL.SSA (toLambdaSSA)
+
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.MLIR.CF (i64)
+open Silmaril.MLIR.Arith (Env Width)
+open Silmaril.SSA.SeaOfNodes.Loop.MLIR.CF (evalOp)
+open Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table.Width.Dispatch
+
+private abbrev cfWord : Diamond.Ty Width := .value (.data i64)
+private abbrev cfPred : Diamond.Ty Width := .value .predicate
+private abbrev cfEntry : List (List (Diamond.Ty Width)) := [[cfWord], [cfWord]]
+private abbrev cfHeader : List (List (Diamond.Ty Width)) := [[cfWord], [cfPred]]
+
+-- The three-to-four RTL fixture has one unused capture at position 2.
+private def cfBank : Family.MLIR.Program 4 3 cfEntry cfHeader where
+  preheader :=
+    .cons (.arithmetic (.binary .subi))
+      (.cons (.arg .head) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+      (.cons (.arithmetic (.binary .addi))
+        (.cons (.output (0 : Fin 1) .head) (.cons (.arg (.tail .head)) .nil)) .nil)
+  header :=
+    .cons (.arithmetic (.binary .addi))
+      (.cons (.arg (.tail (.tail (.tail (.tail .head)))))
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head)))))) .nil))
+      (.cons (.slt i64)
+        (.cons (.output (0 : Fin 1) .head)
+          (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil)) .nil)
+  phiInputs
+    | .entry => .cons (.output (0 : Fin 2) .head)
+        (.cons (.output (1 : Fin 2) .head) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+    | .backedge => .cons (.output (0 : Fin 2) .head)
+        (.cons (.arg (.tail (.tail (.tail (.tail (.tail .head))))))
+          (.cons (.arg (.tail (.tail (.tail (.tail (.tail (.tail .head))))))) .nil))
+  predicate := .output (1 : Fin 2) .head
+  result := .output (0 : Fin 2) .head
+
+private def cfLive : Family.MLIR.Live 4 3 cfHeader :=
+  [.output (0 : Fin 2) .head,
+    .arg (.tail (.tail (.tail (.tail .head)))),
+    .arg (.tail (.tail (.tail (.tail (.tail .head))))),
+    .arg (.tail (.tail (.tail (.tail (.tail (.tail .head)))))),
+    .arg .head, .arg (.tail .head)]
+
+private def cfPlan : Family.MLIR.Plan familyFunction (Family.MLIR.liveRegs cfLive) 3 2 :=
+  ⟨by decide⟩
+
+example : Family.MLIR.check familyFunction (Family.MLIR.liveRegs cfLive) 3 2 = some cfPlan := by
+  simp [Family.MLIR.check, cfPlan.present]
+
+-- Leaving the producer temporary out of the live packet refuses admission.
+example : (Family.MLIR.check familyFunction (Family.MLIR.liveRegs cfLive.tail) 3 2).isNone := by decide
+
+example (slot : Fin 3) :
+    familyPhi.reemit slot.succ = some (1, (cfPlan.row slot).column.registers) :=
+  Family.MLIR.column_eq_phi cfPlan familyPhi slot
+
+private def cfTarget := Family.MLIR.lower cfBank cfLive cfPlan
+private def cfInput (x y : Word) : Env (Family.MLIR.wordsTy 4) := .cons x (.cons y (.cons 99 (.cons 5 .nil)))
+private def cfPacket (fresh x y c₀ c₁ : Word) : Env (Family.MLIR.wordsTy cfLive.length) :=
+  .cons fresh (.cons x (.cons y (.cons 5 (.cons c₀ (.cons c₁ .nil)))))
+
+-- The actual CF header passes its computed word and the pre-rebind bank.
+example : (cfTarget.block .header).eval evalOp (fun term env => term.eval env)
+    (.cons 1 (.cons 3 (.cons 5 (cfInput 6 2)))) =
+    .inl ⟨.dispatch 0, cfPacket 4 1 3 6 2⟩ :=
+  rfl
+
+example : (cfTarget.block .header).eval evalOp (fun term env => term.eval env)
+    (.cons (-5) (.cons (-4) (.cons 5 (cfInput 0 1)))) =
+    .inl ⟨.dispatch 0, cfPacket (-9) (-5) (-4) 0 1⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 0)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket 4 1 3 6 2).append (cfInput 6 2)) =
+    .inl ⟨.header, .cons 4 (.cons 3 (.cons 5 .nil))⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 0)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) =
+    .inl ⟨.dispatch 1, cfPacket (-9) (-5) (-4) 0 1⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 1)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) =
+    .inl ⟨.header, .cons (-9) (.cons 5 (.cons (-4) .nil))⟩ :=
+  rfl
+
+example : (cfTarget.block (.dispatch 2)).eval evalOp (fun term env => term.eval env)
+    ((cfPacket (-10) (-5) (-5) 0 0).append (cfInput 0 0)) =
+    .inl ⟨.header, .cons (-10) (.cons 5 (.cons (-5) .nil))⟩ :=
+  rfl
+
+-- This run executes the dependent preheader and all three dispatchers.
+example : cfTarget.run evalOp 7 (cfInput 0 0) = some (.cons (-5) .nil) :=
+  rfl
+
+private def rtlAtMiddle := (runningState? (familyProg.runMain 7 0 (words middleInput) mem)).get (by cbv)
+
+private theorem middleSnapshot :
+    Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs cfLive) (List.length_map ..)
+      ((cfPacket (-9) (-5) (-4) 0 1).append (cfInput 0 1)) rtlAtMiddle.frame := by
+  unfold Family.MLIR.Snapshot
+  decide
+
+example : Family.MLIR.StepAgreement (bank := 3) familyProg (1 : Fin 3) rtlAtMiddle.frame mem
+    (cfPacket (-9) (-5) (-4) 0 1)
+    (.inl ⟨.header, .cons (-9) (.cons 5 (.cons (-4) .nil))⟩) :=
+  Family.MLIR.checked_dispatch_step widenCaptures familySource familyAccepted cfBank cfLive cfPlan
+    1 (cfPacket (-9) (-5) (-4) 0 1) (cfInput 0 1) rtlAtMiddle.frame mem middleSnapshot
+
+-- Unlike capture-only selectors, this uses the current first bank word.
+-- The first transfer zeros that word and causes the next visit to take row 1.
+private def prefixSource : Family.Source 3 3 Entry Header 2 :=
+  { familySource with
+    rows := .test (.arg (old 0)) (familySource.rows.column 0)
+      (.test (.arg (prefixPort (capture 1))) (familySource.rows.column 1)
+        (.last (familySource.rows.column 2))) }
+
+private def prefixRTL := Family.lowerRTL (Family.mapCaptures widenCaptures prefixSource)
+
+private def nativeOrigins : List (HeaderWord 4 3 Header) :=
+  [.output (0 : Fin 2) .head,
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 0)),
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 1)),
+    .arg (suffixPort (wordPorts 4) (argumentPort 3 2)),
+    .arg (prefixPort (argumentPort 4 0)), .arg (prefixPort (argumentPort 4 1))]
+
+open Family.MLIR.Prefix.Producer (compile Feedbacks)
+
+private def translatedPrefix := compile widenCaptures prefixSource nativeOrigins
+
+private def compiledPrefix := translatedPrefix.get (by decide)
+
+private abbrev prefixSetup := compiledPrefix.setup
+private abbrev translatedLive := Family.MLIR.Prefix.Producer.live nativeOrigins
+
+-- A live scope without the computed feedback word fails the ordinary row check.
+example : (compile widenCaptures prefixSource nativeOrigins.tail).isNone := by decide
+
+-- Equality guards are outside this shared producer translation.
+example : (Family.MLIR.Prefix.Producer.opcode .eq).isNone := rfl
+
+private def prefixInput : WordTuple 4 := .cons (4 : Word) (bank 2 99 5)
+private def prefixStart := bank (-1) 1 5
+private def prefixMiddle := bank 0 1 5
+private def prefixFinish := bank 1 5 1
+
+private theorem twoVisits :
+    Feedbacks prefixSource (widenCaptures.pull prefixInput) [0, 1] prefixStart prefixFinish :=
+  .visit (next := prefixMiddle) (by cbv)
+    (.visit (next := prefixFinish) (by cbv) (.stop _))
+
+-- The emitted CF entry computes the same dependent initial bank.
+example : prefixSetup.cf.entry.eval evalOp (fun term env => term.eval env) (cfInput 4 2) =
+    .inl (Family.MLIR.Prefix.headerFrame 6 2 prefixStart) :=
+  Family.MLIR.Prefix.Producer.entry_frame compiledPrefix prefixInput
+
+open Family.MLIR.Prefix.Producer.Exit (Taken)
+open Family.MLIR.Prefix.Producer
+
+private def prefixFn := Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)
+
+-- The zero successor must name the computed sum, even though the capture is also an i64.
+example : Exit.check prefixFn (.node 0) = true := by decide
+example : Exit.check prefixFn (.arg 0) = false := by decide
+
+private theorem twoThenExit :
+    prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) [0, 1] prefixStart 6 :=
+  .feedback (next := prefixMiddle) (by cbv)
+    (.feedback (next := prefixFinish) (by cbv) (.exit (by cbv)))
+
+-- The actual checked entry and both feedback visits lead to the computed exit.
+example : ∃ before after,
+    StepsNWithin prefixSetup.rtl [] 3
+      ⟨⟨0, 0, 0⟩, bindWords 0 Frame.empty prefixInput, [], mem⟩ ⟨⟨0, 1, 0⟩, before, [], mem⟩ ∧
+    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before prefixFinish after ∧
+    Taken compiledPrefix prefixInput mem prefixFinish after 6 := by
+  obtain ⟨_, before, entered, matched⟩ :=
+    Family.entry_packet widenCaptures prefixSource compiledPrefix.accepted prefixInput mem
+  obtain ⟨after, realized, exit, _, _⟩ :=
+    Exit.after_prefix compiledPrefix prefixInput mem before 6 matched twoVisits (by cbv)
+  exact ⟨before, after, entered, realized, exit⟩
+
+private theorem returnSlots_unique {input : WordTuple 3} {carried : WordTuple 3} {value : Word}
+    {slots other : List (Fin 3)}
+    (left : prefixSource.ReturnsAlong input slots carried value)
+    (right : prefixSource.ReturnsAlong input other carried value) : slots = other := by
+  induction left generalizing other with
+  | exit taken =>
+    cases right with
+    | exit _ => rfl
+    | feedback continued _ => cases taken.symm.trans continued
+  | feedback continued _ ih =>
+    cases right with
+    | exit taken => cases continued.symm.trans taken
+    | feedback otherContinued rest =>
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Sum.inr.inj (continued.symm.trans otherContinued))
+      exact congrArg (List.cons _) (ih rest)
+
+-- Invert an actual CF return with one extra block of fuel. The recovered
+-- route is checked against the independent expected sequence.
+example : compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem ∧
+    prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv prefixInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [6]) mem := by
+  have observed : prefixSetup.cf.run evalOp 9 (cfInput 4 2) = some (.cons 6 .nil) := rfl
+  obtain ⟨slots, route, _, rtl, cf, region⟩ :=
+    Exit.Inversion.reflect compiledPrefix prefixInput mem 9 6 observed (machineEnv prefixInput) rfl
+  have same : slots = [0, 1] := returnSlots_unique route twoThenExit
+  subst slots
+  exact ⟨rtl, cf, region⟩
+
+private def immediateInput : WordTuple 4 := .cons (8 : Word) (bank 2 99 5)
+
+-- Entry, header and exit use the entire three-block budget. No dispatcher ran.
+example : compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv immediateInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [8]) mem := by
+  have observed : prefixSetup.cf.run evalOp 3 (cfInput 8 2) = some (.cons 8 .nil) := rfl
+  obtain ⟨slots, _, bound, rtl, _, region⟩ :=
+    Exit.Inversion.reflect compiledPrefix immediateInput mem 3 8 observed (machineEnv immediateInput) rfl
+  have empty : slots = [] := by
+    cases slots with
+    | nil => rfl
+    | cons head tail =>
+      simp only [Family.MLIR.Prefix.cfCost, List.map_cons, List.sum_cons] at bound
+      omega
+  subst slots
+  exact ⟨rtl, region⟩
+
+private theorem compiledRTL_eq : compiledPrefix.rtl = prefixRTL :=
+  (Family.lowerChecked_sound widenCaptures prefixSource compiledPrefix.accepted).2.1
+
+-- The checked RTL run has two spare instructions. Recovery derives the
+-- occurrences from that run and certifies the complete positional Φ prefix.
+example : ∃ before finish after,
+    Family.MLIR.Prefix.Realized prefixSetup prefixInput mem [0, 1] prefixStart before finish after ∧
+    Taken compiledPrefix prefixInput mem finish after 6 ∧
+    compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem ∧
+    prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 18 0 (words prefixInput) mem = .returned [6] mem := by
+    rw [compiledRTL_eq]
+    cbv
+  obtain ⟨slots, value, before, finish, after, shape, _, route, _, _, _, feedback, exit, rtl, cf⟩ :=
+    Exit.Inversion.from_rtl compiledPrefix prefixInput mem mem 18 [6] observed
+  have word : value = 6 := (List.cons.inj shape).1.symm
+  subst value
+  have same : slots = [0, 1] := returnSlots_unique route twoThenExit
+  subst slots
+  exact ⟨before, finish, after, feedback, exit, rtl, cf⟩
+
+-- Spare RTL fuel also leaves the zero-feedback route and exact exit unchanged.
+example : prefixSetup.cf.run evalOp 3 (cfInput 8 2) = some (.cons 8 .nil) ∧
+    compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem ∧
+    Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv immediateInput)
+      (toLambdaSSA [⟨4, 1⟩] prefixFn) mem 0 (packValues [8]) mem := by
+  have observed : compiledPrefix.rtl.runMain 9 0 (words immediateInput) mem = .returned [8] mem := by
+    rw [compiledRTL_eq]
+    cbv
+  obtain ⟨slots, value, _, _, _, shape, _, route, _, _, _, _, _, rtl, cf⟩ :=
+    Exit.Inversion.from_rtl compiledPrefix immediateInput mem mem 9 [8] observed
+  have word : value = 8 := (List.cons.inj shape).1.symm
+  subst value
+  have immediate : prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) []
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 :=
+    .exit (by cbv)
+  have same : slots = [] := returnSlots_unique route immediate
+  subst slots
+  exact ⟨cf, rtl, Exit.Inversion.region_of_rtl compiledPrefix immediateInput mem mem 9 [8] observed _ rfl⟩
+
+private def reachedBank (fuel : Nat) : Option (Nat × List Word × Memory) := do
+  let s ← runningState? (prefixRTL.runMain fuel 0 (words prefixInput) mem)
+  let values ← s.frame.readAll (paramRegs 4 3)
+  pure (s.point.label, values, s.mem)
+
+example : reachedBank 7 = some (1, [0, 1, 5], mem) := by cbv
+example : reachedBank 12 = some (1, [1, 5, 1], mem) := by cbv
+example : prefixRTL.runMain 16 0 (words prefixInput) mem = .returned [6] mem := by cbv
+example : prefixSetup.cf.run evalOp 6 (cfInput 4 2) = none := rfl
+example : prefixSetup.cf.run evalOp 8 (cfInput 4 2) = some (.cons 6 .nil) := rfl
+
+private def secondDispatcher :=
+  (runningState? (prefixRTL.runMain 11 0 (words prefixInput) mem)).get (by cbv)
+
+example : secondDispatcher.point.label = 4 := by cbv
+
+-- Reusing the earlier frame's packet would read the wrong fresh producer word.
+example : ¬ Family.MLIR.Snapshot (scope := Family.MLIR.liveRegs translatedLive)
+    (List.length_map ..) ((Family.MLIR.Prefix.livePacket compiledPrefix.program translatedLive
+      prefixInput prefixStart).append (cfInput 4 2))
+    secondDispatcher.frame := by
+  unfold Family.MLIR.Snapshot
+  decide
+
+-- `Exit.Inversion.returns_iff` consolidates the actual-run forward law
+-- (`Exit.returns`/`after_prefix`, #4872) and its converse (`from_rtl`, #4917):
+-- one successful bounded RTL run exists exactly when an ordered dispatch
+-- route (the positional Φ observations) reaches a taken exit with the same
+-- word, which also certifies a matching bounded CF return with full memory
+-- preserved on both backends.
+
+-- The immediate fixture takes the empty route: no dispatcher ran.
+private theorem immediateReturns :
+    prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) []
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 :=
+  .exit (by cbv)
+
+example :
+    ∃ slots before finish after,
+      prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) slots
+        (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8 ∧
+      Family.MLIR.Prefix.Realized prefixSetup immediateInput mem slots
+        (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) before finish after ∧
+      Taken compiledPrefix immediateInput mem finish after 8 ∧
+      compiledPrefix.rtl.runMain (Family.rtlFuel Entry Header slots) 0 (words immediateInput) mem =
+        .returned [8] mem ∧
+      prefixSetup.cf.run evalOp (Family.MLIR.Prefix.cfCost slots + 2 + 1)
+        (Family.MLIR.Prefix.wordEnv immediateInput) = some (.cons 8 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 7 0 (words immediateInput) mem = .returned [8] mem := by
+    rw [compiledRTL_eq]; cbv
+  exact (Exit.Inversion.returns_iff compiledPrefix immediateInput mem 8).mp ⟨7, observed⟩
+
+-- The deterministic native selector and step make the recovered route the
+-- unique witness for this value (`Family.returnsAlong_unique`).
+example {slots : List (Fin 3)}
+    (route : prefixSource.ReturnsAlong (widenCaptures.pull immediateInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull immediateInput)) 8) :
+    slots = [] :=
+  Family.returnsAlong_unique prefixSource (widenCaptures.pull immediateInput) route immediateReturns
+
+-- The mixed-feedback fixture takes both rows, `[0, 1]`, before exiting.
+example :
+    ∃ slots before finish after,
+      prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+        (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) 6 ∧
+      Family.MLIR.Prefix.Realized prefixSetup prefixInput mem slots
+        (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) before finish after ∧
+      Taken compiledPrefix prefixInput mem finish after 6 ∧
+      compiledPrefix.rtl.runMain (Family.rtlFuel Entry Header slots) 0 (words prefixInput) mem =
+        .returned [6] mem ∧
+      prefixSetup.cf.run evalOp (Family.MLIR.Prefix.cfCost slots + 2 + 1)
+        (Family.MLIR.Prefix.wordEnv prefixInput) = some (.cons 6 .nil) := by
+  have observed : compiledPrefix.rtl.runMain 16 0 (words prefixInput) mem = .returned [6] mem := by
+    rw [compiledRTL_eq]; cbv
+  exact (Exit.Inversion.returns_iff compiledPrefix prefixInput mem 6).mp ⟨16, observed⟩
+
+example {slots : List (Fin 3)}
+    (route : prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) 6) :
+    slots = [0, 1] :=
+  Family.returnsAlong_unique prefixSource (widenCaptures.pull prefixInput) route twoThenExit
+
+-- `Exit.Inversion.returns_exists_iff` recovers the abstract dispatch route
+-- directly from one actual bounded CF return.
+example :
+    ∃ slots value, prefixSource.ReturnsAlong (widenCaptures.pull prefixInput) slots
+      (prefixSource.primary.initial model (widenCaptures.pull prefixInput)) value :=
+  (Exit.Inversion.returns_exists_iff compiledPrefix prefixInput mem).mp
+    ⟨8, 6, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
+-- The shared header/producer table also compiles the alternate dispatch
+-- family whose rows never leave the fixed point `familyFixedBank` at
+-- `wideSpin`. `Exit.Inversion.region_no_return_iff` then certifies the
+-- absence of any finite return in the CF backend, the RTL oracle, and the
+-- canonical λSSA Region alike, all from the single existing native
+-- fixed-point witness `fixedCannotReturn`; no insufficient budget is read
+-- as evidence of divergence.
+private def compiledFixed := (compile widenCaptures fixedSource nativeOrigins).get (by decide)
+
+example : ¬ ∃ value final, Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledFixed.rtl.oracle) (machineEnv wideSpin)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures fixedSource))) mem 0 value final := by
+  rw [Exit.Inversion.region_no_return_iff compiledFixed wideSpin mem (machineEnv wideSpin) rfl,
+    Exit.Inversion.returns_exists_iff compiledFixed wideSpin mem]
+  rintro ⟨slots, value, path⟩
+  exact fixedCannotReturn path rfl
+
+-- `Exit.Inversion.cf_returns_iff` ties one fixed-word bounded CF return
+-- directly to an independently-bounded RTL return preserving the initial
+-- memory, composing the fixed-value CF inversion with `returns_iff`.
+example : ∃ fuel, compiledPrefix.rtl.runMain fuel 0 (words prefixInput) mem = .returned [6] mem :=
+  (Exit.Inversion.cf_returns_iff compiledPrefix prefixInput mem 6).mp
+    ⟨8, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
+-- `Exit.Inversion.region_returns_iff` ties the same fixed-word bounded CF
+-- return directly to a finite λSSA Region evaluation returning the
+-- packed singleton, under the packed-capture entry side condition.
+example : Eval (Opcode.step (sigs := [⟨4, 1⟩]) compiledPrefix.rtl.oracle) (machineEnv prefixInput)
+    (toLambdaSSA [⟨4, 1⟩] (Family.lowerFunc (Family.mapCaptures widenCaptures prefixSource)))
+    mem 0 (packValues [6]) mem :=
+  (Exit.Inversion.region_returns_iff compiledPrefix prefixInput mem 6 (machineEnv prefixInput) rfl).mp
+    ⟨8, show prefixSetup.cf.run evalOp 8 (Family.MLIR.Prefix.wordEnv prefixInput) =
+      some (.cons 6 .nil) from rfl⟩
+
+end CFDispatch
 
 end Silmaril.Machine.SeaOfNodes.Loop.RTL.Routing.Guarded.Rows.Native.Preheader.Table

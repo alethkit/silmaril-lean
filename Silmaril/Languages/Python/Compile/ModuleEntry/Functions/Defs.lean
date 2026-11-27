@@ -3,6 +3,10 @@ module
 public import Silmaril.Languages.Python.Compile.Closure.Body.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ClosedGuard.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Dictionary.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ExceptionalTry.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.ListDisplay.Defs
+public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NormalTry.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.NumericArgument.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TextSlice.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.TupleChain.Defs
@@ -80,6 +84,40 @@ inductive Error where
   | unresolvedGlobal (name : Name)
   deriving Repr
 
+structure DictionaryBinding (scope : Scope) (statement : Source.Stmt) where
+  name : Name
+  source : Source.Expr
+  test : Core.Module.Dictionary.Get
+  binding : Binding statement name source
+  checked : Dictionary.checkedGet? scope source = some test
+
+def dictionaryBinding? (scope : Scope) (statement : Source.Stmt) : Option (DictionaryBinding scope statement) := do
+  let ⟨(name, source), binding⟩ ← binding? statement
+  match checked : Dictionary.checkedGet? scope source with
+  | some test => some ⟨name, source, test, binding, checked⟩
+  | none => none
+
+inductive DictionaryClearSite (scope : Scope) : Source.Stmt → Option Name → Core.Module.Dictionary.Clear → Prop where
+  | discard {source call} (checked : Dictionary.checkedClear? scope source = some call) :
+      DictionaryClearSite scope (.expression source) none call
+  | store {statement name source call} (binding : Binding statement name source)
+      (reference : GlobalReference scope name) (checked : Dictionary.checkedClear? scope source = some call) :
+      DictionaryClearSite scope statement (some name) call
+
+def dictionaryClearSite? (scope : Scope) (statement : Source.Stmt) :
+    Option {site : Option Name × Core.Module.Dictionary.Clear // DictionaryClearSite scope statement site.1 site.2} :=
+  match statement with
+  | .expression source =>
+    match checked : Dictionary.checkedClear? scope source with
+    | some call => some ⟨(none, call), .discard checked⟩
+    | none => none
+  | statement => do
+    let ⟨(name, source), binding⟩ ← binding? statement
+    let reference ← globalReference? scope name
+    match checked : Dictionary.checkedClear? scope source with
+    | some call => some ⟨(some name, call), .store binding reference checked⟩
+    | none => none
+
 def lowerDestination (scope : Scope) : (source : Placement) →
     Except Error {target : Destination scope // target.placement = source}
   | .discard => .ok ⟨.discard, rfl⟩
@@ -153,9 +191,14 @@ def lowerFlatTupleItems (scope : Scope) : (elements : List Source.Expr) →
 
 inductive CallValue (scope : Scope) where
   | scalar (operand : Operand scope)
+  | intDivMod (op : Core.Closure.IntDivModOp) (numerator divisor : Int)
   | intTrueDiv (numerator divisor : Int)
+  | floatDiv (operands : Core.Binary64.FloatOperands)
+  | floatDivMod (op : Core.Binary64.FloatDivModOp) (operands : Core.Binary64.FloatOperands)
   | mixedAdd (integer : Int) (floating : F64.Finite)
   | floatAdd (left right : F64.Finite)
+  | floatSub (operands : Core.Binary64.FloatOperands)
+  | floatMul (operands : Core.Binary64.FloatOperands)
   | float64 (value : F64.Finite)
   | tuple (items : List Core.Closure.GlobalTupleItem)
   | text (value : Core.Text)
@@ -181,12 +224,51 @@ def lowerDecimalCallLiteral? (source : Source.Expr) : Option {value // DecimalCa
     | none => none
   | none => none
 
+inductive FloatOperandsTranslation : Source.Expr → Source.Expr → Core.Binary64.FloatOperands → Prop where
+  | intFloat {left right integer floating}
+      (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
+      FloatOperandsTranslation left right (.intFloat integer floating)
+  | floatInt {left right integer floating}
+      (lhs : DecimalCallLiteral left floating) (rhs : NumericArgument.integer? right = some integer) :
+      FloatOperandsTranslation left right (.floatInt floating integer)
+  | floatFloat {left right first second}
+      (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
+      FloatOperandsTranslation left right (.floatFloat first second)
+
+def lowerFloatOperands? (left right : Source.Expr) :
+    Option {operands // FloatOperandsTranslation left right operands} :=
+  match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
+  | some integer, some floating =>
+    some ⟨.intFloat integer floating.val, .intFloat lhs floating.property⟩
+  | _, rightFloat =>
+    match lowerDecimalCallLiteral? left, rightFloat, rhs : NumericArgument.integer? right with
+    | some first, some second, _ =>
+      some ⟨.floatFloat first.val second.val, .floatFloat first.property second.property⟩
+    | some floating, none, some integer =>
+      some ⟨.floatInt floating.val integer, .floatInt floating.property rhs⟩
+    | _, _, _ => none
+
+def intDivModSourceOp : Core.Closure.IntDivModOp → Source.BinaryOperator
+  | .floorDiv => .floorDiv
+  | .modulo => .modulo
+
+def floatDivModOp : Core.Closure.IntDivModOp → Core.Binary64.FloatDivModOp
+  | .floorDiv => .floorDiv
+  | .modulo => .modulo
+
 inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope → Prop where
   | scalar {source operand} (checked : ArgumentOperandTranslation scope source operand) :
       CallValueTranslation scope source (.scalar operand)
+  | intDivMod {op left right numerator divisor}
+      (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
+      CallValueTranslation scope (.binary (intDivModSourceOp op) left right) (.intDivMod op numerator divisor)
+  | floatDivMod {op left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary (intDivModSourceOp op) left right) (.floatDivMod (floatDivModOp op) operands)
   | intTrueDiv {left right numerator divisor}
       (lhs : NumericArgument.integer? left = some numerator) (rhs : NumericArgument.integer? right = some divisor) :
       CallValueTranslation scope (.binary .trueDiv left right) (.intTrueDiv numerator divisor)
+  | floatDiv {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .trueDiv left right) (.floatDiv operands)
   | intFloatAdd {left right integer floating}
       (lhs : NumericArgument.integer? left = some integer) (rhs : DecimalCallLiteral right floating) :
       CallValueTranslation scope (.binary .add left right) (.mixedAdd integer floating)
@@ -196,6 +278,10 @@ inductive CallValueTranslation (scope : Scope) : Source.Expr → CallValue scope
   | floatAdd {left right first second}
       (lhs : DecimalCallLiteral left first) (rhs : DecimalCallLiteral right second) :
       CallValueTranslation scope (.binary .add left right) (.floatAdd first second)
+  | floatSub {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .sub left right) (.floatSub operands)
+  | floatMul {left right operands} (checked : FloatOperandsTranslation left right operands) :
+      CallValueTranslation scope (.binary .mul left right) (.floatMul operands)
   | float64 {source value} (literal : DecimalCallLiteral source value) :
       CallValueTranslation scope source (.float64 value)
   | tuple {elements items} (checked : FlatTupleItems scope elements items) :
@@ -212,14 +298,28 @@ def lowerScalarCallValue (scope : Scope) (source : Source.Expr) :
   ((lowerArgumentOperand scope source).mapError .scalar).map fun operand =>
     ⟨.scalar operand.val, .scalar operand.property⟩
 
+def lowerDivMod (scope : Scope) (op : Core.Closure.IntDivModOp) (left right : Source.Expr) :
+    Except Error {value // CallValueTranslation scope (.binary (intDivModSourceOp op) left right) value} :=
+  match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
+  | some numerator, some divisor => .ok ⟨.intDivMod op numerator divisor, .intDivMod lhs rhs⟩
+  | _, _ =>
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatDivMod (floatDivModOp op) operands.val, .floatDivMod operands.property⟩
+    | none => lowerScalarCallValue scope (.binary (intDivModSourceOp op) left right)
+
 def lowerCallValue (scope : Scope) : (source : Source.Expr) →
     Except Error {value // CallValueTranslation scope source value}
   | .tuple elements =>
     (lowerFlatTupleItems scope elements).map fun items => ⟨.tuple items.val, .tuple items.property⟩
+  | .binary .floorDiv left right => lowerDivMod scope .floorDiv left right
+  | .binary .modulo left right => lowerDivMod scope .modulo left right
   | .binary .trueDiv left right =>
     match lhs : NumericArgument.integer? left, rhs : NumericArgument.integer? right with
     | some numerator, some divisor => .ok ⟨.intTrueDiv numerator divisor, .intTrueDiv lhs rhs⟩
-    | _, _ => .error (.scalar .expressionProfile)
+    | _, _ =>
+      match lowerFloatOperands? left right with
+      | some operands => .ok ⟨.floatDiv operands.val, .floatDiv operands.property⟩
+      | none => .error (.scalar .expressionProfile)
   | .binary .add left right =>
     match lhs : NumericArgument.integer? left, lowerDecimalCallLiteral? right with
     | some integer, some floating => .ok ⟨.mixedAdd integer floating.val, .intFloatAdd lhs floating.property⟩
@@ -228,6 +328,14 @@ def lowerCallValue (scope : Scope) : (source : Source.Expr) →
       | some first, some second, _ => .ok ⟨.floatAdd first.val second.val, .floatAdd first.property second.property⟩
       | some floating, none, some integer => .ok ⟨.mixedAdd integer floating.val, .floatIntAdd floating.property rhs⟩
       | _, _, _ => lowerScalarCallValue scope (.binary .add left right)
+  | .binary .sub left right =>
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatSub operands.val, .floatSub operands.property⟩
+    | none => lowerScalarCallValue scope (.binary .sub left right)
+  | .binary .mul left right =>
+    match lowerFloatOperands? left right with
+    | some operands => .ok ⟨.floatMul operands.val, .floatMul operands.property⟩
+    | none => lowerScalarCallValue scope (.binary .mul left right)
   | .text points =>
     match checked : Core.Text.ofPoints? points with
     | some value => .ok ⟨.text value, .text checked⟩
@@ -263,9 +371,15 @@ def lowerCallValues (scope : Scope) : (source : List (Source.ArgumentKind × Sou
 /-- A module argument can contain one named call with flat value operands. -/
 inductive CallArgument (scope : Scope) where
   | value (operand : CallValue scope)
+  | dictionaryGet (test : Core.Module.Dictionary.Get)
+  | dictionaryDisplay (entries : List Core.Module.Dictionary.Entry)
   | call (name : Name) (reference : GlobalReference scope name) (arguments : List (CallValue scope))
 
 inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
+  | dictionaryGet {source test} (checked : Dictionary.checkedGet? scope source = some test) :
+      ArgumentTranslation scope source (.dictionaryGet test)
+  | dictionaryDisplay {source entries} (checked : source.mapM Dictionary.entry? = some entries) :
+      ArgumentTranslation scope (.dictionary source) (.dictionaryDisplay entries)
   | value {source operand} (translated : CallValueTranslation scope source operand) :
       ArgumentTranslation scope source (.value operand)
   | call {source name arguments reference operands}
@@ -279,15 +393,23 @@ inductive CallArguments (scope : Scope) :
       (tail : CallArguments scope rest targets) :
       CallArguments scope ((.positional, source) :: rest) (argument :: targets)
 
-def lowerCallArgument (scope : Scope) (source : Source.Expr) :
-    Except Error {argument // ArgumentTranslation scope source argument} := do
-  if let some ⟨(name, arguments), shape⟩ := callExpression? source then
-    let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
-    let operands ← lowerCallValues scope arguments
-    return ⟨.call name reference operands.val, .call shape operands.property⟩
-  else
-    let operand ← lowerCallValue scope source
-    return ⟨.value operand.val, .value operand.property⟩
+def lowerCallArgument (scope : Scope) : (source : Source.Expr) →
+    Except Error {argument // ArgumentTranslation scope source argument}
+  | .dictionary entries =>
+    match checked : entries.mapM Dictionary.entry? with
+    | some display => .ok ⟨.dictionaryDisplay display, .dictionaryDisplay checked⟩
+    | none => .error (.scalar .expressionProfile)
+  | source => do
+    if let some ⟨(name, arguments), shape⟩ := callExpression? source then
+      let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
+      let operands ← lowerCallValues scope arguments
+      return ⟨.call name reference operands.val, .call shape operands.property⟩
+    else
+      match checked : Dictionary.checkedGet? scope source with
+      | some test => return ⟨.dictionaryGet test, .dictionaryGet checked⟩
+      | none =>
+        let operand ← lowerCallValue scope source
+        return ⟨.value operand.val, .value operand.property⟩
 
 def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
     Except Error {target // CallArguments scope source target}
@@ -298,9 +420,7 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
     return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
   | _ => .error .argumentProfile
 
-def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value
-  | .none_ => some .none
-  | source => scalarLiteral? source
+def tupleListDisplayScalar? : Source.Expr → Option Core.Module.Value := ListDisplay.literal?
 
 /-- A direct stock-tuple candidate or a first argument converting a
 closed flat scalar list display. -/
@@ -626,7 +746,12 @@ def textSliceGuard? (scope : Scope) : (statement : Source.Stmt) →
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : Name) (reference : GlobalReference scope name) (value : Core.Text)
+  | bindDictionary (name : Name) (reference : GlobalReference scope name)
+      (display : List Core.Module.Dictionary.Entry)
+  | readDictionary (name : Name) (reference : GlobalReference scope name) (test : Core.Module.Dictionary.Get)
+  | clearDictionary (destination : Option Name) (call : Core.Module.Dictionary.Clear)
   | bindTuple (name : Name) (reference : GlobalReference scope name) (items : List Core.Closure.GlobalTupleItem)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -645,6 +770,8 @@ inductive Action (scope : Scope) where
       (test : TupleIdentity.Test)
   | callTupleFromListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (contents : List Core.Module.Value) (remaining : Option (List (CallArgument scope)))
+  | callListDisplay (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (display : ListDisplay.Display)
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
@@ -657,10 +784,34 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | literalBooleanAssertion {index value rest tail} (remaining : Translation tree index rest tail) :
+      Translation tree index (.assert_ (.boolean value) none :: rest)
+        (.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: tail)
+  | normalTry {index statement rest actions tail}
+      (selected : NormalTry.Translation tree.scope statement actions)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | exceptionalTry {index statement rest plan tail}
+      (checked : ExceptionalTry.Translation tree.scope statement plan)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.exceptionalTry plan :: tail)
   | bindText {index statement rest name points reference value tail}
       (binding : Binding statement name (.text points)) (checked : Core.Text.ofPoints? points = some value)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.bindText name reference value :: tail)
+  | bindDictionary {index statement rest name entries reference display tail}
+      (binding : Binding statement name (.dictionary entries))
+      (checked : entries.mapM Dictionary.entry? = some display)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.bindDictionary name reference display :: tail)
+  | readDictionary {index statement rest name source reference test tail}
+      (binding : Binding statement name source) (checked : Dictionary.checkedGet? tree.scope source = some test)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.readDictionary name reference test :: tail)
+  | clearDictionary {index statement rest destination call tail}
+      (site : DictionaryClearSite tree.scope statement destination call)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.clearDictionary destination call :: tail)
   | bindTuple {index statement rest name elements reference items tail}
       (binding : Binding statement name (.tuple elements)) (checked : FlatTupleItems tree.scope elements items)
       (remaining : Translation tree index rest tail) :
@@ -711,6 +862,11 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (checked : TupleListDisplayArguments tree.scope name arguments contents operands)
       (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.callTupleFromListDisplay destination name reference contents operands :: tail)
+  | callListDisplay {index statement rest target name arguments destination reference display tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (checked : ListDisplay.Argument tree.scope arguments display)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.callListDisplay destination name reference display :: tail)
   | nestedCall {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -786,6 +942,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let some reference := globalReference? tree.scope receiver | throw (.unresolvedGlobal receiver)
     let tail ← lowerPlan tree index rest
     return ⟨.assertVarNames receiver reference needle :: tail.val, .assertVarNames reference tail.property⟩
+  | .assert_ (.boolean value) none :: rest => do
+    let tail ← lowerPlan tree index rest
+    return ⟨.scalar (ModuleEntry.Action.assertion (.boolean value)).inLiteralArm :: tail.val,
+      .literalBooleanAssertion tail.property⟩
   | .assert_ (.unary .not_ condition) none :: rest => do
     let operand ← (lowerTest tree.scope condition).mapError .scalar
     let tail ← lowerPlan tree index rest
@@ -794,6 +954,12 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     if let some checked := ClosedGuard.omitted? statement then
       let tail ← lowerPlan tree index rest
       return ⟨tail.val, .omittedIf checked.property tail.property⟩
+    else if let some selected := NormalTry.check tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨selected.val.map .scalar ++ tail.val, .normalTry selected.property tail.property⟩
+    else if let some checked := ExceptionalTry.check tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.exceptionalTry checked.val :: tail.val, .exceptionalTry checked.property tail.property⟩
     else if let some test := integerBuiltinTest? tree.scope statement then
       let tail ← lowerPlan tree index rest
       return ⟨.assertIntegerBuiltin test.val :: tail.val, .assertIntegerBuiltin test.property tail.property⟩
@@ -815,6 +981,13 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
       | some value =>
         let tail ← lowerPlan tree index rest
         return ⟨.bindText name reference value :: tail.val, .bindText binding checked tail.property⟩
+      | none => throw (.scalar .expressionProfile)
+    else if let some ⟨(name, .dictionary entries), binding⟩ := binding? statement then
+      let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+      match checked : entries.mapM Dictionary.entry? with
+      | some display =>
+        let tail ← lowerPlan tree index rest
+        return ⟨.bindDictionary name reference display :: tail.val, .bindDictionary binding checked tail.property⟩
       | none => throw (.scalar .expressionProfile)
     else if let some ⟨(name, .tuple elements), binding⟩ := binding? statement then
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
@@ -839,6 +1012,14 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
           return ⟨.define name reference child parameters.val code.val :: tail.val,
             .defineLambda binding definition tail.property⟩
         else throw (.functionScope path)
+    else if let some get := dictionaryBinding? tree.scope statement then
+      let some reference := globalReference? tree.scope get.name | throw (.unresolvedGlobal get.name)
+      let tail ← lowerPlan tree index rest
+      return ⟨.readDictionary get.name reference get.test :: tail.val,
+        .readDictionary get.binding get.checked tail.property⟩
+    else if let some ⟨(destination, call), site⟩ := dictionaryClearSite? tree.scope statement then
+      let tail ← lowerPlan tree index rest
+      return ⟨.clearDictionary destination call :: tail.val, .clearDictionary site tail.property⟩
     else if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
@@ -850,9 +1031,19 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
         let tail ← lowerPlan tree index rest
         return ⟨.callTupleFromListDisplay destination.val name reference operands.val.1 operands.val.2 :: tail.val,
           .callTupleFromListDisplay site destination.property operands.property tail.property⟩
+      if let some display := ListDisplay.argument? tree.scope arguments then
+        let tail ← lowerPlan tree index rest
+        return ⟨.callListDisplay destination.val name reference display.val :: tail.val,
+          .callListDisplay site destination.property display.property tail.property⟩
       match lowerArguments tree.scope arguments with
       | .ok operands =>
         let tail ← lowerPlan tree index rest
+        -- Scalar floor division already parses here. Use the deferred call
+        -- operand when the entire call can be checked by that path.
+        if operands.val.any (fun | .binary .floorDiv .. => true | _ => false) then
+          if let .ok deferred := lowerCallArguments tree.scope arguments then
+            return ⟨.nestedCall destination.val name reference deferred.val :: tail.val,
+              .nestedCall site destination.property deferred.property tail.property⟩
         return ⟨.call destination.val name reference operands.val :: tail.val,
           .call site destination.property operands.property tail.property⟩
       | .error flatError =>

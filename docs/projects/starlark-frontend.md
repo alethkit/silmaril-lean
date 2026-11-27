@@ -54,11 +54,14 @@ retain their existing types. Parser soundness and completeness remain open.
 `Frontend.Module.parseUtf8` and `Frontend.Module.parse` lower complete files
 to located `Modules.Resolve.Command`s. The module profile accepts top-level
 scalar assignments and expression statements, multiline `def` declarations
-with positional parameters and optional scalar defaults, call assignments
-of the form `name = function(arg, ...)`, and leading load statements. The call is the entire right-hand side, and both
-names are bare identifiers. The adapter reuses the logical-line, parameter,
-and suite parsers. It emits a normalized declaration for each `def` and a
-normalized `.call` expression for each call assignment. A top-level `pass`
+with positional parameters and optional scalar defaults, postfix call
+assignments and expression statements, and leading load statements. Top-level name assignments also accept the collection displays
+of the call profile. An application chain starts with a bare identifier or a
+parenthesized scalar expression. Module-function returns, name assignments,
+expression statements, and `if` and `elif` tests can use the same application
+chain. The adapter reuses the logical-line, parameter, and suite parsers.
+It emits a normalized declaration for each `def` and a
+normalized `.call` expression for each application. A top-level `pass`
 produces no command. [Module adapter](../../Silmaril/Languages/Starlark/Frontend/Module/Defs.lean)
 
 ```starlark
@@ -82,8 +85,9 @@ The module body uses the same admitted scalar statement forms as the standalone
 function parser. Its expressions, defaults, and call operands use integer
 literals, names, `and`, `or`, and conditional expressions. Unary and binary
 operators produce an unsupported diagnostic spanning the containing statement,
-default, or argument. The profile excludes calls in function bodies and other
-expression positions, plus keyword-only and variadic parameters.
+default, or argument. Module functions admit calls at the root of a return,
+name assignment RHS, or expression statement. Other body expression positions,
+keyword-only parameters, and variadic parameters remain outside this profile.
 
 ### Defaults and call operands
 
@@ -102,13 +106,36 @@ assignment to `seed` after `def` and supplies an explicit named override. It
 still fails on the uninitialized default read at definition time.
 
 Call arguments use the order positional, named, optional `*`, then optional
-`**`. A call can contain at most one of each spread. `*` accepts a list or
-tuple display of scalar operands. `**` accepts a dictionary display with
-simple unescaped single- or double-quoted string keys and scalar values.
-Collection displays in other positions and general spread expressions remain
-outside the profile. The parser retains parameter, operand, and name/key
-spans. It reports a spanned diagnostic for order errors because a grouped
-normalized call cannot represent a misplaced operand.
+`**`. Operands use the module expression grammar, including scalar
+expressions, applications, and list and tuple displays. This admits
+calls such as `f(*identity(xs), **identity(identity(kw)))` and call-free
+expressions such as `f(*(xs if flag else ys), **(False or kw))`.
+`*` accepts list and tuple displays. At a spread root, `**` also accepts
+a dictionary display with simple unescaped quoted keys and scalar values.
+Module assignments can bind these displays to names.
+
+```starlark
+# 雪
+def identity(x):
+  return x
+def f(a,b):
+  return b
+xs = [1]
+kw = {'b': 7}
+out = f(*identity(xs), **identity(kw))
+```
+
+The module publishes `out = 7`. Each nested application lowers directly to
+one existing normalized call expression. The normalized evaluator reads the
+callee first, then evaluates each operand once in source order. It expands the
+mapping before the iterable and binds the resulting arguments. An error while
+evaluating an operand preempts later operands and expansion. A collision
+between a named value and an expanded key reaches binding.
+
+Lowered commands retain every application's full span, callee span, and
+grouped operand spans, including spread markers. The records are in preorder,
+visiting the callee before operands and operands in source order. The parser
+reports a spanned diagnostic where the ordering rules are violated.
 
 The frontend preserves repeated explicit names so normalized validation can
 reject them. It also passes required-after-default signatures to normalized
@@ -121,10 +148,270 @@ check the corresponding error messages.
 `Frontend.Module.initializes_iff_run` applies the existing module agreement
 theorem to the normalized commands. `lowerNamedArguments_names` proves that
 successful named-operand lowering preserves explicit names in order, including
-repetitions. The kernel checks individual UTF-8 modules through publication
-and reached errors, including omission of a definition-time default and a
-positional/named binding collision. A general parser or source-to-normalized
-adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+repetitions. `lowerCall_operands` identifies the normalized call produced by a
+successful lowering, preserves the original span groups, and proves that the
+positional count, ordered keyword names, and spread presence agree with the
+normalized argument shape. `lowerOperand_call` ties nested operand lowering
+to that same call path and records the application location. The kernel
+checks the normalized collection
+assignments, nested call shape, and callee and operand spans for concrete
+UTF-8 inputs. Executable Lean checks cover publication, error precedence, a
+named/expanded binding collision, and the single allocation from evaluating
+`list(xs)` as a spread operand. A general parser or
+source-to-normalized adequacy theorem remains open. [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Postfix applications
+
+A postfix chain can appear directly or within logical and conditional
+expressions in a name assignment, return, expression statement, branch
+test, or call operand in the module profile. The head can be a bare name or a
+parenthesized scalar expression, such as `(f if flag else g)`. The parser
+consumes each parenthesized argument group before advancing to the next suffix. Each suffix uses the expression
+parsed so far as its callee, so `factory(a)(b)(c)` associates to the left.
+The parser's budget depends on token count, with no fixed application cap.
+
+```starlark
+# 雪
+def identity(x):
+  return x
+def choose(callable):
+  return callable
+out = choose(choose)(identity)(7)
+```
+
+The first application returns `choose`, the second returns `identity`, and
+the final one publishes `out = 7`. Each lowers to an ordinary normalized call
+node with its own location entry. The final callee span is the entire
+`choose(choose)(identity)` prefix. A parenthesized head includes its opening
+and closing delimiters.
+
+`lowerApplication_parts` identifies the lowered callee and relates the
+application and grouped operand spans to the normalized call shape.
+`denoteCall_calleeFirst` unfolds resolved call evaluation into a single
+callee evaluation followed by the operands from its returned state.
+`denoteCall_calleeError` proves that a callee error preserves the error state
+and bypasses operands. These properties apply at each link in a chain.
+A successfully evaluated noncallable value reaches the dispatch check
+after operand evaluation and expansion.
+[Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+The UTF-8 fixtures exercise four applications, a conditional callee with a
+skipped branch, and a failure in the second application. Lean checks that the
+first two operand allocations survive that failure and the later operands are
+skipped. Pinned Go agrees on export and error outcomes, and a Go-only
+mutation control records the effects that survive. A kernel check compares
+three left-associated normalized applications and their original UTF-8
+spans, then checks the following assignment was parsed separately.
+
+The head's parenthesized expression uses the existing call-free scalar
+profile. Attribute lookup, subscripts, and calls within dictionary displays
+remain outside this grammar. The normalized checker and evaluator
+handle callable values, binding, runtime errors, and the existing restriction
+on recursive closure invocation.
+[Computed call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ComputedCallChecks.lean)
+
+### Calls in return expressions
+
+Module functions use the same suite parser as the standalone scalar frontend.
+Within those suites, a `return` can take a postfix application at its root,
+including a return inside an `if`, `elif`, or `else` branch. The adapter
+lowers it to `Modules.Resolve.Statement.ret (some expression)`. Existing
+body resolution selects the callee binding and collects captures. The
+declaration compiler assigns the ID and emits `Body.returnExpr`, which the
+existing denotation evaluates in the function frame.
+
+Shared UTF-8 controls exercise a global callable and a callable parameter
+that shadows a global function. A failed inner callee masks a later operand
+failure, and an undefined callee is rejected during resolution. The kernel
+checks the normalized return tree and the application, callee, and operand
+spans retained on the declaration. The standalone `parseFunctionUtf8` entry
+point keeps the scalar body profile.
+[Return call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ReturnCallChecks.lean)
+
+### Call-valued name assignments
+
+A module function can use `name = f(...)` or a postfix chain as the entire
+assignment RHS. This includes assignments in indented branches. The
+frontend emits the existing normalized `Statement.assign`. The declaration
+compiler collects the target in the function layout and emits
+`Body.assignExpr`, which writes the local slot after the RHS succeeds.
+
+The shared branch fixture assigns through a callable parameter that shadows
+a global function. The next statement reads the assigned local, and module
+publication still sees the original global binding of the same name. Taking
+the other branch leaves the local uninitialized. Lean checks the resolved
+local read, write, and callee slots, and the kernel checks the assignment
+and exact UTF-8 application spans.
+
+In the failing fixture, the first call error preserves an earlier local
+value and suppresses the later assignments. Lean checks the residual heap.
+A Go-only mutation control observes the effect of the first assignment's
+operand and confirms that the next RHS is skipped. The assignment targets
+in this profile are bare names.
+[Assignment call checks](../../Silmaril/Languages/Starlark/Frontend/Module/AssignmentCallChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
+
+### Call expression statements
+
+Module and module-function suites admit a postfix chain as a whole
+expression statement, including on either side of a semicolon. The
+frontend lowers it to the existing normalized `.eval` command or body
+statement. The checked evaluator keeps the state produced by the call
+and discards its result. The call introduces no assignment target.
+
+The kernel checks the normalized discard nodes and exact UTF-8 statement,
+application, callee, and operand spans in both positions. Lean verifies
+that a function branch containing only call statements adds no locals
+and that the published module contains only its source bindings. Two
+discarded list copies leave allocations in left-to-right order. A skipped
+branch contributes no allocations.
+
+Shared Lean and pinned Go fixtures observe an argument failure before the
+following semicolon-separated statement. Lean checks that the first
+allocation survives while the later allocation and writes are skipped.
+Go-only mutation controls observe ordering and suppression directly.
+The standalone scalar parser retains its call-free grammar.
+[Call statement checks](../../Silmaril/Languages/Starlark/Frontend/Module/CallStatementChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
+
+### Calls in short-circuit expressions
+
+The scalar parser and module expression parser share one precedence table.
+In the module profile, the postfix hook recognizes a call before considering
+infix operators. Calls bind more tightly than `and`, which binds more tightly
+than `or`. Both logical operators associate to the left. Parentheses can group
+logical operands. This grammar is shared by module and function name
+assignments, function returns, expression statements, and call operands.
+
+For example, `f() or g()(2) and h(3) or k(4)` lowers as
+`(f() or (g()(2) and h(3))) or k(4)`. The kernel checks this exact
+normalized tree and the original UTF-8 expression, application, callee, and
+operand spans. `lowerOperand_logical` preserves the normalized logical node
+and the source order of the application records. `denoteLogical_order` shows
+that the evaluator runs the left operand first, uses its resulting state
+for the truth test, and evaluates the right operand only when selected.
+An error in the left operand or its truth test retains that error and state.
+
+The UTF-8 fixtures exercise module assignment, function assignment and return,
+grouped expressions, and a logical spread operand. Lean checks retained
+allocation order, skipped operands, and first-error masking. Go-only
+mutation traces confirm order and that later operands are skipped.
+Lexical resolution still visits the skipped operand.
+[Logical call checks](../../Silmaril/Languages/Starlark/Frontend/Module/LogicalCallChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Calls in conditional expressions
+
+In the module expression grammar, `yes if test else no` accepts postfix
+applications in all three operands. The same precedence loop runs for
+module assignments, function assignments and returns, expression
+statements, branch tests, and call operands. Conditional expressions bind
+more weakly than `and` and `or`, and an unparenthesized conditional in the `else` arm
+nests to the right.
+
+The kernel checks that
+`f() or g()(2) if p() and q() else h(3) if r() else k(4)` lowers as
+`(f() or g()(2)) if (p() and q()) else (h(3) if r() else k(4))`,
+with the original UTF-8 spans. `lowerOperand_conditional` preserves the
+normalized conditional and records application spans in source order,
+visiting the consequent, condition, and alternative. The checked evaluator
+runs the condition first. `denoteConditional_order` gives its exact state
+handoff to the selected arm and preserves a condition or truth-test error.
+
+The shared UTF-8 fixtures check module and function forms, condition failure,
+and errors in either selected arm. Lean checks that the condition's
+allocation precedes the chosen arm's allocation, and that a reached error
+retains its prefix while skipping the other arm and later writes. Go-only
+mutation controls observe the same ordering and suppression.
+[Conditional call checks](../../Silmaril/Languages/Starlark/Frontend/Module/ConditionalCallChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Calls in statement branch tests
+
+Inside a module function, `if` and `elif` parse the shared module expression
+grammar up to the suite colon. This includes postfix calls, `and`, `or`,
+and conditional expressions. An `elif` lowers to a branch in the preceding
+false suite, and a missing alternative lowers to `pass`. The frontend
+keeps each heading's test span and records applications in heading and
+suite source order. Multiline suites may nest. Top-level `if` and inline
+suites remain outside the profile.
+
+`compileBody_plainBranch` shows how the normalized statement resolves
+its test in the collected block and compiles both suites into one resolved
+branch. `denoteBranchExpr_order` gives the exact state handoff from one
+evaluation of the test and its truth check to the selected suite. An
+earlier true or failing test skips later `elif` tests. The resolver still
+visits these tests during validation. The evaluation equation carries a
+test or truth-check error with its exact state.
+
+Lean checks the tree and UTF-8 byte, line, and column spans for both
+headings and their applications. The pinned Go parser checks the heading
+line and column spans on the same CRLF source. Shared fixtures check
+parameter shadowing, success in each suite, nested branches, and failure in
+a reached test. Lean checks the allocation order and suppressed writes.
+Go-only mutation controls record test and suite order and skipped effects.
+[Branch checks](../../Silmaril/Languages/Starlark/Frontend/Module/BranchCallChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+The checked module operator profile admits `and`, `or`, and conditional
+expressions. Computed callees formed from call-containing groups and calls
+in parameter defaults and dictionary display elements remain outside this profile.
+Unary `not`, `+`, `-`, and `~`, binary arithmetic
+`+`, `-`, `*`, `/`, `//`, and `%`, equality, ordering, membership, shifts,
+and bitwise operators remain outside the checked module operator profile.
+The standalone scalar parser retains its existing call-free operators.
+
+### Calls in list displays
+
+List displays are atoms in the module expression grammar. Each element
+uses that same grammar, including postfix calls, short-circuit and
+conditional expressions, and nested list displays. Brackets delimit
+the display. Commas separate the elements, and a final comma is optional.
+Empty lists and multiline continuations are supported. For example,
+`[f(), [a() if test() else b(),], g([h(),]),]` works in a module
+assignment, function expression, or call operand.
+
+`lowerOperand_list` emits the existing normalized list node and preserves
+application metadata in element order. `denoteList_cons` describes the
+single evaluation of the first element and the handoff of its state to
+the remaining elements. `denoteList_order` allocates the display only
+after all elements have evaluated successfully. A reached failure keeps
+its exact state, including successful inner allocations and effects of
+the failing element. It skips later elements and the outer allocation.
+
+Lean checks the normalized tree and exact UTF-8 byte, line, and column
+spans for displays, elements, and applications. Pinned Go checks the
+display and immediate element positions on the same CRLF input. Shared
+controls cover nested lists and calls, function bodies, spreads, invalid
+separators, and a reached binding error. Lean inspects the allocation
+prefix. Go-only mutation traces check element order and skipped effects.
+The standalone scalar parser stays call-free. Dictionary elements,
+comprehensions, and default expressions keep their prior scope.
+[List display checks](../../Silmaril/Languages/Starlark/Frontend/Module/ListDisplayChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
+
+### Calls in tuple displays
+
+The module precedence parser shares the opening parse for groups and
+tuples. `(f())` groups the call, `(f(),)` makes a singleton tuple, and
+`()` makes an empty tuple. After the first comma, the same delimiter
+loop as list displays reads the remaining elements with the module
+expression grammar. Nested displays, conditional and logical expressions,
+and optional trailing commas after multiple elements are supported.
+Unparenthesized tuples remain outside this profile. A grouped call can
+be a tuple element. Computed callees such as `(f())()` remain outside
+the supported callee forms.
+
+`lowerOperand_tuple` preserves element order and collects each element's
+application metadata. `denoteTuple_cons` gives one evaluation of the
+first element and the exact state handed to the remainder.
+`denoteTuple_order` allocates the tuple after all elements succeed and
+preserves the exact reached error state. Lean checks a failure after a
+completed inner tuple, with no later element effects or outer allocation.
+Go-only mutation controls check the reached prefix and skipped effects.
+
+Lean checks grouping, normalized shape, and exact UTF-8 tuple, element,
+callee, application, and operand spans. Pinned Go checks the tuple and
+element line and column spans on the same CRLF source. The oracle uses
+Go's enclosing parenthesis node for nonempty tuples and advances the
+empty tuple's closing-token position to its half-open end.
+Standalone scalar parsing and the dictionary, comprehension, and
+default-expression boundaries retain their prior scope.
+[Tuple display checks](../../Silmaril/Languages/Starlark/Frontend/Module/TupleDisplayChecks.lean) · [Theorems](../../Silmaril/Languages/Starlark/Frontend/Module/Thms.lean)
 
 ### Leading loads and UTF-8 graphs
 
@@ -149,6 +436,18 @@ belong to the caller. The single-module `Frontend.Module.runUtf8` uses an empty
 catalog. Use `Frontend.Module.Loader.loadUtf8` to prepare a graph and start a
 cold load, or `Prepared.load` to reuse the matching loader session.
 [UTF-8 loader](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Defs.lean)
+
+The same return lowering supports a nullary importer wrapper such as
+`def relay():` with the indented body `return imported(11)`, after a leading
+renamed load of `id`. The UTF-8 manifest fixture checks that the producer
+retains declaration ID 0 and that the consumer wrapper receives ID 1 with
+the resolved file-local import capture. Lean and pinned Go both observe the
+wrapper's return value. When the wrapper calls `imported()`, the missing
+argument preempts a later module assignment. As in the normalized examples,
+load and return evaluation use the existing resolved loader. The text
+fixture exercises the normalized wrapper shape from #4613.
+[Importer controls](../../Silmaril/Languages/Starlark/Frontend/Module/Loader/Checks.lean) · [Checked wrapper profile](https://github.com/hiloopai/silmaril-lean/pull/4613)
+
 
 For module 0, the producer text is
 
@@ -234,7 +533,17 @@ length and token count.
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Frontend.Checks \
   +Silmaril.Languages.Starlark.Frontend.Module.Checks \
-  +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks +Silmaril.Languages.Starlark.Checks
+  +Silmaril.Languages.Starlark.Frontend.Module.Loader.Checks \
+  +Silmaril.Languages.Starlark.Frontend.Module.SpreadChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ComputedCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ReturnCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.AssignmentCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.CallStatementChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.LogicalCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ConditionalCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.BranchCallChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.ListDisplayChecks \
+  +Silmaril.Languages.Starlark.Frontend.Module.TupleDisplayChecks +Silmaril.Languages.Starlark.Checks
 scripts/starlark/frontend/run.sh
 ```
 
@@ -249,6 +558,17 @@ empty host. They compare integer `out` exports, default evaluation,
 validation errors, and runtime errors with `out` still unbound. The
 observations cover selected bindings and error phases. The Lean residual heap
 and Go partial globals remain outside the comparison.
+
+Shared fixtures check nested spread values and binding failures. Competing
+errors show that the callee read precedes operands, the named operand precedes
+`*`, `*` precedes `**`, and evaluation errors preempt expansion. Other fixtures
+show mapping expansion takes precedence when both spread values are invalid.
+Go-only controls use mutation and a call in callee position to observe the
+callee and four operand groups running once in order. Operand effects survive
+reached spread and binding errors. A failed computed callee retains its own
+effect and prevents outer operand effects. Go-only controls also check the
+rejection of named operands after `*` and `*` after `**`.
+[Shared spread checks](../../Silmaril/Languages/Starlark/Frontend/Module/SpreadChecks.lean) · [Go effect controls](../../scripts/starlark/frontend/spreads.go)
 
 The pinned Go scanner accepts significant tabs. The fixtures observe one tab
 or a space plus a tab aligned with eight spaces, and two tabs aligned with

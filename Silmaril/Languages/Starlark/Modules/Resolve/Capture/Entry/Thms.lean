@@ -33,6 +33,16 @@ theorem checked_module_globals {commands : List Command} {globals : List String}
   Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry.checked_module_globals
     declares checked
 
+/-- Validated module globals and file-local import aliases are jointly distinct. -/
+theorem validated_entry_names {program : Program} {source : Modules.Source}
+    (checked : validateSource program source = .ok ()) : (source.globals ++ source.fileNames).Nodup :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry.validated_entry_names checked
+
+/-- Successful validation gives a distinct module global layout. -/
+theorem validated_module_names {program : Program} {source : Modules.Source}
+    (checked : validateSource program source = .ok ()) : source.globals.Nodup :=
+  Proofs.Languages.Starlark.Modules.Resolve.Capture.Entry.validated_module_names checked
+
 theorem entered_cells (source : Modules.Source) (caller : State) :
     (∀ binding address, (enter source caller).slots binding = some (.owned address) → caller.heap.size ≤ address) ∧
     ∀ (address : Nat) cell, caller.heap[address]? = some cell → (enter source caller).heap[address]? = some cell :=

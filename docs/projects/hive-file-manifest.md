@@ -68,12 +68,128 @@ disagree. In the regression, a rejected file opens and emits a group before a
 read failure. The reference returns the earlier selected rows and the error.
 Skipping opens continues to a later selected file and reaches EOF.
 
+## One budget across checked snapshots
+
+[`scanSnapshotsBounded`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Defs.lean)
+scans a prepared Hive manifest over supplied immutable Parquet snapshots.
+A single caller-supplied budget counts logical actions across all file
+occurrences, including repeated declarations and filtered partitions.
+
+| Action | Charge |
+| --- | --- |
+| Attempt lookup by literal path and checked open with the declared schema | 1 together |
+| Attempt to pull one row group, including an empty group or a failed read | 1 |
+| Pull after the final group to observe file EOS | 1 |
+| Dispose of an immutable snapshot on budget exhaustion | 0 |
+
+A manifest with no remaining entries yields EOS even at budget zero. At
+zero budget with another entry pending, the scan returns `.closed` before
+lookup. After opening a file it must observe that file's EOS before advancing,
+including a file with no groups. If the last group used the last action,
+the scan returns `.closed` with the emitted prefix. A reached failure stops
+the scan and retains its original path and typed cause, including a group
+index when applicable. Filtering suppresses batches while preserving
+charges and reached outcomes.
+
+The output preserves literal manifest occurrence order, row-group batch
+boundaries for retained partitions, stable row order within each batch, and
+duplicate rows. Projection operates on the typed augmented schema and
+preserves row count with zero output columns. The budget measures logical
+attempts. Existing reader limits govern admission and decoding within individual
+actions. The API operates on supplied snapshots and performs no filesystem IO.
+
+[`scanSnapshotsBounded_eq_reference`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Thms.lean)
+proves exact trace equality to an independent reference that denotes the
+affordable row-group prefix of each checked source, constructs projected
+batches from those typed rows, and debits the explicit EOS before moving on.
+
+[Bounded checks](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Checks.lean)
+reuse the [pinned two-group PyArrow V1 and V2 files](parquet-flat-scan.md#independent-fixtures)
+and the late V2 failure at byte 234 documented in [Hive write planning](hive-write-plan.md#planning-from-a-checked-snapshot-scan).
+The additional [422-byte zero-group file](../../tools/parquet-flat-scan/fixtures/flat-empty-no-groups.parquet)
+has SHA-256 `69b2b6e2c21df0ba477c3d218c2dc9ff09a87a5f10ed0f029d16c669457813ec`.
+To regenerate it, use the CPython 3.14.7 image and hash-pinned PyArrow 26.0.1
+and NumPy 2.5.5 wheels from the [Hive oracle recipe](hive-write-plan.md#pinned-checks)
+and run the following in an output directory.
+
+```python
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+schema = pa.schema([
+    pa.field("required_i32", pa.int32(), nullable=False),
+    pa.field("optional_i32", pa.int32(), nullable=True),
+])
+name = "flat-empty-no-groups.parquet"
+with pq.ParquetWriter(name, schema, compression="NONE", use_dictionary=False, write_statistics=False):
+    pass
+actual = pq.ParquetFile(name)
+assert actual.num_row_groups == actual.metadata.num_rows == 0
+assert actual.schema_arrow.equals(schema)
+assert actual.read().equals(schema.empty_table())
+```
+
+### Agreement with the strict full scan
+
+[`SnapshotScanCost`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Defs.lean)
+witnesses a logical action count directly from the literal occurrence list
+and checked sources. A successful occurrence supplies evidence that all
+its groups decode in order. It costs the group count plus two, for checked
+open and EOS, before charging the rest of the manifest. A failed open
+costs one action, including when lookup fails. An opened file that fails
+after `k` successful groups costs `k + 2`, for open, those group pulls,
+and the failed pull. Both failure cases stop at the first failed action
+and require no evidence about any later file. The read failure also
+requires no evidence about later groups. No remaining occurrences cost
+zero actions.
+
+[`snapshotScanCost_exists`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Thms.lean#L42)
+constructs a witness for every finite supplied manifest and checked opener
+input, including failed opens and partial reads.
+[`scanSnapshotsBounded_eq_scan_of_cost`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Thms.lean#L30)
+shows that any budget at least the witnessed cost returns exactly the
+unbounded strict snapshot trace, including projected batch boundaries,
+ordered nullable cells, and the terminal outcome. The witness uses group
+reads independently of projection and partition selection. Filtered
+occurrences still spend actions and preserve every reached failure.
+
+The [cost regressions](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Checks.lean)
+compare both APIs on the same pinned fixtures with explicit budgets and
+include a checked footer rejection after a successful occurrence. One
+action below the successful boundary can emit all rows and still return
+`.closed`. The law is a proof about pure snapshots and logical actions.
+
+### Exact cutoff and appended occurrences
+
+[`scanSnapshotsBounded_exact_boundary`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Thms.lean)
+gives the other side of the budget law. For a witnessed cost, the immutable
+snapshot scan returns `.closed` exactly when its budget is smaller than
+that cost. Its emitted aligned batches are always an ordered prefix of
+the strict trace, including duplicates, nullable cells, and explicit
+batch row counts at zero output width. Combined with sufficient-budget
+agreement, the cutoff also determines the unique cost for that manifest
+and checked input. A scan can have emitted its last batch while still
+needing an action to observe EOS.
+
+[`scanSnapshotsBounded_append_of_stopped`](../../Silmaril/Formats/Hive/Manifest/ParquetSnapshot/Bounded/Thms.lean)
+preserves the exact trace when later literal occurrences are appended
+after a scan that returned `.closed` or an error. A scan that has
+observed manifest EOS may have enough budget to reach appended entries
+and observe their outcomes. The laws concern trace observations of
+supplied immutable snapshots at a logical action budget.
+
+The bounded checks enumerate budgets below, at, and above the witnessed
+boundary for empty, repeated, zero-width, and damaged inputs. They also
+compare appended suffixes at close and failure, with an EOS control in
+which the appended entry is reached.
+
 ## Checks
 
 ```sh
 lake build --wfail +Silmaril.Formats.Hive.Manifest.Checks
 make check CHECK_TARGETS=+Silmaril.Formats.Hive.Manifest.Checks
 lake build --wfail +Silmaril.Formats.Hive.Manifest.Pruning.Checks
+lake build --wfail +Silmaril.Formats.Hive.Manifest.ParquetSnapshot.Bounded.Checks
 make check CHECK_TARGETS=+Silmaril.Formats.Hive.Manifest.Pruning.Checks
 ```
 

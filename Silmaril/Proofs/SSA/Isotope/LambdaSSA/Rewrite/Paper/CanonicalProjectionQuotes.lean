@@ -8,7 +8,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithComputedP
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Roundtrip.Thms
 import Silmaril.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Institution.Rewrite.Repair.Reply.Payload.Finite.Thms
 
-/-! # Exact recognition and native replay of live projection quotes -/
+/-! # Exact recognition and native replay of live bit quotes -/
 
 public section
 
@@ -48,12 +48,43 @@ theorem recognize_exact {n : Nat} (i : Fin n) :
   have index := projection_quote_injective q.property
   exact hq.trans (congrArg some (Subtype.ext index.symm))
 
+private theorem recognize_constant_exact (n : Nat) (b : Bool) :
+    recognizeConstantQuote (Finite.Expr.quote n (fun _ => b)) = some ⟨b, rfl⟩ := by
+  simp [recognizeConstantQuote, quote_shape, Finite.Expr.quote_eval]
+
+private theorem constant_has_no_projection (n : Nat) (b : Bool) :
+    recognizeProjectionQuote (Finite.Expr.quote n (fun _ => b)) = none := by
+  cases projected : recognizeProjectionQuote (Finite.Expr.quote n (fun _ => b)) with
+  | none => rfl
+  | some q =>
+    have opposite := congrArg (fun e : Finite.Expr n => e.eval (fun _ => !b)) q.property
+    simp only [Finite.Expr.quote_eval] at opposite
+    cases b <;> contradiction
+
+theorem contract_constant_quote {L : List (Ty Empty)} (n : Nat) (b : Bool) (pos : Position L)
+    (emits : List Bool) :
+    (ReadTree.retExpr emits pos (Finite.Expr.quote n (fun _ => b))).contractProjectionQuotes =
+      .retExpr emits pos (.literal b) := by
+  simp [ReadTree.contractProjectionQuotes, constant_has_no_projection, recognize_constant_exact]
+
+private theorem contract_literal {L : List (Ty Empty)} {n : Nat} (b : Bool) (pos : Position L)
+    (emits : List Bool) :
+    (ReadTree.retExpr emits pos (.literal (n := n) b)).contractProjectionQuotes =
+      .retExpr emits pos (.literal b) := by
+  cases n <;> simp [ReadTree.contractProjectionQuotes, recognizeProjectionQuote, recognizeConstantQuote,
+    hasFullQuoteShape, Finite.Expr.eval, Finite.Expr.quote]
+
 theorem contract_idempotent {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n) :
     p.contractProjectionQuotes.contractProjectionQuotes = p.contractProjectionQuotes := by
   induction p with
   | ret => rfl
-  | retExpr _ _ e =>
-    cases h : recognizeProjectionQuote e <;> simp [ReadTree.contractProjectionQuotes, h]
+  | retExpr emits pos e =>
+    cases projected : recognizeProjectionQuote e with
+    | some => simp [ReadTree.contractProjectionQuotes, projected]
+    | none =>
+      cases constant : recognizeConstantQuote e with
+      | some => simp [ReadTree.contractProjectionQuotes, projected, constant, contract_literal]
+      | none => simp [ReadTree.contractProjectionQuotes, projected, constant]
   | request _ _ _ _ _ hl hr => simp [ReadTree.contractProjectionQuotes, hl, hr]
   | testRequest _ _ _ _ _ _ _ _ _ hfl hfr htl htr =>
     simp [ReadTree.contractProjectionQuotes, hfl, hfr, htl, htr]
@@ -78,7 +109,12 @@ theorem contract_selected {L : List (Ty Empty)} {n : Nat} (p : ReadTree L n)
     simp only [ReadTree.contractProjectionQuotes]
     cases recognizeProjectionQuote e with
     | none =>
-      exact .refl (ReadTree.selectedWith _ slots).elaborate.property.hasType
+      cases recognizeConstantQuote e with
+      | none => exact .refl (ReadTree.selectedWith _ slots).elaborate.property.hasType
+      | some q =>
+        obtain ⟨b, equation⟩ := q
+        subst e
+        exact constant_quote b pos slots emits drop
     | some q =>
       obtain ⟨i, equation⟩ := q
       subst e

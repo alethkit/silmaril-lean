@@ -59,6 +59,35 @@ theorem Function.store_typed {fn : Function} {stack : List Value} {offset : Fin 
       stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.WellTyped saved rest :=
   Proofs.store_typed checked
 
+theorem Function.region_load_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.load offset :: rest) labels = true) :
+    ∃ (saved : List Value) (address : BitVec 32),
+      stack = saved ++ [Value.int .i32 address] ∧
+      ∀ bits : BitVec 32, fn.checkRegion (Prefix.stackTypes (saved ++ [Value.int .i32 bits])) fallthrough rest labels = true :=
+  Proofs.load_typed checked
+
+theorem Function.region_grow_typed {fn : Function} {stack : List Value} {rest : List Op}
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.grow :: rest) labels = true) :
+    ∃ (saved : List Value) (delta : BitVec 32),
+      stack = saved ++ [Value.int .i32 delta] ∧
+      ∀ result : BitVec 32, fn.checkRegion (Prefix.stackTypes (saved ++ [Value.int .i32 result])) fallthrough rest labels = true :=
+  Proofs.grow_typed checked
+
+theorem Function.region_size_typed {fn : Function} {stack : List Value} {rest : List Op}
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.size :: rest) labels = true) (pages : BitVec 32) :
+    fn.checkRegion (Prefix.stackTypes (stack ++ [Value.int .i32 pages])) fallthrough rest labels = true :=
+  Proofs.size_typed checked pages
+
+theorem Function.region_store_typed {fn : Function} {stack : List Value} {offset : Fin (2 ^ 32)} {rest : List Op}
+    {fallthrough : List NumType} {labels : List (List NumType)}
+    (checked : fn.checkRegion (Prefix.stackTypes stack) fallthrough (.store offset :: rest) labels = true) :
+    ∃ (saved : List Value) (address word : BitVec 32),
+      stack = saved ++ [Value.int .i32 address, Value.int .i32 word] ∧ fn.checkRegion (Prefix.stackTypes saved) fallthrough rest labels = true :=
+  Proofs.store_typed checked
+
 /-- A parameterless block checks its body in isolation and delivers its optional result above the saved operands. -/
 theorem Function.block_typed {fn : Function} {saved : List Value} {result : Option NumType}
     {body rest : List Op} {fallthrough : List NumType} {labels : List (List NumType)}

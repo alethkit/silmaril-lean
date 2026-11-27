@@ -30,6 +30,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   [FreydCategory.CentralUnit J] (M : TypeModel τ V) [InstructionModel J M Φ]
   [RegionTypingCoherent (Φ := Φ) J M]
 
+omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
+/-- The existing typed LetCase inclusion preserves its categorical arrow. -/
+theorem denote_caseIter {n : Nat} {β : BoundCtx τ n} {t : LetCase.LocallyNameless.Tm Empty Φ n} {A : τ}
+    (d : LetCase.LocallyNameless.Derivation Φ (.nil : Ctx Empty τ) β t A) :
+    LetIter.Semantics.Categorical.denote J M (Morphism.CaseIter.derivation d) =
+      LetCase.Semantics.Categorical.denote J M d :=
+  denote_caseIter_proof J M d
+
 /-- An exact realization of the written region computes its native categorical
 arrow, independently of the selected typing and code witnesses. -/
 theorem Endpoint.denote_code {n : Nat} {β : BoundCtx τ n} {A : τ} (p : Endpoint Φ β A)
@@ -65,6 +73,15 @@ theorem Endpoint.valid_of_code_equiv {Φ : Type} [LetCase.Structural.Finite.Sign
     (eq : LetCase.LocallyNameless.Equiv false LetCase.Structural.Reply.Γ₀ β
       c.toLetCase.1 d.toLetCase.1 A) : p.Valid q :=
   valid_of_code_equiv_proof p q c d hc hd eq
+
+open LetSeq.StraightLine.Structural.Categorical (traceJ traceTypes traceInstructions)
+
+/-- The free structural ordered-trace interpretation has coherent native
+region witnesses at every exact input and exit interface. -/
+theorem trace_region_coherent {Φ : Type} [HasTy Φ Types] :
+    letI := traceInstructions (α := Empty) (Φ := Φ)
+    RegionTypingCoherent (Φ := Φ) (traceJ (α := Empty) (Φ := Φ)) (traceTypes Empty) :=
+  trace_region_coherent_proof
 
 /-- For independently admitted outward regions, categorical validity at the
 original exact arrows is equivalent to native derivability after LetCase

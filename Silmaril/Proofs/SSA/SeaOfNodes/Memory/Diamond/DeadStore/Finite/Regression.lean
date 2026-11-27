@@ -1,14 +1,17 @@
 module
 
+import Silmaril.SSA.SeaOfNodes.Memory.AddressProvenance.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Thms
 import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.Thms
+import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord.Thms
 
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.FinalEntry.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.Defs
+meta import Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite.MemRef.CF.LoadTail.PrefixWord.Defs
 meta import Silmaril.SSA.SeaOfNodes.Memory.MLIR.MemRef.Defs
 
 namespace Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite
@@ -279,5 +282,84 @@ private def runTailSwitch (arrival : Occurrence preds) (fuel : Nat) :
 example : MemRef.CF.LoadTail.lower preds fits tailEntry 3 (arms headPort) witnesses suffix input tailFacts = none :=
   (MemRef.CF.LoadTail.lower_eq_none_iff tailCutAccepted).mpr ⟨1, rfl⟩
 #guard (MemRef.CF.LoadTail.lower preds fits tailEntry 3 (arms headPort) witnesses suffix input tailFacts).isNone
+
+-- The removed write uses the value 3 from the retained prefix Load.
+-- The prefix leaves 22 in the target cell and changes the source cell
+-- to 11, so neither the current cell contents nor the tail word is the operand.
+private def localPrefix (tail : Memory.Body Args [[.word]] 2) : Memory.Graph Args :=
+  .load (.latest 0) (.arg sidePort)
+    (.store (.latest 0) (.arg headPort) (.arg middleWord)
+      (.store (.latest 1) (.arg sidePort) (.arg firstWord) tail))
+
+private def localEntry : Memory.Graph Args :=
+  localPrefix (.store (.latest 2) (.arg headPort) loaded (trailingReads 3))
+
+private def localCut : MemRef.CF.LoadTail.PrefixWord.Cut Args [] 0 :=
+  ⟨headPort, localPrefix (.ret (.latest 2) loaded), localPrefix (trailingReads 2)⟩
+
+private theorem localCutAccepted : MemRef.CF.LoadTail.PrefixWord.cut tailFacts 3 localEntry = some localCut := rfl
+#guard readback (observe localCut.beforeStore input initial) == [3, 22, 11, 55]
+
+private def localPrograms :=
+  MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (arms sidePort) witnesses suffix input tailFacts
+
+#guard localPrograms.map entryBuffers == some ([3, 11, 55], [22, 11, 55])
+#guard (localPrograms.map fun p => (emittedEntryWord p.original, emittedEntryWord p.optimized)) ==
+  some (some 11, some 11)
+
+#guard (List.ofFn fun i => compareSwitch localPrograms i 3) ==
+  [some (0, [11, 11, 11, 55], [11, 11, 11, 55]),
+   some (1, [11, 22, 22, 55], [22, 22, 11, 55]),
+   some (2, [99, 99, 11, 55], [99, 99, 99, 55])]
+#guard (compareSwitch localPrograms 1 2).isNone
+
+-- With these arms, only the suffix validation can refuse this invocation.
+#guard MemRef.CF.LoadTail.PrefixWord.checkArms preds headPort (fun _ => last) (fun _ => ⟨1, []⟩) aliasInput
+#guard (MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (fun _ => last)
+    (fun _ => ⟨1, []⟩) suffix aliasInput tailFacts).isNone
+
+-- The two equal predecessor IDs still have independent reader checks.
+#guard (List.ofFn fun i =>
+  MemRef.CF.LoadTail.PrefixWord.checkArm headPort (arms headPort i) (witnesses i) input) == [true, false, true]
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (localEntry.denote input initial.cell).2 == some 3
+#guard Memory.DeadStore.readAt (arms headPort 1) 0 input PUnit.unit
+    (Memory.Graph.denote localCut.retained input initial.cell).2 == some 22
+#guard (MemRef.CF.LoadTail.PrefixWord.lower preds fits localEntry 3 (arms headPort)
+    witnesses suffix input tailFacts).isNone
+
+-- At the second trailing Load, both available local bindings have word sort.
+-- The typed origin constructor provides no address port in either binding.
+private abbrev TwoLoads := [[ValueSort.word], [ValueSort.word]]
+
+example (node : Fin TwoLoads.length) (port : Port TwoLoads[node] .address) : False := by
+  let scope : Memory.AddressProvenance.LoadScope TwoLoads := .load (.load .start)
+  obtain ⟨_, origin⟩ := scope.address_argument (.output node port : Origin Args TwoLoads .address)
+  cases origin
+
+example : ∀ operation ∈ Memory.DeadStore.Search.Selection.Readers.Repeat.operations localEntry,
+    Memory.AddressProvenance.ArgumentAddress operation :=
+  Memory.AddressProvenance.graph_operations_argument_addresses localEntry
+
+private def entryProbes (graph : Memory.Graph Args) (values : Tuple (Val 3) Args) :
+    List (Option Nat) :=
+  List.ofFn fun (index : Fin 4) => (Memory.DeadStore.throughLoad graph index.val).map fun block =>
+    (observe block values initial).1.toNat
+
+-- Probe every original Load in order through actual MemRef blocks. This
+-- includes the otherwise unobserved second trailing Load and an out-of-range index.
+#guard entryProbes localEntry input == [some 3, some 11, some 11, none]
+#guard entryProbes localCut.retained input == entryProbes localEntry input
+
+-- When the input ports coincide the trailing readers would observe the cut.
+#guard entryProbes localEntry aliasInput == [some 7, some 7, some 7, none]
+#guard entryProbes localCut.retained aliasInput == [some 7, some 11, some 11, none]
+
+example {programs : MemRef.CF.Programs 3 Args preds} (emitted : localPrograms = some programs)
+    (index : Nat) (buffer : Buffer 3) :
+    let probe := fun (graph : Memory.Graph Args) => (Memory.DeadStore.throughLoad graph index).map fun block =>
+      (observe block programs.input buffer).1
+    probe localEntry = probe localCut.retained :=
+  MemRef.CF.LoadTail.PrefixWord.lower_readbacks emitted localCutAccepted index buffer
 
 end Silmaril.SSA.SeaOfNodes.Memory.Diamond.DeadStore.Finite

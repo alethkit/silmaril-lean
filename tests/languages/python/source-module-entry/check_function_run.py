@@ -15,6 +15,24 @@ FIXTURES = (
     return value
 observed = identity(1 + 2)
 """, "normal", ".normal", 3, None),
+    ("persistent_dictionary_alias", """d = {True: 2, 1: 7}
+alias = d
+d = {1: 9}
+observed = alias.get(1)
+kept = d.get(True)
+""", "normal", ".normal", 7, 9),
+    ("persistent_dictionary_clear", """d = {1: 7}
+alias = d
+other = {1: 9}
+result = d.clear()
+observed = alias.get(1, 0)
+kept = other.get(1)
+""", "normal", ".normal", 0, 9),
+    ("dictionary_argument_to_closure", """def identity(value):
+    return value
+d = identity({True: 2, 1: 7})
+observed = d.get(1)
+""", "normal", ".normal", 7, None),
     ("none_literal_preserved", """observed = None
 assert observed == None
 assert observed != False

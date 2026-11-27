@@ -43,14 +43,15 @@ variable {ε : Type w} [HasEff Φ ε]
 
 theorem computedCallSeed_same {obs : TermObservation (α := α) Φ}
     (caseUnmarked : obs.caseTerm = false) (pairUnmarked : obs.pairLet = false)
+    (unmarkedLet : obs.boundUnaryLet = false)
     (callSame : ∀ {Γ L r s}, Paper.WithComputedCallReturns.Step Γ r s L → SameWith obs Γ r s)
     {pe : ε} {Γ L : List (Ty α)} {r s : Region Φ}
     (step : Paper.WithComputedCallReturns.JoinedStep pe Γ r s L) : SameWith obs Γ r s := by
   rcases step with (((base | returned) | pair) | call)
   · exact projectionUnitSeed_same base
-  · exact returned.elim unary_fusion_same (caseReturnSeed_same caseUnmarked)
+  · exact returned.elim (unary_fusion_same unmarkedLet) (caseReturnSeed_same caseUnmarked)
   · cases pair with
-    | seq ha hb => exact fun env _ => sequence_pair pairUnmarked _ _ env
+    | seq ha hb => exact fun env _ => sequence_pair pairUnmarked unmarkedLet _ _ env
   · exact callSame call
 
 private theorem env_typed : EnvTy [product (U α) (U α)] (fun _ => .pair .unit .unit) := by
@@ -63,7 +64,7 @@ theorem product_destructure_return_fails (pe : ε) :
     ¬ Paper.Extension.Eqv (Paper.WithComputedCallReturns.JoinedStep pe) [product (U α) (U α)]
       (unpackBody (returnRegion (body : Tm Φ))) (returnRegion (unpackTerm body)) [product (U α) (U α)] := by
   intro h
-  have same := extension_same (computedCallSeed_same rfl rfl (fun step => computedStep_same step)) h
+  have same := extension_same (computedCallSeed_same rfl rfl rfl (fun step => computedStep_same step)) h
   have seen := same (fun _ => .pair .unit .unit) env_typed
   rw [evalReturnRegion (unpackTerm_typed body_typed) env_typed] at seen
   change Result.jump 0 (.pair .unit .unit) = .fault at seen

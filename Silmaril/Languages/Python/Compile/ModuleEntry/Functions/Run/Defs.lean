@@ -21,11 +21,17 @@ open Core.Module.Functions (Invocation Session TopFunction)
 
 inductive Argument where
   | scalar (operand : Core.Module.Functions.Operand)
+  | dictionaryGet (test : Core.Module.Dictionary.Get)
+  | dictionaryDisplay (entries : List Core.Module.Dictionary.Entry)
   | call (name : String) (arguments : List Core.Module.Functions.Operand)
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | exceptionalTry (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope))
   | bindText (name : String) (value : Core.Text)
+  | bindDictionary (name : String) (display : List Core.Module.Dictionary.Entry)
+  | readDictionary (name : String) (test : Core.Module.Dictionary.Get)
+  | clearDictionary (destination : Option String) (call : Core.Module.Dictionary.Clear)
   | bindTuple (name : String) (items : List Core.Closure.GlobalTupleItem) (trackClosed : Bool := false)
   | assertNot (condition : Operand scope)
   | assertIntegerBuiltin (test : IntegerBuiltinTest scope)
@@ -39,6 +45,8 @@ inductive Instruction (scope : Scope) where
   | callTupleIdentity (destination : Core.Module.Functions.Destination) (name : String) (test : TupleIdentity.Test)
   | callTupleFromListDisplay (destination : Core.Module.Functions.Destination) (contents : List Core.Module.Value)
       (outer : Option (String × List Argument))
+  | callListDisplay (destination : Core.Module.Functions.Destination) (name : String)
+      (display : ListDisplay.Display)
   /-- The source plan places this call immediately after the matching publication. -/
   | adjacentKeywordDiscard (name : String) (value : Int)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
@@ -62,15 +70,23 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
 
 def callValue? {scope : Scope} : CallValue scope → Option Core.Module.Functions.Operand
   | .scalar operand => callOperand? operand
+  | .intDivMod op numerator divisor => some (.intDivMod op numerator divisor)
   | .intTrueDiv numerator divisor => some (.intTrueDiv numerator divisor)
+  | .floatDivMod op operands => some (.floatDivMod op operands)
+  | .floatDiv operands => some (.floatDiv operands)
   | .mixedAdd integer floating => some (.mixedAdd integer floating)
   | .floatAdd left right => some (.floatAdd left right)
+  | .floatSub operands => some (.floatSub operands)
+  | .floatMul operands => some (.floatMul operands)
   | .float64 value => some (.literal (.float64 value))
   | .tuple items => some (.tuple items)
   | .text value => some (.literal (.text value))
   | .textSlice receiver bounds => some (.textSlice receiver bounds)
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
+  | .dictionaryGet test => some (.dictionaryGet test)
+  | .dictionaryDisplay entries => some (.dictionaryDisplay entries)
+  | .value (.scalar .none_) => some (.scalar (.literal .none))
   | .value operand => (callValue? operand).map .scalar
   | .call name _ operands => (operands.mapM callValue?).map (.call name)
 
@@ -92,9 +108,21 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
+  | .exceptionalTry plan :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.exceptionalTry plan :: instructions, blocks)
   | .bindText name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindText name value :: instructions, blocks)
+  | .bindDictionary name _ display :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.bindDictionary name display :: instructions, blocks)
+  | .readDictionary name _ test :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.readDictionary name test :: instructions, blocks)
+  | .clearDictionary destination call :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.clearDictionary destination call :: instructions, blocks)
   | .bindTuple name _ items :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.bindTuple name items :: instructions, blocks)
@@ -130,6 +158,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
     let some outer := arguments.mapM (fun rest => (rest.mapM callArgument?).map (name, ·)) | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.callTupleFromListDisplay (destination target) contents outer :: instructions, blocks)
+  | .callListDisplay target name _ display :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.callListDisplay (destination target) name display :: instructions, blocks)
   | .adjacentKeywordDiscard name _ value :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.adjacentKeywordDiscard name value :: instructions, blocks)
@@ -203,8 +234,9 @@ inductive Completion where
 def tupleBinding (session : Session) : Option Core.Module.TupleDispatch.TypeBinding :=
   (session.globals "tuple").map fun
     | .none => .noneValue
-    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _ => .nonCallable
-    | .function _ => .outsideProfile
+    | .int _ | .bool _ | .float64 _ | .text _ | .tuple _ | .tupleObject _
+    | .exceptionInstance _ | .dictionary _ | .dictionaryData _ => .nonCallable
+    | .exceptionClass _ | .function _ => .outsideProfile
 
 def tupleLookup (session : Session) : TupleChain.Lookup :=
   ⟨fun _ => tupleBinding session, fun name => (session.globals name).map TupleChain.Compared.ofClosure⟩
@@ -259,10 +291,13 @@ decreasing_by
     | have smaller := Core.Module.Identity.sizeOf_operand_lt link.property
       omega
 
-def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
+def Argument.emit {layout : Layout} (destination : Fin layout.locals) (next : Body layout) :
     Argument → Body layout
-  | .scalar operand => .store destination operand.lower next
-  | .call name arguments => .call destination (.readGlobal name) (arguments.map Core.Module.Functions.Operand.lower) next
+  | .scalar operand => .store (.local destination) operand.lower next
+  | .dictionaryGet test => .store (.local destination) (.dictionaryGet test) next
+  | .dictionaryDisplay entries => .storeDictionary destination entries next
+  | .call name arguments => .call (.local destination) (.readGlobal name)
+      (arguments.map Core.Module.Functions.Operand.lower) next
 
 /-- Save the outer callable first and evaluate each argument once in source
 order. The scratch slots are private to this frame and use no shared cells. -/
@@ -271,9 +306,9 @@ def prepareNestedCall (session : Session) (destination : Core.Module.Functions.D
   let layout : Layout := ⟨arguments.length + 2, 0, 0⟩
   let callee : Slot layout := .local ⟨0, by change 0 < arguments.length + 2; omega⟩
   let result : Slot layout := .local ⟨1, by change 1 < arguments.length + 2; omega⟩
-  let slots : List (Slot layout) := (List.finRange arguments.length).map fun i =>
-    .local ⟨i.val + 2, Nat.add_lt_add_right i.isLt 2⟩
-  let invoke := Body.call result (.read callee) (slots.map .read) (.ret (.read result))
+  let slots : List (Fin layout.locals) := (List.finRange arguments.length).map fun i =>
+    ⟨i.val + 2, Nat.add_lt_add_right i.isLt 2⟩
+  let invoke := Body.call result (.read callee) (slots.map fun slot => .read (.local slot)) (.ret (.read result))
   let body := (slots.zip arguments).foldr (fun (slot, argument) next => argument.emit slot next) invoke
   let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
   ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) [], session.lists⟩
@@ -283,13 +318,70 @@ inductive State (scope : Scope) where
   | calling (invocation : Invocation) (remaining : List (Instruction scope))
   | finished (session : Session) (completion : Completion)
 
+def checkAssertion {scope : Scope} (session : Session) (operand : Operand scope)
+    (expectedTruth : Bool) : Except Completion Unit :=
+  (evaluate session operand).bind fun value =>
+    if Core.Module.Functions.truth value session.heap = expectedTruth then .ok () else .error .assertionError
+
 def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
     (expectedTruth : Bool) (remaining : List (Instruction scope)) : State scope :=
-  match evaluate session operand with
-  | .ok value =>
-    if Core.Module.Functions.truth value = expectedTruth then .ready session remaining
-    else .finished session .assertionError
+  match checkAssertion session operand expectedTruth with
+  | .ok () => .ready session remaining
   | .error error => .finished session error
+
+def scalarStep {scope : Scope} (session : Session) : ModuleEntry.Action scope → Except Completion Session
+  | .assign name _ operand => (evaluate session operand).map (session.bindGlobal name)
+  | .assertion operand => (checkAssertion session operand true).map fun _ => session
+
+def Completion.isPythonError : Completion → Bool
+  | .raised _ | .assertionError => true
+  | _ => false
+
+def raiseValue : Value → ExceptionalTry.RaiseValue
+  | .exceptionClass kind => .stockClass kind
+  | .exceptionInstance value => .exceptionInstance value
+  | .function _ => .otherCallable
+  | _ => .nonCallable
+
+def raiseText? : Value → Option Core.Text
+  | .text text => some text
+  | _ => none
+
+def exceptionalStep {scope : Scope} (session : Session) : ExceptionalTry.Step scope → Except Completion Session
+  | .scalar action => scalarStep session action
+  | .raiseName operand => .error (.raised (operand.error session.globals raiseValue))
+  | .raiseCall call => .error ((call.error session.globals raiseValue raiseText?).elim .scalarProfile .raised)
+  | .raiseInactive => .error (.raised .noActiveException)
+
+def handlerClass : Value → ExceptionalTry.HandlerClass
+  | .exceptionClass kind => .stock kind
+  | .tuple _ | .tupleObject _ => .outsideProfile
+  | _ => .invalid
+
+def matchHandler (session : Session) (error : Completion) (name : String) : Except Completion Bool :=
+  let matchType actual :=
+    (ExceptionalTry.matchClass session.globals handlerClass actual name).mapError
+      (fun failure => failure.elim .scalarProfile .raised)
+  match error with
+  | .assertionError => matchType .assertionError
+  | .raised raised => matchType raised.classify
+  | _ => .error .scalarProfile
+
+def Completion.handlerInstance? : Completion → Option Core.Closure.ExceptionInstance
+  | .assertionError => some (.empty .assertionError)
+  | .raised error => error.handlerInstance?
+  | _ => none
+
+def bindCaught (session : Session) (name : String) (pending : Completion) : Except Completion Session :=
+  pending.handlerInstance?.elim (.error .scalarProfile) fun value =>
+    .ok (session.bindGlobal name (.exceptionInstance value))
+
+def handlerOperations : ExceptionalTry.HandlerOperations Session Completion :=
+  ⟨matchHandler, bindCaught, Session.unbindGlobal⟩
+
+def runExceptionalTry {scope : Scope} (session : Session) (plan : ExceptionalTry.Plan (ExceptionalTry.Step scope)) :
+    ExceptionalTry.Outcome Session Completion :=
+  ExceptionalTry.run (ExceptionalTry.runSuite exceptionalStep) Completion.isPythonError handlerOperations session plan
 
 inductive VarNamesFailure where
   | unsupportedReceiver
@@ -326,7 +418,7 @@ def boolIdentityCompletion {scope : Scope} (session : Session) (test : BoolIdent
     | .error error => error
     | .ok _ =>
       match callee with
-      | .function _ => .scalarProfile
+      | .exceptionClass _ | .function _ => .scalarProfile
       | _ => .raised .notCallable
 
 def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem) :
@@ -334,16 +426,25 @@ def evaluateTuple (session : Session) (items : List Core.Closure.GlobalTupleItem
   let frame : Frame ⟨0, 0, 0⟩ := ⟨Fin.elim0, Fin.elim0, Fin.elim0⟩
   Core.Closure.Executor.evalTupleContentsIn session.globals session.heap frame items
 
+def bindDictionary (session : Session) (name : String) (display : List Core.Module.Dictionary.Entry) : Session :=
+  let (object, heap) := session.heap.materializeDictionary display
+  { session.bindGlobal name (.dictionary object) with heap }
+
+def operandFailure : Core.Closure.Failure → Completion
+  | .defined error => .raised error
+  | .danglingCell identity => .executorFault (.danglingCell identity)
+  | .unsupportedTupleElement => .executorFault .unsupportedTupleElement
+  | .unsupportedFloatOperand => .executorFault .unsupportedFloatOperand
+  | .unsupportedDictionaryOperand => .executorFault .unsupportedDictionaryOperand
+  | .unsupportedCallable => .executorFault .unsupportedCallable
+
 def bindTuple (session : Session) (name : String) (items : List Core.Closure.GlobalTupleItem)
     (trackClosed : Bool := false) : Except Completion Session :=
   match evaluateTuple session items with
   | .ok contents =>
     let (value, heap) := session.heap.materializeModuleTuple items contents trackClosed
     .ok ({ session with heap := heap }.bindGlobal name value)
-  | .error (.defined error) => .error (.raised error)
-  | .error (.danglingCell identity) => .error (.executorFault (.danglingCell identity))
-  | .error .unsupportedTupleElement => .error (.executorFault .unsupportedTupleElement)
-  | .error .unsupportedFloatOperand => .error (.executorFault .unsupportedFloatOperand)
+  | .error error => .error (operandFailure error)
 
 def prepareTupleIdentityCall (session : Session) (destination : Core.Module.Functions.Destination)
     (name : String) (test : TupleIdentity.Test) : Except Completion Invocation := do
@@ -369,28 +470,69 @@ where
       | .error error => (TupleChain.runtimeError? error).elim .scalarProfile .raised
     (completion, reached)
 
+def readListItem (session : Session) (name : String) : Except Completion Core.Module.Value := do
+  let some value := session.globals name | throw (.raised (.nameError name))
+  let some scalar := scalar? value | throw .scalarProfile
+  return scalar
+
+def advanceListDisplayCall {scope : Scope} (session : Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (display : ListDisplay.Display) (rest : List (Instruction scope)) : State scope :=
+  match session.globals name with
+  | none => .finished session (.raised (.nameError name))
+  | some callee =>
+    let (result, lists) := display.prepare (readListItem session) session.lists
+    let reached := { session with lists }
+    match result with
+    | .error error => .finished reached error
+    | .ok object =>
+      if display.negated then
+        .calling (reached.prepareCall destination (.literal callee) [.literal (.bool object.contents.isEmpty)]) rest
+      else
+        .finished reached (match callee with
+          | .exceptionClass _ | .function _ => .scalarProfile
+          | _ => .raised .notCallable)
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
   | .ready session (instruction :: rest) =>
     match instruction with
-    | .scalar (.assign name _ operand) => ([], match evaluate session operand with
-      | .ok value => .ready (session.bindGlobal name value) rest
+    | .scalar action => ([], match scalarStep session action with
+      | .ok reached => .ready reached rest
       | .error error => .finished session error)
+    | .exceptionalTry plan =>
+      let outcome := runExceptionalTry session plan
+      ([], match outcome.completion with
+        | .ok () => .ready outcome.reached rest
+        | .error error => .finished outcome.reached error)
     | .bindText name value => ([], .ready (session.bindGlobal name (.text value)) rest)
+    | .bindDictionary name display => ([], .ready (bindDictionary session name display) rest)
+    | .readDictionary name test => ([], match Core.Closure.evalDictionaryGet session.heap session.globals test with
+      | .ok value => .ready (session.bindGlobal name value) rest
+      | .error error => .finished session (operandFailure error))
+    | .clearDictionary destination call =>
+      match Core.Closure.clearDictionary session.heap (fun name => (session.globals name).map Value.dictionaryRead) call with
+      | .ok heap =>
+        let reached := { session with heap }
+        let bound := destination.elim reached fun name => reached.bindGlobal name .none
+        ([.complete (.ok .none)], .ready bound rest)
+      | .error error =>
+        let events := match error with
+          | .clearArity actual => [.complete (.error (.positionalArity 0 actual))]
+          | _ => []
+        (events, .finished session (operandFailure (Core.Closure.dictionaryFailure error)))
     | .bindTuple name items trackClosed => ([], match bindTuple session name items trackClosed with
       | .ok updated => .ready updated rest
       | .error error => .finished session error)
-    | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
     | .assertIntegerBuiltin test => ([], .finished session (match session.globals test.argument.name with
       | none => .raised (.nameError test.argument.name)
-      | some (.function _) => .scalarProfile
+      | some (.exceptionClass _) | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertBoolIdentity test => ([], .finished session (boolIdentityCompletion session test))
     | .assertListConstruction _ => ([], .finished session (match session.globals "list" with
       | none => .raised (.nameError "list")
-      | some (.function _) => .scalarProfile
+      | some (.exceptionClass _) | some (.function _) => .scalarProfile
       | some _ => .raised .notCallable))
     | .assertTupleChain test => ([], match checkTupleChain session test with
       | .ok () => .ready session rest
@@ -412,6 +554,8 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .callTupleFromListDisplay _ contents outer =>
       let (completion, lists) := tupleFromListDisplayCompletion session contents outer
       ([], .finished { session with lists } completion)
+    | .callListDisplay destination name display =>
+      ([], advanceListDisplayCall session destination name display rest)
     | .adjacentKeywordDiscard name value =>
       ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) rest)
     | .nestedCall destination name arguments =>

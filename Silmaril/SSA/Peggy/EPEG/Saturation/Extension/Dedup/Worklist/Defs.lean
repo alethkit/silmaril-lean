@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Defs
+public import Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Worklist.Defs
 
 /-! # Bounded current-table discovery and replay for zero sampling -/
 
@@ -40,54 +41,24 @@ def Fixed (zero : P [] .count) (s : Output P params results l) : Prop :=
 def Visits (zero : P [] .count) : NormalForms.Family (Output P params results l) Nat :=
   fun address s target => target = visit zero s address
 
-inductive Stop where
-  | fixed
-  | exhausted
-  deriving DecidableEq
+abbrev Stop := Extension.Worklist.Stop
+abbrev Report := Extension.Worklist.Report Nat
+abbrev Result (P : InstructionSet.{u,v} Data) (params results : List (Ty Data)) (l : Nat) :=
+  Extension.Worklist.Result (Output P params results l) Nat
 
-structure Report where
-  sites : List Nat
-  stop : Stop
+def driver (zero : P [] .count) : Extension.Worklist.Driver (Output P params results l) Nat :=
+  ⟨fun s => (next zero s).map Fin.val, enabledAt zero, visit zero⟩
 
-structure Result (P : InstructionSet.{u,v} Data) (params results : List (Ty Data)) (l : Nat) where
-  state : Output P params results l
-  report : Report
+abbrev run (zero : P [] .count) : Nat → Output P params results l → Result P params results l :=
+  (driver zero).run
 
-/-- Check for closure even when no transition fuel remains. Charge only
-an enabled visit. Every successful transition starts a new table scan. -/
-def run (zero : P [] .count) : Nat → Output P params results l → Result P params results l
-  | fuel, s =>
-    match next zero s with
-    | none => ⟨s, ⟨[], .fixed⟩⟩
-    | some i =>
-      match fuel with
-      | 0 => ⟨s, ⟨[], .exhausted⟩⟩
-      | fuel + 1 =>
-        let rest := run zero fuel (visit zero s i.val)
-        ⟨rest.state, ⟨i.val :: rest.report.sites, rest.report.stop⟩⟩
-termination_by structural fuel _ => fuel
+abbrev replay (zero : P [] .count) : Output P params results l → List Nat → Option (Output P params results l) :=
+  (driver zero).replay
 
-/-- Accept any chronological sequence of enabled visits. Discovery order
-is a policy of `run`; replay checks the supplied addresses directly. -/
-def replay (zero : P [] .count) : Output P params results l → List Nat → Option (Output P params results l)
-  | s, [] => some s
-  | s, i :: rest =>
-    if enabledAt zero s i then replay zero (visit zero s i) rest else none
+abbrev checkStop (zero : P [] .count) (fuel : Nat) (state : Output P params results l) (report : Report) : Bool :=
+  (driver zero).checkStop fuel state report
 
-/-- A portable receipt contains addresses and a stop claim. Recompute the
-state and validate the budget and stop claim on the final table. -/
-def checkStop (zero : P [] .count) (fuel : Nat) (state : Output P params results l)
-    (report : Report) : Bool :=
-  match report.stop with
-  | .fixed => checkFixed zero state
-  | .exhausted => decide (report.sites.length = fuel) && !checkFixed zero state
-
-def check (zero : P [] .count) (fuel : Nat) (source : Output P params results l)
-    (report : Report) : Option (Output P params results l) :=
-  if report.sites.length ≤ fuel then
-    match replay zero source report.sites with
-    | none => none
-    | some state => if checkStop zero fuel state report then some state else none
-  else none
+abbrev check (zero : P [] .count) : Nat → Output P params results l → Report → Option (Output P params results l) :=
+  (driver zero).check
 
 end Silmaril.SSA.Peggy.EPEG.Saturation.Extension.Dedup.Worklist

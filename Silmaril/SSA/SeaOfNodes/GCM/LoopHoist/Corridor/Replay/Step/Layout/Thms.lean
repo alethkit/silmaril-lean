@@ -11,6 +11,7 @@ namespace Silmaril.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout
 
 open Silmaril.MLIR.Arith (Env Var Width)
 open Silmaril.MLIR.CF (Cfg)
+open Silmaril.MLIR.Pure (Operands)
 open AfterReorder.Second (Candidate checkPrefixCut findCaptured?)
 open Loop.MLIR.CF (Program TargetOp evalOp lower model)
 
@@ -73,6 +74,31 @@ theorem physicalOperands_eval (valid : Invariant state) (input : Env Input) :
 theorem emit?_invariant (valid : Invariant state) (accepted : emit? state request = some moved) :
     Invariant moved.next :=
   Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.emit?_invariant valid accepted
+
+/-- Every physical operand site a capture resolution produces is `Valid`
+and `AvailableAt` any named (non-entry) read point, given the entry has at
+least `count` bindings. This is independent of any pending insertion
+request: it does not call `emit?`, change any use, or move any Φ read. -/
+theorem physicalSites_available {Γ args : List Width}
+    {cfg : Cfg TargetOp (Label saved carried result extra) Input [result]}
+    {count : Nat} (bound : count ≤ (shape cfg none).bindings) (ops : Operands Γ args)
+    {read : Point (Label saved carried result extra)} (named : read.block ≠ none) :
+    ∀ p ∈ physicalSites count ops, p.Valid cfg ∧ p.AvailableAt cfg read :=
+  Proofs.SSA.SeaOfNodes.GCM.LoopHoist.Corridor.Replay.Step.Layout.physicalSites_available bound ops named
+
+/-- Specialized to a candidate resolved by `findCaptured?` on the actual
+emitted header: its physically-resolved operand sites are valid and
+available at any named read, given the entry has enough bindings. The
+soundness of `findCaptured?` itself — that `candidate` really is the
+nominated binding's captured operands — is separate and already public
+via `AfterReorder.Second.findCaptured?`'s own contract. -/
+theorem atLayout_operands_available
+    (state : State Input saved carried result extra)
+    (candidate : AfterReorder.Second.Candidate Input saved carried result extra)
+    (bound : state.savedCount ≤ (shape state.cfg none).bindings)
+    {read : Point (Label saved carried result extra)} (named : read.block ≠ none) :
+    ∀ p ∈ (state.atLayout candidate).operands, p.Valid state.cfg ∧ p.AvailableAt state.cfg read :=
+  physicalSites_available bound (state.physicalOperands candidate) named
 
 theorem State.block_eq (state : State Input saved carried result extra) {args : List Width}
     (label : Label saved carried result extra args) : state.cfg.block label = state.reference.cfg.block label := rfl
