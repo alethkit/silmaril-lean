@@ -1093,6 +1093,32 @@ The continuation cannot jump back to its own label.
   [Tagged tuple replies and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
   [Token induction over pending replies](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
   [Three tags and pair payloads](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomReplyRegression.lean)
+- The direct spelling of a request case is natively equal to the
+  bind-then-case spelling of the case trees. A direct case tree cases on
+  a request itself, `case (op f a) l r`, and no slot holds the reply; a
+  case tree binds the reply and cases on the bound slot. The native
+  LetCase theory has the sequencing law that binds the scrutinee of a
+  case, `case e l r = let₁ e (case (bv 0) l↑ r↑)`, with both arms
+  weakened past the new slot, and it holds for an effectful scrutinee.
+  Applied at every request, under the renaming that moves the slots of
+  the direct tree past the reply slots already bound, it gives a native
+  equation between a direct case tree and its normal form. No model is
+  used for that equation. The normal form has the same requests in the
+  same order, the same exits and the same payloads, and it determines
+  the direct tree. An operand natively equal to a direct case tree is
+  therefore a branching operand, and the completeness theorem applies to
+  the direct syntax at the original ordered exits. On graphs read back
+  from two direct case trees, validity is equality of the trees. The
+  direct trees are those of the two-tag atom replies; direct spellings of
+  replies with more tags or tuple payloads are not defined. The
+  regression has a nested direct tree whose inner arm returns a fresh
+  reply atom paired with an older capture. Its normal form is checked
+  explicitly, with request order and exits kept, and a changed exit, a
+  changed component, a changed order and a changed request order are
+  each told apart in the direct syntax.
+  [Direct case trees and normal forms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Native equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A nested direct tree](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDirectRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
