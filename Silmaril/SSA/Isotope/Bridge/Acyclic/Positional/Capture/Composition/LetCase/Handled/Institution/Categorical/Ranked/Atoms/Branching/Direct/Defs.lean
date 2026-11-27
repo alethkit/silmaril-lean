@@ -32,7 +32,8 @@ destructured.
 
 The inspection of a reply with several tags may be delayed across one later
 request, which cannot read the stored reply. The case then directly follows
-the later request.
+the later request. It may also be delayed across a finite prefix of
+requests and pattern lets, given by its shape and its two specializations.
 
 The normal form unpacks every tuple right after the request or the case
 that binds it, and keeps every request in place. A case that directly
@@ -154,6 +155,114 @@ def renameTyping : {n m : Nat} → {β : BoundCtx (Ty α) n} → {γ : BoundCtx 
   | _, _, _, _, _, _, ρ, .case he hl hr =>
     .case (renameTyping ρ he) (renameTyping (ρ.up _) hl) (renameTyping (ρ.up _) hr)
   | _, _, _, _, _, _, ρ, .abort ha => .abort (renameTyping ρ ha)
+
+omit [TaggedSignature α Φ] in
+/-- Exchanging two slots twice is the identity. -/
+theorem swap_swap_rename {k : Nat} (Γ : BoundCtx (Ty α) k) (X Z : Ty α) (x : LetCase.LocallyNameless.Tm Empty Φ (k + 2)) :
+    (x.rename (swapRenaming Γ X Z).toFun).rename (swapRenaming Γ Z X).toFun = x :=
+  ((LetCase.LocallyNameless.Tm.rename_comp _ _ x).trans
+    (LetCase.LocallyNameless.Tm.rename_congr (fun i => Fin.cases rfl (fun i => Fin.cases rfl (fun _ => rfl) i) i) x)).trans
+    (LetCase.LocallyNameless.Tm.rename_id x)
+
+omit [TaggedSignature α Φ] in
+/-- Moving the newest slot beneath two slots and back is the identity. -/
+theorem before_after_rename {k : Nat} (x : LetCase.LocallyNameless.Tm Empty Φ (k + 3)) :
+    (x.rename beforePair).rename afterPair = x :=
+  ((LetCase.LocallyNameless.Tm.rename_comp _ _ x).trans
+    (LetCase.LocallyNameless.Tm.rename_congr (fun i => Fin.cases rfl (fun i => Fin.cases rfl
+      (fun i => Fin.cases rfl (fun _ => rfl) i) i) i) x)).trans (LetCase.LocallyNameless.Tm.rename_id x)
+
+/-- A finite prefix in front of a case on a stored slot of sum type, with
+its two specializations. The term `t` runs the prefix and then cases on the
+slot `s`, of type `X + Y`. The terms `l` and `r` are the specializations to
+the two tags: the same prefix, weakened past the payload, followed by the
+arm of that tag with the payload beneath the slots of the prefix.
+
+A step of the prefix asks a request and binds its reply, or destructures
+a slot of pair type. A request is assembled from the atom slots of the
+context in which `s` has sum type. So it may use older captures and the
+atoms of earlier replies of the prefix, and neither the stored slot nor its
+payload; and it is the same request in both specializations. -/
+inductive Deferred (X Y : Ty α) : {k : Nat} → (Γ : BoundCtx (Ty α) k) → Fin k →
+    LetCase.LocallyNameless.Tm Empty Φ k → LetCase.LocallyNameless.Tm Empty Φ (k + 1) → LetCase.LocallyNameless.Tm Empty Φ (k + 1) → Type where
+  | here {k : Nat} {Γ : BoundCtx (Ty α) k} {s : Fin k} (hs : Γ.get s = .coprod X Y)
+      (l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1)) : Deferred X Y Γ s (.case (.bv s) l r) l r
+  | ask {k : Nat} {Γ : BoundCtx (Ty α) k} {s : Fin k} (g : Φ) (argument : Assembly Γ (instrSrc g))
+      {t : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1)}
+      (rest : Deferred X Y (Γ.snoc (tagsTy (replyTags g))) s.succ t l r) :
+      Deferred X Y Γ s (.let₁ (.op g (argTerm argument)) t)
+        (.let₁ (.op g (argTerm (argument.rename (BoundCtx.Renaming.succ Γ X))))
+          (l.rename (swapRenaming Γ (tagsTy (replyTags g)) X).toFun))
+        (.let₁ (.op g (argTerm (argument.rename (BoundCtx.Renaming.succ Γ Y))))
+          (r.rename (swapRenaming Γ (tagsTy (replyTags g)) Y).toFun))
+  | unpack {k : Nat} {Γ : BoundCtx (Ty α) k} {s : Fin k} {A B : Ty α} (x : Slot Γ (.product A B))
+      {t : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1)} {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1 + 1 + 1)}
+      (rest : Deferred X Y ((Γ.snoc A).snoc B) s.succ.succ t l r) :
+      Deferred X Y Γ s (.let₂ (.bv x.1) t) (.let₂ (.bv x.1.succ) (l.rename beforePair))
+        (.let₂ (.bv x.1.succ) (r.rename beforePair))
+
+/-- The stored slot of a prefix has sum type. -/
+theorem Deferred.slot {X Y : Ty α} : {k : Nat} → {Γ : BoundCtx (Ty α) k} → {s : Fin k} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ k} → {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} → Deferred X Y Γ s t l r → Γ.get s = .coprod X Y
+  | _, _, _, _, _, _, .here hs _ _ => hs
+  | _, _, _, _, _, _, .ask _ _ rest => rest.slot
+  | _, _, _, _, _, _, .unpack _ rest => rest.slot
+
+/-- The parts of the typing of a let. -/
+def letTypingInv {k : Nat} {β : BoundCtx (Ty α) k} {a : LetCase.LocallyNameless.Tm Empty Φ k} {b : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} {C : Ty α} :
+    Derivation Φ Γ₀ β (.let₁ a b) C → (A : Ty α) × Derivation Φ Γ₀ β a A × Derivation Φ Γ₀ (β.snoc A) b C
+  | .let₁ ha hb => ⟨_, ha, hb⟩
+
+/-- The parts of the typing of a pattern let. -/
+def pairTypingInv {k : Nat} {β : BoundCtx (Ty α) k} {a : LetCase.LocallyNameless.Tm Empty Φ k} {c : LetCase.LocallyNameless.Tm Empty Φ (k + 2)} {C : Ty α} :
+    Derivation Φ Γ₀ β (.let₂ a c) C →
+      (A : Ty α) × (B : Ty α) × Derivation Φ Γ₀ β a (.product A B) × Derivation Φ Γ₀ ((β.snoc A).snoc B) c C
+  | .let₂ ha hc => ⟨_, _, ha, hc⟩
+
+/-- A request is typed at its reply type. -/
+theorem opTypingType {k : Nat} {β : BoundCtx (Ty α) k} {g : Φ} {a : LetCase.LocallyNameless.Tm Empty Φ k} {A : Ty α} :
+    Derivation Φ Γ₀ β (.op g a) A → A = tagsTy (replyTags g)
+  | .op _ => rfl
+
+/-- A slot is typed at its type in the context. -/
+theorem bvTypingType {k : Nat} {β : BoundCtx (Ty α) k} {i : Fin k} {A : Ty α} :
+    Derivation Φ Γ₀ β (.bv i) A → A = β.get i
+  | .bv => rfl
+
+/-- The native typing of a prefix followed by its case, from the typings of
+its two specializations. -/
+def Deferred.typing {X Y C : Ty α} : {k : Nat} → {Γ : BoundCtx (Ty α) k} → {s : Fin k} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ k} → {l r : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} → Deferred X Y Γ s t l r →
+    Derivation Φ Γ₀ (Γ.snoc X) l C → Derivation Φ Γ₀ (Γ.snoc Y) r C → Derivation Φ Γ₀ Γ t C
+  | _, _, s, _, _, _, .here hs _ _, dl, dr => .case (slotTyping ⟨s, hs⟩) dl dr
+  | _, Γ, _, _, _, _, .ask (l := l) (r := r) g argument rest, dl, dr =>
+    let pl := letTypingInv dl
+    let pr := letTypingInv dr
+    .let₁ (.op (f := g) (argTyping argument))
+      (rest.typing
+        (cast (congrArg (fun u => Derivation Φ Γ₀ ((Γ.snoc (tagsTy (replyTags g))).snoc X) u C)
+            (swap_swap_rename Γ (tagsTy (replyTags g)) X l))
+          (renameTyping (swapRenaming Γ X (tagsTy (replyTags g)))
+            (cast (congrArg (fun A => Derivation Φ Γ₀ ((Γ.snoc X).snoc A) _ C) (opTypingType pl.2.1)) pl.2.2)))
+        (cast (congrArg (fun u => Derivation Φ Γ₀ ((Γ.snoc (tagsTy (replyTags g))).snoc Y) u C)
+            (swap_swap_rename Γ (tagsTy (replyTags g)) Y r))
+          (renameTyping (swapRenaming Γ Y (tagsTy (replyTags g)))
+            (cast (congrArg (fun A => Derivation Φ Γ₀ ((Γ.snoc Y).snoc A) _ C) (opTypingType pr.2.1)) pr.2.2))))
+  | _, Γ, _, _, _, _, .unpack (A := A) (B := B) (l := l) (r := r) x rest, dl, dr =>
+    let pl := pairTypingInv dl
+    let pr := pairTypingInv dr
+    have el : Ty.product pl.1 pl.2.1 = Ty.product A B := (bvTypingType pl.2.2.1).trans x.2
+    have er : Ty.product pr.1 pr.2.1 = Ty.product A B := (bvTypingType pr.2.2.1).trans x.2
+    .let₂ (slotTyping x)
+      (rest.typing
+        (cast (congrArg (fun u => Derivation Φ Γ₀ (((Γ.snoc A).snoc B).snoc X) u C) (before_after_rename l))
+          (renameTyping (afterPairRenaming Γ X A B)
+            (cast (congrArg₂ (fun a b => Derivation Φ Γ₀ (((Γ.snoc X).snoc a).snoc b) _ C)
+              (Ty.product.inj el).1 (Ty.product.inj el).2) pl.2.2.2)))
+        (cast (congrArg (fun u => Derivation Φ Γ₀ (((Γ.snoc A).snoc B).snoc Y) u C) (before_after_rename r))
+          (renameTyping (afterPairRenaming Γ Y A B)
+            (cast (congrArg₂ (fun a b => Derivation Φ Γ₀ (((Γ.snoc Y).snoc a).snoc b) _ C)
+              (Ty.product.inj er).1 (Ty.product.inj er).2) pr.2.2.2))))
 
 /-- The native typing of the pattern lets that unpack a tuple slot. -/
 def unpackTyping : (atoms : List α) → {k : Nat} → {Γ : BoundCtx (Ty α) k} → (s : Slot Γ (tupleTy atoms)) →
@@ -283,7 +392,10 @@ payload of the first tag is pushed on the stack in its arm, and the other
 arms case on the remaining tags. Each arm continues its own chain over the
 older tuples, so the chain branches. With `later` the inspection of the
 reply is delayed across one request, which is asked while the reply is one
-slot. -/
+slot. With `deferred` it is delayed across a finite prefix of requests and
+pattern lets: the prefix is given by its shape, and the two specializations
+of the tree to the tags are given as trees whose terms the shape
+determines. -/
 inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m : Nat} → (Δ : BoundCtx (Ty α) m) →
     Holds Δ stack → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (m + 1) → Type where
   | bind {stack : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
@@ -305,6 +417,17 @@ inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m 
       (argument : Assembly (Δ.snoc (tagsTy tags)) (instrSrc h)) {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
       (arms : SpelledLaterTags stack tags h Δ holds L k) :
       SpelledStackTags stack tags Δ holds L (.let₁ (.op h (argTerm argument)) k)
+  | deferred {stack : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
+      {L : List (Ty α)} (atoms next : List α) (more : List (List α))
+      {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+      (shape : Deferred (tupleTy atoms) (tagsTy (next :: more))
+        (Δ.snoc (tagsTy (atoms :: next :: more))) 0 t l r)
+      (left : SpelledStack (atoms :: stack)
+        ((Δ.snoc (tagsTy (atoms :: next :: more))).snoc (tupleTy atoms))
+        (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: next :: more)) (tupleTy atoms)))) L l)
+      (right : SpelledStackTags stack (next :: more) (Δ.snoc (tagsTy (atoms :: next :: more)))
+        (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: next :: more)))) L r) :
+      SpelledStackTags stack (atoms :: next :: more) Δ holds L t
 
 /-- A reply whose inspection is delayed across one later request. The
 reply is one slot, beneath the reply of the later request `h`, which is the
@@ -395,6 +518,7 @@ def SpelledStackTags.typing : {stack : List (List α)} → {tags : List (List α
   | _, _, _, _, _, _, .bind _ next => next.typing
   | _, _, _, _, _, _, .split _ _ _ left right => .case .bv left.typing right.typing
   | _, _, _, _, _, _, .later h argument arms => .let₁ (.op (f := h) (argTyping argument)) arms.typing
+  | _, _, _, _, _, _, .deferred _ _ _ shape left right => shape.typing left.typing right.typing
 
 /-- The native typing of a reply inspected after one later request, under
 the slot of the reply and the slot of the reply of the later request. -/
@@ -508,6 +632,16 @@ def SpelledStackTags.opened : {stack : List (List α)} → {tags : List (List α
         (swapStack stack Θ [tagsTy (atoms :: nxt :: more)])).2⟩
   | _, tags, _, _, _, _, .later _ argument arms, _, _, ρ =>
     arms.opened ρ (argument.rename (ρ.up (tagsTy tags)))
+  | stack, _, _, _, _, _, .deferred atoms nxt more _ left right, _, Θ, ρ =>
+    ⟨_, .split atoms nxt more
+      (CaseTree.packed atoms
+        (CaseTree.renamed (pending := .body)
+          (left.opened ((ρ.up (tagsTy (atoms :: nxt :: more))).up (tupleTy atoms))).2
+          (upTele (swapStack stack Θ [tagsTy (atoms :: nxt :: more), tupleTy atoms]) (pairsTele atoms))).2)
+      (CaseTree.renamed (pending := .tags (nxt :: more))
+        (β := (stackCtx stack (Θ.snoc (tagsTy (atoms :: nxt :: more)))).snoc (tagsTy (nxt :: more)))
+        (right.opened (ρ.up (tagsTy (atoms :: nxt :: more)))).2
+        (swapStack stack Θ [tagsTy (atoms :: nxt :: more)])).2⟩
 
 /-- The normal form of a reply inspected after one later request `h`,
 pending under the unpackings of the stack. The case on the reply comes

@@ -283,6 +283,17 @@ def afterPairRenaming {m : Nat} (Δ : BoundCtx (Ty α) m) (X A B : Ty α) :
   toFun := afterPair
   typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun _ => rfl)))
 
+/-- The inverse of that move: the newest slot goes beneath the two slots
+under it. -/
+def beforePair {m : Nat} : Fin (m + 3) → Fin (m + 3) :=
+  Fin.cases 2 (Fin.cases 0 (Fin.cases 1 (fun i => i.succ.succ.succ)))
+
+/-- The inverse move as a renaming of contexts. -/
+def beforePairRenaming {m : Nat} (Δ : BoundCtx (Ty α) m) (X A B : Ty α) :
+    BoundCtx.Renaming (((Δ.snoc A).snoc B).snoc X) (((Δ.snoc X).snoc A).snoc B) where
+  toFun := beforePair
+  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun _ => rfl)))
+
 /-- Exchange the two newest slots. -/
 def swapRenaming {m : Nat} (Ω : BoundCtx (Ty α) m) (X Y : Ty α) :
     BoundCtx.Renaming ((Ω.snoc X).snoc Y) ((Ω.snoc Y).snoc X) where
