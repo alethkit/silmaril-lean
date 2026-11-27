@@ -445,6 +445,64 @@ def unpackAt : (atoms : List α) → {k : Nat} → Fin k →
   | [_], _, _, u => u
   | _ :: d :: more, _, i, u => .let₂ (.bv i) (unpackAt (d :: more) 0 u)
 
+/-! ## Stacks of packed tuples
+
+Several tuples may be packed at once, each at its own slot. A stack lists
+their atoms, newest first. Unpacking the whole stack unpacks the oldest
+tuple outermost. The context under those unpackings, and the renamings
+that weaken past it, lift under it and move a telescope beneath it, are
+defined by recursion on the stack from the telescope renamings. -/
+
+/-- The size of a context under the unpackings of a stack. -/
+def stackSize : Nat → List (List α) → Nat
+  | k, [] => k
+  | k, atoms :: stack => teleSize (stackSize k stack) (pairsTele atoms)
+
+/-- A context under the unpackings of a stack of packed tuples. -/
+def stackCtx : (stack : List (List α)) → {k : Nat} → BoundCtx (Ty α) k →
+    BoundCtx (Ty α) (stackSize k stack)
+  | [], _, Ω => Ω
+  | atoms :: stack, _, Ω => extendCtx (stackCtx stack Ω) (pairsTele atoms)
+
+/-- Weaken past the unpackings of a stack. -/
+def weakenStack : (stack : List (List α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    BoundCtx.Renaming Ω (stackCtx stack Ω)
+  | [], _, Ω => .id Ω
+  | atoms :: stack, _, Ω => (weakenStack stack Ω).comp (weakenTele (stackCtx stack Ω) (pairsTele atoms))
+
+/-- Lift a renaming under the unpackings of a stack. -/
+def upStack : (stack : List (List α)) → {k j : Nat} → {Ω : BoundCtx (Ty α) k} → {Ω' : BoundCtx (Ty α) j} →
+    BoundCtx.Renaming Ω Ω' → BoundCtx.Renaming (stackCtx stack Ω) (stackCtx stack Ω')
+  | [], _, _, _, _, ρ => ρ
+  | atoms :: stack, _, _, _, _, ρ => upTele (upStack stack ρ) (pairsTele atoms)
+
+/-- Move a telescope bound before the unpackings of a stack beneath them. -/
+def swapStack : (stack : List (List α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) → (tel : List (Ty α)) →
+    BoundCtx.Renaming (stackCtx stack (extendCtx Ω tel)) (extendCtx (stackCtx stack Ω) tel)
+  | [], _, _, _ => .id _
+  | atoms :: stack, _, Ω, tel =>
+    (upTele (swapStack stack Ω tel) (pairsTele atoms)).comp (swapTeles (stackCtx stack Ω) tel (pairsTele atoms))
+
+/-- The slots of a stack of packed tuples, newest first. -/
+inductive Holds : {m : Nat} → BoundCtx (Ty α) m → List (List α) → Type where
+  | nil {m : Nat} {Δ : BoundCtx (Ty α) m} : Holds Δ []
+  | cons {m : Nat} {Δ : BoundCtx (Ty α) m} {atoms : List α} {stack : List (List α)}
+      (top : Slot Δ (tupleTy atoms)) (older : Holds Δ stack) : Holds Δ (atoms :: stack)
+
+/-- The slots of a stack along a renaming. -/
+def Holds.rename {m k : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming Δ Θ) :
+    {stack : List (List α)} → Holds Δ stack → Holds Θ stack
+  | _, .nil => .nil
+  | _, .cons top older => .cons (top.rename ρ) (older.rename ρ)
+
+/-- The pattern lets that unpack every tuple of a stack around a term. The
+oldest tuple is unpacked outermost. -/
+def unpackStack : (stack : List (List α)) → {k : Nat} → {Ω : BoundCtx (Ty α) k} → Holds Ω stack →
+    LetCase.LocallyNameless.Tm Empty Φ (stackSize k stack) → LetCase.LocallyNameless.Tm Empty Φ k
+  | [], _, _, _, u => u
+  | atoms :: stack, _, Ω, .cons top older, u =>
+    unpackStack stack older (unpackAt atoms ((weakenStack stack Ω).toFun top.1) u)
+
 /-! ## Binding slots under a pending tuple
 
 The slots of a telescope beneath a pending tuple are moved to bindings

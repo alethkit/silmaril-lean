@@ -107,14 +107,17 @@ private def chainWith (joined : Slot firstArm tok) (fl sl : Slot firstLeaf tok)
             (.let₂ (.bv 2) (.inl (.pair (.bv fr.1) (.bv sr.1)))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.hold () () []
-        (.ask Op.pick (.atom laterUnder)
+      (.hold [(), ()]
+        (.ask Op.pick
+          (.atom laterUnder)
           (.split [(), ()] [()] []
-            (.ask Op.join (.pair (.atom joined) (.atom earlierFirstArm))
-              (.only [()]
-                (.unpack (.atom () (.ret pairExit (.pair (.atom fl) (.atom sl)))))))
-            (.only [()]
-              (.unpack (.atom () (.ret pairExit (.pair (.atom fr) (.atom sr)))))))))))
+            (.step
+              (.atom
+                (.ask Op.join
+                  (.pair (.atom joined) (.atom earlierFirstArm))
+                  (.bind [()]
+                    (.atom (.step (.atom (.done (.ret pairExit (.pair (.atom fl) (.atom sl)))))))))))
+            (.bind [()] (.atom (.step (.atom (.done (.ret pairExit (.pair (.atom fr) (.atom sr)))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and chosen
 returned pairs. The held pair is destructured once, before `pick`. The case
@@ -251,15 +254,25 @@ private def triple : Spelled older exits
           (.let₂ (.bv 2) (.let₂ (.bv 0) (.inl (.pair (.bv 1) (.bv 4))))))) : Term 2) :=
   .ask Op.trio (.atom earlier)
     (.bind (.only [(), (), ()]
-      (.hold () () [()]
-        (.ask Op.pick (.atom (β := underTriple) ⟨1, rfl⟩)
+      (.hold [(), (), ()]
+        (.ask Op.pick
+          (.atom (β := underTriple) ⟨1, rfl⟩)
           (.split [(), ()] [()] []
-            (.unpack (.pair () () []
-              (.atom () (.ret pairExit (.pair (.atom (β := tripleFirstLeaf) ⟨1, rfl⟩) (.atom ⟨5, rfl⟩))))))
-            (.only [()]
-              (.unpack (.pair () () []
-                (.atom ()
-                  (.ret pairExit (.pair (.atom (β := tripleSecondLeaf) ⟨1, rfl⟩) (.atom ⟨4, rfl⟩))))))))))))
+            (.step
+              (.atom
+                (.step
+                  (.step
+                    (.atom
+                      (.done
+                        (.ret pairExit (.pair (.atom (β := tripleFirstLeaf) ⟨1, rfl⟩) (.atom ⟨5, rfl⟩)))))))))
+            (.bind [()]
+              (.atom
+                (.step
+                  (.step
+                    (.atom
+                      (.done
+                        (.ret pairExit
+                          (.pair (.atom (β := tripleSecondLeaf) ⟨1, rfl⟩) (.atom ⟨4, rfl⟩))))))))))))))
 
 /-- The held triple is unpacked completely before `pick`. -/
 example : (triple.normal (.id older)).1 =
