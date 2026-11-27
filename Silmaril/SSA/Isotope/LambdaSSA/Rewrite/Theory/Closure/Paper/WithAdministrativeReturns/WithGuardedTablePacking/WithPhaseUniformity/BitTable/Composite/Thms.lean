@@ -47,11 +47,11 @@ factoring is supplied separately.
 
 The program has a second request that is selected by the first reply's
 tag and queried with the first reply's payload; its results are the
-second reply's or the first reply's payload. A leaf that returns a
-captured Bit after the second request is not covered: the chain would
-have to carry that Bit. No statement is made for the whole grammar of
-written programs, and nothing is claimed about packed dispatchers in
-general.
+second reply's or the first reply's payload. A leaf that returns a Bit
+kept across the second request is not covered here; `Composite.Capture`
+treats the first reply's payload. No statement is made for the whole
+grammar of written programs, and nothing is claimed about packed
+dispatchers in general.
 -/
 
 public section
