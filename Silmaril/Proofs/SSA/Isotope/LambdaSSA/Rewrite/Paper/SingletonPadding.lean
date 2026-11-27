@@ -36,6 +36,15 @@ theorem desc_ext {U X T : τ} {x y : ofType (Φ := Φ) (Silmaril.coprod U X) ⟶
     (hl : sumInl U X ≫ x = sumInl U X ≫ y) (hr : sumInr U X ≫ x = sumInr U X ≫ y) : x = y :=
   SingletonPhases.sum_ext U X hl hr
 
+theorem desc_comp {U X T W : τ} (a : ofType (Φ := Φ) U ⟶ ofType T) (b : ofType (Φ := Φ) X ⟶ ofType T)
+    (f : ofType (Φ := Φ) T ⟶ ofType W) : sumDesc a b ≫ f = sumDesc (a ≫ f) (b ≫ f) :=
+  desc_ext (by rw [← Category.assoc, inl_desc, inl_desc]) (by rw [← Category.assoc, inr_desc, inr_desc])
+
+theorem desc_inl_inr (U X : τ) : sumDesc (sumInl (Φ := Φ) U X) (sumInr U X) = 𝟙 _ := by
+  have eta := desc_eta (𝟙 (ofType (Φ := Φ) (Silmaril.coprod U X)))
+  rw [Category.comp_id, Category.comp_id] at eta
+  exact eta.symm
+
 variable (U : τ) {X Z Y : τ} (u : ofType (Φ := Φ) U ⟶ ofType Z) (s : ofType (Φ := Φ) Z ⟶ ofType X)
   (J : ofType (Φ := Φ) X ⟶ ofType Y ⨿ ofType X) (T : ofType (Φ := Φ) Z ⟶ ofType Y ⨿ ofType Z)
 
