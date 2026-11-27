@@ -38,8 +38,9 @@ the label of a pending request and records a query only in a completed
 exchange after which something is observed. So two loops that send the
 same blind request with different queries have the same observations in
 that model, and no equation of the quotient relating them is proved
-here. `Sighted` excludes this case; completeness is not claimed without
-it.
+here. `Sighted` excludes this case in this file.
+`Composite.Silent.Diverge.Query` removes the condition with a model whose
+pending observation carries the query.
 
 ## Mixed tables of single requests, without `quiet`
 
