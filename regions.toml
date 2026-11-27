@@ -20,11 +20,6 @@ scope = "Logics and metatheory: theories and models, HOL, Metamath, set theory, 
 deps = ["Prelude", "Semantics"]
 
 [[region]]
-name = "Computability"
-scope = "Complexity classes, machines, oracle constructions, problem encodings."
-deps = ["Prelude", "Semantics", "Logic"]
-
-[[region]]
 name = "Numeric"
 scope = "IEEE 754, integers, ball arithmetic, numeric kernels."
 deps = ["Prelude", "Semantics"]
@@ -70,19 +65,9 @@ scope = "WebAssembly: core specifications, component model, text and binary form
 deps = ["Prelude", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA", "Machine", "Cli", "Games", "Parse"]
 
 [[region]]
-name = "GPU"
-scope = "GPU kernel languages and their correctness (Triton, Gluon)."
-deps = ["Prelude", "Semantics", "Numeric", "SSA"]
-
-[[region]]
 name = "Languages"
 scope = "Real-world languages: Python, C (Cerberus), MLIR."
-deps = ["Prelude", "Semantics", "Numeric", "Formats", "SSA", "GPU"]
-
-[[region]]
-name = "Science"
-scope = "Units, physical constants and other scientific world models."
-deps = ["Prelude", "Numeric"]
+deps = ["Prelude", "Semantics", "Numeric", "Formats", "SSA"]
 
 [[region]]
 name = "Elf"
@@ -99,19 +84,11 @@ name = "Project"
 scope = "Silmaril projects: artifact types, formats and values, problems over arguments, the problem DAG, records files, rooms, the standard shapes (formats and values, ELF executables, x86-64 functions, command-line programs) and format adapters over silmaril's parsers; the records `sil project` dumps and checks. Also imports the x86 tree (`Silmaril.X86`: function contracts, block certificates, the pinned ladder), `Silmaril.Problems` (core, model classes and shapes) and `Silmaril.Data` (the include-bytes helper); none of these is a region here, an existing exception to `deps`."
 deps = ["Formats", "Logic", "Process", "Wasm", "Machine", "Cli", "Cerberus", "Compiler"]
 
-# Views are leaves: no region imports them. Papers, Standards and Thesis
-# re-export and restate; Courses may include self-contained teaching proofs.
+# Views are leaves: no region imports them. Papers re-exports and restates;
+# Courses may include self-contained teaching proofs.
 [[view]]
 name = "Papers"
 scope = "One folder per paper: Defs, Relations, Thms following the paper's numbering."
-
-[[view]]
-name = "Standards"
-scope = "One folder per standard (RFCs, ISA manuals, the Wasm specification)."
-
-[[view]]
-name = "Thesis"
-scope = "imbrem/thesis, one folder per chapter, following the text."
 
 [[view]]
 name = "Courses"
