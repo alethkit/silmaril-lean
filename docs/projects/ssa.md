@@ -1324,8 +1324,9 @@ The continuation cannot jump back to its own label.
   normalization. Normal forms commute with renaming, and ranked
   validity and equality of ordered-exit arrows at the original exits
   follow as for the other spelled trees. A case that is not on the reply
-  of the request before it, a reply or an arm payload that is held
-  inside the chain, and holding pending tags are outside the class. The
+  of the request before it, an arm payload that is held inside the
+  chain, and holding pending tags are outside the class; a one-tag
+  reply kept packed inside the chain is covered in the next entry. The
   regression holds a pair across a request with two tags, a pair and
   one atom. The first arm asks a request on one fresh atom and an older
   capture, and each arm returns a component of the held pair. The held
@@ -1340,6 +1341,43 @@ The continuation cannot jump back to its own label.
   [Chain replies with several tags](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Case interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A held tuple across a request with two tags](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomHeldTagsRegression.lean)
+- Two tuples may be packed at once. Inside a chain with a held tuple,
+  the reply of a request with one tag of two or more atoms may stay one
+  slot across a subchain of further requests, and is then destructured
+  completely; the chain with the older tuple continues after it, so the
+  older tuple is still packed when the fresh one is opened. The requests
+  of the subchain have one-tag replies that are unpacked at once. They
+  are assembled from the atom slots in scope, so they may use older
+  captures and the atoms of earlier replies, and neither packed tuple.
+  The normal form unpacks the older tuple before the chain and the fresh
+  tuple right after its own request. Every request keeps its place in
+  the order and its argument. The native equation uses no new law. The
+  unpacking of the older tuple moves in front of the unpacking of the
+  fresh one by the exchange of pattern lets, and each of the two
+  unpackings moves in front of each request and each reply unpacking of
+  the subchain by the lemma for bindings that move single pattern lets,
+  the older tuple first. Neither tuple length is fixed and no binder
+  permutation is written out: two more telescope laws, on weakening past
+  two telescopes and past two slots, place the slots. Normal forms
+  commute with renaming, and ranked validity and equality of
+  ordered-exit arrows at the original exits follow as for the other
+  spelled trees. Inside such a subchain a request with several tags, a
+  further kept tuple, and destructuring the older tuple before the fresh
+  one are outside the class, as is a kept arm payload; no case is moved
+  across a request. The regression holds a pair, keeps a second pair
+  packed across a request that is asked while both are packed, opens the
+  second pair, asks a request on one of its atoms and an older capture,
+  opens the first pair, and returns one component of each. The chain and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The other component of the older pair, the other component of
+  the fresh pair, the other fresh atom as an argument, a reply or an
+  older capture in place of a fresh component, and the two components
+  exchanged are each told apart. A second tree keeps a triple packed
+  under a held pair.
+  [Kept tuples in chains](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Two-hold equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [Telescope laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Two tuples packed at once](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTwoHeldRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

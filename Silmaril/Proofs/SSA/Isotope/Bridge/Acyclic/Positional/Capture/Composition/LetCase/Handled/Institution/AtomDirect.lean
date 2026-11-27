@@ -607,6 +607,14 @@ theorem case_unpack_out_proof {C : Ty α} : (H : List α) → {k : Nat} → {Γ 
 
 end Out
 
+/-- A native equation between terms equal to the given ones. -/
+theorem equiv_cast [HasTy Φ (Ty α)] {k : Nat} {Γ : BoundCtx (Ty α) k} {C : Ty α}
+    {x y x' y' : LetCase.LocallyNameless.Tm Empty Φ k} (h : Equiv false Γ₀ Γ x y C) (ex : x = x') (ey : y = y') :
+    Equiv false Γ₀ Γ x' y' C := by
+  subst ex
+  subst ey
+  exact h
+
 /-! ## A tuple held across a chain of requests
 
 The chain with the destructurings of the held tuple removed from its
@@ -659,6 +667,32 @@ def flatTags : {a b : α} → {rest : List α} → {tags : List (List α)} → {
       (flatTags right
         ((afterPairRenaming (Δ.snoc (tagsTy (atoms :: nxt :: more))) (tagsTy (nxt :: more)) (.base a)
           (tupleTy (b :: rest))).comp (σ.up (tagsTy (nxt :: more)))))
+
+  | _, _, _, _, _, _, _, _, .keep _ _ _ kept, _, _, σ => flatKept kept σ
+
+/-- The same for a subchain with a fresh tuple kept packed. The unpacking
+of the fresh tuple stays in place. -/
+def flatKept : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledKept a b rest fresh Δ s x L t → {k : Nat} → {Θ : BoundCtx (Ty α) k} →
+    BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (tupleTy (b :: rest))) Θ → LetCase.LocallyNameless.Tm Empty Φ k
+  | a, b, rest, fresh, _, Δ, _, x, _, .release next, _, _, σ =>
+    unpackAt fresh (σ.toFun x.1.succ.succ) (flatDelay next
+      ((pairPastTele Δ (pairsTele fresh) (.base a) (tupleTy (b :: rest))).comp (upTele σ (pairsTele fresh))))
+  | a, b, rest, _, _, Δ, _, _, _, .ask g argument reply, _, _, σ =>
+    .let₁ (.op g ((argTerm argument).rename ((pastPair Δ (.base a) (tupleTy (b :: rest))).comp σ).toFun))
+      (flatKeptTags reply ((afterPairRenaming Δ (tagsTy (replyTags g)) (.base a) (tupleTy (b :: rest))).comp
+        (σ.up (tagsTy (replyTags g)))))
+
+/-- The same for the bound reply of a request of such a subchain. -/
+def flatKeptTags : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → SpelledKeptTags a b rest fresh tags Δ s x L t → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → BoundCtx.Renaming (((Δ.snoc (tagsTy tags)).snoc (.base a)).snoc (tupleTy (b :: rest))) Θ → LetCase.LocallyNameless.Tm Empty Φ k
+  | a, b, rest, _, _, _, Δ, _, _, _, .only atoms next, _, _, σ =>
+    unpackAt atoms (σ.toFun 2) (flatKept next
+      ((pairPastTele (Δ.snoc (tupleTy atoms)) (pairsTele atoms) (.base a) (tupleTy (b :: rest))).comp
+        (upTele σ (pairsTele atoms))))
 
 end
 
@@ -718,6 +752,52 @@ theorem flatTags_rename : {a b : α} → {rest : List α} → {tags : List (List
         (congrArg (unpackAt atoms 0) (hl.trans (congrArg (flatDelay left) el))))
       (hr.trans (congrArg (flatTags right) er))
 
+  | _, _, _, _, _, _, _, _, .keep _ _ _ kept, _, _, _, _, σ, π => flatKept_rename kept σ π
+
+/-- The same for a subchain with a fresh tuple kept packed. -/
+theorem flatKept_rename : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledKept a b rest fresh Δ s x L t) → {k j : Nat} →
+    {Θ : BoundCtx (Ty α) k} → {Θ' : BoundCtx (Ty α) j} →
+    (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (tupleTy (b :: rest))) Θ) → (π : BoundCtx.Renaming Θ Θ') →
+    (flatKept d σ).rename π.toFun = flatKept d (σ.comp π)
+  | a, b, rest, fresh, _, Δ, _, x, _, .release next, _, _, _, _, σ, π => by
+    let pp := pairPastTele Δ (pairsTele fresh) (.base a) (tupleTy (b :: rest))
+    have h := flatDelay_rename next (pp.comp (upTele σ (pairsTele fresh))) (upTele π (pairsTele fresh))
+    have e : (pp.comp (upTele σ (pairsTele fresh))).comp (upTele π (pairsTele fresh)) =
+        pp.comp (upTele (σ.comp π) (pairsTele fresh)) :=
+      congrArg (fun r => pp.comp r) (upTele_comp (pairsTele fresh) σ π)
+    exact (unpackAt_rename (Φ := Φ) fresh π (σ.toFun x.1.succ.succ) _).trans
+      (congrArg (unpackAt fresh (π.toFun (σ.toFun x.1.succ.succ))) (h.trans (congrArg (flatDelay next) e)))
+  | a, b, rest, _, _, Δ, _, _, _, .ask g argument reply, _, _, _, _, σ, π => by
+    let Rt : Ty α := tagsTy (replyTags g)
+    have h := flatKeptTags_rename reply
+      ((afterPairRenaming Δ Rt (.base a) (tupleTy (b :: rest))).comp (σ.up Rt)) (π.up Rt)
+    have e : ((afterPairRenaming Δ Rt (.base a) (tupleTy (b :: rest))).comp (σ.up Rt)).comp (π.up Rt) =
+        (afterPairRenaming Δ Rt (.base a) (tupleTy (b :: rest))).comp ((σ.comp π).up Rt) :=
+      congrArg (fun r => (afterPairRenaming Δ Rt (.base a) (tupleTy (b :: rest))).comp r)
+        (renaming_up_comp σ π Rt)
+    exact congrArg₂ LetCase.LocallyNameless.Tm.let₁
+      (congrArg (LetCase.LocallyNameless.Tm.op g)
+        (LetCase.LocallyNameless.Tm.rename_comp _ _ (argTerm argument)))
+      (h.trans (congrArg (flatKeptTags reply) e))
+
+/-- The same for the bound reply of a request of such a subchain. -/
+theorem flatKeptTags_rename : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → (d : SpelledKeptTags a b rest fresh tags Δ s x L t) → {k j : Nat} →
+    {Θ : BoundCtx (Ty α) k} → {Θ' : BoundCtx (Ty α) j} →
+    (σ : BoundCtx.Renaming (((Δ.snoc (tagsTy tags)).snoc (.base a)).snoc (tupleTy (b :: rest))) Θ) → (π : BoundCtx.Renaming Θ Θ') →
+    (flatKeptTags d σ).rename π.toFun = flatKeptTags d (σ.comp π)
+  | a, b, rest, _, _, _, Δ, _, _, _, .only atoms next, _, _, _, _, σ, π => by
+    let pp := pairPastTele (Δ.snoc (tupleTy atoms)) (pairsTele atoms) (.base a) (tupleTy (b :: rest))
+    have h := flatKept_rename next (pp.comp (upTele σ (pairsTele atoms))) (upTele π (pairsTele atoms))
+    have e : (pp.comp (upTele σ (pairsTele atoms))).comp (upTele π (pairsTele atoms)) =
+        pp.comp (upTele (σ.comp π) (pairsTele atoms)) :=
+      congrArg (fun r => pp.comp r) (upTele_comp (pairsTele atoms) σ π)
+    exact (unpackAt_rename (Φ := Φ) atoms π (σ.toFun 2) _).trans
+      (congrArg (unpackAt atoms (π.toFun (σ.toFun 2))) (h.trans (congrArg (flatKept next) e)))
+
 end
 
 mutual
@@ -748,6 +828,31 @@ theorem flatTags_typed : {a b : α} → {rest : List α} → {tags : List (List 
     .case (slot_typed (σ.toFun 2) (σ.typed 2))
       (unpackAt_typed_proof atoms (Γ := Θ.snoc (tupleTy atoms)) 0 rfl (flatDelay_typed left _))
       (flatTags_typed right _)
+
+  | _, _, _, _, _, _, _, _, .keep _ _ _ kept, _, _, σ => flatKept_typed kept σ
+
+/-- The same for a subchain with a fresh tuple kept packed. -/
+theorem flatKept_typed : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledKept a b rest fresh Δ s x L t) → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (tupleTy (b :: rest))) Θ) →
+    HasType Φ Γ₀ Θ (flatKept d σ) (packedExitType L)
+  | _, _, _, fresh, _, _, _, x, _, .release next, _, _, σ =>
+    unpackAt_typed_proof fresh (σ.toFun x.1.succ.succ) ((σ.typed x.1.succ.succ).trans x.2)
+      (flatDelay_typed next _)
+  | a, b, rest, _, _, Δ, _, _, _, .ask g argument reply, _, _, σ =>
+    .let₁ (HasType.rename ((pastPair Δ (.base a) (tupleTy (b :: rest))).comp σ)
+        (Derivation.op (f := g) (argTyping argument)).toHasType)
+      (flatKeptTags_typed reply _)
+
+/-- The same for the bound reply of a request of such a subchain. -/
+theorem flatKeptTags_typed : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → (d : SpelledKeptTags a b rest fresh tags Δ s x L t) → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming (((Δ.snoc (tagsTy tags)).snoc (.base a)).snoc (tupleTy (b :: rest))) Θ) →
+    HasType Φ Γ₀ Θ (flatKeptTags d σ) (packedExitType L)
+  | _, _, _, _, _, _, _, _, _, _, .only atoms next, _, _, σ =>
+    unpackAt_typed_proof atoms (σ.toFun 2) (σ.typed 2) (flatKept_typed next _)
 
 end
 
@@ -915,6 +1020,111 @@ theorem tags_comm : {a b : α} → {rest : List α} → {tags : List (List α)} 
       (packedExitType L))
       renamed.symm ((Equiv.case (.refl (.bv (ι := (0 : Fin (k + 1))))) arml ihr).trans comm')
 
+  | _, _, _, _, _, _, _, _, .keep _ _ _ kept, _, _, ρ => kept_comm kept (ρ.up _)
+
+/-- The same for a subchain with a fresh tuple kept packed. The
+destructuring of the older tuple also moves in front of the unpacking of
+the fresh tuple. -/
+theorem kept_comm : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledKept a b rest fresh Δ s x L t) → {k : Nat} →
+    {Δ' : BoundCtx (Ty α) k} → (ρ : BoundCtx.Renaming Δ Δ') →
+    Equiv false Γ₀ Δ' (t.rename ρ.toFun)
+      (.let₂ (.bv (ρ.toFun s.1)) (flatKept d ((ρ.up (.base a)).up (tupleTy (b :: rest)))))
+      (packedExitType L)
+  | a, b, rest, fresh, _, Δ, s, x, _, @SpelledKept.release _ _ _ _ _ _ _ _ _ _ _ _ body next, _, Δ', ρ => by
+    let T : Ty α := tupleTy (b :: rest)
+    have ih := delay_comm next (upTele ρ (pairsTele fresh))
+    have slotAt : (upTele ρ (pairsTele fresh)).toFun ((weakenTele Δ (pairsTele fresh)).toFun s.1) =
+        (weakenTele Δ' (pairsTele fresh)).toFun (ρ.toFun s.1) :=
+      congrArg (fun r => r.toFun s.1) (weakenTele_natural (pairsTele fresh) ρ)
+    have ih' : Equiv false Γ₀ (extendCtx Δ' (pairsTele fresh)) (body.rename (upTele ρ (pairsTele fresh)).toFun)
+        (.let₂ (.bv ((weakenTele Δ' (pairsTele fresh)).toFun (ρ.toFun s.1)))
+          (flatDelay next (((upTele ρ (pairsTele fresh)).up (.base a)).up T))) (packedExitType L) := by
+      rw [← slotAt]
+      exact ih
+    have typed := flatDelay_typed next (((upTele ρ (pairsTele fresh)).up (.base a)).up T)
+    have slot : Δ'.get (ρ.toFun s.1) = .product (.base a) T := (ρ.typed s.1).trans s.2
+    have hx : Δ'.get (ρ.toFun x.1) = tupleTy fresh := (ρ.typed x.1).trans x.2
+    have comm := unpack_pair_comm_proof fresh (Γ := Δ') (ρ.toFun x.1) (ρ.toFun s.1) hx slot typed
+    have moved : (flatDelay next (((upTele ρ (pairsTele fresh)).up (.base a)).up T)).rename
+        (pairPastTele Δ' (pairsTele fresh) (.base a) T).toFun =
+        flatDelay next ((pairPastTele Δ (pairsTele fresh) (.base a) T).comp
+          (upTele ((ρ.up (.base a)).up T) (pairsTele fresh))) :=
+      (flatDelay_rename next _ (pairPastTele Δ' (pairsTele fresh) (.base a) T)).trans
+        (congrArg (flatDelay next) (pairPastTele_natural (pairsTele fresh) ρ (.base a) T).symm)
+    exact equiv_cast ((unpackAt_congr_proof fresh (Γ := Δ') (ρ.toFun x.1) hx ih').trans comm)
+      (unpackAt_rename (Φ := Φ) fresh ρ x.1 body).symm
+      (congrArg (fun z => LetCase.LocallyNameless.Tm.let₂ (.bv (ρ.toFun s.1)) (unpackAt fresh (ρ.toFun x.1).succ.succ z)) moved)
+  | a, b, rest, _, _, Δ, s, _, _, .ask g argument reply, _, Δ', ρ => by
+    let Rt : Ty α := tagsTy (replyTags g)
+    let T : Ty α := tupleTy (b :: rest)
+    have ih := keptTags_comm reply ρ
+    have he : HasType Φ Γ₀ Δ' ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ) argument)).rename ρ.toFun) Rt :=
+      HasType.rename ρ (Derivation.op (f := g) (argTyping argument)).toHasType
+    have typed := flatKeptTags_typed reply (((ρ.up Rt).up (.base a)).up T)
+    have slot : Δ'.get (ρ.toFun s.1) = .product (.base a) T := (ρ.typed s.1).trans s.2
+    have comm := let_pair_comm_proof (ρ.toFun s.1) slot he typed
+    have request : ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ) argument)).rename ρ.toFun).rename
+        (fun i => i.succ.succ) =
+        .op g ((argTerm argument).rename ((pastPair Δ (.base a) T).comp ((ρ.up (.base a)).up T)).toFun) := by
+      simp only [LetCase.LocallyNameless.Tm.rename, LetCase.LocallyNameless.Tm.rename_comp]
+      rfl
+    have body : (flatKeptTags reply (((ρ.up Rt).up (.base a)).up T)).rename afterPair =
+        flatKeptTags reply ((afterPairRenaming Δ Rt (.base a) T).comp (((ρ.up (.base a)).up T).up Rt)) :=
+      (flatKeptTags_rename reply _ (afterPairRenaming Δ' Rt (.base a) T)).trans
+        (congrArg (flatKeptTags reply) (afterPair_natural ρ Rt (.base a) T))
+    have comm' := Eq.subst (motive := fun x => Equiv false Γ₀ Δ'
+      (.let₁ ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ) argument)).rename ρ.toFun)
+        (.let₂ (.bv (ρ.toFun s.1).succ) (flatKeptTags reply (((ρ.up Rt).up (.base a)).up T))))
+      (.let₂ (.bv (ρ.toFun s.1)) x) (packedExitType L))
+      (congrArg₂ LetCase.LocallyNameless.Tm.let₁ request body) comm
+    exact (Equiv.let₁ (.refl he) ih).trans comm'
+
+/-- The same for the bound reply of a request of such a subchain, under its
+slot. -/
+theorem keptTags_comm : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → (d : SpelledKeptTags a b rest fresh tags Δ s x L t) → {k : Nat} →
+    {Δ' : BoundCtx (Ty α) k} → (ρ : BoundCtx.Renaming Δ Δ') →
+    Equiv false Γ₀ (Δ'.snoc (tagsTy tags)) (t.rename (ρ.up (tagsTy tags)).toFun)
+      (.let₂ (.bv (ρ.toFun s.1).succ)
+        (flatKeptTags d (((ρ.up (tagsTy tags)).up (.base a)).up (tupleTy (b :: rest)))))
+      (packedExitType L)
+  | a, b, rest, _, _, _, Δ, s, _, _, @SpelledKeptTags.only _ _ _ _ _ _ _ _ _ _ _ _ atoms body next, _, Δ', ρ => by
+    let X : Ty α := tupleTy atoms
+    let T : Ty α := tupleTy (b :: rest)
+    have ih := kept_comm next (upTele ρ (unpackTele atoms))
+    have slotAt : (upTele ρ (unpackTele atoms)).toFun ((weakenTele Δ (unpackTele atoms)).toFun s.1) =
+        (weakenTele (Δ'.snoc X) (pairsTele atoms)).toFun (ρ.toFun s.1).succ :=
+      congrArg (fun r => r.toFun s.1) (weakenTele_natural (unpackTele atoms) ρ)
+    have ih' : Equiv false Γ₀ (extendCtx (Δ'.snoc X) (pairsTele atoms))
+        (body.rename (upTele ρ (unpackTele atoms)).toFun)
+        (.let₂ (.bv ((weakenTele (Δ'.snoc X) (pairsTele atoms)).toFun (ρ.toFun s.1).succ))
+          (flatKept next (((upTele ρ (unpackTele atoms)).up (.base a)).up T))) (packedExitType L) := by
+      rw [← slotAt]
+      exact ih
+    have typed := flatKept_typed next (((upTele ρ (unpackTele atoms)).up (.base a)).up T)
+    have slot : (Δ'.snoc X).get (ρ.toFun s.1).succ = .product (.base a) T := (ρ.typed s.1).trans s.2
+    have comm := unpack_pair_comm_proof atoms (Γ := Δ'.snoc X) 0 (ρ.toFun s.1).succ rfl slot typed
+    have moved : (flatKept next (((upTele ρ (unpackTele atoms)).up (.base a)).up T)).rename
+        (pairPastTele (Δ'.snoc X) (pairsTele atoms) (.base a) T).toFun =
+        flatKept next ((pairPastTele (Δ.snoc X) (pairsTele atoms) (.base a) T).comp
+          (upTele (((ρ.up X).up (.base a)).up T) (pairsTele atoms))) :=
+      (flatKept_rename next _ (pairPastTele (Δ'.snoc X) (pairsTele atoms) (.base a) T)).trans
+        (congrArg (flatKept next) (pairPastTele_natural (pairsTele atoms) (ρ.up X) (.base a) T).symm)
+    have comm' := Eq.subst (motive := fun x => Equiv false Γ₀ (Δ'.snoc X)
+      (unpackAt atoms 0 (.let₂ (.bv ((weakenTele (Δ'.snoc X) (pairsTele atoms)).toFun (ρ.toFun s.1).succ))
+        (flatKept next (((upTele ρ (unpackTele atoms)).up (.base a)).up T))))
+      (.let₂ (.bv (ρ.toFun s.1).succ) (unpackAt atoms 2 x)) (packedExitType L)) moved comm
+    have renamed : (unpackAt atoms 0 body).rename (ρ.up X).toFun =
+        unpackAt atoms 0 (body.rename (upTele ρ (unpackTele atoms)).toFun) :=
+      unpackAt_rename (Φ := Φ) atoms (ρ.up X) 0 body
+    exact Eq.subst (motive := fun x => Equiv false Γ₀ (Δ'.snoc X) x
+      (.let₂ (.bv (ρ.toFun s.1).succ)
+        (flatKeptTags (SpelledKeptTags.only atoms next) (((ρ.up X).up (.base a)).up T))) (packedExitType L))
+      renamed.symm ((unpackAt_congr_proof atoms (Γ := Δ'.snoc X) 0 rfl ih').trans comm')
+
 end
 
 end Chain
@@ -1023,15 +1233,6 @@ weakened past the bound reply. -/
 section Spelled
 
 variable [TaggedSignature α Φ]
-
-omit [TaggedSignature α Φ] in
-/-- A native equation between terms equal to the given ones. -/
-theorem equiv_cast [HasTy Φ (Ty α)] {k : Nat} {Γ : BoundCtx (Ty α) k} {C : Ty α}
-    {x y x' y' : LetCase.LocallyNameless.Tm Empty Φ k} (h : Equiv false Γ₀ Γ x y C) (ex : x = x') (ey : y = y') :
-    Equiv false Γ₀ Γ x' y' C := by
-  subst ex
-  subst ey
-  exact h
 
 omit [TaggedSignature α Φ] in
 /-- Three renamings in a row are one. -/
@@ -1401,6 +1602,299 @@ theorem SpelledDelayTags.opened_flat : {a b : α} → {rest : List α} → {tags
                 ((swapTeles Θ [Rt] (pairsTele (a :: b :: rest))).up Y).toFun t) hopenR).trans
               renamedTags.symm)))
 
+  | a, b, rest, _, _, Δ, _, _, .keep c d more kept, k, Θ, σ => by
+    let A : Ty α := .base a
+    let T : Ty α := tupleTy (b :: rest)
+    let X : Ty α := tupleTy (c :: d :: more)
+    have ih := kept.opened_flat (σ.up X)
+    have hN := (kept.opened (σ.up X)).2.typing.toHasType
+    have index : (upTele (afterPairRenaming Θ X A T) (pairsTele (b :: rest))).toFun
+        ((weakenTele (((Θ.snoc X).snoc A).snoc T) (pairsTele (b :: rest))).toFun 2) =
+        (weakenTele (((Θ.snoc A).snoc T).snoc X) (pairsTele (b :: rest))).toFun 0 :=
+      congrArg (fun r => r.toFun 2) (weakenTele_natural (pairsTele (b :: rest)) (afterPairRenaming Θ X A T))
+    have armEq := equiv_cast (ih.rename (afterPairRenaming Θ X A T))
+      ((flatKept_rename kept _ (afterPairRenaming Θ X A T)).trans
+        (congrArg (flatKept kept) (afterPair_natural σ X A T)))
+      ((unpackAt_rename (Φ := Φ) (b :: rest) (afterPairRenaming Θ X A T) 0 _).trans
+        (congrArg (unpackAt (b :: rest) (1 : Fin (k + 3)))
+          ((unpackAt_rename (Φ := Φ) (c :: d :: more)
+              (upTele (afterPairRenaming Θ X A T) (pairsTele (b :: rest))) _ _).trans
+            (congrArg (fun i => unpackAt (c :: d :: more) i
+              ((kept.opened (σ.up X)).1.rename (upTele (upTele (afterPairRenaming Θ X A T)
+                (pairsTele (b :: rest))) (pairsTele (c :: d :: more))).toFun)) index))))
+    refine ⟨_, armEq,
+      unpackAt_typed_proof (c :: d :: more)
+        (Γ := extendCtx (((Θ.snoc A).snoc T).snoc X) (pairsTele (b :: rest))) _
+        ((weakenTele (((Θ.snoc A).snoc T).snoc X) (pairsTele (b :: rest))).typed 0)
+        (HasType.rename (upTele (upTele (afterPairRenaming Θ X A T) (pairsTele (b :: rest)))
+          (pairsTele (c :: d :: more))) hN), ?_⟩
+    refine (unpack_swap_rename (c :: d :: more) ((Θ.snoc A).snoc T) X (pairsTele (b :: rest)) _).trans
+      (congrArg (unpackAt (c :: d :: more) (0 : Fin (teleSize (k + 1 + 1) (pairsTele (b :: rest)) + 1))) ?_)
+    refine ((LetCase.LocallyNameless.Tm.rename_comp _ _ _).trans ?_).trans (CaseTree.renamed_body_term _ _).symm
+    exact congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun _)
+      ((upTele_comp (pairsTele (c :: d :: more)) _ _).trans
+        (congrArg (fun r => upTele r (pairsTele (c :: d :: more)))
+          ((congrArg (fun r => BoundCtx.Renaming.comp (upTele r (pairsTele (b :: rest)))
+              (swapTeles ((Θ.snoc A).snoc T) [X] (pairsTele (b :: rest))))
+            (pairPastTele_single Θ X A T).symm).trans
+            (swapTeles_pair (pairsTele (b :: rest)) Θ [X] A T).symm)))
+
+/-- The same for a subchain with a fresh tuple kept packed: the flattened
+subchain is natively equal to unpacking the rest of the older tuple, then
+the fresh tuple, and then running the body of the normal form. -/
+theorem SpelledKept.opened_flat : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledKept a b rest fresh Δ s x L t) → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming Δ Θ) →
+    Equiv false Γ₀ ((Θ.snoc (.base a)).snoc (tupleTy (b :: rest)))
+      (flatKept d ((σ.up (.base a)).up (tupleTy (b :: rest))))
+      (unpackAt (b :: rest) 0 (unpackAt fresh
+        ((weakenTele ((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))) (pairsTele (b :: rest))).toFun
+          (σ.toFun x.1).succ.succ) (d.opened σ).1)) (packedExitType L)
+  | a, b, rest, fresh, _, Δ, _, x, _, .release next, k, Θ, σ => by
+    let A : Ty α := .base a
+    let T : Ty α := tupleTy (b :: rest)
+    have ih := next.opened_flat (upTele σ (pairsTele fresh))
+    have hN := (next.opened (upTele σ (pairsTele fresh))).2.typing.toHasType
+    have arm := arm_flat (pairsTele fresh) next σ ih
+    have hu := HasType.rename (upTele (pairPastTele Θ (pairsTele fresh) A T) (pairsTele (b :: rest))) hN
+    have hx : ((Θ.snoc A).snoc T).get (σ.toFun x.1).succ.succ = tupleTy fresh := (σ.typed x.1).trans x.2
+    have out := unpack_out_proof (unpack_frame_proof (C := packedExitType L) fresh
+      (Ω := (Θ.snoc A).snoc T) (σ.toFun x.1).succ.succ hx) (b :: rest)
+      (BoundCtx.Renaming.id ((Θ.snoc A).snoc T)) 0 rfl hu
+    exact (unpackAt_congr_proof fresh (Γ := (Θ.snoc A).snoc T) (σ.toFun x.1).succ.succ hx arm).trans
+      (equiv_cast out rfl (congrArg (fun z => unpackAt (b :: rest) (0 : Fin (k + 2)) (unpackAt fresh
+          ((weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ) z))
+        (((LetCase.LocallyNameless.Tm.rename_comp (upTele (pairPastTele Θ (pairsTele fresh) A T) (pairsTele (b :: rest))).toFun
+            (swapTeles ((Θ.snoc A).snoc T) (pairsTele fresh) (pairsTele (b :: rest))).toFun
+            (next.opened (upTele σ (pairsTele fresh))).1).trans
+          (congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun
+              (next.opened (upTele σ (pairsTele fresh))).1)
+            (swapTeles_pair (pairsTele (b :: rest)) Θ (pairsTele fresh) A T).symm)).trans
+          (CaseTree.renamed_body_term (next.opened (upTele σ (pairsTele fresh))).2
+            (swapTeles Θ (pairsTele fresh) (pairsTele (a :: b :: rest)))).symm)))
+  | a, b, rest, fresh, _, Δ, _, x, _, .ask g argument reply, k, Θ, σ => by
+    let A : Ty α := .base a
+    let T : Ty α := tupleTy (b :: rest)
+    let Rt : Ty α := tagsTy (replyTags g)
+    obtain ⟨U, hflat, hU, hopen⟩ := reply.opened_flat σ
+    have hx : ((Θ.snoc A).snoc T).get (σ.toFun x.1).succ.succ = tupleTy fresh := (σ.typed x.1).trans x.2
+    have hE : HasType Φ Γ₀ ((Θ.snoc A).snoc T)
+        (.op g ((argTerm argument).rename ((pastPair Δ A T).comp ((σ.up A).up T)).toFun)) Rt :=
+      HasType.rename ((pastPair Δ A T).comp ((σ.up A).up T))
+        (Derivation.op (f := g) (argTyping argument)).toHasType
+    have hV := unpackAt_typed_proof fresh
+      (Γ := extendCtx (((Θ.snoc A).snoc T).snoc Rt) (pairsTele (b :: rest))) _
+      (((weakenTele (((Θ.snoc A).snoc T).snoc Rt) (pairsTele (b :: rest))).typed
+        (σ.toFun x.1).succ.succ.succ).trans hx) hU
+    have out₁ := unpack_out_proof (let_frame_proof (C := packedExitType L) _ hE) (b :: rest)
+      (BoundCtx.Renaming.id ((Θ.snoc A).snoc T)) 0 rfl hV
+    have moved := (unpackAt_rename (Φ := Φ) fresh
+        (swapTeles ((Θ.snoc A).snoc T) [Rt] (pairsTele (b :: rest))) _ U).trans
+      (congrArg (fun i => unpackAt fresh i (U.rename (upTele (swapTeles ((Θ.snoc A).snoc T) [Rt]
+          (pairsTele (b :: rest))) (pairsTele fresh)).toFun))
+        (congrArg (fun r => r.toFun (σ.toFun x.1).succ.succ.succ)
+          (swapTeles_weaken (pairsTele (b :: rest)) ((Θ.snoc A).snoc T) Rt)))
+    have hE₂ := HasType.rename ((BoundCtx.Renaming.id ((Θ.snoc A).snoc T)).comp
+      (weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest)))) hE
+    have hU₂ := HasType.rename (upTele (swapTeles ((Θ.snoc A).snoc T) [Rt] (pairsTele (b :: rest)))
+      (pairsTele fresh)) hU
+    have hx₂ : (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).get
+        ((weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ) =
+        tupleTy fresh :=
+      ((weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).typed (σ.toFun x.1).succ.succ).trans hx
+    have out₂ := unpack_out_proof (let_frame_proof (C := packedExitType L) _ hE₂) fresh
+      (BoundCtx.Renaming.id (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest))))
+      ((weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ) hx₂ hU₂
+    have request : ((LetCase.LocallyNameless.Tm.op g ((argTerm (Φ := Φ) argument).rename
+        ((pastPair Δ A T).comp ((σ.up A).up T)).toFun)).rename
+        ((BoundCtx.Renaming.id ((Θ.snoc A).snoc T)).comp
+          (weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest)))).toFun).rename
+        ((BoundCtx.Renaming.id (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest)))).comp
+          (weakenTele (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest))) (pairsTele fresh))).toFun =
+        .op g (argTerm (argument.rename ((σ.comp (weakenTele Θ (pairsTele (a :: b :: rest)))).comp
+          (weakenTele (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh))))) :=
+      congrArg (LetCase.LocallyNameless.Tm.op g)
+        ((congrArg (fun t => LetCase.LocallyNameless.Tm.rename
+            ((BoundCtx.Renaming.id (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest)))).comp
+              (weakenTele (extendCtx ((Θ.snoc A).snoc T) (pairsTele (b :: rest))) (pairsTele fresh))).toFun t)
+          (LetCase.LocallyNameless.Tm.rename_comp _ _ (argTerm argument))).trans
+          ((LetCase.LocallyNameless.Tm.rename_comp _ _ (argTerm argument)).trans
+            ((LetCase.LocallyNameless.Tm.rename_congr (fun _ => rfl) (argTerm argument)).trans
+              (argTerm_rename argument ((σ.comp (weakenTele Θ (pairsTele (a :: b :: rest)))).comp
+                (weakenTele (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh)))))))
+    exact (Equiv.let₁ (.refl hE) hflat).trans
+      ((equiv_cast out₁ (congrArg (fun e => LetCase.LocallyNameless.Tm.let₁ e (unpackAt (b :: rest) 1 (unpackAt fresh
+            ((weakenTele (((Θ.snoc A).snoc T).snoc Rt) (pairsTele (b :: rest))).toFun
+              (σ.toFun x.1).succ.succ.succ) U))) (LetCase.LocallyNameless.Tm.rename_id _))
+          (congrArg (fun z => unpackAt (b :: rest) (0 : Fin (k + 2)) (LetCase.LocallyNameless.Tm.let₁ _ z)) moved)).trans
+        (unpackAt_congr_proof (b :: rest) (Γ := (Θ.snoc A).snoc T) 0 rfl
+          (equiv_cast out₂ (congrArg (fun e => LetCase.LocallyNameless.Tm.let₁ e _) (LetCase.LocallyNameless.Tm.rename_id _))
+            (congrArg (unpackAt fresh ((weakenTele ((Θ.snoc A).snoc T) (pairsTele (b :: rest))).toFun
+                (σ.toFun x.1).succ.succ))
+              (congrArg₂ LetCase.LocallyNameless.Tm.let₁ request ((LetCase.LocallyNameless.Tm.rename_comp _ _ U).trans hopen))))))
+
+/-- The same for the bound reply of a request of such a subchain, under its
+slot. -/
+theorem SpelledKeptTags.opened_flat : {a b : α} → {rest fresh : List α} → {tags : List (List α)} →
+    {m : Nat} → {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy (a :: b :: rest))} →
+    {x : Slot Δ (tupleTy fresh)} → {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} →
+    (d : SpelledKeptTags a b rest fresh tags Δ s x L t) → {k : Nat} → {Θ : BoundCtx (Ty α) k} →
+    (σ : BoundCtx.Renaming Δ Θ) →
+    ∃ U : LetCase.LocallyNameless.Tm Empty Φ (teleSize (teleSize (k + 1 + 1 + 1) (pairsTele (b :: rest))) (pairsTele fresh)),
+      Equiv false Γ₀ (((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))).snoc (tagsTy tags))
+        (flatKeptTags d ((afterPairRenaming Δ (tagsTy tags) (.base a) (tupleTy (b :: rest))).comp
+          (((σ.up (.base a)).up (tupleTy (b :: rest))).up (tagsTy tags))))
+        (unpackAt (b :: rest) 1 (unpackAt fresh
+          ((weakenTele (((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))).snoc (tagsTy tags))
+            (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ.succ) U)) (packedExitType L) ∧
+      HasType Φ Γ₀ (extendCtx (extendCtx (((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))).snoc (tagsTy tags))
+        (pairsTele (b :: rest))) (pairsTele fresh)) U (packedExitType L) ∧
+      U.rename ((upTele (swapTeles ((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))) [tagsTy tags]
+          (pairsTele (b :: rest))) (pairsTele fresh)).comp
+        (swapTeles (extendCtx ((Θ.snoc (.base a)).snoc (tupleTy (b :: rest))) (pairsTele (b :: rest)))
+          [tagsTy tags] (pairsTele fresh))).toFun = (d.opened σ).1
+  | a, b, rest, fresh, _, _, Δ, _, x, _, .only atoms next, k, Θ, σ => by
+    let A : Ty α := .base a
+    let T : Ty α := tupleTy (b :: rest)
+    let Xh : Ty α := tupleTy atoms
+    let Γ := (Θ.snoc A).snoc T
+    let pp := pairPastTele Θ (unpackTele atoms) A T
+    let Ω₂ := extendCtx (Γ.snoc Xh) (pairsTele (b :: rest))
+    let s₁ := swapTeles Γ [Xh] (pairsTele (b :: rest))
+    have hx : Γ.get (σ.toFun x.1).succ.succ = tupleTy fresh := (σ.typed x.1).trans x.2
+    have ih := next.opened_flat (upTele σ (unpackTele atoms))
+    have hN := (next.opened (upTele σ (unpackTele atoms))).2.typing.toHasType
+    -- rename the equation of the continuation so that the first atom and the rest are beneath the reply
+    have index₁ : (upTele pp (pairsTele (b :: rest))).toFun
+        ((weakenTele (((extendCtx Θ (unpackTele atoms)).snoc A).snoc T) (pairsTele (b :: rest))).toFun
+          ((upTele σ (unpackTele atoms)).toFun ((weakenTele Δ (unpackTele atoms)).toFun x.1)).succ.succ) =
+        (weakenTele (extendCtx (Γ.snoc Xh) (pairsTele atoms)) (pairsTele (b :: rest))).toFun
+          ((weakenTele (Γ.snoc Xh) (pairsTele atoms)).toFun (σ.toFun x.1).succ.succ.succ) :=
+      (congrArg (fun r => r.toFun ((upTele σ (unpackTele atoms)).toFun
+          ((weakenTele Δ (unpackTele atoms)).toFun x.1)).succ.succ)
+        (weakenTele_natural (pairsTele (b :: rest)) pp)).trans
+        (congrArg (weakenTele (extendCtx Γ (unpackTele atoms)) (pairsTele (b :: rest))).toFun
+          ((congrArg (fun y => pp.toFun y.succ.succ)
+            (congrArg (fun r => r.toFun x.1) (weakenTele_natural (unpackTele atoms) σ))).trans
+            (congrArg (fun r => r.toFun (σ.toFun x.1).succ.succ)
+              (pairPastTele_weaken (unpackTele atoms) Θ A T))))
+    have armEq := equiv_cast (ih.rename pp)
+      ((flatKept_rename next _ pp).trans (congrArg (flatKept next)
+        ((pairPastTele_natural (unpackTele atoms) σ A T).symm.trans
+          (arm_renaming Xh A T (pairsTele atoms) ((σ.up A).up T)).symm)))
+      ((unpackAt_rename (Φ := Φ) (b :: rest) pp 0 _).trans
+        (congrArg₂ (fun i z => unpackAt (b :: rest) i z) (pairPastTele_zero (unpackTele atoms) Θ A T)
+          ((unpackAt_rename (Φ := Φ) fresh (upTele pp (pairsTele (b :: rest))) _ _).trans
+            (congrArg (fun i => unpackAt fresh i ((next.opened (upTele σ (unpackTele atoms))).1.rename
+              (upTele (upTele pp (pairsTele (b :: rest))) (pairsTele fresh)).toFun)) index₁))))
+    have hN₂ := HasType.rename (upTele (upTele pp (pairsTele (b :: rest))) (pairsTele fresh)) hN
+    have hV := unpackAt_typed_proof fresh
+      (Γ := extendCtx (extendCtx (Γ.snoc Xh) (pairsTele atoms)) (pairsTele (b :: rest))) _
+      (((weakenTele (extendCtx (Γ.snoc Xh) (pairsTele atoms)) (pairsTele (b :: rest))).typed _).trans
+        (((weakenTele (Γ.snoc Xh) (pairsTele atoms)).typed (σ.toFun x.1).succ.succ.succ).trans hx)) hN₂
+    -- move the unpacking of the rest of the older tuple in front of the unpacking of the reply
+    have out₁ := unpack_unpack_proof atoms (b :: rest) (Ω := Γ) 0 rfl hV
+    have moved := (unpackAt_rename (Φ := Φ) fresh
+        (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest))) _ _).trans
+      (congrArg (fun i => unpackAt fresh i
+          (((next.opened (upTele σ (unpackTele atoms))).1.rename
+            (upTele (upTele pp (pairsTele (b :: rest))) (pairsTele fresh)).toFun).rename
+            (upTele (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest))) (pairsTele fresh)).toFun))
+        (congrArg (fun r => r.toFun (σ.toFun x.1).succ.succ.succ)
+          (swapTeles_weakenTele (pairsTele (b :: rest)) (Γ.snoc Xh) (pairsTele atoms))))
+    -- move the unpacking of the fresh tuple in front of the unpacking of the reply
+    have hW := HasType.rename (upTele (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))
+      (pairsTele fresh)) hN₂
+    have hx₂ : Ω₂.get ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ.succ) =
+        tupleTy fresh :=
+      ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).typed (σ.toFun x.1).succ.succ.succ).trans hx
+    have out₂ := unpack_out_proof (unpack_frame_proof (C := packedExitType L) atoms (Ω := Ω₂)
+        ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0)
+        ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).typed 0)) fresh (BoundCtx.Renaming.id Ω₂)
+      ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun (σ.toFun x.1).succ.succ.succ) hx₂ hW
+    refine ⟨_, (unpackAt_congr_proof atoms (Γ := Γ.snoc Xh) 0 rfl armEq).trans
+        ((equiv_cast out₁ rfl (congrArg (fun z => unpackAt (b :: rest) (1 : Fin (k + 3))
+            (unpackAt atoms ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0) z)) moved)).trans
+          (unpackAt_congr_proof (b :: rest) (Γ := Γ.snoc Xh) 1 rfl out₂)),
+      unpackAt_typed_proof atoms (Γ := extendCtx Ω₂ (pairsTele fresh)) _
+        (((weakenTele Ω₂ (pairsTele fresh)).typed _).trans
+          ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).typed 0))
+        (HasType.rename (swapTeles Ω₂ (pairsTele atoms) (pairsTele fresh)) hW), ?_⟩
+    -- the body of the normal form
+    have i₁ : (upTele s₁ (pairsTele fresh)).toFun
+        ((weakenTele Ω₂ (pairsTele fresh)).toFun ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0)) =
+        (weakenTele ((extendCtx Γ (pairsTele (b :: rest))).snoc Xh) (pairsTele fresh)).toFun
+          (s₁.toFun ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0)) :=
+      congrArg (fun r : BoundCtx.Renaming Ω₂ _ =>
+        r.toFun ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0))
+        (weakenTele_natural (pairsTele fresh) s₁)
+    have i₂ : s₁.toFun ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0) =
+        (0 : Fin (teleSize (k + 1 + 1) (pairsTele (b :: rest)) + 1)) :=
+      congrArg (fun r : BoundCtx.Renaming (Γ.snoc Xh) _ => r.toFun 0)
+        (swapTeles_weaken (pairsTele (b :: rest)) Γ Xh)
+    have i₃ : (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh)).toFun
+        ((weakenTele ((extendCtx Γ (pairsTele (b :: rest))).snoc Xh) (pairsTele fresh)).toFun 0) =
+        (0 : Fin (teleSize (teleSize (k + 1 + 1) (pairsTele (b :: rest))) (pairsTele fresh) + 1)) :=
+      congrArg (fun r : BoundCtx.Renaming ((extendCtx Γ (pairsTele (b :: rest))).snoc Xh) _ => r.toFun 0)
+        (swapTeles_weaken (pairsTele fresh) (extendCtx Γ (pairsTele (b :: rest))) Xh)
+    have index₂ : ((upTele s₁ (pairsTele fresh)).comp
+        (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh))).toFun
+        ((weakenTele Ω₂ (pairsTele fresh)).toFun ((weakenTele (Γ.snoc Xh) (pairsTele (b :: rest))).toFun 0)) =
+        (0 : Fin (teleSize (teleSize (k + 1 + 1) (pairsTele (b :: rest))) (pairsTele fresh) + 1)) :=
+      (congrArg (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh)).toFun
+        (i₁.trans (congrArg (weakenTele ((extendCtx Γ (pairsTele (b :: rest))).snoc Xh)
+          (pairsTele fresh)).toFun i₂))).trans i₃
+    have e₁ : swapTeles Θ (unpackTele atoms) (A :: T :: pairsTele (b :: rest)) =
+        ((upTele pp (pairsTele (b :: rest))).comp
+          (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))).comp (upTele s₁ (pairsTele atoms)) :=
+      (swapTeles_pair (pairsTele (b :: rest)) Θ (unpackTele atoms) A T).trans
+        (congrArg (fun r => BoundCtx.Renaming.comp (upTele pp (pairsTele (b :: rest))) r)
+          (swapTeles_cons (pairsTele (b :: rest)) Γ Xh (pairsTele atoms)))
+    have e₂ := swapTeles_cons (pairsTele fresh) (extendCtx Γ (pairsTele (b :: rest))) Xh (pairsTele atoms)
+    have nat := swapTeles_natural (pairsTele fresh) (pairsTele atoms) s₁
+    have total : (((upTele ((upTele pp (pairsTele (b :: rest))).comp
+          (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))) (pairsTele fresh)).comp
+        (swapTeles Ω₂ (pairsTele atoms) (pairsTele fresh))).comp
+        (upTele ((upTele s₁ (pairsTele fresh)).comp
+          (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh))) (pairsTele atoms))) =
+        (upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+          (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)) :=
+      ((congrArg (fun r => BoundCtx.Renaming.comp ((upTele ((upTele pp (pairsTele (b :: rest))).comp
+            (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))) (pairsTele fresh)).comp
+            (swapTeles Ω₂ (pairsTele atoms) (pairsTele fresh))) r)
+          (upTele_comp (pairsTele atoms) (upTele s₁ (pairsTele fresh))
+            (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh))).symm).trans
+        ((congrArg (fun r => BoundCtx.Renaming.comp (upTele ((upTele pp (pairsTele (b :: rest))).comp
+              (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))) (pairsTele fresh))
+            (BoundCtx.Renaming.comp r (upTele (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh]
+              (pairsTele fresh)) (pairsTele atoms)))) nat).trans
+          ((congrArg (fun r => BoundCtx.Renaming.comp ((upTele ((upTele pp (pairsTele (b :: rest))).comp
+                (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest)))) (pairsTele fresh)).comp
+                (upTele (upTele s₁ (pairsTele atoms)) (pairsTele fresh))) r) e₂.symm).trans
+            (congrArg (fun r => BoundCtx.Renaming.comp r
+                (swapTeles (extendCtx Γ (pairsTele (b :: rest))) (unpackTele atoms) (pairsTele fresh)))
+              ((upTele_comp (pairsTele fresh) _ _).trans
+                (congrArg (fun r => upTele r (pairsTele fresh)) e₁.symm))))))
+    refine (unpackAt_rename (Φ := Φ) atoms ((upTele s₁ (pairsTele fresh)).comp
+        (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh))) _ _).trans
+      ((congrArg (fun i => unpackAt atoms i _) index₂).trans (congrArg (unpackAt atoms
+        (0 : Fin (teleSize (teleSize (k + 1 + 1) (pairsTele (b :: rest))) (pairsTele fresh) + 1))) ?_))
+    refine ((congrArg (fun t => LetCase.LocallyNameless.Tm.rename (upTele ((upTele s₁ (pairsTele fresh)).comp
+          (swapTeles (extendCtx Γ (pairsTele (b :: rest))) [Xh] (pairsTele fresh))) (pairsTele atoms)).toFun
+          (LetCase.LocallyNameless.Tm.rename (swapTeles Ω₂ (pairsTele atoms) (pairsTele fresh)).toFun t))
+        ((LetCase.LocallyNameless.Tm.rename_comp (upTele (upTele pp (pairsTele (b :: rest))) (pairsTele fresh)).toFun
+            (upTele (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest))) (pairsTele fresh)).toFun
+            (next.opened (upTele σ (unpackTele atoms))).1).trans
+          (congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun
+              (next.opened (upTele σ (unpackTele atoms))).1)
+            (upTele_comp (pairsTele fresh) (upTele pp (pairsTele (b :: rest)))
+              (swapTeles (Γ.snoc Xh) (pairsTele atoms) (pairsTele (b :: rest))))))).trans ?_).trans
+      (CaseTree.renamed_body_term (next.opened (upTele σ (unpackTele atoms))).2 _).symm
+    exact (rename_three (next.opened (upTele σ (unpackTele atoms))).1 _ _ _).trans
+      (congrArg (fun r : BoundCtx.Renaming _ _ => LetCase.LocallyNameless.Tm.rename r.toFun
+        (next.opened (upTele σ (unpackTele atoms))).1) total)
+
 end
 
 end Spelled
@@ -1667,6 +2161,153 @@ theorem SpelledDelayTags.opened_renamed : {a b : α} → {rest : List α} → {t
         (⟨_, CaseTree.split atoms nxt more x.2 y.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
           CaseTree (.tags (atoms :: nxt :: more)) ((extendCtx δ (pairsTele (a :: b :: rest))).snoc Rt) L u))
       armL stepr
+
+  | a, b, rest, _, _, _, _, _, .keep c d more kept, _, Θ, _, δ, σ, π => by
+    let X : Ty α := tupleTy (c :: d :: more)
+    have ih := (kept.opened_renamed (σ.up X) (π.up X)).trans
+      (congrArg (fun r => kept.opened r) (renaming_up_comp σ π X))
+    have step : CaseTree.renamed (pending := .body)
+        (CaseTree.renamed (pending := .body) (kept.opened (σ.up X)).2
+          (upTele (swapTeles Θ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))).2
+        (upTele (upTele π (pairsTele (a :: b :: rest))) (unpackTele (c :: d :: more))) =
+        CaseTree.renamed (pending := .body) (kept.opened ((σ.comp π).up X)).2
+          (upTele (swapTeles δ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more))) :=
+      (CaseTree.renamed_body_comp (kept.opened (σ.up X)).2
+          (upTele (swapTeles Θ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))
+          (upTele (upTele π (pairsTele (a :: b :: rest))) (unpackTele (c :: d :: more)))).trans
+        ((congrArg (fun r => CaseTree.renamed (pending := .body) (kept.opened (σ.up X)).2 r)
+          ((upTele_comp (pairsTele (c :: d :: more)) _ _).trans
+            ((congrArg (fun r => upTele r (pairsTele (c :: d :: more)))
+              (swapTeles_natural (pairsTele (a :: b :: rest)) [X] π)).trans
+              (upTele_comp (pairsTele (c :: d :: more)) (upTele (π.up X) (pairsTele (a :: b :: rest)))
+                (swapTeles δ [X] (pairsTele (a :: b :: rest)))).symm))).trans
+          ((CaseTree.renamed_body_comp (kept.opened (σ.up X)).2
+              (upTele (upTele (π.up X) (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))
+              (upTele (swapTeles δ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))).symm.trans
+            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
+              CaseTree.renamed (pending := .body) r.2
+                (upTele (swapTeles δ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))) ih)))
+    exact congrArg (fun q : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple (c :: d :: more))
+          ((extendCtx δ (pairsTele (a :: b :: rest))).snoc X) L u =>
+        (⟨_, CaseTree.only (c :: d :: more) q.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
+          CaseTree (.tags [c :: d :: more]) ((extendCtx δ (pairsTele (a :: b :: rest))).snoc X) L u))
+      ((CaseTree.packed_renamed (c :: d :: more)
+          (CaseTree.renamed (pending := .body) (kept.opened (σ.up X)).2
+            (upTele (swapTeles Θ [X] (pairsTele (a :: b :: rest))) (pairsTele (c :: d :: more)))).2
+          (upTele π (pairsTele (a :: b :: rest)))).trans
+        (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body
+            (extendCtx (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele (c :: d :: more))) L u =>
+          (⟨_, CaseTree.packed (c :: d :: more) r.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) ×
+            CaseTree (.tuple (c :: d :: more)) ((extendCtx δ (pairsTele (a :: b :: rest))).snoc X) L u)) step))
+
+/-- The body of the normal form of a subchain with a fresh tuple kept
+packed commutes with renaming. -/
+theorem SpelledKept.opened_renamed : {a b : α} → {rest fresh : List α} → {n : Nat} →
+    {Δ : BoundCtx (Ty α) n} → {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → (d : SpelledKept a b rest fresh Δ s x L t) → {m : Nat} →
+    {Θ : BoundCtx (Ty α) m} → {k : Nat} → {δ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming Δ Θ) →
+    (π : BoundCtx.Renaming Θ δ) →
+    CaseTree.renamed (pending := .body) (d.opened σ).2
+      (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) = d.opened (σ.comp π)
+  | a, b, rest, fresh, _, _, _, _, _, .release next, _, Θ, _, δ, σ, π => by
+    have ih := (next.opened_renamed (upTele σ (pairsTele fresh)) (upTele π (pairsTele fresh))).trans
+      (congrArg (fun r => next.opened r) (upTele_comp (pairsTele fresh) σ π))
+    exact (CaseTree.renamed_body_comp (next.opened (upTele σ (pairsTele fresh))).2
+        (swapTeles Θ (pairsTele fresh) (pairsTele (a :: b :: rest)))
+        (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh))).trans
+      ((congrArg (fun r => CaseTree.renamed (pending := .body)
+          (next.opened (upTele σ (pairsTele fresh))).2 r)
+        (swapTeles_natural (pairsTele (a :: b :: rest)) (pairsTele fresh) π)).trans
+        ((CaseTree.renamed_body_comp (next.opened (upTele σ (pairsTele fresh))).2
+            (upTele (upTele π (pairsTele fresh)) (pairsTele (a :: b :: rest)))
+            (swapTeles δ (pairsTele fresh) (pairsTele (a :: b :: rest)))).symm.trans
+          (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
+            CaseTree.renamed (pending := .body) r.2
+              (swapTeles δ (pairsTele fresh) (pairsTele (a :: b :: rest)))) ih)))
+  | a, b, rest, fresh, _, _, _, _, _, .ask g argument reply, _, Θ, _, δ, σ, π => by
+    have h := reply.opened_renamed σ π
+    have e : ((σ.comp (weakenTele Θ (pairsTele (a :: b :: rest)))).comp
+        (weakenTele (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh))).comp
+        (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) =
+        ((σ.comp π).comp (weakenTele δ (pairsTele (a :: b :: rest)))).comp
+          (weakenTele (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh)) :=
+      (congrArg (fun r => BoundCtx.Renaming.comp (σ.comp (weakenTele Θ (pairsTele (a :: b :: rest)))) r)
+        (weakenTele_natural (pairsTele fresh) (upTele π (pairsTele (a :: b :: rest))))).trans
+        (congrArg (fun r => BoundCtx.Renaming.comp (σ.comp r)
+            (weakenTele (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh)))
+          (weakenTele_natural (pairsTele (a :: b :: rest)) π))
+    simp only [SpelledKept.opened, CaseTree.renamed]
+    rw [assembly_rename_comp, e, h]
+
+/-- The normal form of the bound reply of a request of such a subchain
+commutes with renaming. -/
+theorem SpelledKeptTags.opened_renamed : {a b : α} → {rest fresh : List α} → {tags : List (List α)} →
+    {n : Nat} → {Δ : BoundCtx (Ty α) n} → {s : Slot Δ (tupleTy (a :: b :: rest))} →
+    {x : Slot Δ (tupleTy fresh)} → {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} →
+    (d : SpelledKeptTags a b rest fresh tags Δ s x L t) → {m : Nat} → {Θ : BoundCtx (Ty α) m} →
+    {k : Nat} → {δ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming Δ Θ) → (π : BoundCtx.Renaming Θ δ) →
+    CaseTree.renamed (pending := .tags tags)
+      (β := (extendCtx (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh)).snoc (tagsTy tags))
+      (d.opened σ).2 (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) =
+      d.opened (σ.comp π)
+  | a, b, rest, fresh, _, _, _, _, _, _, .only atoms next, _, Θ, _, δ, σ, π => by
+    have ih := (next.opened_renamed (upTele σ (unpackTele atoms)) (upTele π (unpackTele atoms))).trans
+      (congrArg (fun r => next.opened r) (upTele_comp (unpackTele atoms) σ π))
+    have e : ((upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+          (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh))).comp
+        (upTele (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) (unpackTele atoms)) =
+        (upTele (upTele (upTele π (unpackTele atoms)) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+          ((upTele (swapTeles δ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+            (swapTeles (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh))) :=
+      (congrArg (fun r => BoundCtx.Renaming.comp
+          (upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)) r)
+        (swapTeles_natural (pairsTele fresh) (unpackTele atoms) (upTele π (pairsTele (a :: b :: rest))))).trans
+        (congrArg (fun r => BoundCtx.Renaming.comp r
+            (swapTeles (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)))
+          ((upTele_comp (pairsTele fresh) _ _).trans
+            ((congrArg (fun r => upTele r (pairsTele fresh))
+              (swapTeles_natural (pairsTele (a :: b :: rest)) (unpackTele atoms) π)).trans
+              (upTele_comp (pairsTele fresh) (upTele (upTele π (unpackTele atoms)) (pairsTele (a :: b :: rest)))
+                (swapTeles δ (unpackTele atoms) (pairsTele (a :: b :: rest)))).symm)))
+    have step : CaseTree.renamed (pending := .body)
+        (CaseTree.renamed (pending := .body) (next.opened (upTele σ (unpackTele atoms))).2
+          ((upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+            (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)))).2
+        (upTele (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) (unpackTele atoms)) =
+        CaseTree.renamed (pending := .body) (next.opened (upTele (σ.comp π) (unpackTele atoms))).2
+          ((upTele (swapTeles δ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+            (swapTeles (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh))) :=
+      (CaseTree.renamed_body_comp (next.opened (upTele σ (unpackTele atoms))).2
+          ((upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+            (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)))
+          (upTele (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) (unpackTele atoms))).trans
+        ((congrArg (fun r => CaseTree.renamed (pending := .body)
+            (next.opened (upTele σ (unpackTele atoms))).2 r) e).trans
+          ((CaseTree.renamed_body_comp (next.opened (upTele σ (unpackTele atoms))).2
+              (upTele (upTele (upTele π (unpackTele atoms)) (pairsTele (a :: b :: rest))) (pairsTele fresh))
+              ((upTele (swapTeles δ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+                (swapTeles (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele atoms)
+                  (pairsTele fresh)))).symm.trans
+            (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body _ L u =>
+              CaseTree.renamed (pending := .body) r.2
+                ((upTele (swapTeles δ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+                  (swapTeles (extendCtx δ (pairsTele (a :: b :: rest))) (unpackTele atoms)
+                    (pairsTele fresh)))) ih)))
+    exact congrArg (fun q : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
+          ((extendCtx (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh)).snoc (tupleTy atoms)) L u =>
+        (⟨_, CaseTree.only atoms q.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tags [atoms])
+          ((extendCtx (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh)).snoc (tupleTy atoms)) L u))
+      ((CaseTree.packed_renamed atoms
+          (CaseTree.renamed (pending := .body) (next.opened (upTele σ (unpackTele atoms))).2
+            ((upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+              (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)))).2
+          (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh))).trans
+        (congrArg (fun r : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree .body
+            (extendCtx (extendCtx (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh))
+              (unpackTele atoms)) L u =>
+          (⟨_, CaseTree.packed atoms r.2⟩ : (u : LetCase.LocallyNameless.Tm Empty Φ _) × CaseTree (.tuple atoms)
+            ((extendCtx (extendCtx δ (pairsTele (a :: b :: rest))) (pairsTele fresh)).snoc (tupleTy atoms))
+              L u)) step))
 
 end
 

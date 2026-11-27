@@ -442,6 +442,22 @@ theorem swapTeles_weaken (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) (T : Ty α
   swapTeles_weaken_proof H Ω T
 
 omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope, under two new slots, and then moving the
+two slots beneath the telescope, is weakening past the telescope over the
+two slots. -/
+theorem pairPastTele_weaken (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (A B : Ty α) :
+    (((weakenTele Ω tel).up A).up B).comp (pairPastTele Ω tel A B) = weakenTele ((Ω.snoc A).snoc B) tel :=
+  pairPastTele_weaken_proof tel Ω A B
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past two telescopes and then exchanging them is weakening
+past them in the other order. -/
+theorem swapTeles_weakenTele (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) :
+    ((weakenTele Ω tel).comp (weakenTele (extendCtx Ω tel) H)).comp (swapTeles Ω tel H) =
+      (weakenTele Ω H).comp (weakenTele (extendCtx Ω H) tel) :=
+  swapTeles_weakenTele_proof H Ω tel
+
+omit [TaggedSignature α Φ] in
 /-- Two pairs of slots move past each other in two steps. -/
 theorem afterPairPair_split (Γ : BoundCtx (Ty α) k) (C D A B : Ty α) :
     afterPairPairRenaming Γ C D A B =

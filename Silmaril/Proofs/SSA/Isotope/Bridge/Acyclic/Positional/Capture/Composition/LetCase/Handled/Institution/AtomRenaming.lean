@@ -343,6 +343,45 @@ theorem swapTeles_weaken_proof : (H : List (Ty α)) → {k : Nat} → (Ω : Boun
         ((swapRenaming Ω T X).toFun i.succ) = _
       exact Fin.cases rfl (fun _ => rfl) i)
 
+/-- Weakening past a telescope, under two new slots, and then moving the
+two slots beneath the telescope, is weakening past the telescope over the
+two slots. -/
+theorem pairPastTele_weaken_proof (tel : List (Ty α)) {k : Nat} (Ω : BoundCtx (Ty α) k) (A B : Ty α) :
+    (((weakenTele Ω tel).up A).up B).comp (pairPastTele Ω tel A B) = weakenTele ((Ω.snoc A).snoc B) tel :=
+  (congrArg (fun r => BoundCtx.Renaming.comp r (swapTele (Ω.snoc A) tel B))
+    ((renaming_up_comp_proof ((weakenTele Ω tel).up A) (swapTele Ω tel A) B).trans
+      (congrArg (fun r : BoundCtx.Renaming _ _ => r.up B) (swapTele_weaken_proof tel Ω A)))).trans
+    (swapTele_weaken_proof tel (Ω.snoc A) B)
+
+/-- Weakening past two telescopes and then exchanging them is weakening
+past them in the other order. -/
+theorem swapTeles_weakenTele_proof : (H : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    (tel : List (Ty α)) →
+    ((weakenTele Ω tel).comp (weakenTele (extendCtx Ω tel) H)).comp (swapTeles Ω tel H) =
+      (weakenTele Ω H).comp (weakenTele (extendCtx Ω H) tel)
+  | [], _, _, _ => rfl
+  | X :: H, _, Ω, tel => by
+    have ih := swapTeles_weakenTele_proof H (Ω.snoc X) tel
+    have nat := weakenTele_natural_proof H (swapTele Ω tel X)
+    have sw := swapTele_weaken_proof tel Ω X
+    have step1 : ((weakenTele Ω tel).comp (weakenTele (extendCtx Ω tel) (X :: H))).comp
+        (swapTeles Ω tel (X :: H)) =
+        (((weakenTele Ω tel).comp (BoundCtx.Renaming.succ (extendCtx Ω tel) X)).comp
+          ((swapTele Ω tel X).comp (weakenTele (extendCtx (Ω.snoc X) tel) H))).comp
+            (swapTeles (Ω.snoc X) tel H) :=
+      congrArg (fun r => BoundCtx.Renaming.comp
+        (((weakenTele Ω tel).comp (BoundCtx.Renaming.succ (extendCtx Ω tel) X)).comp r)
+        (swapTeles (Ω.snoc X) tel H)) nat
+    have step2 : (((weakenTele Ω tel).comp (BoundCtx.Renaming.succ (extendCtx Ω tel) X)).comp
+          ((swapTele Ω tel X).comp (weakenTele (extendCtx (Ω.snoc X) tel) H))).comp
+            (swapTeles (Ω.snoc X) tel H) =
+        (BoundCtx.Renaming.succ Ω X).comp (((weakenTele (Ω.snoc X) tel).comp
+          (weakenTele (extendCtx (Ω.snoc X) tel) H)).comp (swapTeles (Ω.snoc X) tel H)) :=
+      congrArg (fun r => BoundCtx.Renaming.comp (BoundCtx.Renaming.succ Ω X)
+        ((BoundCtx.Renaming.comp r (weakenTele (extendCtx (Ω.snoc X) tel) H)).comp
+          (swapTeles (Ω.snoc X) tel H))) sw
+    exact step1.trans (step2.trans (congrArg (fun r => BoundCtx.Renaming.comp (BoundCtx.Renaming.succ Ω X) r) ih))
+
 end Tele
 
 /-! ## Unpacking a tuple slot -/
