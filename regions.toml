@@ -25,8 +25,8 @@ scope = "Generic compiler-pass and compiler-category framework: languages, passe
 deps = []
 
 [[region]]
-name = "ML"
-scope = "Deep embedding of OCaml 5.4 (syntax, values, primitives, semantics, interpreter, stdlib); candidate for rename to `OCaml`."
+name = "OCaml"
+scope = "Deep embedding of OCaml 5.4 (syntax, values, primitives, semantics, interpreter, stdlib)."
 deps = ["Prelude"]
 
 [[region]]
@@ -92,7 +92,7 @@ deps = ["Prelude", "Data", "Compile", "Semantics", "Numeric", "Crypto", "Formats
 [[region]]
 name = "Wasm"
 scope = "WebAssembly: core specifications, component model, text and binary formats, lowering."
-deps = ["Prelude", "Foundations", "Data", "Compile", "ML", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA", "Machine", "Cli", "Games", "Parse"]
+deps = ["Prelude", "Foundations", "Data", "Compile", "OCaml", "Semantics", "Logic", "Numeric", "Crypto", "Formats", "SSA", "Machine", "Cli", "Games", "Parse"]
 
 [[region]]
 name = "Wasi"
