@@ -200,7 +200,7 @@ private noncomputable def isHour (I : Interpretation ClockValue signature) (valu
 private theorem initial_iff (policy : Policy.{0}) (ρ : RigidEnv ClockValue) (s : ClockState) :
     initial (interp policy) ρ s ↔ ∃ n : Int, hour s = Value.integer n ∧ 1 ≤ n ∧ n ≤ 12 := by
   simp only [initial, selected, interp, Predicate.toStatePred, Predicate.toAction, Predicate.actionWith,
-    Predicate.evalWith, ScopedExpr.eval,
+    Predicate.actionIn, Predicate.evalIn, id, ScopedExpr.eval,
     DataElab.Term.eval, DataElab.Term.evalList, Bool.false_eq_true, ite_false,
     Booleans.holds_ofProp, policy.numeral_eq, policy.mem_value, hour]
   rw [policy.external_apply numeric (show numeric interval = some .interval by simp [numeric])]
@@ -222,7 +222,8 @@ private theorem next_integer_iff (policy : Policy.{0}) (ρ : RigidEnv ClockValue
     next (interp policy) ρ s t ↔ hour t = Value.integer (if n = 12 then 1 else n + 1) := by
   have guard (p : Prop) : policy.booleans.IsBoolean (policy.booleans.ofProp p) := by
     by_cases hp : p <;> simp [Booleans.IsBoolean, hp]
-  simp only [next, selected, interp, Predicate.toAction, Predicate.actionWith, Predicate.evalWith,
+  simp only [next, selected, interp, Predicate.toAction, Predicate.actionWith, Predicate.actionIn,
+    Predicate.evalIn, id,
     ScopedExpr.eval, DataElab.Term.eval,
     DataElab.Term.evalList, Bool.false_eq_true, ite_false, ite_true,
     policy.numeral_eq, guard, Booleans.holds_ofProp, hour] at *

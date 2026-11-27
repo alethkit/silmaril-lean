@@ -42,7 +42,9 @@ conjunction and `□F`. At instant `n`, `□[A]_f` tests every successive
 pair starting at or after `n`, and `□F` evaluates `F` on every suffix
 starting at or after `n`, including the current suffix. The typed
 `existsRigid` extension chooses one value for the whole body, and
-`forallRigid` is its universal dual. A bare action and
+`forallRigid` is its universal dual. The product-state `existsFlex` extension
+is used by source lowering. It hides one flexible coordinate, with
+`forallFlex` as its dual. A bare action and
 a temporal next operator are outside the grammar. `holds_suffix` relates
 indexed evaluation to evaluation on the explicit suffix. `Sat` starts at
 zero, and `Entails` is implication on every behavior.
@@ -284,7 +286,8 @@ scalar state predicates and actions as well as temporal conjunctions with
 bracket modalities and WF/SF clauses. The [source import path](tla-quint-import.md)
 connects both stages on intact Quint exports and a temporal example.
 The [mathematical data bridge for named formulas](tla-data-temporal.md)
-adds Simple TLA denotations and proves the intact LiveHourClock entailment.
+adds typed temporal denotations, checks flexible hiding, and proves the intact
+LiveHourClock entailment.
 TLC configuration, PlusCal translation and proof checking are separate work.
 
 ### Checked surface examples
