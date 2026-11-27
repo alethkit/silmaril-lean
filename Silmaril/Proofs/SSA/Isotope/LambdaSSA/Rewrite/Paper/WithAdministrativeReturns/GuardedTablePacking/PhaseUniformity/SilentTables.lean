@@ -284,6 +284,7 @@ theorem landing_region_eqv {L : Landing M} {L' : Landing M'} (h : L.Rel L') :
       subst e
       exact Paper.Extension.Eqv.refl (Landing.region_typed (M := M) (.ret b)).hasType
     | «at» t' x' q' => exact h.elim
+    | spin => exact h.elim
   | «at» t x q =>
     cases L' with
     | ret b' => exact h.elim
@@ -295,6 +296,12 @@ theorem landing_region_eqv {L : Landing M} {L' : Landing M'} (h : L.Rel L') :
         ((q_const q (t.entered_typed x)).trans ((congrArg (QLit (const_typed q) ≫ ·)
           ((Paper.Extension.Singleton.ofRegion_eq_iff N (t.entered_typed x) (t'.entered_typed x')).2 eq)).trans
             (q_const q (t'.entered_typed x')).symm))
+    | spin => exact h.elim
+  | spin =>
+    cases L' with
+    | ret b' => exact h.elim
+    | «at» t' x' q' => exact h.elim
+    | spin => exact Paper.Extension.Eqv.refl spinRegion_typed.hasType
 
 variable {r r' : Region signature.Instr} {L : Bool → Landing M} {L' : Bool → Landing M'}
 
@@ -325,6 +332,15 @@ theorem landed_eqv (h : ValueBranches [State] r [Bit]) (h' : ValueBranches [Stat
     deadBit_typed (q_case_congr _ _ _ _ (point false) (point true)) rfl
 
 end Landings
+
+/-- Landings transfer along an equation of the quotient. -/
+theorem landed_congr {M : Nat} {r r' : Region signature.Instr} {L : Bool → Landing M}
+    (h : ValueBranches [State] r [Bit]) (h' : ValueBranches [State] r' [Bit])
+    (e : Eqv false [State] r r' [Bit]) (hl : Landed r' L) : Landed r L := fun q =>
+  (Paper.Extension.Eqv.trans
+    ((Paper.Extension.Singleton.ofRegion_eq_iff N (constEntry_typed q h) (constEntry_typed q h')).1
+      ((q_const q h).trans ((congrArg (QLit (const_typed q) ≫ ·)
+        ((Paper.Extension.Singleton.ofRegion_eq_iff N h h').2 e)).trans (q_const q h').symm))) (hl q))
 
 /-- A loop that is literal request trees at each constant lands in them. -/
 theorem landed_of_pointed {M : Nat} {r : Region signature.Instr} {t : Bool → LTable M} {x : Bool → Fin (M + 1)}

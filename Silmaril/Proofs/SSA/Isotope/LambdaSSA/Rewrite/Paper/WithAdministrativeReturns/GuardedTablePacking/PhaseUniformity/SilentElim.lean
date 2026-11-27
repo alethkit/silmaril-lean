@@ -241,6 +241,10 @@ variable {M : Nat} (t : Router M) (c : Fin (M + 1) → Bool) (sil : Fin (M + 1) 
 noncomputable def stepArr : ofType (Φ := signature.Instr) (States M) ⟶ ofType Bit ⨿ ofType (States M) :=
   ofRegion (dispatch_typed M t.rows_typed) ≫ (sumIso (Φ := signature.Instr) Bit (States M)).hom
 
+theorem stepArr_eq : stepArr t =
+    ofRegion (dispatch_typed M t.rows_typed) ≫ (sumIso (Φ := signature.Instr) Bit (States M)).hom := by
+  rfl
+
 theorem loop_iterate :
     ofRegion (dispatchLoop_typed t.rows_typed) = Paper.TypeCategory.iterate (stepArr t) :=
   dispatchLoop_arrow t.rows_typed
