@@ -53,10 +53,9 @@ the expansion; no liveness is assumed.
 
 ## Not proved
 
-* More than one continuation, or more than two requests in a round.
-  Each further continuation needs one more use of the outlining law; no
-  theorem here iterates it, and it is not claimed that arbitrary rows
-  normalize.
+* More than one continuation, or more than two requests in a round, are
+  not handled here. Finitely many continuations and request trees of any
+  depth are in `BitTable/Nest/Thms.lean`.
 * A second request inside a single written program, as opposed to a
   literal second row. Relating the two needs the step of a two-request
   program as a composite of one-request steps, which is not derived.
