@@ -19,9 +19,10 @@ consequence of forward transport. The regression has a translation,
 sending an atom to the unit type, that fails it on a sentence between two
 captured atoms.
 
-The second is a completeness theorem that uses no translation. For the
-structural signatures with atoms, the ordered trace interpretation whose
-atoms are natural numbers is a supported model of the ranked room. It
+The second is a completeness theorem that uses no translation. For every
+signature typed over atoms, the ordered trace interpretation whose atoms
+are natural numbers is a supported model of the ranked room. Over the
+structural signatures built from atoms, unit and ordered products it
 reflects native equality of operands that are natively equal to
 straight-line terms returned at the single exit, over one packed product
 slot. A ranked sentence between such entries is valid in all supported
@@ -29,7 +30,8 @@ models exactly when its emitted operands are natively equal.
 
 Operands with a case on a reply, more than one exit, or an older context
 beside the packed slot are outside the second result. Reflection by the
-same interpretation is stated for them as the hypothesis `TraceReflects`.
+same interpretation is stated in general as the hypothesis
+`TraceReflects`. It is proved for one branching class in `Branching`.
 -/
 
 @[expose] public section
@@ -156,7 +158,9 @@ end Structural
 
 /-! ## The ordered trace model with atoms -/
 
-variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ]
+section Typed
+
+variable {α Φ : Type} [HasTy Φ (Ty α)]
 
 /-- The ordered trace model with atoms is a supported model of the ranked
 room. -/
@@ -200,9 +204,12 @@ theorem rankedValid_iff_atomTrace (e : RankedEquation (atomSig α Φ)) (reflects
   ⟨fun valid => valid (traceJ (α := α) (Φ := Φ)) (atomTraceModel α Φ) atomTrace_supported,
     fun holds => rankedValid_of_derivable e (derivable_of_atomTrace e reflects holds)⟩
 
+end Typed
+
 /-! ## Straight-line operands -/
 
-variable {s : Shape α} {A : Ty α} {t u : LetSeq.LocallyNameless.Tm Empty Φ 1}
+variable {α Φ : Type} [LetSeq.StraightLine.Structural.Signature α Φ]
+  {s : Shape α} {A : Ty α} {t u : LetSeq.LocallyNameless.Tm Empty Φ 1}
 
 /-- Two straight-line terms returned at the single exit are natively
 equal as captured LetCase operands exactly when they are natively equal in

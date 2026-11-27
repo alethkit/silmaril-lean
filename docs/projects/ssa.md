@@ -1004,6 +1004,31 @@ The continuation cannot jump back to its own label.
   [Completeness and the reflection criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Thms.lean) ·
   [Region coherence with atoms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Coherence/Thms.lean) ·
   [Captured atoms and two translations](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTraceRegression.lean)
+- The same completeness holds for one branching class with atoms. In a
+  tagged signature every primitive takes an argument built from atoms,
+  unit and ordered products and replies with one atom under one of two
+  tags. A case tree asks a primitive with an argument assembled from the
+  atom slots in scope and cases on the reply. Each arm binds the payload
+  atom and keeps the older slots. A leaf returns one atom slot at the
+  single exit. At an environment that gives distinct tokens to the atom
+  slots, two case trees with the same ordered traces are the same term:
+  the first logged event fixes the primitive and argument, and the runs
+  of both arms at every payload token are contained in the run of the
+  node. This reflection is proved for the class and is not a hypothesis.
+  A ranked sentence between entries whose emitted operands are natively
+  equal to case trees, over older atom captures, is valid in all
+  supported models exactly when the emitted operands are natively equal.
+  On graphs read back from two case trees that is equality of the trees.
+  The ordered trace model with atoms is now defined for every signature
+  typed over atoms. Sequencing without a case, cases on other
+  scrutinees, payloads that are not atoms and more than one exit are
+  outside the class. The regression tells apart exchanged arms, the atom
+  returned under one tag, the older capture used as the request
+  argument, the order of two requests, and a payload used as the next
+  request argument.
+  [Tagged signatures and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Separation and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Branches, returned atoms and request order](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomBranchingRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
