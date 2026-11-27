@@ -28,8 +28,8 @@ import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeRet
 
 ## Not proved
 
-* A class map that is not surjective, so target states outside its image
-  are not handled.
+* A class map that is not surjective is not handled here. It is
+  `Table.morphism_eqv` in `BitTable/Bisimulation/Thms.lean`.
 * Rows other than a program step followed by the routing case, and
   tables of a different shape such as the relay rows.
 * The separation is computed in the four-reply interpreter. It only
