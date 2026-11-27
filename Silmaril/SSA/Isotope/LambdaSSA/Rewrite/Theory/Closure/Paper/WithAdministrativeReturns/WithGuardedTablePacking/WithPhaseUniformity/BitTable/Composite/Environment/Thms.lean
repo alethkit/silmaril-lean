@@ -84,7 +84,8 @@ reply and the entry state. Its repeat carries the negated Bit.
 ## Scope
 
 A row whose normal form is a return without a request is not a row of the
-fragment. The environment holds Bits and the entry state is one Bit.
+fragment; `Composite.Silent` treats such rows in mixed tables. The
+environment holds Bits and the entry state is one Bit.
 Nothing is claimed for packed dispatchers in general, and no completeness
 is claimed for default Paper.
 -/
