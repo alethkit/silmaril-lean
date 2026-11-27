@@ -80,13 +80,8 @@ table that returns the Bit it is given or repeats:
 
 The table theorems are for `capProgram`: the kept Bit is the payload of
 the first reply. For `entryProgram` only the request node sent with a
-constant is proved. A table whose rows are `entryProgram` is not covered:
-the entry state is not a reply, so each row has to be split by the value
-it is entered with, and a split row agrees with the original only when it
-is entered with that value. Comparing the two loops needs the equation
-that resetting the query of every row does not change a loop whose jumps
-already carry the matching query, and completeness at entries that case
-on the state. Neither is proved here.
+constant is proved here. Tables whose rows are `entryProgram` are treated
+in `Composite.Entry`, by split states.
 
 Whether `capSecond_ask_eqv` or `capRouter_eqv_capSource` fails in default
 Paper is not decided here. No statement is made for the whole grammar of
