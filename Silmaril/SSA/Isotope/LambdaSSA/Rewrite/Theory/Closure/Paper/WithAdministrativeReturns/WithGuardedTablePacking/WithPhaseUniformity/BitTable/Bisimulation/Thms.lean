@@ -63,8 +63,9 @@ has three requests (`ring_lasso_witness`, `ring_lasso_not_mem`).
 * The converse for rows that are not polls. A row that cannot repeat hides
   every later round, so equal behaviour does not give equal streams. No
   completeness is claimed there.
-* Tables with several successors per row, such as the relay rows, and
-  packed dispatchers in general.
+* Rows with several successors are not handled here. Reply-dependent
+  successors are in `BitTable/Switch/Thms.lean`. The relay rows and packed
+  dispatchers in general are not covered.
 * The interpreter is used for the converse and for separation only. No
   equation is inferred from it.
 -/
