@@ -85,17 +85,35 @@ induction on the held tuple. Normal forms commute with renaming, so the
 normal form of a spelled tree in a larger context is the renamed normal
 form.
 
+Inside a chain with a held tuple, a fresh reply tuple may be kept packed
+as well. The reply of a request with one tag of two or more atoms stays one
+slot across a subchain of further requests, each with a one-tag reply that
+is unpacked at once, and is then destructured completely; the chain with
+the older tuple continues after it. Across the subchain two tuples are
+packed. Its requests are assembled from the atom slots in scope, so they
+may use older captures and the atoms of earlier replies, and neither packed
+tuple. The normal form unpacks the older tuple before the chain and the
+fresh tuple right after its own request, and keeps the order of the
+requests. The native equation moves each unpacking in front of each request
+and each reply unpacking of the subchain by `unpack_out`, with the request
+and the reply unpacking as actions that move single pattern lets. Each
+unpacking is moved separately, the older one first, so the two holds are
+exchanged with every binding of the subchain and no tuple length is fixed.
+
 The covered syntax is exact. A request is followed by one of the three
 heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
 in order, as in the case trees, except that a pending tuple of two or more
 atoms may be held across a chain of requests as above, and the reply of a
-chain request is bound and then unpacked or cased on at once. A chain
-request whose reply is destructured or cased on at the request itself, a
-reply or an arm payload that is held inside the chain, a case that is not
-on the reply of the request before it, holding pending tags, other
-placements of a destructuring, and arbitrary LetCase terms are outside it.
+chain request is bound and then unpacked or cased on at once. A one-tag
+reply of a chain request may instead be kept packed across a subchain as
+above. A chain request whose reply is destructured or cased on at the
+request itself, a request with several tags or a further kept tuple inside
+such a subchain, an arm payload that is kept packed, destructuring the
+older tuple before the fresh one, a case that is not on the reply of the
+request before it, holding pending tags, other placements of a
+destructuring, and arbitrary LetCase terms are outside it.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -436,6 +454,34 @@ theorem spelledDelay_rename_equiv_opened {a b : α} {rest : List α}
       (.let₂ (.bv (ρ.toFun s.1)) (unpackAt (b :: rest) 0 (d.opened ρ).1)) (packedExitType L) :=
   (delay_comm d ρ).trans (Equiv.let₂ (.refl (slot_typed (ρ.toFun s.1) ((ρ.typed s.1).trans s.2)))
     (d.opened_flat ρ))
+
+/-- A subchain across which a fresh tuple is kept packed, inside a chain
+with an older held tuple, is natively equal to destructuring the older
+tuple, unpacking its rest, unpacking the fresh tuple, and then running the
+body of the normal form. Both tuples are packed across the subchain. The
+older one is destructured first in the normal form, and the fresh one at
+the place of its own slot. -/
+theorem spelledKept_rename_equiv_opened {a b : α} {rest fresh : List α}
+    {s : Slot β (tupleTy (a :: b :: rest))} {x : Slot β (tupleTy fresh)}
+    (d : SpelledKept a b rest fresh β s x L t) {m : Nat} {γ : BoundCtx (Ty α) m}
+    (ρ : BoundCtx.Renaming β γ) :
+    Equiv false Γ₀ γ (t.rename ρ.toFun)
+      (.let₂ (.bv (ρ.toFun s.1)) (unpackAt (b :: rest) 0 (unpackAt fresh
+        ((weakenTele ((γ.snoc (.base a)).snoc (tupleTy (b :: rest))) (pairsTele (b :: rest))).toFun
+          (ρ.toFun x.1).succ.succ) (d.opened ρ).1))) (packedExitType L) :=
+  (kept_comm d ρ).trans (Equiv.let₂ (.refl (slot_typed (ρ.toFun s.1) ((ρ.typed s.1).trans s.2)))
+    (d.opened_flat ρ))
+
+/-- The body of the normal form of such a subchain commutes with renaming.
+The body is under the unpacking of the older tuple and then of the fresh
+tuple. -/
+theorem spelledKept_opened_renamed {a b : α} {rest fresh : List α}
+    {s : Slot β (tupleTy (a :: b :: rest))} {x : Slot β (tupleTy fresh)}
+    (d : SpelledKept a b rest fresh β s x L t) {m k : Nat} {γ : BoundCtx (Ty α) m}
+    {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .body) (d.opened ρ).2
+      (upTele (upTele π (pairsTele (a :: b :: rest))) (pairsTele fresh)) = d.opened (ρ.comp π) :=
+  d.opened_renamed ρ π
 
 /-- An operand natively equal to a spelled tree is a branching operand: it
 is natively equal to the normal form. -/

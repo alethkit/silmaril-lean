@@ -34,6 +34,12 @@ then pending under the replies of the chain: it is unpacked, or held again
 across a further chain. In the end the body has every atom of the tuple,
 the atoms of the replies on its branch and the older slots.
 
+Inside such a chain a fresh reply tuple may be kept packed too: the reply
+of a request with one tag of two or more atoms stays one slot across a
+subchain of further requests with one-tag replies, and is then destructured
+completely, after which the chain continues. The requests of the subchain
+use neither packed tuple.
+
 The normal form destructures the held tuple once, before the chain. It
 keeps every request and every case in place: a case is still on the reply
 of its request and directly follows it.
@@ -262,6 +268,47 @@ inductive SpelledDelayTags : (a b : α) → (rest : List α) → List (List α) 
       (right : SpelledDelayTags a b rest (next :: more) (Δ.snoc (tagsTy (atoms :: next :: more)))
         (s.rename (BoundCtx.Renaming.succ Δ _)) L r) :
       SpelledDelayTags a b rest (atoms :: next :: more) Δ s L (.case (.bv 0) (unpackAt atoms 0 l) r)
+  | keep {a b : α} {rest : List α} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {s : Slot Δ (tupleTy (a :: b :: rest))} {L : List (Ty α)} (c d : α) (more : List α)
+      {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+      (kept : SpelledKept a b rest (c :: d :: more) (Δ.snoc (tupleTy (c :: d :: more)))
+        (s.rename (BoundCtx.Renaming.succ Δ _)) ⟨0, rfl⟩ L k) :
+      SpelledDelayTags a b rest [c :: d :: more] Δ s L k
+
+/-- A subchain inside a chain with a held tuple, across which a fresh reply
+tuple is kept packed as well. Two tuples are packed at once: the older one
+at its slot and the fresh one at its own slot. The subchain asks requests
+with one-tag replies, each unpacked at once. Their arguments are assembled
+from the atom slots in scope, so they may use older captures and the atoms
+of earlier replies, and neither packed tuple. The subchain ends by
+destructuring the fresh tuple completely, and the chain with the older
+tuple continues. -/
+inductive SpelledKept : (a b : α) → (rest : List α) → (fresh : List α) → {m : Nat} →
+    (Δ : BoundCtx (Ty α) m) → Slot Δ (tupleTy (a :: b :: rest)) → Slot Δ (tupleTy fresh) → List (Ty α) →
+    LetCase.LocallyNameless.Tm Empty Φ m → Type where
+  | release {a b : α} {rest fresh : List α} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {s : Slot Δ (tupleTy (a :: b :: rest))} {x : Slot Δ (tupleTy fresh)} {L : List (Ty α)}
+      {k : LetCase.LocallyNameless.Tm Empty Φ (teleSize m (pairsTele fresh))}
+      (next : SpelledDelay a b rest (extendCtx Δ (pairsTele fresh))
+        (s.rename (weakenTele Δ (pairsTele fresh))) L k) :
+      SpelledKept a b rest fresh Δ s x L (unpackAt fresh x.1 k)
+  | ask {a b : α} {rest fresh : List α} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {s : Slot Δ (tupleTy (a :: b :: rest))} {x : Slot Δ (tupleTy fresh)} {L : List (Ty α)} (g : Φ)
+      (argument : Assembly Δ (instrSrc g)) {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+      (reply : SpelledKeptTags a b rest fresh (replyTags g) Δ s x L k) :
+      SpelledKept a b rest fresh Δ s x L (.let₁ (.op g (argTerm argument)) k)
+
+/-- The bound reply of a request of such a subchain. It has one tag with
+any tuple of atoms and is unpacked at once. -/
+inductive SpelledKeptTags : (a b : α) → (rest : List α) → (fresh : List α) → List (List α) → {m : Nat} →
+    (Δ : BoundCtx (Ty α) m) → Slot Δ (tupleTy (a :: b :: rest)) → Slot Δ (tupleTy fresh) → List (Ty α) →
+    LetCase.LocallyNameless.Tm Empty Φ (m + 1) → Type where
+  | only {a b : α} {rest fresh : List α} {m : Nat} {Δ : BoundCtx (Ty α) m}
+      {s : Slot Δ (tupleTy (a :: b :: rest))} {x : Slot Δ (tupleTy fresh)} {L : List (Ty α)}
+      (atoms : List α) {k : LetCase.LocallyNameless.Tm Empty Φ (teleSize m (unpackTele atoms))}
+      (next : SpelledKept a b rest fresh (extendCtx Δ (unpackTele atoms))
+        (s.rename (weakenTele Δ (unpackTele atoms))) (x.rename (weakenTele Δ (unpackTele atoms))) L k) :
+      SpelledKeptTags a b rest fresh [atoms] Δ s x L (unpackAt atoms 0 k)
 
 end
 
@@ -321,6 +368,24 @@ def SpelledDelayTags.typing : {a b : α} → {rest : List α} → {tags : List (
       (unpackTyping atoms (Γ := (Δ.snoc (tagsTy (atoms :: nxt :: more))).snoc (tupleTy atoms)) ⟨0, rfl⟩
         left.typing)
       right.typing
+  | _, _, _, _, _, _, _, _, .keep _ _ _ kept => kept.typing
+
+/-- The native typing of a subchain with a fresh tuple kept packed. -/
+def SpelledKept.typing : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledKept a b rest fresh Δ s x L t →
+    Derivation Φ Γ₀ Δ t (packedExitType L)
+  | _, _, _, fresh, _, _, _, x, _, .release next => unpackTyping fresh x next.typing
+  | _, _, _, _, _, _, _, _, _, .ask g argument reply => .let₁ (.op (f := g) (argTyping argument)) reply.typing
+
+/-- The native typing of the bound reply of a request of such a subchain,
+under its slot. -/
+def SpelledKeptTags.typing : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → SpelledKeptTags a b rest fresh tags Δ s x L t →
+    Derivation Φ Γ₀ (Δ.snoc (tagsTy tags)) t (packedExitType L)
+  | _, _, _, _, _, _, Δ, _, _, _, .only atoms next =>
+    unpackTyping atoms (Γ := Δ.snoc (tupleTy atoms)) ⟨0, rfl⟩ next.typing
 
 end
 
@@ -426,6 +491,43 @@ def SpelledDelayTags.opened : {a b : α} → {rest : List α} → {tags : List (
           (tagsTy (nxt :: more)))
         (right.opened (σ.up (tagsTy (atoms :: nxt :: more)))).2
         (swapTeles Θ [tagsTy (atoms :: nxt :: more)] (pairsTele (a :: b :: rest)))).2⟩
+  | a, b, rest, _, _, _, _, _, .keep c d more kept, _, Θ, σ =>
+    ⟨_, .only (c :: d :: more) (CaseTree.packed (c :: d :: more)
+      (CaseTree.renamed (pending := .body) (kept.opened (σ.up (tupleTy (c :: d :: more)))).2
+        (upTele (swapTeles Θ [tupleTy (c :: d :: more)] (pairsTele (a :: b :: rest)))
+          (pairsTele (c :: d :: more)))).2)⟩
+
+/-- The body of the normal form of a subchain with a fresh tuple kept
+packed, under the full unpacking of the older tuple and then of the fresh
+tuple. -/
+def SpelledKept.opened : {a b : α} → {rest fresh : List α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledKept a b rest fresh Δ s x L t → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → BoundCtx.Renaming Δ Θ →
+    (u : LetCase.LocallyNameless.Tm Empty Φ (teleSize (teleSize k (pairsTele (a :: b :: rest))) (pairsTele fresh))) ×
+      CaseTree .body (extendCtx (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh)) L u
+  | a, b, rest, fresh, _, _, _, _, _, .release next, _, Θ, σ =>
+    CaseTree.renamed (pending := .body) (next.opened (upTele σ (pairsTele fresh))).2
+      (swapTeles Θ (pairsTele fresh) (pairsTele (a :: b :: rest)))
+  | a, b, rest, fresh, _, _, _, _, _, .ask g argument reply, _, Θ, σ =>
+    ⟨_, .ask g (argument.rename ((σ.comp (weakenTele Θ (pairsTele (a :: b :: rest)))).comp
+        (weakenTele (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh))))
+      (reply.opened σ).2⟩
+
+/-- The normal form of the bound reply of a request of such a subchain,
+pending under both unpackings. -/
+def SpelledKeptTags.opened : {a b : α} → {rest fresh : List α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy (a :: b :: rest))} → {x : Slot Δ (tupleTy fresh)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} → SpelledKeptTags a b rest fresh tags Δ s x L t → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → BoundCtx.Renaming Δ Θ →
+    (u : LetCase.LocallyNameless.Tm Empty Φ (teleSize (teleSize k (pairsTele (a :: b :: rest))) (pairsTele fresh) + 1)) ×
+      CaseTree (.tags tags)
+        ((extendCtx (extendCtx Θ (pairsTele (a :: b :: rest))) (pairsTele fresh)).snoc (tagsTy tags)) L u
+  | a, b, rest, fresh, _, _, _, _, _, _, .only atoms next, _, Θ, σ =>
+    ⟨_, .only atoms (CaseTree.packed atoms
+      (CaseTree.renamed (pending := .body) (next.opened (upTele σ (unpackTele atoms))).2
+        ((upTele (swapTeles Θ (unpackTele atoms) (pairsTele (a :: b :: rest))) (pairsTele fresh)).comp
+          (swapTeles (extendCtx Θ (pairsTele (a :: b :: rest))) (unpackTele atoms) (pairsTele fresh)))).2)⟩
 
 end
 
