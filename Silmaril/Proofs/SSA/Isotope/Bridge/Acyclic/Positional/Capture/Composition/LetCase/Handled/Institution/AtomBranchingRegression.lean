@@ -45,20 +45,20 @@ private abbrev laterIn : Slot armCtx tok := ⟨1, rfl⟩
 
 /-- Probe the earlier capture. Return the payload under the left tag and
 the earlier capture under the right tag. -/
-private def keep : CaseTree older [()] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inl (.bv 2)) : Term 2) :=
-  .ask Probe.probe (.atom earlier) (.ret .here payload) (.ret .here earlierIn)
+private def keep : CaseTree older [tok] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inl (.bv 2)) : Term 2) :=
+  .ask Probe.probe (.atom earlier) (.ret .here (.atom payload)) (.ret .here (.atom earlierIn))
 
 /-- The same request with the two arms exchanged. -/
-private def flip : CaseTree older [()] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 2)) (.inl (.bv 0)) : Term 2) :=
-  .ask Probe.probe (.atom earlier) (.ret .here earlierIn) (.ret .here payload)
+private def flip : CaseTree older [tok] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 2)) (.inl (.bv 0)) : Term 2) :=
+  .ask Probe.probe (.atom earlier) (.ret .here (.atom earlierIn)) (.ret .here (.atom payload))
 
 /-- The same request, returning the payload under both tags. -/
-private def both : CaseTree older [()] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inl (.bv 0)) : Term 2) :=
-  .ask Probe.probe (.atom earlier) (.ret .here payload) (.ret .here payload)
+private def both : CaseTree older [tok] (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inl (.bv 0)) : Term 2) :=
+  .ask Probe.probe (.atom earlier) (.ret .here (.atom payload)) (.ret .here (.atom payload))
 
 /-- The same arms after probing the later capture. -/
-private def other : CaseTree older [()] (.case (.op Probe.probe (.bv 0)) (.inl (.bv 0)) (.inl (.bv 2)) : Term 2) :=
-  .ask Probe.probe (.atom later) (.ret .here payload) (.ret .here earlierIn)
+private def other : CaseTree older [tok] (.case (.op Probe.probe (.bv 0)) (.inl (.bv 0)) (.inl (.bv 2)) : Term 2) :=
+  .ask Probe.probe (.atom later) (.ret .here (.atom payload)) (.ret .here (.atom earlierIn))
 
 /-- Two arms deep: the outer payload, the inner payload and both older
 captures are in scope. -/
@@ -66,32 +66,32 @@ private abbrev innerCtx : BoundCtx (Ty Unit) 4 := armCtx.snoc tok
 
 /-- Probe the earlier capture, then under the left tag probe the payload
 just received. The inner arms return the inner and the outer payload. -/
-private def chain : CaseTree older [()]
+private def chain : CaseTree older [tok]
     (.case (.op Probe.probe (.bv 1)) (.case (.op Probe.probe (.bv 0)) (.inl (.bv 0)) (.inl (.bv 1)))
       (.inl (.bv 0)) : Term 2) :=
   .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret (β := innerCtx) .here ⟨0, rfl⟩) (.ret (β := innerCtx) .here ⟨1, rfl⟩))
-    (.ret .here payload)
+    (.ask Probe.probe (.atom payload) (.ret (β := innerCtx) .here (.atom ⟨0, rfl⟩)) (.ret (β := innerCtx) .here (.atom ⟨1, rfl⟩)))
+    (.ret .here (.atom payload))
 
 /-- Probe the earlier capture and then the later one. -/
-private def earlierFirst : CaseTree older [()]
+private def earlierFirst : CaseTree older [tok]
     (.case (.op Probe.probe (.bv 1)) (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inl (.bv 1)))
       (.inl (.bv 0)) : Term 2) :=
   .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom laterIn) (.ret (β := innerCtx) .here ⟨0, rfl⟩) (.ret (β := innerCtx) .here ⟨1, rfl⟩))
-    (.ret .here payload)
+    (.ask Probe.probe (.atom laterIn) (.ret (β := innerCtx) .here (.atom ⟨0, rfl⟩)) (.ret (β := innerCtx) .here (.atom ⟨1, rfl⟩)))
+    (.ret .here (.atom payload))
 
 /-- Probe the later capture and then the earlier one. -/
-private def laterFirst : CaseTree older [()]
+private def laterFirst : CaseTree older [tok]
     (.case (.op Probe.probe (.bv 0)) (.case (.op Probe.probe (.bv 2)) (.inl (.bv 0)) (.inl (.bv 1)))
       (.inl (.bv 0)) : Term 2) :=
   .ask Probe.probe (.atom later)
-    (.ask Probe.probe (.atom earlierIn) (.ret (β := innerCtx) .here ⟨0, rfl⟩) (.ret (β := innerCtx) .here ⟨1, rfl⟩))
-    (.ret .here payload)
+    (.ask Probe.probe (.atom earlierIn) (.ret (β := innerCtx) .here (.atom ⟨0, rfl⟩)) (.ret (β := innerCtx) .here (.atom ⟨1, rfl⟩)))
+    (.ret .here (.atom payload))
 
 /-! ## Sentences between the graphs read back from the trees -/
 
-private abbrev sentence {t u : Term 2} (p : CaseTree older [()] t) (q : CaseTree older [()] u) :
+private abbrev sentence {t u : Term 2} (p : CaseTree older [tok] t) (q : CaseTree older [tok] u) :
     RankedEquation (atomSig Unit Probe) :=
   sentenceOf (entryOf p.graph) (entryOf q.graph)
 
@@ -133,7 +133,7 @@ example : ¬ (Silmaril.Isotope.Institution.Acyclic.Captured.rankedRoom (traceJ (
 The second graph is read back from the operand emitted by the first. Its
 emitted operand is natively equal to the same case tree. -/
 
-private def chainAgain : CheckedTable Probe older (exitTypes [()]) :=
+private def chainAgain : CheckedTable Probe older [tok] :=
   CheckedTable.ofLetCase (List.cons_ne_nil _ _) chain.graph.toLetCase.2
 
 private theorem again_branching : Branching (emitted (P := atomSig Unit Probe) (entryOf chainAgain)) :=
@@ -156,10 +156,10 @@ request, so their traces differ exactly because an arm differs at some
 payload token. -/
 example (ρ : Isotope.Semantics.BoundEnv (LetSeq.StraightLine.Structural.Value (α := Unit)) older) :
     LetCase.Structural.Reply.run keep.typing ρ = LetCase.Structural.Reply.run both.typing ρ ↔
-      (∀ x : Nat, LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [()]) .here payload).typing (ρ.snoc (A := tok) x) =
-        LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [()]) .here payload).typing (ρ.snoc (A := tok) x)) ∧
-      (∀ y : Nat, LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [()]) .here earlierIn).typing (ρ.snoc (A := tok) y) =
-        LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [()]) .here payload).typing (ρ.snoc (A := tok) y)) :=
-  ask_run_eq_iff Probe.probe (.atom earlier) (.ret .here payload) (.ret .here earlierIn) (.ret .here payload) (.ret .here payload) ρ
+      (∀ x : Nat, LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [tok]) .here (.atom payload)).typing (ρ.snoc (A := tok) x) =
+        LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [tok]) .here (.atom payload)).typing (ρ.snoc (A := tok) x)) ∧
+      (∀ y : Nat, LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [tok]) .here (.atom earlierIn)).typing (ρ.snoc (A := tok) y) =
+        LetCase.Structural.Reply.run (CaseTree.ret (Φ := Probe) (L := [tok]) .here (.atom payload)).typing (ρ.snoc (A := tok) y)) :=
+  ask_run_eq_iff Probe.probe (.atom earlier) (.ret .here (.atom payload)) (.ret .here (.atom earlierIn)) (.ret .here (.atom payload)) (.ret .here (.atom payload)) ρ
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Free.Tests
