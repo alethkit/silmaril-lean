@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Carriers
+public import Silmaril.Formats.Encoding.Carriers
 
 /-!
 # Unicode carrier maps

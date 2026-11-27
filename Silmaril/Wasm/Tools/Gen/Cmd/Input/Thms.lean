@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Tools.Gen.Cmd.Input.Defs
 public import Silmaril.Wasm.Perf.CoreDecode.Thms
 public import Silmaril.Wasm.Binary.Core.DecodeSound
-public import Silmaril.Encoding.TextExtras
+public import Silmaril.Formats.Encoding.TextExtras
 public import Silmaril.Wasm.Tools.Gen.Cmd.WatLex.Thms
 public import Silmaril.Wasm.Tools.Gen.Cmd.WatFast.Thms
 

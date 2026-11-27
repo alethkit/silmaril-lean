@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Unicode
+public import Silmaril.Formats.Encoding.Unicode
 
 /-!
 # Text and binary syntax: source together with its parse

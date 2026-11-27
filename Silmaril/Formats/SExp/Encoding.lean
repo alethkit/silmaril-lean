@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.TextExtras
+public import Silmaril.Formats.Encoding.TextExtras
 public import Silmaril.Formats.SExp.Parser
 
 /-!

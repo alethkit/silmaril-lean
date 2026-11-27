@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.All
+public import Silmaril.Formats.Encoding.All
 
 /-!
 # Extras for layered (text) encodings

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Base64Facts
+public import Silmaril.Formats.Encoding.Base64Facts
 
 /-!
 # Base64 carrier maps

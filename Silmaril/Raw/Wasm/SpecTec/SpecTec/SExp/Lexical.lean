@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.SExp.Printer
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.SExp.Escape
-public import Silmaril.Encoding.Lattice
+public import Silmaril.Formats.Encoding.Lattice
 
 /-!
 # The lexical convention of the `--ast` stream

@@ -3,7 +3,7 @@ module
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Sem.Value
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Sem.Env
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.IL.DecodeSound
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 
 /-!
 # A denotational semantics for SpecTec's internal language

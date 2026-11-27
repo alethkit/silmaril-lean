@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Category
+public import Silmaril.Formats.Encoding.Category
 public import Mathlib.CategoryTheory.FiberedCategory.HomLift
 public import Mathlib.CategoryTheory.FiberedCategory.Cartesian
 public import Mathlib.CategoryTheory.FiberedCategory.Cocartesian

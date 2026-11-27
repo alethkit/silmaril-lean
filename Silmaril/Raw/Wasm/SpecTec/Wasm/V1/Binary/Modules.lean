@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Raw.Wasm.SpecTec.Wasm.V1.Binary.Instructions
 public import Silmaril.Wasm.V1.Modules
-public import Silmaril.Encoding
+public import Silmaril.Formats.Encoding
 
 /-! # WebAssembly 1.0 binary format: modules
 

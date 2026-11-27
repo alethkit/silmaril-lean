@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 public import Silmaril.Formats.Dasl.Defs
 public import Mathlib.Data.List.OfFn
 

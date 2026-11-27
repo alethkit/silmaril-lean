@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Encoded
+public import Silmaril.Formats.Encoding.Encoded
 public import Silmaril.Formats.Bytes
 
 /-!

@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Sem.Type
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 
 /-!
 # The bridge: Silmaril's Lean ASTs inside SpecTec's value domain

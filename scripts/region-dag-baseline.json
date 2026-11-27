@@ -5,7 +5,6 @@
     "Apps",
     "Compile",
     "Data",
-    "Encoding",
     "Foundations",
     "ML",
     "Net",
@@ -326,12 +325,6 @@
       "Silmaril/Wasm/Auto2/VCSort/Defs.lean",
       "Wasm",
       "WasmSpec"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Calculi/LambdaCube/PER/Basic.lean",
-      "Calculi",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -2825,12 +2818,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Formats/ASN1/Der/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Formats/Arrow/ListInt32/Stream/Examples.lean",
       "Formats",
       "Data"
@@ -2846,24 +2833,6 @@
       "Silmaril/Formats/Arrow/MixedFlat/File/Events/Pull/Examples.lean",
       "Formats",
       "Data"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Category/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Cbor/Drisl/Cid/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Cbor/Drisl/Debug/Defs.lean",
-      "Formats",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -2885,12 +2854,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Formats/Dasl/Encode/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Formats/ELF/Cst/IsCst.lean",
       "Formats",
       "Data"
@@ -2898,6 +2861,12 @@
     [
       "undecl-dst",
       "Silmaril/Formats/ELF/Cst/IsCstCommand.lean",
+      "Formats",
+      "Data"
+    ],
+    [
+      "undecl-dst",
+      "Silmaril/Formats/Encoding.lean",
       "Formats",
       "Data"
     ],
@@ -2990,18 +2959,6 @@
       "Silmaril/Formats/Hive/WritePlan/Restore/Checks.lean",
       "Formats",
       "Data"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Json/Decode/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/PER/Defs.lean",
-      "Formats",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -3344,12 +3301,6 @@
       "Silmaril/Formats/Parquet/Snapshot/FlatInt32Snappy/Checks.lean",
       "Formats",
       "Data"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/SExp/Encoding.lean",
-      "Formats",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -5423,12 +5374,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Raw/Semantics/CPort/Encoding/TaggedCodec.lean",
-      "Semantics",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Raw/Semantics/CPort/Foundations/InfiniteTrace/Stutter.lean",
       "Semantics",
       "Foundations"
@@ -5813,60 +5758,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Grammar/Basic.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Grammar/Utf8.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/IL/Encoding.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/SExp/Escape.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/SExp/Lexical.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Bridge.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Eval.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Grammar.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/Wasm/V1/Binary/Modules.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Raw/Wasm/Versions/Lime1/ToCore/Execution.lean",
       "Wasm",
       "Foundations"
@@ -6095,12 +5986,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Wasm/Binary/Core/Modules.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Wasm/Binaryen/Exe/CompilerPass.lean",
       "Wasm",
       "Compile"
@@ -6254,18 +6139,6 @@
       "Silmaril/Wasm/SSA/Contract/Defs.lean",
       "Wasm",
       "Compile"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Wasm/Tools/Gen/Cmd/Input/Thms.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Wasm/Tools/Text/Thms.lean",
-      "Wasm",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -6569,12 +6442,6 @@
     ],
     [
       "undecl-src",
-      "Silmaril/Encoding/Carriers.lean",
-      "Encoding",
-      "Formats"
-    ],
-    [
-      "undecl-src",
       "Silmaril/ML/OCaml/Syntax/Defs.lean",
       "ML",
       "Prelude"
@@ -6691,7 +6558,7 @@
       "undecl-src",
       "Silmaril/Net/WebSocket/Handshake/Defs.lean",
       "Net",
-      "Encoding"
+      "Formats"
     ],
     [
       "undecl-src",

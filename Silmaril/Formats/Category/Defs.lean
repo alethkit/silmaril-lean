@@ -1,6 +1,6 @@
 module
 public import Silmaril.Formats.PER.Defs
-public import Silmaril.Encoding.Category
+public import Silmaril.Formats.Encoding.Category
 public import Mathlib.CategoryTheory.InducedCategory
 public import Mathlib.CategoryTheory.ObjectProperty.FullSubcategory
 public import Mathlib.CategoryTheory.Category.KleisliCat

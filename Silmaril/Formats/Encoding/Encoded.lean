@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Category
+public import Silmaril.Formats.Encoding.Category
 
 /-!
 # Encoded values: the graph of an encoding

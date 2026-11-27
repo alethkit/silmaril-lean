@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Unicode
+public import Silmaril.Formats.Encoding.Unicode
 
 /-!
 # ASCII

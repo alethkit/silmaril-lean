@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.PunycodeFacts
+public import Silmaril.Formats.Encoding.PunycodeFacts
 
 /-!
 # Punycode

@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Binary.Core.Instructions
 public import Silmaril.Wasm.Modules
-public import Silmaril.Encoding
+public import Silmaril.Formats.Encoding
 
 /-! # Core 3.0 binary format: modules
 

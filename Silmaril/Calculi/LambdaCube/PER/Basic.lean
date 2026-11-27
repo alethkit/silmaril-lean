@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Calculi.LambdaCube.PER.Combinatory
-public import Silmaril.Encoding.Per
+public import Silmaril.Formats.Encoding.Per
 
 @[expose] public section
 

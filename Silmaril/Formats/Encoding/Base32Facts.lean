@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.RadixFacts
+public import Silmaril.Formats.Encoding.RadixFacts
 
 /-!
 # Base32 alphabets and blocks
