@@ -61,8 +61,8 @@ model too.
 
 The tables are router tables of labelled rows and canonical silent rows,
 and mixed tables whose request rows are single requests. Request rows
-with nested requests are not treated here. Nothing is claimed for default
-Paper.
+with nested requests are treated in `Composite.Silent.Diverge.Nested`.
+Nothing is claimed for default Paper.
 -/
 
 public section

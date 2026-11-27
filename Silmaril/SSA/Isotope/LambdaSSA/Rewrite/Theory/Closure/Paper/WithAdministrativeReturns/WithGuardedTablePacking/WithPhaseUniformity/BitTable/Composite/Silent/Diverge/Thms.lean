@@ -71,13 +71,10 @@ on the way in.
 
 ## What remains
 
-Request rows with nested requests are not covered. Their normal form is a
-table of request trees with the silent row, and the construction of a
-router table from request trees (`TreeTable.exists_router`) does not
-state that it keeps silent rows, tidiness and sightedness. Entries at
-request-free rows are covered by the landings of `Composite.Silent`; the
-two descriptions of an entry are not compared with one another here. No
-completeness is claimed for default Paper.
+Request rows with nested requests and entries at request-free rows are
+not covered in this file. `Composite.Silent.Diverge.Nested` treats both,
+with one family of landings. No completeness is claimed for default
+Paper.
 -/
 
 public section
