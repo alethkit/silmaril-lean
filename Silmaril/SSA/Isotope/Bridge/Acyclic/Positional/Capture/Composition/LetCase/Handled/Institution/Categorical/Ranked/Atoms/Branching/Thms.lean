@@ -557,6 +557,29 @@ theorem swapStack_cons (stack : List (List α)) (Ω : BoundCtx (Ty α) k) (X : T
       (swapStack stack (Ω.snoc X) tel).comp (upTele (swapStack stack Ω [X]) tel) :=
   swapStack_cons_proof stack Ω X tel
 
+omit [TaggedSignature α Φ] in
+/-- Selecting a tuple commutes with renaming the slots of the stack. -/
+theorem Holds.select_rename {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+    (sel : Select stack atoms rest) (H : Holds Ω stack) (ρ : BoundCtx.Renaming Ω Ω') :
+    (H.rename ρ).select sel = (H.select sel).rename ρ :=
+  holds_select_rename_proof ρ sel H
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past the unpackings of a stack with a tuple selected, and
+then moving the selected unpacking to its place, is weakening past the
+unpackings of the stack. -/
+theorem selectRen_weaken {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+    (sel : Select stack atoms rest) (Ω : BoundCtx (Ty α) k) :
+    (weakenStack (atoms :: rest) Ω).comp (selectRen sel Ω) = weakenStack stack Ω :=
+  selectRen_weaken_proof sel Ω
+
+omit [TaggedSignature α Φ] in
+/-- Moving a selected unpacking to its place commutes with renaming. -/
+theorem selectRen_natural {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+    (sel : Select stack atoms rest) (π : BoundCtx.Renaming Ω Ω') :
+    (selectRen sel Ω).comp (upStack stack π) = (upStack (atoms :: rest) π).comp (selectRen sel Ω') :=
+  selectRen_natural_proof sel π
+
 end Stack
 
 /-! ## Renaming and binding under a pending tuple

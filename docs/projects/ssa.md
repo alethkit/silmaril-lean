@@ -1391,8 +1391,9 @@ The continuation cannot jump back to its own label.
   pushes the payload of its tag, and each arm continues its own chain.
   Unpacking a reply at once is destructuring it right away, and keeping
   it packed is asking further requests first, so a kept reply and a kept
-  arm payload are the same construction. Tuples are opened newest
-  first. No request can use a packed tuple of two or more atoms or its
+  arm payload are the same construction. In this entry tuples are
+  opened newest first; any order is covered in the next entry. No
+  request can use a packed tuple of two or more atoms or its
   components before they are destructured. The normal form unpacks
   every tuple right after the request or the case that binds it and
   keeps every request, with its argument, and every case in place: a
@@ -1410,9 +1411,9 @@ The continuation cannot jump back to its own label.
   validity and equality of ordered-exit arrows at the original exits
   follow as for the other spelled trees. The earlier regressions are
   restated in the one grammar and keep their normal forms, so it
-  specializes to one and two holds. Outside the class: opening a packed
-  tuple that is not the newest; a request whose reply is destructured or
-  cased on at the request itself while a tuple is packed; and a reply
+  specializes to one and two holds. Outside the class: a request whose
+  reply is destructured or cased on at the request itself while a tuple
+  is packed; and a reply
   with several tags kept as one slot, since its case would no longer
   directly follow its request. The regression packs three pairs at
   once, asks a request while all three are packed, opens the newest,
@@ -1429,6 +1430,45 @@ The continuation cannot jump back to its own label.
   [Chains over a stack](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Indexed interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [Three tuples packed at once](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomStackRegression.lean)
+- Packed tuples may be opened in any order. The grammar of the entry
+  above gets one constructor and no new family. A typed selection names
+  any tuple of the stack, with the atoms of the selected tuple and the
+  stack of the others; selecting moves that tuple to the top of the
+  stack and does not change the term. The pattern let of a chain then
+  opens the selected tuple while the newer and the older tuples stay
+  packed. The normal form is unchanged in shape: every tuple is unpacked
+  right after the request or the case that binds it, and every request,
+  with its argument, and every case stays in place. No effect is
+  reordered. The native step is a selection interchange for eager
+  unpacking: unpacking a stack with the selected tuple innermost is
+  natively equal to unpacking it in the order of the stack, with the
+  slots of the selected unpacking moved to their place. It is proved by
+  induction on the selection, exchanging the selected unpacking with the
+  unpacking of each newer tuple by the lemma for bindings that move
+  single pattern lets; no new native law is used. A permutation of the
+  stack is a sequence of selections. The renaming along a selection is
+  defined by recursion on the selection from the renaming of a telescope
+  past a telescope; it commutes with renaming of the context and with
+  weakening past the stack. Normal forms commute with renaming, and
+  ranked validity and equality of ordered-exit arrows at the original
+  exits follow as for the other spelled trees. Delayed inspection of a
+  reply with several tags stays outside the class: its case directly
+  follows its request. The regression packs three pairs, selects and
+  opens the oldest while the two newer pairs stay packed, asks a request
+  on one opened component and an older capture, then opens the newest
+  and the middle pair, and returns a component of each. The chain and
+  the eager spelling are valid together with the same ordered-exit
+  arrow. The other opened component or an older capture as the argument,
+  the other component of the newest or of the middle pair, a component
+  of the oldest pair in place of one of the middle pair, and the two
+  returned components exchanged are each told apart. A second tree opens
+  the three pairs oldest first, the reverse of their binding order, and
+  is one sentence with the first.
+  [Selections of a packed tuple](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Selection laws](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Selecting in a chain](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Selection interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [The oldest of three opened first](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSelectRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,

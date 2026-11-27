@@ -43,7 +43,11 @@ tuple. With several tags it is cased on right after its request,
 `let₁ (op g a) (case (bv 0) l r)`, each arm pushes the payload of its tag,
 and each arm continues its own chain, so the chain branches. Unpacking a
 reply or an arm payload at once is destructuring it right away, and keeping
-it packed is asking further requests first. Tuples are opened newest first.
+it packed is asking further requests first. The pattern let of a chain
+destructures the tuple at the top of the stack, and a selection brings any
+packed tuple to the top. A selection does not change the term: it names
+which tuple the next pattern let opens. So packed tuples are opened in any
+order, and the others stay packed.
 
 The dependencies are exact. Each request is assembled from the atom slots
 in scope. A packed tuple of two or more atoms is one slot of product type,
@@ -69,7 +73,11 @@ tuple they move its whole unpacking, and by induction on the stack they
 move the unpackings of every packed tuple, in front of any binding that
 moves single pattern lets (`stack_out`) and out of both arms of a case
 (`case_stack_out`). A request, the unpacking of a tuple and a single
-pattern let are such bindings.
+pattern let are such bindings. Opening a tuple that is not the newest uses
+the selection interchange (`select_out`): unpacking a stack with a selected
+tuple innermost is unpacking it in the order of the stack, with the slots
+of the selected unpacking moved to their place. It exchanges the selected
+unpacking with the unpacking of each newer tuple.
 
 The normal form of a chain is built under the unpackings of its stack. The
 binder permutations are renamings of a context under a stack, defined by
@@ -83,11 +91,10 @@ heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
 in order, as in the case trees, except that a pending tuple may be held
-and starts a chain over a stack as above. Outside it are: opening a packed
-tuple that is not the newest; a request whose reply is destructured or
-cased on at the request itself while a tuple is packed; a reply with
-several tags that is kept as one slot, so that its case does not directly
-follow its request; and arbitrary LetCase terms.
+and starts a chain over a stack as above. Outside it are: a request whose
+reply is destructured or cased on at the request itself while a tuple is
+packed; a reply with several tags that is kept as one slot, so that its
+case does not directly follow its request; and arbitrary LetCase terms.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -321,6 +328,26 @@ theorem case_stack_out {C : Ty α} (stack : List (List α)) {k : Nat} {Γ : Boun
       (unpackStack stack H (.case (.bv ((weakenStack stack Γ).toFun i))
         (l.rename (swapStack stack Γ [X]).toFun) (r.rename (swapStack stack Γ [Y]).toFun))) C :=
   case_stack_out_proof stack i hi H hl hr
+
+/-- The selection interchange for eager unpacking. Unpacking every tuple
+of a stack with a selected tuple unpacked innermost is natively equal to
+unpacking every tuple in the order of the stack:
+
+`unpack (selected :: others) u = unpack stack u′`
+
+where `u′` is `u` with the slots of the selected unpacking moved to their
+place, beneath the slots of the unpackings of the newer tuples. Any tuple
+of the stack may be selected. The unpacking of the selected tuple is
+exchanged with the unpacking of each newer tuple in turn, by `unpack_out`
+at the unpacking of that tuple. A permutation of the stack is a sequence
+of selections, so this gives every order of unpacking. -/
+theorem select_out {C : Ty α} {stack : List (List α)} {atoms : List α} {rest : List (List α)}
+    (sel : Select stack atoms rest) {k : Nat} {Ω : BoundCtx (Ty α) k} (H : Holds Ω stack)
+    {u : LetCase.LocallyNameless.Tm Empty Φ (stackSize k (atoms :: rest))}
+    (hu : HasType Φ Γ₀ (stackCtx (atoms :: rest) Ω) u C) :
+    Equiv false Γ₀ Ω (unpackStack (atoms :: rest) (H.select sel) u)
+      (unpackStack stack H (u.rename (selectRen sel Ω).toFun)) C :=
+  select_out_proof sel H hu
 
 end Commute
 
