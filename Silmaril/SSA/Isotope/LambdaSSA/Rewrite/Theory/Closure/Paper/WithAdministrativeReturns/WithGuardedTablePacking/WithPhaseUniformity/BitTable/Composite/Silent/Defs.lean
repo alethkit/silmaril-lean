@@ -271,6 +271,11 @@ def cutSil (sil : Fin (M + 1) → Option (Act M)) (cyc : Fin (M + 1) → Bool) (
   | true => none
   | false => sil y
 
+/-- A repeat into the closed silent set carries `false`. -/
+def dullAct (cyc : Fin (M + 1) → Bool) : Act M → Act M
+  | .ret b => .ret b
+  | .go y q => .go y (match cyc y with | true => false | false => q)
+
 /-- The landing of a resolved action: a repeat to a state of `cyc` is
 silent divergence. -/
 def Act.landing3 (cyc : Fin (M + 1) → Bool) (t : LTable M) : Act M → Landing M

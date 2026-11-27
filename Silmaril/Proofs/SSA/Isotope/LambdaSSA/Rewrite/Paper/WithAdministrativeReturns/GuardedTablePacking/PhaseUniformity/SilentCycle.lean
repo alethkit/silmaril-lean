@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.SilentTables
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithAdministrativeReturns.WithGuardedTablePacking.WithPhaseUniformity.BitTable.Composite.Silent.Diverge.Defs
 
 /-! # Silent cycles are the canonical silent self-loop -/
 
@@ -110,9 +111,10 @@ def dullBit (cyc : Fin (M + 1) → Bool) (c : Fin (M + 1) → Bool) (y : Fin (M 
   | true => false
   | false => c y
 
-def dullAct (cyc : Fin (M + 1) → Bool) : Act M → Act M
-  | .ret b => .ret b
-  | .go y q => .go y (match cyc y with | true => false | false => q)
+theorem dullBit_false {cyc c : Fin (M + 1) → Bool} {y : Fin (M + 1)} (h : cyc y = false) :
+    dullBit cyc c y = c y := by
+  unfold dullBit
+  rw [h]
 
 def dullProg (b : Bool) (p : Program) : Program :=
   match b with
@@ -337,5 +339,52 @@ theorem cycle_spin_eqv (x : Fin (M + 1)) (hx : cyc x = true) :
     ((q_const (c x) (t.entered_typed x)).trans (cycle_spin t c cyc nxt hact hcyc x hx))
 
 end Loop
+
+/-! ## The dulled table as a table of labelled rows and silent rows -/
+
+section Spun
+
+variable {M : Nat} (t : Router M) (cyc : Fin (M + 1) → Bool) (nxt : Fin (M + 1) → Fin (M + 1))
+  (label : Fin (M + 1) → Option Bool) (act : Fin (M + 1) → Bool → Bool → Act M)
+
+/-- At a labelled row, the dulled table is the table of labelled rows and
+canonical silent rows. A bisimulation: the rows of `cyc` are related to
+silent rows. -/
+theorem dulled_spin
+    (hlab : ∀ y l, label y = some l → cyc y = false ∧ t.prog y = (labelPoll l).program)
+    (htgt : ∀ y l, label y = some l → ∀ a b z q, t.act y a b = .go z q →
+      (∃ l', label z = some l') ∨ cyc z = true)
+    (hnone : ∀ y, cyc y = true → label y = none ∧ cyc (nxt y) = true)
+    (hact : ∀ y l, label y = some l → ∀ a b, act y a b = dullAct cyc (t.act y a b))
+    (x : Fin (M + 1)) {l : Bool} (hx : label x = some l) :
+    Eqv false [State] ((dulled t cyc nxt).entered x) ((Router.ofSpin label act).entered x) [Bit] :=
+  router_bisimulation_eqv (dulled t cyc nxt) (Router.ofSpin label act)
+    (fun j j' => (j = j' ∧ ∃ l, label j = some l) ∨ (cyc j = true ∧ cyc j' = true))
+    ⟨fun j j' r => by
+        show dullProg (cyc j) (t.prog j) = lsProg (label j')
+        rcases r with ⟨e, l', hl⟩ | ⟨cj, cj'⟩
+        · subst e
+          rw [(hlab j l' hl).1, hl]
+          exact (hlab j l' hl).2
+        · rw [cj, (hnone j' cj').1]
+          rfl,
+      fun j j' r a b => by
+        show Act.Rel _ (dullRow cyc (cyc j) (nxt j) (t.act j) a b) (lsAct (label j') j' (act j') a b)
+        rcases r with ⟨e, l', hl⟩ | ⟨cj, cj'⟩
+        · subst e
+          rw [(hlab j l' hl).1, hl]
+          show Act.Rel _ (dullAct cyc (t.act j a b)) (act j a b)
+          rw [hact j l' hl a b]
+          cases h : t.act j a b with
+          | ret c => exact rfl
+          | go z q =>
+            refine ⟨rfl, ?_⟩
+            rcases htgt j l' hl a b z q h with ⟨l'', hz⟩ | cz
+            · exact .inl ⟨rfl, l'', hz⟩
+            · exact .inr ⟨cz, cz⟩
+        · rw [cj, (hnone j' cj').1]
+          exact ⟨rfl, .inr ⟨(hnone j cj).2, cj'⟩⟩⟩ x x (.inl ⟨rfl, l, hx⟩)
+
+end Spun
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithAdministrativeReturns.GuardedTablePacking.PhaseUniformity.Tables
