@@ -39,11 +39,14 @@ the rest is pending again: it is unpacked, or held across a further chain.
 The normal form unpacks the whole tuple first. The dependencies are exact.
 Each request is assembled from the atom slots in scope. The held tuple is
 one slot of product type, not an atom slot, so no request of the chain can
-use it or its components. The reply of each request has one tag with any
-tuple of atoms. It is bound and unpacked in order,
+use it or its components. The reply of each request is bound. A reply
+with one tag is any tuple of atoms and is unpacked in order,
 `let₁ (op g a) (let₂ (bv 0) …)`, and the chain continues under the
-unpacking. So a later request of the chain may use the atoms of the
-replies of earlier ones, while the held tuple is still one slot, and any
+unpacking. A reply with several tags is cased on right after its request,
+`let₁ (op g a) (case (bv 0) l r)`, and each arm unpacks its tuple and
+continues its own chain, ending in its own destructuring of the held
+tuple. So a later request may use the atoms of the replies of earlier
+ones on its branch, while the held tuple is still one slot, and any
 request may use the older atom slots. A request of a further chain may
 also use the atoms already unpacked. The body may use every atom of the
 tuple, the atoms of the replies of the chains and the older slots.
@@ -59,18 +62,28 @@ bound and unpacked, for a reply of any number of atoms:
 `let₁ E (unpack (let₂ x B)) = let₂ x (let₁ E↑↑ (unpack B′))`. The equations
 are applied by induction on the chain, on the unpacking of each reply and
 on the unpacking of the held tuple; no length is fixed. Each request
-occurs once in the normal form, in the same order. No case is moved
-across a request.
+occurs once in the normal form, in the same order.
 
-Moving a request under the unpacking of the rest of the tuple acts on the
-normal form of the rest of the chain, which is a pending case tree. The
-reply of the request and the slots of its unpacking form a telescope. The
-bodies under the unpacking of the held tuple are renamed so that the
-telescope is newest, by the renaming action on case trees, and the request
-and the unpacking of its reply are bound in front. The binder permutations
-are composed from one renaming that moves a slot bound after a telescope
-beneath it. Normal forms commute with renaming, so the normal form of a
-spelled tree in a larger context is the renamed normal form.
+At a reply with several tags the destructuring of the held tuple is in
+every arm. A third derived equation moves it out of both arms of a case on
+a slot: `case s (let₂ x L) (let₂ x R) = let₂ x (case s L′ R′)`. It follows
+from the fact that a term over a pair slot is the destructuring of the slot
+around the term at the pair of components, `K[x] = let₂ x (K[(a, b)])`,
+from case congruence on the same scrutinee, and from the pattern let on a
+pair of slots in each arm. Only the pure destructuring moves. The case
+keeps its scrutinee, which is the reply slot, and still directly follows
+its request, so no case is moved across a request.
+
+The normal form of a chain is built under the full unpacking of the held
+tuple. There the slots of the chain are placed beneath the atoms of the
+tuple and the slots of its unpacking, each request is asked in order, and
+each reply is unpacked or cased on. The binder permutations are composed
+from one renaming that moves a slot bound after a telescope beneath it.
+The native equation moves the whole unpacking of the held tuple in front
+of each request, of the unpacking of each reply and of each case, by
+induction on the held tuple. Normal forms commute with renaming, so the
+normal form of a spelled tree in a larger context is the renamed normal
+form.
 
 The covered syntax is exact. A request is followed by one of the three
 heads. After a pair head the first atom is a slot and the rest of the
@@ -78,9 +91,10 @@ tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
 in order, as in the case trees, except that a pending tuple of two or more
 atoms may be held across a chain of requests as above, and the reply of a
-chain request is bound and unpacked at once. A chain request with a
-multi-tag reply, a chain request whose reply is destructured at the
-request or held, a case inside the chain, holding pending tags, other
+chain request is bound and then unpacked or cased on at once. A chain
+request whose reply is destructured or cased on at the request itself, a
+reply or an arm payload that is held inside the chain, a case that is not
+on the reply of the request before it, holding pending tags, other
 placements of a destructuring, and arbitrary LetCase terms are outside it.
 
 A direct case tree is the spelled tree of a binary signature, with two
@@ -187,6 +201,90 @@ theorem let_unpack_pair_comm (atoms : List α) {k : Nat} {Δ : BoundCtx (Ty α) 
       (.let₂ (.bv j) (.let₁ (E.rename (pastPair Δ A B).toFun)
         (unpackAt atoms 0 (body.rename (pairPastTele Δ (unpackTele atoms) A B).toFun)))) C :=
   let_unpack_pair_comm_proof atoms j hj hE hBody
+
+/-- A term over a pair slot is natively equal to destructuring the slot
+and using the pair of components in its place:
+
+`K[x] = let₂ x (K[(a, b)])`
+
+for a slot `x` of pair type. `K` may be any typed term, with requests and
+cases. It is derived from pure-let beta at the slot, pair eta, the
+sequencing law that pulls a pattern let out of the scrutinee of a let, and
+pure-let beta at the pair of components. The equations that move a pattern
+let on a pair slot are instances of it. -/
+theorem slot_pair_split {m : Nat} {Δ : BoundCtx (Ty α) m} {A B C : Ty α} (j : Fin m)
+    (hj : Δ.get j = .product A B) {K : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+    (hK : HasType Φ Γ₀ (Δ.snoc (.product A B)) K C) :
+    Equiv false Γ₀ Δ (LetCase.LocallyNameless.Tm.instantiate K (.bv j))
+      (.let₂ (.bv j) (LetCase.LocallyNameless.Tm.instantiate K.underBinder.underBinder (.pair (.bv 1) (.bv 0)))) C :=
+  slot_pair_split_proof j hj hK
+
+/-- A case on a slot whose two arms destructure the same older pair slot
+is natively equal to destructuring the pair slot first:
+
+`case s (let₂ x L) (let₂ x R) = let₂ x (case s L′ R′)`
+
+where `s` is a slot of sum type, `x` a slot of pair type, and `L′`, `R′`
+are the arms with the two components moved beneath the payload of the arm.
+The case keeps its scrutinee and its place. Only the pure destructuring
+moves, so no case is moved across a request. It follows from the equation
+above, case congruence on the same scrutinee, and the pattern let on a pair
+of slots in each arm. -/
+theorem case_pair_comm {m : Nat} {Δ : BoundCtx (Ty α) m} {A B X Y C : Ty α} (i j : Fin m)
+    (hi : Δ.get i = .coprod X Y) (hj : Δ.get j = .product A B)
+    {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 3)}
+    (hl : HasType Φ Γ₀ (((Δ.snoc X).snoc A).snoc B) l C)
+    (hr : HasType Φ Γ₀ (((Δ.snoc Y).snoc A).snoc B) r C) :
+    Equiv false Γ₀ Δ (.case (.bv i) (.let₂ (.bv j.succ) l) (.let₂ (.bv j.succ) r))
+      (.let₂ (.bv j) (.case (.bv i.succ.succ) (l.rename afterPair) (r.rename afterPair))) C :=
+  case_pair_comm_proof i j hi hj hl hr
+
+/-- The whole unpacking of an older tuple slot moves in front of an action
+on terms that moves single pattern lets. The tuple has any number of
+atoms. -/
+theorem unpack_out {C : Ty α} {m : Nat} {Ω : BoundCtx (Ty α) m} {tel : List (Ty α)}
+    {term : ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k}, BoundCtx.Renaming Ω Ω' →
+      LetCase.LocallyNameless.Tm Empty Φ (teleSize k tel) → LetCase.LocallyNameless.Tm Empty Φ k}
+    (frame : PairFrame C Ω tel term) (H : List α) {k : Nat} {Ω' : BoundCtx (Ty α) k}
+    (ω : BoundCtx.Renaming Ω Ω') (j : Fin k) (hj : Ω'.get j = tupleTy H)
+    {u : LetCase.LocallyNameless.Tm Empty Φ (teleSize (teleSize k tel) (pairsTele H))}
+    (hu : HasType Φ Γ₀ (extendCtx (extendCtx Ω' tel) (pairsTele H)) u C) :
+    Equiv false Γ₀ Ω' (term ω (unpackAt H ((weakenTele Ω' tel).toFun j) u))
+      (unpackAt H j (term (ω.comp (weakenTele Ω' (pairsTele H)))
+        (u.rename (swapTeles Ω' tel (pairsTele H)).toFun))) C :=
+  unpack_out_proof frame H ω j hj hu
+
+/-- The whole unpacking of an older tuple slot, done in both arms of a
+case on a slot, moves in front of the case:
+
+`case s (unpack x L) (unpack x R) = unpack x (case s L′ R′)`
+
+The case keeps its scrutinee. One exchange of the case with a pattern let
+is used for each pattern let of the unpacking. -/
+theorem case_unpack_out {C : Ty α} (H : List α) {k : Nat} {Γ : BoundCtx (Ty α) k} (i j : Fin k)
+    {X Y : Ty α} (hi : Γ.get i = .coprod X Y) (hj : Γ.get j = tupleTy H)
+    {l r : LetCase.LocallyNameless.Tm Empty Φ (teleSize (k + 1) (pairsTele H))}
+    (hl : HasType Φ Γ₀ (extendCtx (Γ.snoc X) (pairsTele H)) l C)
+    (hr : HasType Φ Γ₀ (extendCtx (Γ.snoc Y) (pairsTele H)) r C) :
+    Equiv false Γ₀ Γ (.case (.bv i) (unpackAt H j.succ l) (unpackAt H j.succ r))
+      (unpackAt H j (.case (.bv ((weakenTele Γ (pairsTele H)).toFun i))
+        (l.rename (swapTeles Γ [X] (pairsTele H)).toFun)
+        (r.rename (swapTeles Γ [Y] (pairsTele H)).toFun))) C :=
+  case_unpack_out_proof H i j hi hj hl hr
+
+/-- Binding by a term is an action on terms that moves a pattern let on an
+older pair slot to its front. -/
+theorem let_frame {C : Ty α} {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
+    (E : LetCase.LocallyNameless.Tm Empty Φ m) (hE : HasType Φ Γ₀ Ω E X) :
+    PairFrame C Ω [X] (fun ω u => .let₁ (E.rename ω.toFun) u) :=
+  let_frame_proof E hE
+
+/-- Unpacking a tuple slot is an action on terms that moves a pattern let
+on an older pair slot to its front. -/
+theorem unpack_frame {C : Ty α} (atoms : List α) {m : Nat} {Ω : BoundCtx (Ty α) m} (i : Fin m)
+    (h : Ω.get i = tupleTy atoms) :
+    PairFrame (Φ := Φ) C Ω (pairsTele atoms) (fun ω u => unpackAt atoms (ω.toFun i) u) :=
+  unpack_frame_proof atoms i h
 
 end Commute
 
@@ -299,14 +397,45 @@ theorem spelledTuple_normal_renamed {atoms : List α} {t : LetCase.LocallyNamele
       d.normal (ρ.comp π) :=
   d.normal_renamed ρ π
 
-/-- The same for a chain with a held tuple. Its normal form is the pending
-rest of the tuple over the first atom, and the first atom stays in place. -/
-theorem spelledDelay_normal_renamed {a b : α} {rest : List α} {s : Slot β (tupleTy (a :: b :: rest))}
+/-- The term of the normal form of a pending tuple is the unpacking around
+the term of its body. -/
+theorem spelledTuple_normal_term {atoms : List α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (d : SpelledTuple atoms β L t) {m : Nat} {γ : BoundCtx (Ty α) m} (ρ : BoundCtx.Renaming β γ) :
+    (d.normal ρ).1 = unpackAt atoms 0 (d.opened ρ).1 :=
+  SpelledTuple.normal_term d ρ
+
+/-- The body of the normal form of a chain with a held tuple commutes with
+renaming. The body is under the full unpacking of the tuple, and the atoms
+of the tuple and the slots of its unpacking stay in place. -/
+theorem spelledDelay_opened_renamed {a b : α} {rest : List α} {s : Slot β (tupleTy (a :: b :: rest))}
     (d : SpelledDelay a b rest β s L t) {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k}
     (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
-    CaseTree.renamed (pending := .tuple (b :: rest)) (β := (γ.snoc (.base a)).snoc (tupleTy (b :: rest)))
-      (d.normal ρ).2 (π.up (.base a)) = d.normal (ρ.comp π) :=
-  d.normal_renamed ρ π
+    CaseTree.renamed (pending := .body) (d.opened ρ).2 (upTele π (pairsTele (a :: b :: rest))) =
+      d.opened (ρ.comp π) :=
+  d.opened_renamed ρ π
+
+/-- The same for the bound reply of a request of the chain, with one tag
+or several. -/
+theorem spelledDelayTags_opened_renamed {a b : α} {rest : List α} {tags : List (List α)}
+    {s : Slot β (tupleTy (a :: b :: rest))} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (d : SpelledDelayTags a b rest tags β s L t) {m k : Nat} {γ : BoundCtx (Ty α) m}
+    {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .tags tags)
+      (β := (extendCtx γ (pairsTele (a :: b :: rest))).snoc (tagsTy tags))
+      (d.opened ρ).2 (upTele π (pairsTele (a :: b :: rest))) = d.opened (ρ.comp π) :=
+  d.opened_renamed ρ π
+
+/-- A chain with a held tuple, renamed, is natively equal to unpacking the
+whole tuple first and then running the body of its normal form. The chain
+may ask requests with one-tag replies of any tuple and requests with
+several tags, each followed directly by the case on its reply. -/
+theorem spelledDelay_rename_equiv_opened {a b : α} {rest : List α}
+    {s : Slot β (tupleTy (a :: b :: rest))} (d : SpelledDelay a b rest β s L t) {m : Nat}
+    {γ : BoundCtx (Ty α) m} (ρ : BoundCtx.Renaming β γ) :
+    Equiv false Γ₀ γ (t.rename ρ.toFun)
+      (.let₂ (.bv (ρ.toFun s.1)) (unpackAt (b :: rest) 0 (d.opened ρ).1)) (packedExitType L) :=
+  (delay_comm d ρ).trans (Equiv.let₂ (.refl (slot_typed (ρ.toFun s.1) ((ρ.typed s.1).trans s.2)))
+    (d.opened_flat ρ))
 
 /-- An operand natively equal to a spelled tree is a branching operand: it
 is natively equal to the normal form. -/
