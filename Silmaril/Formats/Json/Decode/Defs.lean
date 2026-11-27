@@ -1,6 +1,6 @@
 module
 public import Silmaril.Formats.Json.Tree.Defs
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 public import Lean.Data.Json.Basic
 
 /-! A format carried by standard JSON has two distinct parsing stages: RFC

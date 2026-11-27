@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Per
+public import Silmaril.Formats.Encoding.Per
 public import Mathlib.CategoryTheory.Category.Cat
 public import Mathlib.CategoryTheory.Category.Preorder
 public import Mathlib.CategoryTheory.Widesubcategory

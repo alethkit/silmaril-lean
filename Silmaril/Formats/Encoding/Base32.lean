@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Encoding.Base32Facts
-public import Silmaril.Encoding.Carriers
+public import Silmaril.Formats.Encoding.Base32Facts
+public import Silmaril.Formats.Encoding.Carriers
 
 /-!
 # Base32 carrier maps

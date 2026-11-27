@@ -3,7 +3,7 @@ module
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.IL.DecodeSound
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.IL.DecodeComplete
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.SExp.LexicalPrinter
-public import Silmaril.Encoding.Lattice
+public import Silmaril.Formats.Encoding.Lattice
 
 /-!
 # The `--ast` stream as an encoding relation

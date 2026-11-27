@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Formats.Cbor.Drisl.Ast.Defs
-public import Silmaril.Encoding.Base64
+public import Silmaril.Formats.Encoding.Base64
 
 @[expose] public section
 

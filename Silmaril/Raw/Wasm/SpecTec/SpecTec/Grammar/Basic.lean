@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Lattice
+public import Silmaril.Formats.Encoding.Lattice
 public import Silmaril.Wasm.Binary.Basic
 
 /-!

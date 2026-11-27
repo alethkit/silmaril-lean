@@ -2,7 +2,6 @@
   "schema_version": 1,
   "declared_cycles": [],
   "undeclared_dirs": [
-    "Encoding",
     "RiscV",
     "X86"
   ],
@@ -603,12 +602,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Calculi/LambdaCube/PER/Basic.lean",
-      "Calculi",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Compiler/Decompile/WordC/Defs.lean",
       "Compiler",
       "X86"
@@ -1101,54 +1094,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Formats/ASN1/Der/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Category/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Cbor/Drisl/Cid/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Cbor/Drisl/Debug/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Dasl/Encode/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/Json/Decode/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/PER/Defs.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Formats/SExp/Encoding.lean",
-      "Formats",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Libc/AllocElf/Defs.lean",
       "Libc",
       "X86"
@@ -1530,12 +1475,6 @@
       "Silmaril/Machine/X86/Sse9/Defs.lean",
       "Machine",
       "X86"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Net/WebSocket/Handshake/Defs.lean",
-      "Net",
-      "Encoding"
     ],
     [
       "undecl-dst",
@@ -2553,66 +2492,6 @@
     ],
     [
       "undecl-dst",
-      "Silmaril/Raw/Semantics/CPort/Encoding/TaggedCodec.lean",
-      "Semantics",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Grammar/Basic.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Grammar/Utf8.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/IL/Encoding.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/SExp/Escape.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/SExp/Lexical.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Bridge.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Eval.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/SpecTec/Sem/Grammar.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Raw/Wasm/SpecTec/Wasm/V1/Binary/Modules.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
       "Silmaril/Sim/GlibcBridge/Bytes/Defs.lean",
       "Sim",
       "X86"
@@ -2658,30 +2537,6 @@
       "Silmaril/Sim/X86/Max/Defs.lean",
       "Sim",
       "X86"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Wasm/Binary/Core/Modules.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Wasm/Tools/Gen/Cmd/Input/Thms.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-dst",
-      "Silmaril/Wasm/Tools/Text/Thms.lean",
-      "Wasm",
-      "Encoding"
-    ],
-    [
-      "undecl-src",
-      "Silmaril/Encoding/Carriers.lean",
-      "Encoding",
-      "Formats"
     ],
     [
       "undecl-src",

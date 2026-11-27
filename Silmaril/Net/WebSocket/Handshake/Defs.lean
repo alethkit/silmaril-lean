@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Net.Http1.Fields.Defs
 public import Silmaril.Crypto.SHA1.Defs
-public import Silmaril.Encoding.Base64
+public import Silmaril.Formats.Encoding.Base64
 
 @[expose] public section
 

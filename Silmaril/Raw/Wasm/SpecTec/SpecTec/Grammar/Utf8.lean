@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Grammar.Basic
-public import Silmaril.Encoding.Unicode
+public import Silmaril.Formats.Encoding.Unicode
 
 /-!
 # UTF-8 as an instance of the byte attribute-grammar framework

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 public import Silmaril.Formats.ASN1.Digits.Defs
 public import Silmaril.Formats.ASN1.Value.Defs
 

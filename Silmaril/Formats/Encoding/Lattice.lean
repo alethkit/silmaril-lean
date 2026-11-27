@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Encoding.Relation
+public import Silmaril.Formats.Encoding.Relation
 public import Mathlib.Order.CompleteLattice.Basic
 public import Mathlib.Order.GaloisConnection.Basic
 public import Mathlib.Order.Hom.CompleteLattice

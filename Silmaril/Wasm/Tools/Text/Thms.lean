@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Tools.Text.Defs
 public import Silmaril.Wasm.Binaryen.Exe.EncodeSound
 public import Silmaril.Wasm.Binaryen.Toolkit.DisassembleSound
-public import Silmaril.Encoding.TextExtras
+public import Silmaril.Formats.Encoding.TextExtras
 public import Silmaril.Wasm.Tools.Names.Thms
 public import Silmaril.Wasm.Tools.Layout.Thms
 public import Silmaril.Wasm.Tools.Print.Thms

@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Formats.SExp.Tagged
-public import Silmaril.Encoding.Codec
+public import Silmaril.Formats.Encoding.Codec
 public import Std.Data.String.ToInt
 public import Std.Data.String.ToNat
 public meta import Lean.Elab.Term

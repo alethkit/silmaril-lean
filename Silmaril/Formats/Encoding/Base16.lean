@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Encoding.RadixFacts
-public import Silmaril.Encoding.Carriers
+public import Silmaril.Formats.Encoding.RadixFacts
+public import Silmaril.Formats.Encoding.Carriers
 
 /-!
 # Base16 carrier maps

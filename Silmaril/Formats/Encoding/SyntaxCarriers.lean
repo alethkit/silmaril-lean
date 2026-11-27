@@ -1,7 +1,7 @@
 module
 
-public import Silmaril.Encoding.Syntax
-public import Silmaril.Encoding.Unicode
+public import Silmaril.Formats.Encoding.Syntax
+public import Silmaril.Formats.Encoding.Unicode
 
 /-!
 # Text/binary syntax: other carriers and generic constructors

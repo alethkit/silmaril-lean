@@ -1,6 +1,6 @@
 module
 public import Silmaril.Formats.Binary.Defs
-public import Silmaril.Encoding.Per
+public import Silmaril.Formats.Encoding.Per
 public import Mathlib.Data.List.Forall2
 
 /-! Partial equivalences describe valid representations modulo semantic equality.

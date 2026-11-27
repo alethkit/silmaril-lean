@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Grammar.Basic
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Sem.Eval
-public import Silmaril.Encoding.Unicode
+public import Silmaril.Formats.Encoding.Unicode
 public import Silmaril.Raw.Wasm.SpecTec.SpecTec.Specs
 -- `import all` is what lets the kernel see the *values* of the constants
 -- `spectec_import` added, which is what `findGram_bbyte_wasm30` and
