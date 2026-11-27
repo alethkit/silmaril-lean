@@ -44,7 +44,10 @@ symbolically to the result and requirements.
 
 Named built-ins have explicit positional signatures. Their ceilings and
 weights follow the pinned SANY table, with the additional structural checks
-above. For every signature-only operator in the reachable graph, the caller
+above. For flexible quantifiers, the pinned SANY table sets a temporal
+ceiling on the operand and a fixed temporal result. The non-action condition
+and the bound variable level follow the explicit rule in §17.2. For every
+signature-only operator in the reachable graph, the caller
 must supply an `ExternalSignature` keyed by its exact `BindingId`. It specifies
 a result floor, a maximum for each argument, and whether each argument
 contributes to the maximum. The checker validates the identity and arity of
