@@ -29,12 +29,11 @@ the original loop (`iterate_padStep`).
 of `B`, in the interleaved layout that starts with a `B` state. The
 padding is one `A` state in front.
 
-## Not proved
+## Other fibres
 
-Arbitrary nonempty fibres. Each further case needs its own `U`, `u`, `s`
-and `ψ`. For fibres whose sizes differ by more than one, or another
-layout of the state sum, `ψ` is a permutation of a nested exact sum that
-is not constructed here.
+This file supplies the data for one layout only. `Composite/Completion/Thms.lean`
+builds `U`, `u`, `s` and `ψ` for every surjective finite tag map into at
+least two classes.
 -/
 
 public section
