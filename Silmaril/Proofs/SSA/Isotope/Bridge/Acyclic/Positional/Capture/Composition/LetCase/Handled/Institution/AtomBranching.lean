@@ -58,25 +58,76 @@ private theorem arg_inj {A : Ty α} {ρ : BoundEnv Value β} {used : Set Nat} (s
     cases q with
     | pair x y => exact congrArg₂ Assembly.pair (iha (Prod.mk.inj h).1) (ihb (Prod.mk.inj h).2)
 
-private theorem run_ret {a : α} (s : Slot β (.base a)) (ρ : BoundEnv Value β) :
-    run (CaseTree.ret (Φ := Φ) s).typing ρ = pure (Sum.inl (s.value ρ)) := by
-  have h := run_slot (Φ := Φ) s ρ
-  unfold run at h
-  simp only [run, CaseTree.typing, Derivation.denote, h, pure_bind]
-  rfl
+private theorem run_exit {L : List α} {a : α} (exit : ExitAt L a) {t : LetCase.LocallyNameless.Tm Empty Φ n}
+    (d : Derivation Φ Γ₀ β t (.base a)) (ρ : BoundEnv Value β) (x : Nat) (h : run d ρ = pure x) :
+    run (exit.typing d) ρ = pure (exit.value x) := by
+  induction exit with
+  | here =>
+    unfold run at h
+    simp only [run, ExitAt.typing, Derivation.denote, h, pure_bind]
+    rfl
+  | there later ih =>
+    have inner := ih d h
+    unfold run at inner
+    simp only [run, ExitAt.typing, Derivation.denote, inner, pure_bind]
+    rfl
+
+private theorem run_ret {L : List α} {a : α} (exit : ExitAt L a) (s : Slot β (.base a)) (ρ : BoundEnv Value β) :
+    run (CaseTree.ret (Φ := Φ) exit s).typing ρ = pure (exit.value (s.value ρ)) :=
+  run_exit exit (slotTyping s) ρ (s.value ρ) (run_slot s ρ)
+
+omit [TaggedSignature α Φ] in
+/-- The value returned at an exit fixes the exit position, its sort and
+the token. Two exits of the same sort are told apart. -/
+private theorem exit_value_inj {L : List α} {a b : α} (e : ExitAt L a) (e' : ExitAt L b) (x y : Nat)
+    (h : e.value x = e'.value y) :
+    a = b ∧ x = y ∧ ∀ t : LetCase.LocallyNameless.Tm Empty Φ n, e.term t = e'.term t := by
+  induction e with
+  | here =>
+    cases e' with
+    | here => exact ⟨rfl, Sum.inl.inj h, fun _ => rfl⟩
+    | there later => cases h
+  | there later ih =>
+    cases e' with
+    | here => cases h
+    | there later' =>
+      obtain ⟨sort, token, terms⟩ := ih later' (Sum.inr.inj h)
+      exact ⟨sort, token, fun t => congrArg LetCase.LocallyNameless.Tm.inr (terms t)⟩
+
+omit [TaggedSignature α Φ] in
+/-- The value returned at an exit fixes the sort, the token and the
+position of the exit among the ordered exits. -/
+theorem exit_value_index_proof {L : List α} {a b : α} (e : ExitAt L a) (e' : ExitAt L b) (x y : Nat)
+    (h : e.value x = e'.value y) : a = b ∧ x = y ∧ e.index = e'.index := by
+  induction e with
+  | here =>
+    cases e' with
+    | here => exact ⟨rfl, Sum.inl.inj h, rfl⟩
+    | there later => cases h
+  | there later ih =>
+    cases e' with
+    | here => cases h
+    | there later' =>
+      obtain ⟨sort, token, position⟩ := ih later' (Sum.inr.inj h)
+      exact ⟨sort, token, congrArg Nat.succ position⟩
+
+/-- A leaf returns the token of its slot at its exit. -/
+theorem run_ret_proof {L : List α} {a : α} (exit : ExitAt L a) (s : Slot β (.base a)) (ρ : BoundEnv Value β) :
+    run (CaseTree.ret (Φ := Φ) exit s).typing ρ = pure (exit.value (s.value ρ)) :=
+  run_ret exit s ρ
 
 /-- The continuation of a request node on a tagged reply. -/
-private def arms {a : α} (f : Φ) {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r) (ρ : BoundEnv Value β) :
-    Value (instrTrg (τ := Ty α) f) → Trace α Φ (Value (packedExitType [.base a]))
+private def arms {L : List α} (f : Φ) {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
+    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
+    Value (instrTrg (τ := Ty α) f) → Trace α Φ (Value (packedExitType (exitTypes L)))
   | .inl x => run left.typing (ρ.snoc x)
   | .inr y => run right.typing (ρ.snoc y)
 
-private theorem run_ask {a : α} (f : Φ) (argument : Assembly β (instrSrc f))
+private theorem run_ask {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r) (ρ : BoundEnv Value β) :
+    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
+    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
     run (CaseTree.ask f argument left right).typing ρ =
       (model (α := α)).eval f (argument.value ρ) >>= arms f left right ρ := by
   have h := run_arg (Φ := Φ) argument ρ
@@ -148,7 +199,7 @@ theorem separable_atoms_proof {β : BoundCtx (Ty α) n} (atoms : AtomContext β)
     obtain ⟨ρ, k, sep⟩ := ih
     exact ⟨ρ.snoc (A := Ty.base a) (k : Nat), k + 1, separates_fresh sep a⟩
 
-private theorem tree_nonempty {a : α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree β a t) :
+private theorem tree_nonempty {L : List α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree β L t) :
     ∀ ρ : BoundEnv Value β, (run tree.typing ρ).outcomes.Nonempty := by
   induction tree with
   | ret s =>
@@ -161,12 +212,12 @@ private theorem tree_nonempty {a : α} {t : LetCase.LocallyNameless.Tm Empty Φ 
     obtain ⟨⟨z, w⟩, h⟩ := ihl (ρ.snoc (A := Ty.base (TaggedSignature.left f)) (0 : Nat))
     exact ⟨(z, _), mem_ask.mpr ⟨.inl (0 : Nat), w, h, rfl⟩⟩
 
-private theorem arms_eq_iff {a : α} (f : Φ) (argument : Assembly β (instrSrc f))
+private theorem arms_eq_iff {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r)
-    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l')
-    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r') (ρ : BoundEnv Value β) :
+    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
+    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
+    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l')
+    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r') (ρ : BoundEnv Value β) :
     ((model (α := α)).eval f (argument.value ρ) >>= arms f left right ρ) =
         ((model (α := α)).eval f (argument.value ρ) >>= arms f left' right' ρ) ↔
       (∀ x : Nat, run left.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x) =
@@ -193,12 +244,12 @@ private theorem arms_eq_iff {a : α} (f : Φ) (argument : Assembly β (instrSrc 
 
 /-- At a request node with the same primitive and argument, the runs agree
 exactly when the arms agree at every payload token. -/
-theorem ask_run_eq_iff_proof {a : α} (f : Φ) (argument : Assembly β (instrSrc f))
+theorem ask_run_eq_iff_proof {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l)
-    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r)
-    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) a l')
-    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) a r') (ρ : BoundEnv Value β) :
+    (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
+    (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
+    (left' : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l')
+    (right' : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r') (ρ : BoundEnv Value β) :
     run (CaseTree.ask f argument left right).typing ρ = run (CaseTree.ask f argument left' right').typing ρ ↔
       (∀ x : Nat, run left.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x) =
         run left'.typing (ρ.snoc (A := Ty.base (TaggedSignature.left f)) x)) ∧
@@ -210,32 +261,33 @@ theorem ask_run_eq_iff_proof {a : α} (f : Φ) (argument : Assembly β (instrSrc
 /-- Two case trees with the same run at an environment that separates the
 atom slots are the same term. A request node allocates the next token as
 the payload of both tags. -/
-theorem caseTree_eq_of_run_proof {a : α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree β a t) :
-    ∀ {u : LetCase.LocallyNameless.Tm Empty Φ n} (q : CaseTree β a u) (ρ : BoundEnv Value β) (k : Nat),
+theorem caseTree_eq_of_run_proof {L : List α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree β L t) :
+    ∀ {u : LetCase.LocallyNameless.Tm Empty Φ n} (q : CaseTree β L u) (ρ : BoundEnv Value β) (k : Nat),
       Separates ρ (Set.Iio k) → run p.typing ρ = run q.typing ρ → t = u := by
   induction p with
-  | @ret _ β a s =>
+  | @ret _ β L a exit s =>
     intro u q ρ k sep h
-    have mem : ((Sum.inl (s.value ρ) : Value (packedExitType [.base a])), (1 : Log α Φ)) ∈
-        Finite.outcomes (pure (Sum.inl (s.value ρ))) := rfl
+    have mem : (exit.value (s.value ρ), (1 : Log α Φ)) ∈
+        Finite.outcomes (pure (exit.value (s.value ρ))) := rfl
     rw [← run_ret (Φ := Φ), h] at mem
     cases q with
-    | ret s' =>
+    | ret exit' s' =>
       rw [run_ret] at mem
-      have same : ((Sum.inl (s.value ρ) : Value (packedExitType [.base a])), (1 : Log α Φ)) =
-          (Sum.inl (s'.value ρ), 1) := mem
-      cases sep.injective a (Sum.inl.inj (Prod.mk.inj same).1)
-      rfl
+      have same : (exit.value (s.value ρ), (1 : Log α Φ)) = (exit'.value (s'.value ρ), 1) := mem
+      obtain ⟨sort, token, terms⟩ := exit_value_inj (Φ := Φ) exit exit' _ _ (Prod.mk.inj same).1
+      subst sort
+      cases sep.injective _ token
+      exact terms _
     | ask g b left right =>
       rw [run_ask] at mem
       obtain ⟨reply, tail, -, log⟩ := mem_ask.mp mem
       exact (log_cons_ne_one _ _ log).elim
-  | @ask _ β a f argument l r left right ihl ihr =>
+  | @ask _ β L f argument l r left right ihl ihr =>
     intro u q ρ k sep h
     cases q with
-    | ret s' =>
-      have mem : ((Sum.inl (s'.value ρ) : Value (packedExitType [.base a])), (1 : Log α Φ)) ∈
-          Finite.outcomes (pure (Sum.inl (s'.value ρ))) := rfl
+    | ret exit' s' =>
+      have mem : (exit'.value (s'.value ρ), (1 : Log α Φ)) ∈
+          Finite.outcomes (pure (exit'.value (s'.value ρ))) := rfl
       rw [← run_ret (Φ := Φ), ← h, run_ask] at mem
       obtain ⟨reply, tail, -, log⟩ := mem_ask.mp mem
       exact (log_cons_ne_one _ _ log).elim
@@ -261,10 +313,10 @@ theorem caseTree_eq_of_run_proof {a : α} {t : LetCase.LocallyNameless.Tm Empty 
 
 /-- The ordered trace interpretation with atoms reflects native equality
 of branching operands over a separable bound context. -/
-theorem branching_reflects_proof {a : α} (x y : Operand Φ β (packedExitType [.base a]))
+theorem branching_reflects_proof {L : List α} (x y : Operand Φ β (packedExitType (exitTypes L)))
     (hx : Branching x) (hy : Branching y) (separable : Separable β)
     (same : traceArrow x.2 = traceArrow y.2) :
-    Equiv false Γ₀ β x.1 y.1 (packedExitType [.base a]) := by
+    Equiv false Γ₀ β x.1 y.1 (packedExitType (exitTypes L)) := by
   obtain ⟨t, p, et⟩ := hx
   obtain ⟨u, q, eu⟩ := hy
   obtain ⟨ρ, k, sep⟩ := separable

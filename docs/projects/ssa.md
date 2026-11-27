@@ -1009,8 +1009,8 @@ The continuation cannot jump back to its own label.
   unit and ordered products and replies with one atom under one of two
   tags. A case tree asks a primitive with an argument assembled from the
   atom slots in scope and cases on the reply. Each arm binds the payload
-  atom and keeps the older slots. A leaf returns one atom slot at the
-  single exit. At an environment that gives distinct tokens to the atom
+  atom and keeps the older slots. A leaf returns one atom slot at an
+  exit. At an environment that gives distinct tokens to the atom
   slots, two case trees with the same ordered traces are the same term:
   the first logged event fixes the primitive and argument, and the runs
   of both arms at every payload token are contained in the run of the
@@ -1021,14 +1021,32 @@ The continuation cannot jump back to its own label.
   On graphs read back from two case trees that is equality of the trees.
   The ordered trace model with atoms is now defined for every signature
   typed over atoms. Sequencing without a case, cases on other
-  scrutinees, payloads that are not atoms and more than one exit are
-  outside the class. The regression tells apart exchanged arms, the atom
+  scrutinees and payloads that are not atoms are outside the class. The
+  one-exit regression tells apart exchanged arms, the atom
   returned under one tag, the older capture used as the request
   argument, the order of two requests, and a payload used as the next
   request argument.
   [Tagged signatures and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
   [Separation and completeness](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
   [Branches, returned atoms and request order](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomBranchingRegression.lean)
+- The case trees have ordered exits. The exits are a list of atom sorts,
+  and a leaf returns one atom slot at one exit of the same sort. Two
+  exits may have the same sort. The value a leaf returns is a token under
+  the injections of its exit position, so it fixes the position, the sort
+  and the token; the token fixes the slot. The separation of case trees
+  and the completeness theorem above hold at any such exit list. The
+  ranked sentence is at the original ordered exits of the two entries,
+  and at the ordered trace model with atoms the ordered-exit arrows of
+  two read-back graphs are equal exactly when the trees are the same. No
+  repacking or reindexing of exits is involved. The exits are atoms;
+  exits of other types are outside the class. With two exits of one atom
+  sort, the regression tells apart the same capture at a different exit,
+  the same payload at a different exit under one tag, and in a nested arm
+  the same fresh reply atom at a different exit and a different atom at
+  the same exit.
+  [Exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Exit reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Two exits of one sort](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomExitRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
