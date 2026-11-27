@@ -977,6 +977,33 @@ The continuation cannot jump back to its own label.
   [Marked signatures](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Defs.lean) ·
   [Functor and comparison](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/TypeChange/Marked/Thms.lean) ·
   [Composable effect and type changes](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/MarkedSupportedRegression.lean)
+- Completeness in the ranked room is extended to signatures with atoms,
+  for one class of sentences. The signatures are the structural ones whose
+  primitive argument and reply types are built from atoms, unit and
+  ordered products. The ordered trace interpretation whose atoms are
+  natural numbers has coherent region witnesses and is a supported model
+  of the ranked room. It reflects native equality of operands that are
+  natively equal to a straight-line term returned at the single exit,
+  over one packed product slot. A ranked sentence between such entries is
+  valid in all supported models exactly when its emitted operands are
+  natively equal, and that one model decides it. Operands with a case on
+  a reply, more than one exit, or an older context beside the packed slot
+  are outside the class; for them the same reflection is a named
+  hypothesis. Translations are treated separately. Native equality and
+  validity both move forward along every signature map. Into a complete
+  target, a translation reflects native equality of a sentence exactly
+  when it reflects validity and the source is complete for that sentence.
+  Neither reflection follows from forward transport. In the regression
+  two captured atoms are told apart, a request observes their order, and
+  a graph and its readback are valid together. Sending the atom to the
+  unit type makes the translated sentence between the two captures valid
+  while the original is not, so that translation reflects neither
+  validity nor native equality. Sending it to the two-tag sum reflects on
+  that sentence, and the pullback of the target's trace model rejects it.
+  [Atom-bearing definitions](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Defs.lean) ·
+  [Completeness and the reflection criterion](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Thms.lean) ·
+  [Region coherence with atoms](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Coherence/Thms.lean) ·
+  [Captured atoms and two translations](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomTraceRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
