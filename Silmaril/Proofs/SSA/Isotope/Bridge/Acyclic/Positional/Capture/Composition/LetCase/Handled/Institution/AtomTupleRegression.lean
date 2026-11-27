@@ -90,14 +90,16 @@ private def chainWith (joined : Slot afterPing tok) (first second : Slot leafCtx
               (.let₂ (.bv 0) (.inl (.pair (.bv first.1) (.bv second.1))))))) : Term 2) :=
   .ask Op.trio (.atom earlier)
     (.bind (.only [(), (), ()]
-      (.hold () () [()]
-        (.ask Op.ping (.atom laterUnder)
-          (.only [()]
-            (.ask Op.join (.pair (.atom joined) (.atom earlierAfterPing))
-              (.only [()]
-                (.unpack
-                  (.pair () () []
-                    (.atom () (.ret pairExit (.pair (.atom first) (.atom second)))))))))))))
+      (.hold [(), (), ()]
+        (.ask Op.ping
+          (.atom laterUnder)
+          (.bind [()]
+            (.atom
+              (.ask Op.join
+                (.pair (.atom joined) (.atom earlierAfterPing))
+                (.bind [()]
+                  (.atom
+                    (.step (.step (.atom (.done (.ret pairExit (.pair (.atom first) (.atom second))))))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and a chosen
 returned pair. The triple is unpacked completely before the two requests. -/
@@ -227,19 +229,25 @@ private def again : Spelled older exits
               (.let₂ (.bv 1) (.inl (.pair (.bv 1) (.bv 2)))))))) : Term 2) :=
   .ask Op.trio (.atom earlier)
     (.bind (.only [(), (), ()]
-      (.hold () () [()]
-        (.ask Op.ping (.atom laterUnder)
-          (.only [()]
-            (.ask Op.join (.pair (.atom firstReply) (.atom earlierAfterPing))
-              (.only [()]
-                (.unpack
-                  (.hold () () []
-                    (.ask Op.ping (.atom firstAtom)
-                      (.only [()]
-                        (.unpack
-                          (.atom ()
-                            (.ret pairExit
-                              (.pair (.atom (β := againLeaf) ⟨1, rfl⟩) (.atom ⟨2, rfl⟩))))))))))))))))
+      (.hold [(), (), ()]
+        (.ask Op.ping
+          (.atom laterUnder)
+          (.bind [()]
+            (.atom
+              (.ask Op.join
+                (.pair (.atom firstReply) (.atom earlierAfterPing))
+                (.bind [()]
+                  (.atom
+                    (.step
+                      (.ask Op.ping
+                        (.atom firstAtom)
+                        (.bind [()]
+                          (.atom
+                            (.step
+                              (.atom
+                                (.done
+                                  (.ret pairExit
+                                    (.pair (.atom (β := againLeaf) ⟨1, rfl⟩) (.atom ⟨2, rfl⟩)))))))))))))))))))
 
 /-- The triple is unpacked completely before the three requests. The
 third request still takes the first atom of the triple. -/

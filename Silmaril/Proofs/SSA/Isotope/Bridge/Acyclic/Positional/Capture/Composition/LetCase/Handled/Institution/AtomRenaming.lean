@@ -382,7 +382,126 @@ theorem swapTeles_weakenTele_proof : (H : List (Ty α)) → {k : Nat} → (Ω : 
           (swapTeles (Ω.snoc X) tel H))) sw
     exact step1.trans (step2.trans (congrArg (fun r => BoundCtx.Renaming.comp (BoundCtx.Renaming.succ Ω X) r) ih))
 
+/-- Moving a telescope beneath the empty telescope is the identity. -/
+theorem swapTeles_nil_proof : (H : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    swapTeles Ω [] H = .id _
+  | [], _, _ => rfl
+  | X :: H, _, Ω =>
+    congrArg₂ (fun x y => BoundCtx.Renaming.comp x y) (upTele_id_proof H (Ω.snoc X))
+      (swapTeles_nil_proof H (Ω.snoc X))
+
+/-- Weakening past a telescope over another telescope, and then exchanging
+the two, is weakening past the first under the second. -/
+theorem swapTeles_weaken_up_proof : (tel : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    (H : List (Ty α)) →
+    (weakenTele (extendCtx Ω tel) H).comp (swapTeles Ω tel H) = upTele (weakenTele Ω H) tel
+  | [], _, Ω, H => congrArg (fun r => (weakenTele Ω H).comp r) (swapTeles_nil_proof H Ω)
+  | X :: tel, _, Ω, H =>
+    (congrArg (fun r => (weakenTele (extendCtx (Ω.snoc X) tel) H).comp r) (swapTeles_cons_proof H Ω X tel)).trans
+      ((congrArg (fun r => BoundCtx.Renaming.comp r (upTele (swapTeles Ω [X] H) tel))
+        (swapTeles_weaken_up_proof tel (Ω.snoc X) H)).trans
+        ((upTele_comp_proof tel _ _).trans
+          (congrArg (fun r => upTele r tel) (swapTeles_weaken_proof H Ω X))))
+
+/-- Moving two slots beneath two slots is the exchange of two pairs. -/
+theorem pairPastTele_pair_proof {k : Nat} (Ω : BoundCtx (Ty α) k) (C D A B : Ty α) :
+    pairPastTele Ω [C, D] A B = afterPairPairRenaming Ω C D A B :=
+  renaming_ext_proof (Fin.cases rfl (fun i => Fin.cases rfl (fun i => Fin.cases rfl
+    (fun i => Fin.cases rfl (fun _ => rfl) i) i) i))
+
 end Tele
+
+/-! ## Stacks of packed tuples -/
+
+section Stack
+
+omit [TaggedSignature α Φ]
+
+/-- Renaming the slots of a stack twice is renaming along the composite. -/
+theorem holds_rename_comp_proof {m k j : Nat} {Δ : BoundCtx (Ty α) m} {Θ : BoundCtx (Ty α) k}
+    {Ξ : BoundCtx (Ty α) j} (ρ : BoundCtx.Renaming Δ Θ) (π : BoundCtx.Renaming Θ Ξ) :
+    {stack : List (List α)} → (H : Holds Δ stack) → (H.rename ρ).rename π = H.rename (ρ.comp π)
+  | _, .nil => rfl
+  | _, .cons top older => congrArg (Holds.cons ((top.rename ρ).rename π)) (holds_rename_comp_proof ρ π older)
+
+/-- Weakening past the unpackings of a stack commutes with renaming. -/
+theorem weakenStack_natural_proof : (stack : List (List α)) → {k j : Nat} → {Ω : BoundCtx (Ty α) k} →
+    {Ω' : BoundCtx (Ty α) j} → (π : BoundCtx.Renaming Ω Ω') →
+    (weakenStack stack Ω).comp (upStack stack π) = π.comp (weakenStack stack Ω')
+  | [], _, _, _, _, _ => rfl
+  | atoms :: stack, _, _, Ω, Ω', π =>
+    (congrArg (fun r => (weakenStack stack Ω).comp r)
+      (weakenTele_natural_proof (pairsTele atoms) (upStack stack π))).trans
+      (congrArg (fun r => BoundCtx.Renaming.comp r (weakenTele (stackCtx stack Ω') (pairsTele atoms)))
+        (weakenStack_natural_proof stack π))
+
+/-- Moving a telescope beneath the unpackings of a stack commutes with
+renaming. -/
+theorem swapStack_natural_proof : (stack : List (List α)) → {k j : Nat} → {Ω : BoundCtx (Ty α) k} →
+    {Ω' : BoundCtx (Ty α) j} → (tel : List (Ty α)) → (π : BoundCtx.Renaming Ω Ω') →
+    (swapStack stack Ω tel).comp (upTele (upStack stack π) tel) =
+      (upStack stack (upTele π tel)).comp (swapStack stack Ω' tel)
+  | [], _, _, _, _, _, _ => rfl
+  | atoms :: stack, _, _, Ω, Ω', tel, π =>
+    (congrArg (fun r => (upTele (swapStack stack Ω tel) (pairsTele atoms)).comp r)
+      (swapTeles_natural_proof (pairsTele atoms) tel (upStack stack π))).trans
+      (congrArg (fun r => BoundCtx.Renaming.comp r (swapTeles (stackCtx stack Ω') tel (pairsTele atoms)))
+        ((upTele_comp_proof (pairsTele atoms) (swapStack stack Ω tel) (upTele (upStack stack π) tel)).trans
+          ((congrArg (fun r => upTele r (pairsTele atoms)) (swapStack_natural_proof stack tel π)).trans
+            (upTele_comp_proof (pairsTele atoms) (upStack stack (upTele π tel))
+              (swapStack stack Ω' tel)).symm)))
+
+/-- Weakening past the unpackings of a stack over a telescope, and then
+moving the telescope beneath them, is weakening past them under the
+telescope. -/
+theorem swapStack_weaken_proof : (stack : List (List α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    (tel : List (Ty α)) →
+    (weakenStack stack (extendCtx Ω tel)).comp (swapStack stack Ω tel) = upTele (weakenStack stack Ω) tel
+  | [], _, Ω, tel => (upTele_id_proof tel Ω).symm
+  | atoms :: stack, _, Ω, tel =>
+    (congrArg (fun r => (weakenStack stack (extendCtx Ω tel)).comp
+        (BoundCtx.Renaming.comp r (swapTeles (stackCtx stack Ω) tel (pairsTele atoms))))
+      (weakenTele_natural_proof (pairsTele atoms) (swapStack stack Ω tel))).trans
+      ((congrArg (fun r => ((weakenStack stack (extendCtx Ω tel)).comp (swapStack stack Ω tel)).comp r)
+        (swapTeles_weaken_up_proof tel (stackCtx stack Ω) (pairsTele atoms))).trans
+        ((congrArg (fun r => BoundCtx.Renaming.comp r (upTele (weakenTele (stackCtx stack Ω) (pairsTele atoms)) tel))
+          (swapStack_weaken_proof stack Ω tel)).trans
+          (upTele_comp_proof tel (weakenStack stack Ω) (weakenTele (stackCtx stack Ω) (pairsTele atoms)))))
+
+/-- Weakening past a telescope and then past the unpackings of a stack,
+and then moving the telescope beneath them, is weakening in the other
+order. -/
+theorem swapStack_weakenTele_proof (stack : List (List α)) {k : Nat} (Ω : BoundCtx (Ty α) k)
+    (tel : List (Ty α)) :
+    ((weakenTele Ω tel).comp (weakenStack stack (extendCtx Ω tel))).comp (swapStack stack Ω tel) =
+      (weakenStack stack Ω).comp (weakenTele (stackCtx stack Ω) tel) :=
+  (congrArg (fun r => (weakenTele Ω tel).comp r) (swapStack_weaken_proof stack Ω tel)).trans
+    (weakenTele_natural_proof tel (weakenStack stack Ω))
+
+/-- Moving a telescope with one more oldest slot beneath the unpackings of
+a stack: move the rest, then that slot. -/
+theorem swapStack_cons_proof : (stack : List (List α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) → (X : Ty α) →
+    (tel : List (Ty α)) →
+    swapStack stack Ω (X :: tel) =
+      (swapStack stack (Ω.snoc X) tel).comp (upTele (swapStack stack Ω [X]) tel)
+  | [], _, Ω, X, tel =>
+    (congrArg (fun r => (BoundCtx.Renaming.id (extendCtx (Ω.snoc X) tel)).comp r)
+      (upTele_id_proof tel (Ω.snoc X))).symm
+  | atoms :: stack, _, Ω, X, tel =>
+    (congrArg₂ (fun x y => BoundCtx.Renaming.comp x y)
+      ((congrArg (fun r => upTele r (pairsTele atoms)) (swapStack_cons_proof stack Ω X tel)).trans
+        (upTele_comp_proof (pairsTele atoms) (swapStack stack (Ω.snoc X) tel)
+          (upTele (swapStack stack Ω [X]) tel)).symm)
+      (swapTeles_cons_proof (pairsTele atoms) (stackCtx stack Ω) X tel)).trans
+      ((congrArg (fun r => (upTele (swapStack stack (Ω.snoc X) tel) (pairsTele atoms)).comp
+          (BoundCtx.Renaming.comp r (upTele (swapTeles (stackCtx stack Ω) [X] (pairsTele atoms)) tel)))
+        (swapTeles_natural_proof (pairsTele atoms) tel (swapStack stack Ω [X])).symm).trans
+        (congrArg (fun r => ((upTele (swapStack stack (Ω.snoc X) tel) (pairsTele atoms)).comp
+            (swapTeles (stackCtx stack (Ω.snoc X)) tel (pairsTele atoms))).comp r)
+          (upTele_comp_proof tel (upTele (swapStack stack Ω [X]) (pairsTele atoms))
+            (swapTeles (stackCtx stack Ω) [X] (pairsTele atoms)))))
+
+end Stack
 
 /-! ## Unpacking a tuple slot -/
 

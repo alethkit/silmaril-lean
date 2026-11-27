@@ -90,12 +90,16 @@ private def chainWith (joined : Slot afterDuo tok) (first second : Slot leafCtx 
               (.let₂ (.bv 4) (.inl (.pair (.bv first.1) (.bv second.1))))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.hold () () []
-        (.ask Op.duo (.atom laterUnder)
-          (.only [(), ()]
-            (.ask Op.join (.pair (.atom joined) (.atom earlierAfterDuo))
-              (.only [()]
-                (.unpack (.atom () (.ret pairExit (.pair (.atom first) (.atom second))))))))))))
+      (.hold [(), ()]
+        (.ask Op.duo
+          (.atom laterUnder)
+          (.bind [(), ()]
+            (.step
+              (.atom
+                (.ask Op.join
+                  (.pair (.atom joined) (.atom earlierAfterDuo))
+                  (.bind [()]
+                    (.atom (.step (.atom (.done (.ret pairExit (.pair (.atom first) (.atom second))))))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and a chosen
 returned pair. The held pair is destructured before the two requests, and
@@ -124,7 +128,7 @@ example : Spelled older exits
 /-- Its normal form. The three requests each occur once, in the same
 order. `join` still takes the first atom of the reply of `duo` and the
 earlier capture. -/
-example : (chain.normal (.id older)).1 = normalWith 1 5 0 := rfl
+private theorem chain_normal : (chain.normal (.id older)).1 = normalWith 1 5 0 := rfl
 
 /-- The native equation between the spelling and its normal form. -/
 example : Equiv false Γ₀ older
@@ -197,7 +201,7 @@ two requests. It is the normal form of the held chain. -/
 private def eager : Spelled older exits (normalWith 1 5 0) :=
   .ask Op.both (.atom earlier) (.bind (.only [(), ()] (.pair () () [] (.atom () eagerDuo))))
 
-example : (eager.normal (.id older)).1 = normalWith 1 5 0 := rfl
+private theorem eager_normal : (eager.normal (.id older)).1 = normalWith 1 5 0 := rfl
 
 /-! ## A held triple across a request with a triple reply
 
@@ -229,16 +233,23 @@ private def triples : Spelled older exits
                 (.let₂ (.bv 0) (.inl (.pair (.bv 1) (.bv 4))))))))) : Term 2) :=
   .ask Op.trio (.atom earlier)
     (.bind (.only [(), (), ()]
-      (.hold () () [()]
-        (.ask Op.trio (.atom (β := underTriple) ⟨1, rfl⟩)
-          (.only [(), (), ()]
-            (.ask Op.join (.pair (.atom (β := afterTrio) ⟨1, rfl⟩) (.atom ⟨7, rfl⟩))
-              (.only [()]
-                (.unpack
-                  (.pair () () []
-                    (.atom ()
-                      (.ret pairExit
-                        (.pair (.atom (β := tripleLeaf) ⟨1, rfl⟩) (.atom ⟨4, rfl⟩)))))))))))))
+      (.hold [(), (), ()]
+        (.ask Op.trio
+          (.atom (β := underTriple) ⟨1, rfl⟩)
+          (.bind [(), (), ()]
+            (.step
+              (.step
+                (.atom
+                  (.ask Op.join
+                    (.pair (.atom (β := afterTrio) ⟨1, rfl⟩) (.atom ⟨7, rfl⟩))
+                    (.bind [()]
+                      (.atom
+                        (.step
+                          (.step
+                            (.atom
+                              (.done
+                                (.ret pairExit
+                                  (.pair (.atom (β := tripleLeaf) ⟨1, rfl⟩) (.atom ⟨4, rfl⟩))))))))))))))))))
 
 /-- The held triple is unpacked completely first, then the second `trio`
 is asked and its reply unpacked, then `join`. -/
@@ -262,13 +273,13 @@ example : (sentence chain eager).1.exits = [pairTy, tok] := rfl
 
 /-- The held chain and the eager spelling are one sentence. -/
 private theorem chain_eager : RankedValid false (sentence chain eager) :=
-  (rankedValid_spelledTree_iff separable chain eager).mpr rfl
+  (rankedValid_spelledTree_iff separable chain eager).mpr (chain_normal.trans eager_normal.symm)
 
 /-- They have the same ordered-exit arrow at the ordered trace model with
 atoms. -/
 example : denoteRanked (traceJ (α := Unit) (Φ := Op)) (atomTraceModel Unit Op) (entryOf chain.graph) =
     denoteRanked (traceJ (α := Unit) (Φ := Op)) (atomTraceModel Unit Op) (entryOf eager.graph) :=
-  (denoteRanked_spelledTree_iff separable chain eager).mpr rfl
+  (denoteRanked_spelledTree_iff separable chain eager).mpr (chain_normal.trans eager_normal.symm)
 
 /-- Which atom of the compound reply the later request takes. -/
 private theorem fresh_apart : ¬ RankedValid false (sentence chain otherFresh) := fun valid => by

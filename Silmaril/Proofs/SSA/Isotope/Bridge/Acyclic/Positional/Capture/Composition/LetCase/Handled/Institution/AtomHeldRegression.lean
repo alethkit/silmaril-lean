@@ -79,9 +79,11 @@ private def heldWith (first second : Slot heldCtx tok) : Spelled older exits
         (.let₂ (.bv 1) (.inl (.pair (.bv first.1) (.bv second.1))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.hold () () []
-        (.ask Op.ping (.atom laterUnder)
-          (.only [()] (.unpack (.atom () (.ret pairExit (.pair (.atom first) (.atom second))))))))))
+      (.hold [(), ()]
+        (.ask Op.ping
+          (.atom laterUnder)
+          (.bind [()]
+            (.atom (.step (.atom (.done (.ret pairExit (.pair (.atom first) (.atom second))))))))))))
 
 /-- The normal form with a chosen returned pair. The pair is destructured
 before `ping`. -/
@@ -211,9 +213,11 @@ private def armHeld : Spelled older exits
       (.inr (.inl (.bv 0))) : Term 2) :=
   .ask Op.fetch (.pair (.atom earlier) (.atom later))
     (.branch [(), ()] [()] []
-      (.hold () () []
-        (.ask Op.ping (.atom earlierUnder)
-          (.only [()] (.unpack (.atom () (.ret pairExit (.pair (.atom compB) (.atom replyC))))))))
+      (.hold [(), ()]
+        (.ask Op.ping
+          (.atom earlierUnder)
+          (.bind [()]
+            (.atom (.step (.atom (.done (.ret pairExit (.pair (.atom compB) (.atom replyC))))))))))
       (.only [()] (.atom () (.ret (β := (older.snoc tok)) atomExit (.atom ⟨0, rfl⟩)))))
 
 /-- Its normal form binds the reply of `fetch`, cases on it, and

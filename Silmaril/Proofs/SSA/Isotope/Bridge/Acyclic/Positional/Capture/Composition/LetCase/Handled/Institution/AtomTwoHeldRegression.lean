@@ -100,15 +100,21 @@ private def chainWith (joined : Slot freshOpen tok) (first second : Slot leafCtx
                 (.let₂ (.bv 5) (.inl (.pair (.bv first.1) (.bv second.1)))))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.hold () () []
-        (.ask Op.duo (.atom laterUnder)
-          (.keep () () []
-            (.ask Op.ping (.atom earlierPacked)
-              (.only [()]
-                (.release
-                  (.ask Op.join (.pair (.atom joined) (.atom earlierOpen))
-                    (.only [()]
-                      (.unpack (.atom () (.ret pairExit (.pair (.atom first) (.atom second)))))))))))))))
+      (.hold [(), ()]
+        (.ask Op.duo
+          (.atom laterUnder)
+          (.bind [(), ()]
+            (.ask Op.ping
+              (.atom earlierPacked)
+              (.bind [()]
+                (.atom
+                  (.step
+                    (.atom
+                      (.ask Op.join
+                        (.pair (.atom joined) (.atom earlierOpen))
+                        (.bind [()]
+                          (.atom
+                            (.step (.atom (.done (.ret pairExit (.pair (.atom first) (.atom second)))))))))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and a chosen
 returned pair. The pair of `both` is destructured before the chain and the
@@ -241,14 +247,22 @@ private def tripleKept : Spelled older exits
               (.let₂ (.bv 6) (.inl (.pair (.bv 0) (.bv 3)))))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.hold () () []
-        (.ask Op.trio (.atom laterUnder)
-          (.keep () () [()]
-            (.ask Op.ping (.atom (β := triplePacked) ⟨3, rfl⟩)
-              (.only [()]
-                (.release
-                  (.unpack (.atom ()
-                    (.ret pairExit (.pair (.atom (β := tripleLeaf) ⟨0, rfl⟩) (.atom ⟨3, rfl⟩)))))))))))))
+      (.hold [(), ()]
+        (.ask Op.trio
+          (.atom laterUnder)
+          (.bind [(), (), ()]
+            (.ask Op.ping
+              (.atom (β := triplePacked) ⟨3, rfl⟩)
+              (.bind [()]
+                (.atom
+                  (.step
+                    (.step
+                      (.atom
+                        (.step
+                          (.atom
+                            (.done
+                              (.ret pairExit
+                                (.pair (.atom (β := tripleLeaf) ⟨0, rfl⟩) (.atom ⟨3, rfl⟩)))))))))))))))))
 
 /-- The pair is destructured before the chain and the triple right after
 `trio`. -/

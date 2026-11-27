@@ -481,7 +481,83 @@ theorem CaseTree.packed_renamed (atoms : List α)
       ⟨_, CaseTree.packed atoms (CaseTree.renamed (pending := .body) r (upTele ω (unpackTele atoms))).2⟩ :=
   packed_renamed_proof atoms r ω
 
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope beneath the empty telescope is the identity. -/
+theorem swapTeles_nil (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) : swapTeles Ω [] H = .id _ :=
+  swapTeles_nil_proof H Ω
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope over another telescope, and then exchanging
+the two, is weakening past the first under the second. -/
+theorem swapTeles_weaken_up (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (H : List (Ty α)) :
+    (weakenTele (extendCtx Ω tel) H).comp (swapTeles Ω tel H) = upTele (weakenTele Ω H) tel :=
+  swapTeles_weaken_up_proof tel Ω H
+
+omit [TaggedSignature α Φ] in
+/-- Moving two slots beneath two slots is the exchange of two pairs. -/
+theorem pairPastTele_pair (Ω : BoundCtx (Ty α) k) (C D A B : Ty α) :
+    pairPastTele Ω [C, D] A B = afterPairPairRenaming Ω C D A B :=
+  pairPastTele_pair_proof Ω C D A B
+
 end Tele
+
+/-! ## Stacks of packed tuples
+
+The renamings of a context under the unpackings of a stack satisfy the
+laws of the telescope renamings they are built from. The stack has any
+depth. -/
+
+section Stack
+
+variable {k j i : Nat} {Ω : BoundCtx (Ty α) k} {Ω' : BoundCtx (Ty α) j}
+
+omit [TaggedSignature α Φ] in
+/-- Renaming the slots of a stack twice is renaming along the composite. -/
+theorem Holds.rename_comp {Ω'' : BoundCtx (Ty α) i} {stack : List (List α)} (H : Holds Ω stack)
+    (ρ : BoundCtx.Renaming Ω Ω') (π : BoundCtx.Renaming Ω' Ω'') :
+    (H.rename ρ).rename π = H.rename (ρ.comp π) :=
+  holds_rename_comp_proof ρ π H
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past the unpackings of a stack commutes with renaming. -/
+theorem weakenStack_natural (stack : List (List α)) (π : BoundCtx.Renaming Ω Ω') :
+    (weakenStack stack Ω).comp (upStack stack π) = π.comp (weakenStack stack Ω') :=
+  weakenStack_natural_proof stack π
+
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope beneath the unpackings of a stack commutes with
+renaming. -/
+theorem swapStack_natural (stack : List (List α)) (tel : List (Ty α)) (π : BoundCtx.Renaming Ω Ω') :
+    (swapStack stack Ω tel).comp (upTele (upStack stack π) tel) =
+      (upStack stack (upTele π tel)).comp (swapStack stack Ω' tel) :=
+  swapStack_natural_proof stack tel π
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past the unpackings of a stack over a telescope, and then
+moving the telescope beneath them, is weakening past them under the
+telescope. -/
+theorem swapStack_weaken (stack : List (List α)) (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) :
+    (weakenStack stack (extendCtx Ω tel)).comp (swapStack stack Ω tel) = upTele (weakenStack stack Ω) tel :=
+  swapStack_weaken_proof stack Ω tel
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope and then past the unpackings of a stack,
+and then moving the telescope beneath them, is weakening in the other
+order. -/
+theorem swapStack_weakenTele (stack : List (List α)) (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) :
+    ((weakenTele Ω tel).comp (weakenStack stack (extendCtx Ω tel))).comp (swapStack stack Ω tel) =
+      (weakenStack stack Ω).comp (weakenTele (stackCtx stack Ω) tel) :=
+  swapStack_weakenTele_proof stack Ω tel
+
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope with one more oldest slot beneath the unpackings of
+a stack: move the rest, then that slot. -/
+theorem swapStack_cons (stack : List (List α)) (Ω : BoundCtx (Ty α) k) (X : Ty α) (tel : List (Ty α)) :
+    swapStack stack Ω (X :: tel) =
+      (swapStack stack (Ω.snoc X) tel).comp (upTele (swapStack stack Ω [X]) tel) :=
+  swapStack_cons_proof stack Ω X tel
+
+end Stack
 
 /-! ## Renaming and binding under a pending tuple
 
