@@ -31,36 +31,47 @@ equality of their normal forms. Two different spellings of one tree have
 the same normal form, so equality of the trees themselves is not the
 criterion.
 
-A pending pair of atoms may also be held across a chain of later requests
-and destructured after them. The spelled term is
-`let₁ (op g₁ a₁) (… (let₁ (op gₖ aₖ) (let₂ x t)))` under the pair slot `x`,
-and the normal form destructures the pair first. The dependencies are
-exact. Each request is assembled from the atom slots in scope. The held
-pair is one slot of pair type, not an atom slot, so no request of the
-chain can use it or its components. The reply of each request has one tag
-with at most one atom and is bound, so a later request of the chain may
-use the replies of earlier ones, and any request may use the older atom
-slots. The body may use the two components, the replies of the chain and
-the older slots.
+A pending tuple of two or more atoms may also be held across a chain of
+later requests and destructured after them. The spelled term is
+`let₁ (op g₁ a₁) (… (let₁ (op gₖ aₖ) (let₂ x t)))` under the tuple slot
+`x`. The destructuring binds the first atom and the rest of the tuple, and
+the rest is pending again: it is unpacked, or held across a further chain.
+The normal form unpacks the whole tuple first. The dependencies are exact.
+Each request is assembled from the atom slots in scope. The held tuple is
+one slot of product type, not an atom slot, so no request of the chain can
+use it or its components. The reply of each request has one tag with at
+most one atom and is bound, so a later request of the chain may use the
+replies of earlier ones, and any request may use the older atom slots. A
+request of a further chain may also use the atoms already unpacked. The
+body may use every atom of the tuple, the replies of the chains and the
+older slots.
 
 The spelling and its normal form are related by a derived native
 equation, `let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`, in which the two
 components move beneath the binder of the let. It follows from pure-let
 beta, pair eta, the law that pulls a pattern let out of the scrutinee of a
 let, and pair beta. The equation is applied once for each request of the
-chain, by induction on the chain; the length of the chain is not fixed.
-Each request occurs once in the normal form, in the same order. No case
-is moved across a request.
+chain and each pattern let that the request is moved under, by induction
+on the chain and on the unpacking; neither length is fixed. Each request
+occurs once in the normal form, in the same order. No case is moved
+across a request.
+
+Moving a request under the unpacking of the rest of the tuple acts on the
+normal form of the rest of the chain, which is a pending case tree. It
+uses the renaming action on case trees: the bodies under the unpacking are
+renamed so that the reply slot is newest. Normal forms commute with
+renaming, so the normal form of a spelled tree in a larger context is the
+renamed normal form.
 
 The covered syntax is exact. A request is followed by one of the three
 heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
-in order, as in the case trees, except that a pending pair of atoms may be
-held across a chain of requests as above. Holding a tuple of three or
-more atoms, a chain request with a compound or multi-tag reply, a case
-inside the chain, other placements of a destructuring, and arbitrary
-LetCase terms are outside it.
+in order, as in the case trees, except that a pending tuple of two or more
+atoms may be held across a chain of requests as above. A chain request
+with a compound or multi-tag reply, a case inside the chain, holding
+pending tags, other placements of a destructuring, and arbitrary LetCase
+terms are outside it.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For
@@ -77,7 +88,7 @@ open Region (packedExitType)
 open Reverse (CheckedTable)
 open LetCase.LocallyNameless (Equiv HasType)
 open LetCase.Structural.Reply (Γ₀)
-open LetSeq.StraightLine.Structural (Assembly)
+open LetSeq.StraightLine.Structural (Slot Assembly)
 open LetSeq.StraightLine.Structural.Categorical (traceJ)
 open scoped LetSeq.StraightLine.Structural Tagged Binary
 
@@ -115,18 +126,6 @@ section Spelled
 variable {α Φ : Type} [TaggedSignature α Φ] {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)}
   {t u : LetCase.LocallyNameless.Tm Empty Φ n}
 
-omit [TaggedSignature α Φ] in
-/-- Renaming commutes with returning at an exit. -/
-theorem ExitAt.term_rename {A : Ty α} (e : ExitAt L A) {m : Nat} (ξ : Fin n → Fin m)
-    (t : LetCase.LocallyNameless.Tm Empty Φ n) : (e.term t).rename ξ = e.term (t.rename ξ) :=
-  exit_term_rename_proof e ξ t
-
-omit [TaggedSignature α Φ] in
-/-- Renaming commutes with assembling a payload or an argument. -/
-theorem argTerm_rename {A : Ty α} (p : Assembly β A) {m : Nat} {γ : BoundCtx (Ty α) m}
-    (ρ : BoundCtx.Renaming β γ) : (argTerm (Φ := Φ) p).rename ρ.toFun = argTerm (p.rename ρ) :=
-  argTerm_rename_proof p ρ
-
 /-- The law at a request that is destructured as a pair: it is natively
 equal to binding the reply and destructuring the bound slot, with the body
 weakened past that slot. This is the existing sequencing law of the native
@@ -152,6 +151,66 @@ theorem spelled_equiv_normal (d : Spelled β L t) :
     Equiv false Γ₀ β t (d.normal (.id β)).1 (packedExitType L) := by
   have h := spelled_rename_equiv_normal d (.id β)
   rwa [show (BoundCtx.Renaming.id β).toFun = fun i => i from rfl, LetCase.LocallyNameless.Tm.rename_id] at h
+
+/-- Binding a slot in front of a pending tuple is natively equal to
+binding it under the full unpacking of the tuple. The slot is bound by `E`,
+and `wrap` binds it by `E` in front of any body. The pending tuple is given
+over a context that has the slot, and its bodies are renamed so that the
+slot is newest. One commuting step is used for each pattern let of the
+unpacking. -/
+theorem CaseTree.pushed_spec {atoms : List α} {T : Ty α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (tree : CaseTree (.tuple atoms) (β.snoc T) L t) {m : Nat} {Ω : BoundCtx (Ty α) m} {X : Ty α}
+    (π : BoundCtx.Renaming β (Ω.snoc X)) (wrap : CaseTree.Wrap Φ L Ω X)
+    {E : LetCase.LocallyNameless.Tm Empty Φ m} (hE : HasType Φ Γ₀ Ω E X)
+    (spec : ∀ {k : Nat} {Ω' : BoundCtx (Ty α) k} (ω : BoundCtx.Renaming Ω Ω')
+      {u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)} (r : CaseTree .body (Ω'.snoc X) L u),
+      (wrap ω r).1 = .let₁ (E.rename ω.toFun) u) :
+    Equiv false Γ₀ (Ω.snoc T)
+      (.let₁ (E.rename Fin.succ) (t.rename ((π.up T).comp (swapRenaming Ω X T)).toFun))
+      (CaseTree.pushed tree π wrap).1 (packedExitType L) :=
+  pushed_spec_proof tree π wrap E hE spec
+
+/-- Normal forms commute with renaming: the normal form along a composite
+renaming is the normal form along the first renaming, renamed along the
+second. -/
+theorem spelled_normal_renamed (d : Spelled β L t) {m k : Nat} {γ : BoundCtx (Ty α) m}
+    {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .body) (d.normal ρ).2 π = d.normal (ρ.comp π) :=
+  d.normal_renamed ρ π
+
+/-- The term of the normal form along a composite renaming is the renamed
+term of the normal form along the first renaming. -/
+theorem spelled_normal_rename_term (d : Spelled β L t) {m k : Nat} {γ : BoundCtx (Ty α) m}
+    {δ : BoundCtx (Ty α) k} (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    (d.normal (ρ.comp π)).1 = (d.normal ρ).1.rename π.toFun :=
+  (congrArg Sigma.fst (spelled_normal_renamed d ρ π)).symm.trans
+    (CaseTree.renamed_body_term (d.normal ρ).2 π)
+
+/-- The same for a pending reply. The renamings are of the context beneath
+the pending slot. -/
+theorem spelledTags_normal_renamed {tags : List (List α)} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (d : SpelledTags tags β L t) {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .tags tags) (β := γ.snoc (tagsTy tags)) (d.normal ρ).2 π =
+      d.normal (ρ.comp π) :=
+  d.normal_renamed ρ π
+
+/-- The same for a pending tuple, unpacked or held. -/
+theorem spelledTuple_normal_renamed {atoms : List α} {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+    (d : SpelledTuple atoms β L t) {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .tuple atoms) (β := γ.snoc (tupleTy atoms)) (d.normal ρ).2 π =
+      d.normal (ρ.comp π) :=
+  d.normal_renamed ρ π
+
+/-- The same for a chain with a held tuple. Its normal form is the pending
+rest of the tuple over the first atom, and the first atom stays in place. -/
+theorem spelledDelay_normal_renamed {a b : α} {rest : List α} {s : Slot β (tupleTy (a :: b :: rest))}
+    (d : SpelledDelay a b rest β s L t) {m k : Nat} {γ : BoundCtx (Ty α) m} {δ : BoundCtx (Ty α) k}
+    (ρ : BoundCtx.Renaming β γ) (π : BoundCtx.Renaming γ δ) :
+    CaseTree.renamed (pending := .tuple (b :: rest)) (β := (γ.snoc (.base a)).snoc (tupleTy (b :: rest)))
+      (d.normal ρ).2 (π.up (.base a)) = d.normal (ρ.comp π) :=
+  d.normal_renamed ρ π
 
 /-- An operand natively equal to a spelled tree is a branching operand: it
 is natively equal to the normal form. -/
