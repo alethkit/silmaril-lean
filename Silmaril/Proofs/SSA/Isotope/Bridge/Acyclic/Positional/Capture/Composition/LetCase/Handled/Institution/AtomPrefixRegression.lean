@@ -163,7 +163,7 @@ private def delayed : Spelled older exits
               (.let₂ (.bv 0) (.inl (.pair (.bv 1) (.bv 3))))
               (.inl (.pair (.bv 0) (.bv 2))))))) : Term 2) :=
   .chain (.ask Op.pick (.atom later)
-    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape left right))
+    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape left right rfl rfl))
 
 private theorem delayed_normal : (delayed.normal (.id older)).1 = normalWith 1 1 5 0 4 1 := rfl
 
@@ -288,7 +288,7 @@ private def delayed₁ : Spelled older exits
               (.let₂ (.bv 0) (.inl (.pair (.bv 1) (.bv 3))))
               (.inl (.pair (.bv 0) (.bv 2))))))) : Term 2) :=
   .chain (.ask Op.pick (.atom later)
-    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₁ left₁ right₁))
+    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₁ left₁ right₁ rfl rfl))
 
 private theorem delayed₁_normal : (delayed₁.normal (.id older)).1 = normalWith 8 6 5 0 4 1 := rfl
 
@@ -355,7 +355,7 @@ private def delayed₂ : Spelled older exits
               (.let₂ (.bv 0) (.inl (.pair (.bv 0) (.bv 3))))
               (.inl (.pair (.bv 0) (.bv 2))))))) : Term 2) :=
   .chain (.ask Op.pick (.atom later)
-    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₂ left₂ right₂))
+    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₂ left₂ right₂ rfl rfl))
 
 private theorem delayed₂_normal : (delayed₂.normal (.id older)).1 = normalWith 1 1 4 0 4 1 := rfl
 
@@ -422,7 +422,7 @@ private def delayed₃ : Spelled older exits
               (.let₂ (.bv 0) (.inl (.pair (.bv 1) (.bv 3))))
               (.inl (.pair (.bv 0) (.bv 3))))))) : Term 2) :=
   .chain (.ask Op.pick (.atom later)
-    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₃ left₃ right₃))
+    (.deferred (stack := []) (Δ := older) (holds := .nil) [(), ()] [()] [] shape₃ left₃ right₃ rfl rfl))
 
 private theorem delayed₃_normal : (delayed₃.normal (.id older)).1 = normalWith 1 1 5 0 4 2 := rfl
 

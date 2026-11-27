@@ -394,8 +394,8 @@ older tuples, so the chain branches. With `later` the inspection of the
 reply is delayed across one request, which is asked while the reply is one
 slot. With `deferred` it is delayed across a finite prefix of requests and
 pattern lets: the prefix is given by its shape, and the two specializations
-of the tree to the tags are given as trees whose terms the shape
-determines. -/
+of the tree to the tags are given as trees, with the equations between
+their terms and the terms the shape determines. -/
 inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m : Nat} → (Δ : BoundCtx (Ty α) m) →
     Holds Δ stack → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (m + 1) → Type where
   | bind {stack : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
@@ -419,14 +419,15 @@ inductive SpelledStackTags : (stack : List (List α)) → List (List α) → {m 
       SpelledStackTags stack tags Δ holds L (.let₁ (.op h (argTerm argument)) k)
   | deferred {stack : List (List α)} {m : Nat} {Δ : BoundCtx (Ty α) m} {holds : Holds Δ stack}
       {L : List (Ty α)} (atoms next : List α) (more : List (List α))
-      {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} {l r : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+      {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1)} {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
       (shape : Deferred (tupleTy atoms) (tagsTy (next :: more))
         (Δ.snoc (tagsTy (atoms :: next :: more))) 0 t l r)
       (left : SpelledStack (atoms :: stack)
         ((Δ.snoc (tagsTy (atoms :: next :: more))).snoc (tupleTy atoms))
-        (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: next :: more)) (tupleTy atoms)))) L l)
+        (.cons ⟨0, rfl⟩ (holds.rename (pastPair Δ (tagsTy (atoms :: next :: more)) (tupleTy atoms)))) L l')
       (right : SpelledStackTags stack (next :: more) (Δ.snoc (tagsTy (atoms :: next :: more)))
-        (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: next :: more)))) L r) :
+        (holds.rename (BoundCtx.Renaming.succ Δ (tagsTy (atoms :: next :: more)))) L r')
+      (hl : l' = l) (hr : r' = r) :
       SpelledStackTags stack (atoms :: next :: more) Δ holds L t
 
 /-- A reply whose inspection is delayed across one later request. The
@@ -518,7 +519,10 @@ def SpelledStackTags.typing : {stack : List (List α)} → {tags : List (List α
   | _, _, _, _, _, _, .bind _ next => next.typing
   | _, _, _, _, _, _, .split _ _ _ left right => .case .bv left.typing right.typing
   | _, _, _, _, _, _, .later h argument arms => .let₁ (.op (f := h) (argTyping argument)) arms.typing
-  | _, _, _, _, _, _, .deferred _ _ _ shape left right => shape.typing left.typing right.typing
+  | _, _, _, _, _, _, .deferred atoms next more shape left right hl hr =>
+    shape.typing
+      (cast (congrArg (fun u => Derivation Φ Γ₀ (_ : BoundCtx (Ty α) _) u (packedExitType L)) hl) left.typing)
+      (cast (congrArg (fun u => Derivation Φ Γ₀ (_ : BoundCtx (Ty α) _) u (packedExitType L)) hr) right.typing)
 
 /-- The native typing of a reply inspected after one later request, under
 the slot of the reply and the slot of the reply of the later request. -/
@@ -632,7 +636,7 @@ def SpelledStackTags.opened : {stack : List (List α)} → {tags : List (List α
         (swapStack stack Θ [tagsTy (atoms :: nxt :: more)])).2⟩
   | _, tags, _, _, _, _, .later _ argument arms, _, _, ρ =>
     arms.opened ρ (argument.rename (ρ.up (tagsTy tags)))
-  | stack, _, _, _, _, _, .deferred atoms nxt more _ left right, _, Θ, ρ =>
+  | stack, _, _, _, _, _, .deferred atoms nxt more _ left right _ _, _, Θ, ρ =>
     ⟨_, .split atoms nxt more
       (CaseTree.packed atoms
         (CaseTree.renamed (pending := .body)

@@ -1480,7 +1480,8 @@ theorem SpelledStackTags.opened_equiv : {stack : List (List α)} → {tags : Lis
             (upTele (swapStack stack Θ [X]) (pairsTele atoms))).symm)⟩
   | _, _, _, _, _, _, .split _ _ _ left right, _, _, ρ =>
     split_opened_equiv left right ρ (left.opened_equiv _) (right.opened_equiv _)
-  | _, _, _, _, _, _, .deferred atoms nxt more shape left right, _, _, ρ => by
+  | _, _, _, _, _, _, .deferred atoms nxt more shape left right hl hr, _, _, ρ => by
+    subst hl hr
     obtain ⟨U, h, hU, e⟩ := split_opened_equiv left right ρ (left.opened_equiv _) (right.opened_equiv _)
     exact ⟨U, ((deferred_equiv_proof shape left.typing.toHasType right.typing.toHasType).rename
       (ρ.up (tagsTy (atoms :: nxt :: more)))).trans h, hU, e⟩
@@ -1970,7 +1971,7 @@ theorem SpelledStackTags.opened_renamed : {stack : List (List α)} → {tags : L
             CaseTree (.tuple atoms) ((stackCtx stack δ).snoc X) L u)) step))
   | _, _, _, _, _, _, .split _ _ _ left right, _, _, _, _, σ, π =>
     split_opened_renamed left right σ π (left.opened_renamed _ _) (right.opened_renamed _ _)
-  | _, _, _, _, _, _, .deferred _ _ _ _ left right, _, _, _, _, σ, π =>
+  | _, _, _, _, _, _, .deferred _ _ _ _ left right _ _, _, _, _, _, σ, π =>
     split_opened_renamed left right σ π (left.opened_renamed _ _) (right.opened_renamed _ _)
   | _, tags, _, _, _, _, .later _ argument arms, _, _, _, _, σ, π =>
     (arms.opened_renamed σ π (argument.rename (σ.up (tagsTy tags)))).trans
