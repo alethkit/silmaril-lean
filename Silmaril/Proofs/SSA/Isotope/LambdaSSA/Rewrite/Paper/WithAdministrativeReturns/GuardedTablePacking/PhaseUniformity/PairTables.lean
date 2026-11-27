@@ -29,7 +29,7 @@ local notation "π" => Paper.Extension.Singleton.projection (Step (τ := Ty Empt
 set_option backward.isDefEq.respectTransparency false
 
 /-- The sum of the two class folds on four interleaved states. -/
-noncomputable def foldPair : ofType (Φ := signature.Instr) (States 3) ⟶ ofType (States 1) :=
+@[expose] noncomputable def foldPair : ofType (Φ := signature.Instr) (States 3) ⟶ ofType (States 1) :=
   pairFold State State 1
 
 theorem fold_a0 : injArr 3 0 ≫ foldPair = injArr 1 0 :=
