@@ -61,9 +61,9 @@ are #5210 through the expansion; no liveness is assumed.
 
 ## Not proved
 
-* A function from tree tables to router tables. The theorem is stated
-  from the router table with its inner states in topological order; it is
-  not shown here that every tree table is `nest` of such a table.
+* The theorem here starts from the router table with its inner states in
+  topological order. A router table for every tree table is constructed
+  in `BitTable/Nest/Compile/Thms.lean`.
 * Several requests inside one written row program. Those are a single
   opaque step here: a tree's requests are separate literal rows. Relating
   the two needs the step of a multi-request program as a composite of
