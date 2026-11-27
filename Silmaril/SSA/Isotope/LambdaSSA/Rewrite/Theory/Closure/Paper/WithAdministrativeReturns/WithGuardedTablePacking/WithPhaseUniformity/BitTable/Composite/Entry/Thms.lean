@@ -72,9 +72,10 @@ with the negated Bit, so a repeat changes the entry state.
 
 ## Scope
 
-The rows are `entryProgram`. No statement is made for the whole grammar
-of written programs, for a row that keeps both its entry state and its
-first reply, or for packed dispatchers in general.
+The rows are `entryProgram`. Rows that read both their entry state and
+earlier replies are treated in `Composite.Environment`. No statement is
+made here for the whole grammar of written programs or for packed
+dispatchers in general.
 -/
 
 public section
