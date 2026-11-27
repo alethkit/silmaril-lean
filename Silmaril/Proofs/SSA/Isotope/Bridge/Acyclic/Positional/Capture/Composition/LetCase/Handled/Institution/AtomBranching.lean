@@ -58,30 +58,31 @@ private theorem arg_inj {A : Ty α} {ρ : BoundEnv Value β} {used : Set Nat} (s
     cases q with
     | pair x y => exact congrArg₂ Assembly.pair (iha (Prod.mk.inj h).1) (ihb (Prod.mk.inj h).2)
 
-private theorem run_exit {L : List α} {a : α} (exit : ExitAt L a) {t : LetCase.LocallyNameless.Tm Empty Φ n}
-    (d : Derivation Φ Γ₀ β t (.base a)) (ρ : BoundEnv Value β) (x : Nat) (h : run d ρ = pure x) :
-    run (exit.typing d) ρ = pure (exit.value x) := by
+private theorem run_exit {L : List (Ty α)} {A : Ty α} (exit : ExitAt L A)
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} (d : Derivation Φ Γ₀ β t A) (ρ : BoundEnv Value β)
+    (x : Value A) (h : run d ρ = pure x) : run (exit.typing d) ρ = pure (exit.value x) := by
   induction exit with
   | here =>
     unfold run at h
     simp only [run, ExitAt.typing, Derivation.denote, h, pure_bind]
     rfl
   | there later ih =>
-    have inner := ih d h
+    have inner := ih d x h
     unfold run at inner
     simp only [run, ExitAt.typing, Derivation.denote, inner, pure_bind]
     rfl
 
-private theorem run_ret {L : List α} {a : α} (exit : ExitAt L a) (s : Slot β (.base a)) (ρ : BoundEnv Value β) :
-    run (CaseTree.ret (Φ := Φ) exit s).typing ρ = pure (exit.value (s.value ρ)) :=
-  run_exit exit (slotTyping s) ρ (s.value ρ) (run_slot s ρ)
+private theorem run_ret {L : List (Ty α)} {A : Ty α} (exit : ExitAt L A) (payload : Assembly β A)
+    (ρ : BoundEnv Value β) :
+    run (CaseTree.ret (Φ := Φ) exit payload).typing ρ = pure (exit.value (payload.value ρ)) :=
+  run_exit exit (argTyping payload) ρ (payload.value ρ) (run_arg payload ρ)
 
 omit [TaggedSignature α Φ] in
-/-- The value returned at an exit fixes the exit position, its sort and
-the token. Two exits of the same sort are told apart. -/
-private theorem exit_value_inj {L : List α} {a b : α} (e : ExitAt L a) (e' : ExitAt L b) (x y : Nat)
-    (h : e.value x = e'.value y) :
-    a = b ∧ x = y ∧ ∀ t : LetCase.LocallyNameless.Tm Empty Φ n, e.term t = e'.term t := by
+/-- The value returned at an exit fixes the exit position, its type and
+the payload value. Two exits of the same type are told apart. -/
+private theorem exit_value_inj {L : List (Ty α)} {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B)
+    (x : Value A) (y : Value B) (h : e.value x = e'.value y) :
+    ∃ same : A = B, same ▸ x = y ∧ ∀ t : LetCase.LocallyNameless.Tm Empty Φ n, e.term t = e'.term t := by
   induction e with
   | here =>
     cases e' with
@@ -91,14 +92,15 @@ private theorem exit_value_inj {L : List α} {a b : α} (e : ExitAt L a) (e' : E
     cases e' with
     | here => cases h
     | there later' =>
-      obtain ⟨sort, token, terms⟩ := ih later' (Sum.inr.inj h)
-      exact ⟨sort, token, fun t => congrArg LetCase.LocallyNameless.Tm.inr (terms t)⟩
+      obtain ⟨type, payload, terms⟩ := ih later' x (Sum.inr.inj h)
+      exact ⟨type, payload, fun t => congrArg LetCase.LocallyNameless.Tm.inr (terms t)⟩
 
 omit [TaggedSignature α Φ] in
-/-- The value returned at an exit fixes the sort, the token and the
-position of the exit among the ordered exits. -/
-theorem exit_value_index_proof {L : List α} {a b : α} (e : ExitAt L a) (e' : ExitAt L b) (x y : Nat)
-    (h : e.value x = e'.value y) : a = b ∧ x = y ∧ e.index = e'.index := by
+/-- The value returned at an exit fixes the type of the exit, the payload
+value and the position of the exit among the ordered exits. -/
+theorem exit_value_index_proof {L : List (Ty α)} {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B)
+    (x : Value A) (y : Value B) (h : e.value x = e'.value y) :
+    ∃ same : A = B, same ▸ x = y ∧ e.index = e'.index := by
   induction e with
   | here =>
     cases e' with
@@ -108,23 +110,43 @@ theorem exit_value_index_proof {L : List α} {a b : α} (e : ExitAt L a) (e' : E
     cases e' with
     | here => cases h
     | there later' =>
-      obtain ⟨sort, token, position⟩ := ih later' (Sum.inr.inj h)
-      exact ⟨sort, token, congrArg Nat.succ position⟩
+      obtain ⟨type, payload, position⟩ := ih later' x (Sum.inr.inj h)
+      exact ⟨type, payload, congrArg Nat.succ position⟩
 
-/-- A leaf returns the token of its slot at its exit. -/
-theorem run_ret_proof {L : List α} {a : α} (exit : ExitAt L a) (s : Slot β (.base a)) (ρ : BoundEnv Value β) :
-    run (CaseTree.ret (Φ := Φ) exit s).typing ρ = pure (exit.value (s.value ρ)) :=
-  run_ret exit s ρ
+/-- A leaf returns the value of its payload at its exit. -/
+theorem run_ret_proof {L : List (Ty α)} {A : Ty α} (exit : ExitAt L A) (payload : Assembly β A)
+    (ρ : BoundEnv Value β) :
+    run (CaseTree.ret (Φ := Φ) exit payload).typing ρ = pure (exit.value (payload.value ρ)) :=
+  run_ret exit payload ρ
+
+/-- An assembled payload is determined by its value at an environment that
+separates the atom slots. -/
+theorem payload_inj_proof {A : Ty α} {ρ : BoundEnv Value β} {used : Set Nat} (sep : Separates ρ used) :
+    Function.Injective (Assembly.value (A := A) ρ) :=
+  arg_inj sep
+
+/-- Two leaves with the same run at an environment that separates the
+atom slots have the same exit position, exit type and payload tree. -/
+theorem ret_eq_of_run_proof {L : List (Ty α)} {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B)
+    (p : Assembly β A) (q : Assembly β B) (ρ : BoundEnv Value β) {used : Set Nat} (sep : Separates ρ used)
+    (same : run (CaseTree.ret (Φ := Φ) e p).typing ρ = run (CaseTree.ret (Φ := Φ) e' q).typing ρ) :
+    ∃ type : A = B, type ▸ p = q ∧ e.index = e'.index := by
+  rw [run_ret, run_ret] at same
+  have mem : (e.value (p.value ρ), (1 : Log α Φ)) ∈ Finite.outcomes (pure (e.value (p.value ρ))) := rfl
+  rw [same] at mem
+  have values : (e.value (p.value ρ), (1 : Log α Φ)) = (e'.value (q.value ρ), 1) := mem
+  obtain ⟨rfl, value, position⟩ := exit_value_index_proof e e' _ _ (Prod.mk.inj values).1
+  exact ⟨rfl, arg_inj sep value, position⟩
 
 /-- The continuation of a request node on a tagged reply. -/
-private def arms {L : List α} (f : Φ) {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+private def arms {L : List (Ty α)} (f : Φ) {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
     (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
     (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
-    Value (instrTrg (τ := Ty α) f) → Trace α Φ (Value (packedExitType (exitTypes L)))
+    Value (instrTrg (τ := Ty α) f) → Trace α Φ (Value (packedExitType L))
   | .inl x => run left.typing (ρ.snoc x)
   | .inr y => run right.typing (ρ.snoc y)
 
-private theorem run_ask {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
+private theorem run_ask {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
     (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
     (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r) (ρ : BoundEnv Value β) :
@@ -199,7 +221,7 @@ theorem separable_atoms_proof {β : BoundCtx (Ty α) n} (atoms : AtomContext β)
     obtain ⟨ρ, k, sep⟩ := ih
     exact ⟨ρ.snoc (A := Ty.base a) (k : Nat), k + 1, separates_fresh sep a⟩
 
-private theorem tree_nonempty {L : List α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree β L t) :
+private theorem tree_nonempty {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n} (tree : CaseTree β L t) :
     ∀ ρ : BoundEnv Value β, (run tree.typing ρ).outcomes.Nonempty := by
   induction tree with
   | ret s =>
@@ -212,7 +234,7 @@ private theorem tree_nonempty {L : List α} {t : LetCase.LocallyNameless.Tm Empt
     obtain ⟨⟨z, w⟩, h⟩ := ihl (ρ.snoc (A := Ty.base (TaggedSignature.left f)) (0 : Nat))
     exact ⟨(z, _), mem_ask.mpr ⟨.inl (0 : Nat), w, h, rfl⟩⟩
 
-private theorem arms_eq_iff {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
+private theorem arms_eq_iff {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
     (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
     (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
@@ -244,7 +266,7 @@ private theorem arms_eq_iff {L : List α} (f : Φ) (argument : Assembly β (inst
 
 /-- At a request node with the same primitive and argument, the runs agree
 exactly when the arms agree at every payload token. -/
-theorem ask_run_eq_iff_proof {L : List α} (f : Φ) (argument : Assembly β (instrSrc f))
+theorem ask_run_eq_iff_proof {L : List (Ty α)} (f : Φ) (argument : Assembly β (instrSrc f))
     {l r l' r' : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
     (left : CaseTree (β.snoc (.base (TaggedSignature.left f))) L l)
     (right : CaseTree (β.snoc (.base (TaggedSignature.right f))) L r)
@@ -261,11 +283,11 @@ theorem ask_run_eq_iff_proof {L : List α} (f : Φ) (argument : Assembly β (ins
 /-- Two case trees with the same run at an environment that separates the
 atom slots are the same term. A request node allocates the next token as
 the payload of both tags. -/
-theorem caseTree_eq_of_run_proof {L : List α} {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree β L t) :
+theorem caseTree_eq_of_run_proof {L : List (Ty α)} {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : CaseTree β L t) :
     ∀ {u : LetCase.LocallyNameless.Tm Empty Φ n} (q : CaseTree β L u) (ρ : BoundEnv Value β) (k : Nat),
       Separates ρ (Set.Iio k) → run p.typing ρ = run q.typing ρ → t = u := by
   induction p with
-  | @ret _ β L a exit s =>
+  | @ret _ β L A exit s =>
     intro u q ρ k sep h
     have mem : (exit.value (s.value ρ), (1 : Log α Φ)) ∈
         Finite.outcomes (pure (exit.value (s.value ρ))) := rfl
@@ -274,9 +296,8 @@ theorem caseTree_eq_of_run_proof {L : List α} {t : LetCase.LocallyNameless.Tm E
     | ret exit' s' =>
       rw [run_ret] at mem
       have same : (exit.value (s.value ρ), (1 : Log α Φ)) = (exit'.value (s'.value ρ), 1) := mem
-      obtain ⟨sort, token, terms⟩ := exit_value_inj (Φ := Φ) exit exit' _ _ (Prod.mk.inj same).1
-      subst sort
-      cases sep.injective _ token
+      obtain ⟨rfl, value, terms⟩ := exit_value_inj (Φ := Φ) exit exit' _ _ (Prod.mk.inj same).1
+      cases arg_inj sep value
       exact terms _
     | ask g b left right =>
       rw [run_ask] at mem
@@ -313,10 +334,10 @@ theorem caseTree_eq_of_run_proof {L : List α} {t : LetCase.LocallyNameless.Tm E
 
 /-- The ordered trace interpretation with atoms reflects native equality
 of branching operands over a separable bound context. -/
-theorem branching_reflects_proof {L : List α} (x y : Operand Φ β (packedExitType (exitTypes L)))
+theorem branching_reflects_proof {L : List (Ty α)} (x y : Operand Φ β (packedExitType L))
     (hx : Branching x) (hy : Branching y) (separable : Separable β)
     (same : traceArrow x.2 = traceArrow y.2) :
-    Equiv false Γ₀ β x.1 y.1 (packedExitType (exitTypes L)) := by
+    Equiv false Γ₀ β x.1 y.1 (packedExitType L) := by
   obtain ⟨t, p, et⟩ := hx
   obtain ⟨u, q, eu⟩ := hy
   obtain ⟨ρ, k, sep⟩ := separable

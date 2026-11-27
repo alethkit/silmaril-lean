@@ -8,17 +8,24 @@ import Silmaril.Proofs.SSA.Isotope.Bridge.Acyclic.Positional.Capture.Composition
 The ordered trace interpretation whose atoms are natural numbers reflects
 native equality of branching operands. This is proved, not assumed.
 
-The exits are an ordered list of atom sorts. At an environment that gives
-distinct tokens to the atom slots, two case trees with the same ordered
-traces are the same term. A leaf is determined by the value it returns:
-the value is a token under the injections of one exit position, so it
-fixes the position, the sort of the exit and the token, and the token
-fixes the slot. Two exits of the same sort are told apart. A request node
-is determined by its first logged event, which records the primitive and
-the tokens of the argument. The reply may carry either tag with any
-payload, so the run of the node contains the runs of both arms at every
-payload token. Extending the environment by the next unused token keeps
-the atom slots distinct, and the argument continues in each arm.
+The exits are an ordered list of types. A leaf returns a payload at one
+exit of the type of the payload. The payload is assembled from the atom
+slots in scope: an atom slot, the unit, or an ordered pair of payloads.
+That grammar has exactly one tree for each product of atom slots.
+
+At an environment that gives distinct tokens to the atom slots, two case
+trees with the same ordered traces are the same term. A leaf is determined
+by the value it returns. The value is a payload value under the injections
+of one exit position, so it fixes the position, the type of the exit and
+the payload value. The payload value fixes the payload tree, component by
+component, because the atom slots have distinct tokens. Two exits of the
+same type are told apart, and so are two orders of the same components. A
+request node is determined by its first logged event, which records the
+primitive and the tokens of the argument. The reply may carry either tag
+with any payload atom, so the run of the node contains the runs of both
+arms at every payload token. Extending the environment by the next unused
+token keeps the atom slots distinct, and the argument continues in each
+arm.
 
 A ranked sentence between entries whose emitted operands are natively
 equal to case trees, over a separable bound context, is therefore valid in
@@ -28,10 +35,10 @@ graphs read back from two case trees, validity is equality of the trees,
 and so is equality of their ordered-exit arrows at the one model.
 
 The class is exact. Every primitive replies with one atom under one of two
-tags, every case is on a request, and each leaf returns one atom slot at
-one exit of the same sort. Sequencing without a case, cases on other
-scrutinees, payloads that are not atoms and exits that are not atoms are
-outside it.
+tags, every case is on a request, and each leaf returns one assembled
+payload at one exit of its type. Sequencing without a case, cases on other
+scrutinees, reply payloads that are not atoms, and returned payloads that
+contain sums or are not assembled from atom slots are outside it.
 -/
 
 @[expose] public section
@@ -48,7 +55,7 @@ open LetSeq.StraightLine.Structural (Assembly Separates)
 open LetSeq.StraightLine.Structural.Categorical (traceJ)
 open scoped LetSeq.StraightLine.Structural Tagged
 
-variable {α Φ : Type} [TaggedSignature α Φ] {n : Nat} {β : BoundCtx (Ty α) n} {L : List α}
+variable {α Φ : Type} [TaggedSignature α Φ] {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)}
 
 /-! ## Separating environments -/
 
@@ -89,21 +96,40 @@ theorem ask_run_eq_iff (f : Φ) (argument : Assembly β (instrSrc f))
         run right'.typing (ρ.snoc (A := Ty.base (TaggedSignature.right f)) y)) :=
   ask_run_eq_iff_proof f argument left right left' right' ρ
 
-/-! ## Exits -/
+/-! ## Exits and payloads -/
 
 omit [TaggedSignature α Φ] in
-/-- The value returned at an exit fixes the sort of the exit, the token
-and the position of the exit among the ordered exits. Two exits of the
-same sort with the same token are told apart. -/
-theorem ExitAt.value_inj {a b : α} (e : ExitAt L a) (e' : ExitAt L b) (x y : Nat)
-    (same : e.value x = e'.value y) : a = b ∧ x = y ∧ e.index = e'.index :=
+/-- The value returned at an exit fixes the type of the exit, the payload
+value and the position of the exit among the ordered exits. Two exits of
+the same type with the same payload are told apart. -/
+theorem ExitAt.value_inj {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B)
+    (x : LetSeq.StraightLine.Structural.Value (α := α) A) (y : LetSeq.StraightLine.Structural.Value (α := α) B)
+    (same : e.value x = e'.value y) : ∃ type : A = B, type ▸ x = y ∧ e.index = e'.index :=
   exit_value_index_proof e e' x y same
 
-/-- A leaf returns the token of its slot at its exit. -/
-theorem run_ret {a : α} (exit : ExitAt L a) (s : LetSeq.StraightLine.Structural.Slot β (.base a))
+omit [TaggedSignature α Φ] in
+/-- An assembled payload is determined by its value at an environment that
+separates the atom slots. The payload grammar has one tree for each
+product of atom slots, so a changed component or a changed order is a
+different value. -/
+theorem payload_value_injective {A : Ty α} {ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β}
+    {used : Set Nat} (sep : Separates ρ used) : Function.Injective (Assembly.value (A := A) ρ) :=
+  payload_inj_proof sep
+
+/-- A leaf returns the value of its payload at its exit. -/
+theorem run_ret {A : Ty α} (exit : ExitAt L A) (payload : Assembly β A)
     (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β) :
-    run (CaseTree.ret (Φ := Φ) exit s).typing ρ = pure (exit.value (s.value ρ)) :=
-  run_ret_proof exit s ρ
+    run (CaseTree.ret (Φ := Φ) exit payload).typing ρ = pure (exit.value (payload.value ρ)) :=
+  run_ret_proof exit payload ρ
+
+/-- The leaf reflection. Two leaves with the same ordered traces at an
+environment that separates the atom slots return at the same exit
+position, at the same exit type, the same payload tree. -/
+theorem ret_eq_of_run {A B : Ty α} (e : ExitAt L A) (e' : ExitAt L B) (p : Assembly β A) (q : Assembly β B)
+    (ρ : BoundEnv (LetSeq.StraightLine.Structural.Value (α := α)) β) {used : Set Nat} (sep : Separates ρ used)
+    (same : run (CaseTree.ret (Φ := Φ) e p).typing ρ = run (CaseTree.ret (Φ := Φ) e' q).typing ρ) :
+    ∃ type : A = B, type ▸ p = q ∧ e.index = e'.index :=
+  ret_eq_of_run_proof e e' p q ρ sep same
 
 /-! ## Separation of case trees -/
 
@@ -116,15 +142,15 @@ theorem caseTree_eq_of_run (p : CaseTree β L t) (q : CaseTree β L u)
 
 /-- The ordered trace interpretation with atoms reflects native equality
 of branching operands over a separable bound context. -/
-theorem branching_reflects (separable : Separable β) (x y : Operand Φ β (packedExitType (exitTypes L)))
+theorem branching_reflects (separable : Separable β) (x y : Operand Φ β (packedExitType L))
     (hx : Branching x) (hy : Branching y) (same : traceArrow x.2 = traceArrow y.2) :
-    Equiv false Γ₀ β x.1 y.1 (packedExitType (exitTypes L)) :=
+    Equiv false Γ₀ β x.1 y.1 (packedExitType L) :=
   branching_reflects_proof x y hx hy separable same
 
 /-- Over a separable bound context, two case trees are natively equal
 exactly when they are the same term. -/
 theorem caseTree_equiv_iff (separable : Separable β) (p : CaseTree β L t) (q : CaseTree β L u) :
-    Equiv false Γ₀ β t u (packedExitType (exitTypes L)) ↔ t = u :=
+    Equiv false Γ₀ β t u (packedExitType L) ↔ t = u :=
   ⟨fun h => by
       obtain ⟨ρ, k, sep⟩ := separable
       exact caseTree_eq_of_run p q ρ k sep ((LetCase.Structural.Reply.traceArrow_eq_iff_run p.typing q.typing).mp
@@ -141,8 +167,8 @@ theorem branching_operand (p : CaseTree β L t) : Branching p.operand :=
   ⟨t, p, .refl p.typing.toHasType⟩
 
 /-- An operand natively equal to a branching operand is branching. -/
-theorem Branching.congr {x y : Operand Φ β (packedExitType (exitTypes L))}
-    (h : Equiv false Γ₀ β x.1 y.1 (packedExitType (exitTypes L))) (branching : Branching y) : Branching x :=
+theorem Branching.congr {x y : Operand Φ β (packedExitType L)}
+    (h : Equiv false Γ₀ β x.1 y.1 (packedExitType L)) (branching : Branching y) : Branching x :=
   let ⟨t, p, same⟩ := branching
   ⟨t, p, h.trans same⟩
 
@@ -152,7 +178,7 @@ theorem branching_graph (p : CaseTree β L t) : Branching p.graph.toLetCase :=
 
 /-- Entries with branching emitted operands are reflected by the ordered
 trace interpretation with atoms. -/
-theorem branching_traceReflects (separable : Separable β) (l r : RankedEntry Φ β (exitTypes L))
+theorem branching_traceReflects (separable : Separable β) (l r : RankedEntry Φ β L)
     (hl : Branching (emitted (P := atomSig α Φ) l)) (hr : Branching (emitted (P := atomSig α Φ) r)) :
     TraceReflects l r :=
   branching_reflects separable _ _ hl hr
@@ -162,17 +188,17 @@ theorem branching_traceReflects (separable : Separable β) (l r : RankedEntry Φ
 /-- A ranked sentence between entries with branching emitted operands,
 over a separable bound context, holds in every supported model of the
 ranked room exactly when the emitted operands are natively equal. -/
-theorem rankedValid_branching_iff (separable : Separable β) (l r : RankedEntry Φ β (exitTypes L))
+theorem rankedValid_branching_iff (separable : Separable β) (l r : RankedEntry Φ β L)
     (hl : Branching (emitted (P := atomSig α Φ) l)) (hr : Branching (emitted (P := atomSig α Φ) r)) :
     RankedValid false (sentenceOf l r) ↔
       Equiv false Γ₀ β (emitted (P := atomSig α Φ) l).1 (emitted (P := atomSig α Φ) r).1
-        (packedExitType (exitTypes L)) :=
+        (packedExitType L) :=
   (rankedValid_iff_of_traceReflects (sentenceOf l r) (branching_traceReflects separable l r hl hr)).trans
     (derivable_iff false (sentenceOf l r))
 
 /-- Validity of such a sentence is decided by the one ordered trace model
 with atoms. -/
-theorem rankedValid_branching_iff_atomTrace (separable : Separable β) (l r : RankedEntry Φ β (exitTypes L))
+theorem rankedValid_branching_iff_atomTrace (separable : Separable β) (l r : RankedEntry Φ β L)
     (hl : Branching (emitted (P := atomSig α Φ) l)) (hr : Branching (emitted (P := atomSig α Φ) r)) :
     RankedValid false (sentenceOf l r) ↔
       (Silmaril.Isotope.Institution.Acyclic.Captured.rankedRoom (traceJ (α := α) (Φ := Φ)) (atomSig α Φ)).Sat

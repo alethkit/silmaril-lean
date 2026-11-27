@@ -30,16 +30,16 @@ private abbrev Term (n : Nat) := LetCase.LocallyNameless.Tm Empty Probe n
 
 private theorem separable : Separable older := separable_atoms (.snoc (.snoc .nil ()) ())
 
-private abbrev exits : List Unit := [(), ()]
-private abbrev first : ExitAt exits () := .here
-private abbrev second : ExitAt exits () := .there .here
+private abbrev exits : List (Ty Unit) := [tok, tok]
+private abbrev first : ExitAt exits tok := .here
+private abbrev second : ExitAt exits tok := .there .here
 
-example : exitTypes exits = [tok, tok] := rfl
 example : first.index = 0 ∧ second.index = 1 := ⟨rfl, rfl⟩
 
 /-- The same token at the two exits gives two different values. -/
-example (x y : Nat) : first.value x ≠ second.value y := fun same =>
-  absurd (ExitAt.value_inj first second x y same).2.2 (by decide)
+example (x y : Nat) : first.value x ≠ second.value y := fun same => by
+  obtain ⟨-, -, position⟩ := ExitAt.value_inj first second x y same
+  exact absurd position (by decide)
 
 private abbrev earlier : Slot older tok := ⟨1, rfl⟩
 private abbrev armCtx : BoundCtx (Ty Unit) 3 := older.snoc tok
@@ -51,21 +51,21 @@ private abbrev outer : Slot innerCtx tok := ⟨1, rfl⟩
 /-! ## Case trees over the two exits -/
 
 /-- Return the earlier capture at the first exit. -/
-private def leaveFirst : CaseTree older exits (.inl (.bv 1) : Term 2) := .ret first earlier
+private def leaveFirst : CaseTree older exits (.inl (.bv 1) : Term 2) := .ret first (.atom earlier)
 
 /-- Return the same capture at the second exit. -/
-private def leaveSecond : CaseTree older exits (.inr (.inl (.bv 1)) : Term 2) := .ret second earlier
+private def leaveSecond : CaseTree older exits (.inr (.inl (.bv 1)) : Term 2) := .ret second (.atom earlier)
 
 /-- Probe the earlier capture. Return the payload at the first exit under
 the left tag and at the second exit under the right tag. -/
 private def split : CaseTree older exits
     (.case (.op Probe.probe (.bv 1)) (.inl (.bv 0)) (.inr (.inl (.bv 0))) : Term 2) :=
-  .ask Probe.probe (.atom earlier) (.ret first payload) (.ret second payload)
+  .ask Probe.probe (.atom earlier) (.ret first (.atom payload)) (.ret second (.atom payload))
 
 /-- The same request and payloads, leaving by the second exit under both tags. -/
 private def merged : CaseTree older exits
     (.case (.op Probe.probe (.bv 1)) (.inr (.inl (.bv 0))) (.inr (.inl (.bv 0))) : Term 2) :=
-  .ask Probe.probe (.atom earlier) (.ret second payload) (.ret second payload)
+  .ask Probe.probe (.atom earlier) (.ret second (.atom payload)) (.ret second (.atom payload))
 
 /-- Probe the earlier capture, then under the left tag probe the payload.
 The inner left arm returns the fresh reply atom at the first exit. -/
@@ -74,8 +74,8 @@ private def deep : CaseTree older exits
       (.case (.op Probe.probe (.bv 0)) (.inl (.bv 0)) (.inr (.inl (.bv 1))))
       (.inr (.inl (.bv 0))) : Term 2) :=
   .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret first fresh) (.ret second outer))
-    (.ret second payload)
+    (.ask Probe.probe (.atom payload) (.ret first (.atom fresh)) (.ret second (.atom outer)))
+    (.ret second (.atom payload))
 
 /-- The same tree with the exit unchanged and the outer payload returned
 in place of the fresh reply atom. -/
@@ -84,8 +84,8 @@ private def deepOuter : CaseTree older exits
       (.case (.op Probe.probe (.bv 0)) (.inl (.bv 1)) (.inr (.inl (.bv 1))))
       (.inr (.inl (.bv 0))) : Term 2) :=
   .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret first outer) (.ret second outer))
-    (.ret second payload)
+    (.ask Probe.probe (.atom payload) (.ret first (.atom outer)) (.ret second (.atom outer)))
+    (.ret second (.atom payload))
 
 /-- The same tree with the fresh reply atom unchanged and returned at the
 second exit. -/
@@ -94,8 +94,8 @@ private def deepSecond : CaseTree older exits
       (.case (.op Probe.probe (.bv 0)) (.inr (.inl (.bv 0))) (.inr (.inl (.bv 1))))
       (.inr (.inl (.bv 0))) : Term 2) :=
   .ask Probe.probe (.atom earlier)
-    (.ask Probe.probe (.atom payload) (.ret second fresh) (.ret second outer))
-    (.ret second payload)
+    (.ask Probe.probe (.atom payload) (.ret second (.atom fresh)) (.ret second (.atom outer)))
+    (.ret second (.atom payload))
 
 /-! ## The ranked sentences are at the two original exits -/
 
@@ -152,7 +152,7 @@ example : ¬ RankedValid false (sentence deep deepOuter) := fun valid => by
 
 The second graph is read back from the operand emitted by the first. -/
 
-private def deepAgain : CheckedTable Probe older (exitTypes exits) :=
+private def deepAgain : CheckedTable Probe older exits :=
   CheckedTable.ofLetCase (List.cons_ne_nil _ _) deep.graph.toLetCase.2
 
 private theorem again_branching : Branching (emitted (P := atomSig Unit Probe) (entryOf deepAgain)) :=

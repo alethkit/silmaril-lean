@@ -1038,15 +1038,35 @@ The continuation cannot jump back to its own label.
   ranked sentence is at the original ordered exits of the two entries,
   and at the ordered trace model with atoms the ordered-exit arrows of
   two read-back graphs are equal exactly when the trees are the same. No
-  repacking or reindexing of exits is involved. The exits are atoms;
-  exits of other types are outside the class. With two exits of one atom
-  sort, the regression tells apart the same capture at a different exit,
+  repacking or reindexing of exits is involved. With two exits of one atom
+  sort, the atom-exit regression tells apart the same capture at a different exit,
   the same payload at a different exit under one tag, and in a nested arm
   the same fresh reply atom at a different exit and a different atom at
   the same exit.
   [Exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
   [Exit reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
   [Two exits of one sort](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomExitRegression.lean)
+- The exits of the case trees carry product payloads. The exits are an
+  ordered list of types, and a leaf returns a payload at one exit of the
+  type of the payload. The payload is assembled from the atom slots in
+  scope: an atom slot, the unit, or an ordered pair of payloads. This is
+  the existing argument grammar of the straight-line calculus, which has
+  exactly one tree for each product of atom slots. The value a leaf
+  returns fixes the exit position, the exit type and the payload value,
+  and at distinct tokens the payload value fixes the payload tree
+  component by component. Two leaves with the same traces at a
+  separating environment therefore have the same exit position and the
+  same payload tree. The separation of case trees, the completeness
+  theorem and the equality of ordered-exit arrows hold at any exit list.
+  The atom exits above are the case of atom payloads. Returned payloads
+  that contain sums, and reply payloads that are not atoms, are outside
+  the class. The regression has four exits, with the same product type
+  at the first and third. A changed exit alone and a changed product
+  alone are each told apart, at a leaf and in a nested arm whose product
+  pairs a fresh reply atom with an older capture.
+  [Payload exits and case trees](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Defs.lean) ·
+  [Leaf reflection](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Thms.lean) ·
+  [Product payloads at four exits](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomProductExitRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
