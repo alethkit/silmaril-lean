@@ -395,6 +395,12 @@ theorem pairPastTele_cons (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (X A B 
   pairPastTele_cons_proof tel Ω X A B
 
 omit [TaggedSignature α Φ] in
+/-- Exchanging two slots commutes with renaming beneath them. -/
+theorem swapRenaming_natural (ω : BoundCtx.Renaming Ω Ω') (X T : Ty α) :
+    (swapRenaming Ω X T).comp ((ω.up T).up X) = ((ω.up X).up T).comp (swapRenaming Ω' X T) :=
+  swapRenaming_natural_proof ω X T
+
+omit [TaggedSignature α Φ] in
 /-- Lifting the identity under a telescope is the identity. -/
 theorem upTele_id (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) :
     upTele (BoundCtx.Renaming.id Ω) tel = .id _ :=

@@ -1413,9 +1413,9 @@ The continuation cannot jump back to its own label.
   restated in the one grammar and keep their normal forms, so it
   specializes to one and two holds. Outside the class: a request whose
   reply is destructured or cased on at the request itself while a tuple
-  is packed; and a reply
-  with several tags kept as one slot, since its case would no longer
-  directly follow its request. The regression packs three pairs at
+  is packed; and, in this entry, a reply
+  with several tags kept as one slot. Delaying its inspection across one
+  request is covered two entries below. The regression packs three pairs at
   once, asks a request while all three are packed, opens the newest,
   asks a request on one of its atoms and an older capture, opens the
   other two, and returns a component of the oldest and of the middle
@@ -1452,8 +1452,8 @@ The continuation cannot jump back to its own label.
   weakening past the stack. Normal forms commute with renaming, and
   ranked validity and equality of ordered-exit arrows at the original
   exits follow as for the other spelled trees. Delayed inspection of a
-  reply with several tags stays outside the class: its case directly
-  follows its request. The regression packs three pairs, selects and
+  reply with several tags is covered in the next entry. The regression
+  packs three pairs, selects and
   opens the oldest while the two newer pairs stay packed, asks a request
   on one opened component and an older capture, then opens the newest
   and the middle pair, and returns a component of each. The chain and
@@ -1469,6 +1469,50 @@ The continuation cannot jump back to its own label.
   [Selecting in a chain](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Selection interchange and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [The oldest of three opened first](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomSelectRegression.lean)
+- The inspection of a reply with several tags may be delayed across one
+  later request: `let₁ (op g a) (let₁ (op h b) (case s l r))`, where `s`
+  is the slot of the reply of `g`. The stored reply is a slot of sum
+  type and not an atom slot, so `h` cannot read it. `h` is one request
+  for all tags, assembled from older captures, and the case on `s`
+  directly follows it. In each arm the payload of the tag is pushed on
+  the stack and the reply of `h` is pending, so the arm continues as the
+  bound reply of `h` does. The grammar of the entries above gets one
+  constructor for the delayed request and one small family for the arms
+  of the delayed case; a chain may now also start with the stack empty.
+  The normal form inspects the reply right after `g` and writes `h` once
+  in each arm. The native equation is
+  `let₁ E (case s L R) = case s (let₁ E↑ L′) (let₁ E↑ R′)` for a slot `s`
+  of sum type, where `E` is typed without the payload. It is derived
+  from typed laws and is not an axiom: a term over a sum slot is the
+  case on the slot around the term at each injection,
+  `K[s] = case s (K[inl a]) (K[inr b])`, by pure-let beta, sum eta and
+  the law that pulls a case out of the scrutinee of a let; case beta at
+  the injection then removes the inner case. Only the pure tag test
+  moves. The request `h` is written once on the left and once in each
+  arm on the right, and on every run exactly one arm is taken, so `h`
+  is asked once on both sides, after `g` and before the requests of the
+  arm. No two requests are exchanged and none is added or removed on
+  any run. The lift goes through the stack grammar: the unpackings of
+  the packed tuples move out of both arms as before, and normal forms
+  commute with renaming. Ranked validity and equality of ordered-exit
+  arrows at the original exits follow as for the other spelled trees.
+  Outside the class: delaying the inspection across two or more
+  requests, or across a pattern let, and a stored reply that is selected
+  again later. Those need the normal form of a whole chain prefix to
+  branch on the stored tag, which is a stack entry of sum type and a
+  body for each tag; that is not built. The regression asks a request
+  with two tags, then a request on an older capture, and only then
+  cases on the first reply. The delayed chain and the eager spelling,
+  which cases at once and writes the later request in each arm, are
+  valid together with the same ordered-exit arrow. A changed argument of
+  the later request, a changed component under the first tag and a
+  changed order under the second tag are each told apart, so both
+  branches are observed. An eager tree whose arms ask different requests
+  is told apart from the delayed chain. A second tree delays the
+  inspection under a held pair.
+  [Delayed cases in chains](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
+  [Sum-slot equations and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
+  [A reply inspected after a later request](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomDelayedCaseRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
