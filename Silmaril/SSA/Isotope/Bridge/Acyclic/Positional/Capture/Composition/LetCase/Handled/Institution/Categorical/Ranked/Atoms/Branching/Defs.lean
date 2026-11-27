@@ -398,6 +398,13 @@ def pairPastTele {k : Nat} (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) (A B :
     BoundCtx.Renaming (((extendCtx Ω tel).snoc A).snoc B) (extendCtx ((Ω.snoc A).snoc B) tel) :=
   ((swapTele Ω tel A).up B).comp (swapTele (Ω.snoc A) tel B)
 
+/-- Move a telescope bound after a telescope beneath it, one slot at a
+time. -/
+def swapTeles : {k : Nat} → (Ω : BoundCtx (Ty α) k) → (tel : List (Ty α)) → (H : List (Ty α)) →
+    BoundCtx.Renaming (extendCtx (extendCtx Ω tel) H) (extendCtx (extendCtx Ω H) tel)
+  | _, _, _, [] => .id _
+  | _, Ω, tel, X :: H => (upTele (swapTele Ω tel X) H).comp (swapTeles (Ω.snoc X) tel H)
+
 /-- Weaken past two new slots. -/
 def pastPair {k : Nat} (Ω : BoundCtx (Ty α) k) (A B : Ty α) : BoundCtx.Renaming Ω ((Ω.snoc A).snoc B) :=
   (BoundCtx.Renaming.succ Ω A).comp (BoundCtx.Renaming.succ (Ω.snoc A) B)
@@ -441,10 +448,11 @@ def unpackAt : (atoms : List α) → {k : Nat} → Fin k →
 /-! ## Binding slots under a pending tuple
 
 The slots of a telescope beneath a pending tuple are moved to bindings
-under the unpacking of the tuple. This is how a request asked before a held
-tuple is unpacked is placed in the normal form, which unpacks the tuple
-first. The telescope is the reply of the request and the slots of its
-unpacking. -/
+under the unpacking of the tuple. This is an operation on pending case
+trees: it places a request asked before a tuple is unpacked under that
+unpacking, with the reply of the request and the slots of its unpacking as
+the telescope. The normal forms of spelled chains are built directly under
+the unpacking instead and do not use it. -/
 
 /-- A way to bind the slots of a telescope in front of a body, in any
 context that the base context renames into. -/

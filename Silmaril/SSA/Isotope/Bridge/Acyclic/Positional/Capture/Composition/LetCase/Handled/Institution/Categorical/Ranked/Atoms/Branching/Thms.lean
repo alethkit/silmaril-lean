@@ -395,6 +395,53 @@ theorem pairPastTele_cons (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (X A B 
   pairPastTele_cons_proof tel Ω X A B
 
 omit [TaggedSignature α Φ] in
+/-- Lifting the identity under a telescope is the identity. -/
+theorem upTele_id (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) :
+    upTele (BoundCtx.Renaming.id Ω) tel = .id _ :=
+  upTele_id_proof tel Ω
+
+omit [TaggedSignature α Φ] in
+/-- Moving two slots beneath one slot is the move of three slots. -/
+theorem pairPastTele_single (Ω : BoundCtx (Ty α) k) (X A B : Ty α) :
+    pairPastTele Ω [X] A B = afterPairRenaming Ω X A B :=
+  pairPastTele_single_proof Ω X A B
+
+omit [TaggedSignature α Φ] in
+/-- The newest of two slots moved beneath a telescope lands where
+weakening past the telescope puts it. -/
+theorem pairPastTele_zero (tel : List (Ty α)) (Ω : BoundCtx (Ty α) k) (A B : Ty α) :
+    (pairPastTele Ω tel A B).toFun 0 = (weakenTele ((Ω.snoc A).snoc B) tel).toFun 0 :=
+  pairPastTele_zero_proof tel Ω A B
+
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope beneath a telescope commutes with renaming. -/
+theorem swapTeles_natural (H tel : List (Ty α)) (ω : BoundCtx.Renaming Ω Ω') :
+    (swapTeles Ω tel H).comp (upTele (upTele ω H) tel) = (upTele (upTele ω tel) H).comp (swapTeles Ω' tel H) :=
+  swapTeles_natural_proof H tel ω
+
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope that starts with two slots: move the two slots,
+then the rest. -/
+theorem swapTeles_pair (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) (tel : List (Ty α)) (A B : Ty α) :
+    swapTeles Ω tel (A :: B :: H) =
+      (upTele (pairPastTele Ω tel A B) H).comp (swapTeles ((Ω.snoc A).snoc B) tel H) :=
+  swapTeles_pair_proof H Ω tel A B
+
+omit [TaggedSignature α Φ] in
+/-- Moving a telescope beneath a telescope with one more oldest slot: move
+it beneath the rest, then beneath that slot. -/
+theorem swapTeles_cons (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) (X : Ty α) (tel : List (Ty α)) :
+    swapTeles Ω (X :: tel) H = (swapTeles (Ω.snoc X) tel H).comp (upTele (swapTeles Ω [X] H) tel) :=
+  swapTeles_cons_proof H Ω X tel
+
+omit [TaggedSignature α Φ] in
+/-- Weakening past a telescope over a slot, and then moving the telescope
+beneath the slot, is weakening past the telescope under the slot. -/
+theorem swapTeles_weaken (H : List (Ty α)) (Ω : BoundCtx (Ty α) k) (T : Ty α) :
+    (weakenTele (Ω.snoc T) H).comp (swapTeles Ω [T] H) = (weakenTele Ω H).up T :=
+  swapTeles_weaken_proof H Ω T
+
+omit [TaggedSignature α Φ] in
 /-- Two pairs of slots move past each other in two steps. -/
 theorem afterPairPair_split (Γ : BoundCtx (Ty α) k) (C D A B : Ty α) :
     afterPairPairRenaming Γ C D A B =

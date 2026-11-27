@@ -92,9 +92,9 @@ private def chainWith (joined : Slot afterPing tok) (first second : Slot leafCtx
     (.bind (.only [(), (), ()]
       (.hold () () [()]
         (.ask Op.ping (.atom laterUnder)
-          (.bind [()]
+          (.only [()]
             (.ask Op.join (.pair (.atom joined) (.atom earlierAfterPing))
-              (.bind [()]
+              (.only [()]
                 (.unpack
                   (.pair () () []
                     (.atom () (.ret pairExit (.pair (.atom first) (.atom second)))))))))))))
@@ -229,13 +229,13 @@ private def again : Spelled older exits
     (.bind (.only [(), (), ()]
       (.hold () () [()]
         (.ask Op.ping (.atom laterUnder)
-          (.bind [()]
+          (.only [()]
             (.ask Op.join (.pair (.atom firstReply) (.atom earlierAfterPing))
-              (.bind [()]
+              (.only [()]
                 (.unpack
                   (.hold () () []
                     (.ask Op.ping (.atom firstAtom)
-                      (.bind [()]
+                      (.only [()]
                         (.unpack
                           (.atom ()
                             (.ret pairExit

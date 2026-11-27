@@ -246,6 +246,103 @@ theorem afterPairPair_split_proof {k : Nat} (Γ : BoundCtx (Ty α) k) (C D A B :
   renaming_ext_proof (Fin.cases rfl (fun i => Fin.cases rfl (fun i => Fin.cases rfl
     (fun i => Fin.cases rfl (fun _ => rfl) i) i) i))
 
+/-- Lifting the identity under a telescope is the identity. -/
+theorem upTele_id_proof : (tel : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) →
+    upTele (BoundCtx.Renaming.id Ω) tel = .id _
+  | [], _, _ => rfl
+  | X :: tel, _, Ω =>
+    (congrArg (fun r => upTele r tel)
+      (renaming_ext_proof (ρ := (BoundCtx.Renaming.id Ω).up X) (π := .id _) (Fin.cases rfl (fun _ => rfl)))).trans
+      (upTele_id_proof tel (Ω.snoc X))
+
+/-- Moving two slots beneath one slot is the move of three slots. -/
+theorem pairPastTele_single_proof {k : Nat} (Ω : BoundCtx (Ty α) k) (X A B : Ty α) :
+    pairPastTele Ω [X] A B = afterPairRenaming Ω X A B :=
+  renaming_ext_proof (Fin.cases rfl (fun i => Fin.cases rfl (fun i => Fin.cases rfl (fun _ => rfl) i) i))
+
+/-- The newest of two slots moved beneath a telescope lands where
+weakening past the telescope puts it. -/
+theorem pairPastTele_zero_proof (tel : List (Ty α)) {k : Nat} (Ω : BoundCtx (Ty α) k) (A B : Ty α) :
+    (pairPastTele Ω tel A B).toFun 0 = (weakenTele ((Ω.snoc A).snoc B) tel).toFun 0 :=
+  congrArg (fun r => r.toFun 0) (swapTele_weaken_proof tel (Ω.snoc A) B)
+
+/-- Moving a telescope beneath a telescope commutes with renaming. -/
+theorem swapTeles_natural_proof : (H : List (Ty α)) → {k j : Nat} → {Ω : BoundCtx (Ty α) k} →
+    {Ω' : BoundCtx (Ty α) j} → (tel : List (Ty α)) → (ω : BoundCtx.Renaming Ω Ω') →
+    (swapTeles Ω tel H).comp (upTele (upTele ω H) tel) = (upTele (upTele ω tel) H).comp (swapTeles Ω' tel H)
+  | [], _, _, _, _, _, _ => rfl
+  | X :: H, _, _, Ω, Ω', tel, ω => by
+    have ih := swapTeles_natural_proof H tel (ω.up X)
+    show (upTele (swapTele Ω tel X) H).comp ((swapTeles (Ω.snoc X) tel H).comp
+      (upTele (upTele (ω.up X) H) tel)) = _
+    rw [ih]
+    show ((upTele (swapTele Ω tel X) H).comp (upTele (upTele (ω.up X) tel) H)).comp _ = _
+    rw [upTele_comp_proof, swapTele_natural_proof, ← upTele_comp_proof]
+    rfl
+
+/-- Moving a telescope that starts with two slots: move the two slots,
+then the rest. -/
+theorem swapTeles_pair_proof (H : List (Ty α)) {k : Nat} (Ω : BoundCtx (Ty α) k) (tel : List (Ty α))
+    (A B : Ty α) :
+    swapTeles Ω tel (A :: B :: H) =
+      (upTele (pairPastTele Ω tel A B) H).comp (swapTeles ((Ω.snoc A).snoc B) tel H) := by
+  show _ = (upTele (((swapTele Ω tel A).up B).comp (swapTele (Ω.snoc A) tel B)) H).comp _
+  rw [← upTele_comp_proof]
+  rfl
+
+/-- Moving a telescope beneath a telescope with one more oldest slot: move
+it beneath the rest, then beneath that slot. -/
+theorem swapTeles_cons_proof : (H : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) → (X : Ty α) →
+    (tel : List (Ty α)) →
+    swapTeles Ω (X :: tel) H = (swapTeles (Ω.snoc X) tel H).comp (upTele (swapTeles Ω [X] H) tel)
+  | [], _, Ω, X, tel => by
+    show BoundCtx.Renaming.id _ = (BoundCtx.Renaming.id _).comp (upTele (BoundCtx.Renaming.id (Ω.snoc X)) tel)
+    rw [upTele_id_proof]
+    rfl
+  | T :: H, _, Ω, X, tel => by
+    have ih := swapTeles_cons_proof H (Ω.snoc T) X tel
+    have nat := swapTeles_natural_proof H tel (swapRenaming Ω X T)
+    let U := upTele (swapTele (Ω.snoc X) tel T) H
+    let V := upTele (upTele (swapRenaming Ω X T) tel) H
+    let W := swapTeles ((Ω.snoc T).snoc X) tel H
+    let W' := swapTeles ((Ω.snoc X).snoc T) tel H
+    let V' := upTele (upTele (swapRenaming Ω X T) H) tel
+    let S : BoundCtx.Renaming (extendCtx ((Ω.snoc T).snoc X) H) ((extendCtx (Ω.snoc T) H).snoc X) :=
+      swapTeles (Ω.snoc T) [X] H
+    let Z := upTele S tel
+    have eA : upTele ((swapTele (Ω.snoc X) tel T).comp (upTele (swapRenaming Ω X T) tel)) H = U.comp V :=
+      (upTele_comp_proof H _ _).symm
+    have eD : upTele ((upTele (swapRenaming Ω X T) H).comp S) tel = V'.comp Z :=
+      (upTele_comp_proof tel (upTele (swapRenaming Ω X T) H) S).symm
+    have step1 : swapTeles Ω (X :: tel) (T :: H) = (U.comp V).comp (W.comp Z) :=
+      congrArg₂ (fun x y => BoundCtx.Renaming.comp x y) eA ih
+    have step2 : (swapTeles (Ω.snoc X) tel (T :: H)).comp (upTele (swapTeles Ω [X] (T :: H)) tel) =
+        (U.comp W').comp (V'.comp Z) :=
+      congrArg (fun r => (U.comp W').comp r) eD
+    have mid : (U.comp V).comp (W.comp Z) = (U.comp W').comp (V'.comp Z) :=
+      congrArg (fun r => U.comp (BoundCtx.Renaming.comp r Z)) nat.symm
+    exact step1.trans (mid.trans step2.symm)
+
+/-- Weakening past a telescope over a slot, and then moving the telescope
+beneath the slot, is weakening past the telescope under the slot. -/
+theorem swapTeles_weaken_proof : (H : List (Ty α)) → {k : Nat} → (Ω : BoundCtx (Ty α) k) → (T : Ty α) →
+    (weakenTele (Ω.snoc T) H).comp (swapTeles Ω [T] H) = (weakenTele Ω H).up T
+  | [], _, _, _ => renaming_ext_proof (Fin.cases rfl (fun _ => rfl))
+  | X :: H, _, Ω, T => by
+    have ih := swapTeles_weaken_proof H (Ω.snoc X) T
+    have nat := weakenTele_natural_proof H (swapRenaming Ω T X)
+    show (BoundCtx.Renaming.succ (Ω.snoc T) X).comp
+      (((weakenTele ((Ω.snoc T).snoc X) H).comp (upTele (swapRenaming Ω T X) H)).comp
+        (swapTeles (Ω.snoc X) [T] H)) = _
+    rw [nat]
+    show ((BoundCtx.Renaming.succ (Ω.snoc T) X).comp (swapRenaming Ω T X)).comp
+      ((weakenTele ((Ω.snoc X).snoc T) H).comp (swapTeles (Ω.snoc X) [T] H)) = _
+    rw [ih]
+    exact renaming_ext_proof (fun i => by
+      show ((weakenTele (Ω.snoc X) H).up T).toFun
+        ((swapRenaming Ω T X).toFun i.succ) = _
+      exact Fin.cases rfl (fun _ => rfl) i)
+
 end Tele
 
 /-! ## Unpacking a tuple slot -/

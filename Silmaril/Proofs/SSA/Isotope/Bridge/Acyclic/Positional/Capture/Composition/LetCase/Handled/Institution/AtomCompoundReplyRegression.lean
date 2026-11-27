@@ -92,9 +92,9 @@ private def chainWith (joined : Slot afterDuo tok) (first second : Slot leafCtx 
     (.bind (.only [(), ()]
       (.hold () () []
         (.ask Op.duo (.atom laterUnder)
-          (.bind [(), ()]
+          (.only [(), ()]
             (.ask Op.join (.pair (.atom joined) (.atom earlierAfterDuo))
-              (.bind [()]
+              (.only [()]
                 (.unpack (.atom () (.ret pairExit (.pair (.atom first) (.atom second))))))))))))
 
 /-- The normal form with a chosen first argument of `join` and a chosen
@@ -231,9 +231,9 @@ private def triples : Spelled older exits
     (.bind (.only [(), (), ()]
       (.hold () () [()]
         (.ask Op.trio (.atom (β := underTriple) ⟨1, rfl⟩)
-          (.bind [(), (), ()]
+          (.only [(), (), ()]
             (.ask Op.join (.pair (.atom (β := afterTrio) ⟨1, rfl⟩) (.atom ⟨7, rfl⟩))
-              (.bind [()]
+              (.only [()]
                 (.unpack
                   (.pair () () []
                     (.atom ()
