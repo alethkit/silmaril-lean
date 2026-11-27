@@ -34,11 +34,8 @@ in Lean.
 
 ## What is not covered
 
-* Classes with different numbers of duplicates. The table has to be
-  extended by unreachable duplicates first, and the loop compared along
-  the padding injection. That comparison is `projection_right_block` with
-  a constructor-valued inner map. Neither the padded table nor the
-  comparison is constructed here.
+* Classes with different numbers of duplicates are treated in
+  `Composite.Padding`, for sizes that differ by one.
 * Other layouts of the state sum and more than two classes. By
   `fold_simulation_iso` each needs only an iso of default Paper from its
   state sum to phases of the folded state type. For an arbitrary finite
