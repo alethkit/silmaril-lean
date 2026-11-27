@@ -136,6 +136,179 @@ theorem let_pair_comm_proof {m : Nat} {Δ : BoundCtx (Ty α) m} {A B X C : Ty α
 
 end Commute
 
+/-! ## A pair held across a chain of requests
+
+The chain with its final destructuring removed, as a term in which the
+slots of the chain and the two components are placed by one renaming. -/
+
+section Chain
+
+variable [TaggedSignature α Φ]
+
+mutual
+
+/-- The chain with its final destructuring removed, as a term. One
+renaming places the slots of the chain and the two components. -/
+def flatDelay : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledDelay a b Δ s L t → {k : Nat} →
+    (Fin (m + 1 + 1) → Fin k) → LetCase.LocallyNameless.Tm Empty Φ k
+  | _, _, _, _, _, _, .unpack (t := body) _, _, σ => body.rename σ
+  | _, _, _, _, _, _, .ask g argument reply, _, σ =>
+    flatDelayed reply σ (.op g ((argTerm argument).rename (fun i => σ i.succ.succ)))
+
+/-- The same for the reply of a request, given the renamed request. -/
+def flatDelayed : {a b : α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {e t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    SpelledDelayed a b tags e Δ s L t → {k : Nat} → (Fin (m + 1 + 1) → Fin k) →
+    LetCase.LocallyNameless.Tm Empty Φ k → LetCase.LocallyNameless.Tm Empty Φ k
+  | _, _, _, _, _, _, _, _, .atom _ next, _, σ, e' =>
+    .let₁ e' (flatDelay next (fun i => LetCase.LocallyNameless.Tm.up σ (afterPair i)))
+  | _, _, _, _, _, _, _, _, .unit next, _, σ, e' =>
+    .let₁ e' (flatDelay next (fun i => LetCase.LocallyNameless.Tm.up σ (afterPair i)))
+
+end
+
+mutual
+
+/-- The flattened chain commutes with renaming. -/
+theorem flatDelay_rename : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    (d : SpelledDelay a b Δ s L t) → {k j : Nat} → (σ : Fin (m + 1 + 1) → Fin k) → (π : Fin k → Fin j) →
+    (flatDelay d σ).rename π = flatDelay d (fun i => π (σ i))
+  | _, _, _, _, _, _, .unpack _, _, _, σ, π => LetCase.LocallyNameless.Tm.rename_comp σ π _
+  | _, _, _, _, _, _, .ask g argument reply, _, _, σ, π => by
+    have h := flatDelayed_rename reply σ π (.op g ((argTerm argument).rename (fun i => σ i.succ.succ)))
+    simpa only [flatDelay, LetCase.LocallyNameless.Tm.rename, LetCase.LocallyNameless.Tm.rename_comp] using h
+
+/-- The same for the reply of a request. -/
+theorem flatDelayed_rename : {a b : α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledDelayed a b tags e Δ s L t) → {k j : Nat} →
+    (σ : Fin (m + 1 + 1) → Fin k) → (π : Fin k → Fin j) → (e' : LetCase.LocallyNameless.Tm Empty Φ k) →
+    (flatDelayed d σ e').rename π = flatDelayed d (fun i => π (σ i)) (e'.rename π)
+  | _, _, _, _, _, _, _, _, .atom _ next, _, _, σ, π, e' => by
+    have h := flatDelay_rename next (fun i => LetCase.LocallyNameless.Tm.up σ (afterPair i))
+      (LetCase.LocallyNameless.Tm.up π)
+    have lifted : (fun i => LetCase.LocallyNameless.Tm.up π (LetCase.LocallyNameless.Tm.up σ (afterPair i))) =
+        fun i => LetCase.LocallyNameless.Tm.up (fun i => π (σ i)) (afterPair i) := by
+      funext i
+      exact Fin.cases rfl (fun _ => rfl) (afterPair i)
+    rw [lifted] at h
+    exact congrArg (LetCase.LocallyNameless.Tm.let₁ (e'.rename π)) h
+  | _, _, _, _, _, _, _, _, .unit next, _, _, σ, π, e' => by
+    have h := flatDelay_rename next (fun i => LetCase.LocallyNameless.Tm.up σ (afterPair i))
+      (LetCase.LocallyNameless.Tm.up π)
+    have lifted : (fun i => LetCase.LocallyNameless.Tm.up π (LetCase.LocallyNameless.Tm.up σ (afterPair i))) =
+        fun i => LetCase.LocallyNameless.Tm.up (fun i => π (σ i)) (afterPair i) := by
+      funext i
+      exact Fin.cases rfl (fun _ => rfl) (afterPair i)
+    rw [lifted] at h
+    exact congrArg (LetCase.LocallyNameless.Tm.let₁ (e'.rename π)) h
+
+end
+
+mutual
+
+/-- The flattened chain is typed where the two components are slots. -/
+theorem flatDelay_typed : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    (d : SpelledDelay a b Δ s L t) → {k : Nat} → {Θ : BoundCtx (Ty α) k} →
+    (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ) →
+    HasType Φ Γ₀ Θ (flatDelay d σ.toFun) (packedExitType L)
+  | _, _, _, _, _, _, .unpack body, _, _, σ => HasType.rename σ body.typing.toHasType
+  | a, b, _, Δ, _, _, .ask g argument reply, _, _, σ =>
+    flatDelayed_typed reply σ _
+      (HasType.rename (((BoundCtx.Renaming.succ Δ (.base a)).comp (BoundCtx.Renaming.succ _ (.base b))).comp σ)
+        (Derivation.op (f := g) (argTyping argument)).toHasType)
+
+/-- The same for the reply of a request. -/
+theorem flatDelayed_typed : {a b : α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledDelayed a b tags e Δ s L t) → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ) →
+    (e' : LetCase.LocallyNameless.Tm Empty Φ k) → HasType Φ Γ₀ Θ e' (tagsTy tags) →
+    HasType Φ Γ₀ Θ (flatDelayed d σ.toFun e') (packedExitType L)
+  | _, _, _, _, Δ, _, _, _, .atom _ next, _, _, σ, _, he' =>
+    .let₁ he' (flatDelay_typed next ((afterPairRenaming Δ _ _ _).comp (σ.up _)))
+  | _, _, _, _, Δ, _, _, _, .unit next, _, _, σ, _, he' =>
+    .let₁ he' (flatDelay_typed next ((afterPairRenaming Δ _ _ _).comp (σ.up _)))
+
+end
+
+mutual
+
+/-- A chain with a held pair, renamed, is natively equal to destructuring
+the pair first and then running the flattened chain. One commuting step is
+used for each request of the chain. -/
+theorem delay_comm : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    (d : SpelledDelay a b Δ s L t) → {k : Nat} → {Δ' : BoundCtx (Ty α) k} → (ρ : BoundCtx.Renaming Δ Δ') →
+    Equiv false Γ₀ Δ' (t.rename ρ.toFun)
+      (.let₂ (.bv (ρ.toFun s.1))
+        (flatDelay d (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))
+      (packedExitType L)
+  | _, _, _, _, _, _, .unpack body, _, _, ρ =>
+    .refl (HasType.rename ρ (SpelledDelay.unpack body).typing.toHasType)
+  | _, _, _, _, _, _, .ask g argument reply, _, _, ρ => by
+    have h := delayed_comm reply ρ (HasType.rename ρ (Derivation.op (f := g) (argTyping argument)).toHasType)
+    have request : ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ) argument)).rename ρ.toFun).rename
+        (fun i => i.succ.succ) =
+        .op g ((argTerm argument).rename (fun i => LetCase.LocallyNameless.Tm.up
+          (LetCase.LocallyNameless.Tm.up ρ.toFun) i.succ.succ)) := by
+      simp only [LetCase.LocallyNameless.Tm.rename, LetCase.LocallyNameless.Tm.rename_comp]
+      rfl
+    rw [request] at h
+    exact h
+
+/-- The same for the reply of a request, given the typing of the renamed
+request. -/
+theorem delayed_comm : {a b : α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledDelayed a b tags e Δ s L t) → {k : Nat} →
+    {Δ' : BoundCtx (Ty α) k} → (ρ : BoundCtx.Renaming Δ Δ') →
+    HasType Φ Γ₀ Δ' (e.rename ρ.toFun) (tagsTy tags) →
+    Equiv false Γ₀ Δ' (t.rename ρ.toFun)
+      (.let₂ (.bv (ρ.toFun s.1))
+        (flatDelayed d (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))
+          ((e.rename ρ.toFun).rename (fun i => i.succ.succ))))
+      (packedExitType L)
+  | a, b, _, _, _, s, _, _, .atom c next, _, Δ', ρ, he => by
+    have ih := delay_comm next (ρ.up (tupleTy [c]))
+    have typed := flatDelay_typed next (((ρ.up (tupleTy [c])).up (.base a)).up (.base b))
+    have slot : Δ'.get (ρ.toFun s.1) = .product (.base a) (.base b) := (ρ.typed s.1).trans s.2
+    have comm := let_pair_comm_proof (ρ.toFun s.1) slot he typed
+    have moved : (flatDelay next (((ρ.up (tupleTy [c])).up (.base a)).up (.base b)).toFun).rename afterPair =
+        flatDelay next (fun i => LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+          (LetCase.LocallyNameless.Tm.up ρ.toFun)) (afterPair i)) := by
+      rw [flatDelay_rename]
+      congr 1
+      funext i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+    rw [moved] at comm
+    exact (Equiv.let₁ (.refl he) ih).trans comm
+  | a, b, _, _, _, s, _, _, .unit next, _, Δ', ρ, he => by
+    have ih := delay_comm next (ρ.up (tupleTy ([] : List α)))
+    have typed := flatDelay_typed next (((ρ.up (tupleTy ([] : List α))).up (.base a)).up (.base b))
+    have slot : Δ'.get (ρ.toFun s.1) = .product (.base a) (.base b) := (ρ.typed s.1).trans s.2
+    have comm := let_pair_comm_proof (ρ.toFun s.1) slot he typed
+    have moved : (flatDelay next (((ρ.up (tupleTy ([] : List α))).up (.base a)).up (.base b)).toFun).rename afterPair =
+        flatDelay next (fun i => LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
+          (LetCase.LocallyNameless.Tm.up ρ.toFun)) (afterPair i)) := by
+      rw [flatDelay_rename]
+      congr 1
+      funext i
+      refine Fin.cases rfl (fun i => ?_) i
+      refine Fin.cases rfl (fun i => ?_) i
+      exact Fin.cases rfl (fun i => rfl) i
+    rw [moved] at comm
+    exact (Equiv.let₁ (.refl he) ih).trans comm
+
+end
+
+end Chain
+
 /-! ## The native equation between a spelling and its normal form
 
 Each head uses one native sequencing law. A bound head needs none. A pair
@@ -232,84 +405,40 @@ theorem SpelledTuple.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} → 
   | _, _, _, _, .atom _ body, _, _, ρ => body.normal_equiv (ρ.up _)
   | _, _, _, _, .pair _ _ _ later, _, _, ρ =>
     Equiv.let₂ (.refl .bv) (later.normal_equiv ((ρ.up _).up _))
-  | _, _, _, _, .across a b g argument held, _, γ, ρ => by
-    have request : (LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
-        (argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))))).rename
-          (LetCase.LocallyNameless.Tm.up ρ.toFun) =
-        .op g (argTerm ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _))) :=
-      congrArg (LetCase.LocallyNameless.Tm.op g) (argTerm_rename_proof _ (ρ.up _))
-    have he : HasType Φ Γ₀ (γ.snoc (tupleTy [a, b]))
-        ((LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
-          (argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))))).rename
-            (LetCase.LocallyNameless.Tm.up ρ.toFun)) (tagsTy (replyTags g)) := by
-      rw [request]
-      exact (Derivation.op (f := g) (argTyping _)).toHasType
-    have h := held.normal_equiv ρ he
-    rw [request] at h
-    have later : (LetCase.LocallyNameless.Tm.op g (argTerm (Φ := Φ)
-        ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)))).rename
-          (fun i => i.succ.succ) =
-        .op g (argTerm (((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)).rename
-          ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
-            (BoundCtx.Renaming.succ _ (tupleTy [b]))))) :=
-      congrArg (LetCase.LocallyNameless.Tm.op g)
-        (argTerm_rename_proof ((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _))
-          ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
-            (BoundCtx.Renaming.succ _ (tupleTy [b]))))
-    rw [later] at h
+  | _, _, _, _, .hold _ _ delay, _, _, ρ =>
+    (delay_comm delay (ρ.up _)).trans
+      (Equiv.let₂ (.refl .bv) (delay.normal_flat (((ρ.up _).up _).up _)))
+
+/-- The flattened chain is natively equal to the normal form of the chain. -/
+theorem SpelledDelay.normal_flat : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    (d : SpelledDelay a b Δ s L t) → {k : Nat} → {Θ : BoundCtx (Ty α) k} →
+    (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ) →
+    Equiv false Γ₀ Θ (flatDelay d σ.toFun) (d.normal σ).1 (packedExitType L)
+  | _, _, _, _, _, _, .unpack body, _, _, σ => body.normal_equiv σ
+  | a, b, _, Δ, _, _, .ask g argument reply, _, Θ, σ => by
+    let past : BoundCtx.Renaming Δ Θ :=
+      ((BoundCtx.Renaming.succ Δ (.base a)).comp (BoundCtx.Renaming.succ (Δ.snoc (.base a)) (.base b))).comp σ
+    have request : LetCase.LocallyNameless.Tm.op g ((argTerm (Φ := Φ) argument).rename
+        (fun i => σ.toFun i.succ.succ)) = .op g (argTerm (argument.rename past)) :=
+      congrArg (LetCase.LocallyNameless.Tm.op g) (argTerm_rename_proof argument past)
+    have h := reply.normal_flat σ _ (Derivation.op (f := g) (argTyping (argument.rename past))).toHasType
+    show Equiv false Γ₀ Θ (flatDelayed reply σ.toFun
+      (.op g ((argTerm argument).rename (fun i => σ.toFun i.succ.succ)))) _ _
+    rw [request]
     exact h
 
-theorem SpelledHeld.normal_equiv : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} →
-    {tags : List (List α)} → {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} →
-    (d : SpelledHeld a b tags e β L t) → {m : Nat} → {γ : BoundCtx (Ty α) m} →
-    (ρ : BoundCtx.Renaming β γ) →
-    HasType Φ Γ₀ (γ.snoc (tupleTy [a, b])) (e.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (tagsTy tags) →
-    Equiv false Γ₀ (γ.snoc (tupleTy [a, b])) (t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun))
-      (.let₂ (.bv 0) (.let₁ ((e.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)).rename (fun i => i.succ.succ))
-        (d.normal ρ).1)) (packedExitType L)
-  | a, b, _, _, _, _, _, .atom (t := body) _ _ c tree, _, γ, ρ, he => by
-    have typed : HasType Φ Γ₀ ((((γ.snoc (tupleTy [a, b])).snoc (tupleTy [c])).snoc (.base a)).snoc (.base b))
-        (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
-          (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))) (packedExitType L) :=
-      HasType.rename ((((ρ.up _).up _).up _).up _) tree.typing.toHasType
-    have comm := let_pair_comm_proof (0 : Fin (_ + 1)) rfl he typed
-    have moved : (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
-        (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))).rename afterPair =
-          body.rename (heldRenaming ρ (tupleTy [a, b]) (tupleTy [c]) (.base a) (.base b)).toFun := by
-      rw [LetCase.LocallyNameless.Tm.rename_comp]
-      apply LetCase.LocallyNameless.Tm.rename_congr
-      intro i
-      refine Fin.cases rfl (fun i => ?_) i
-      refine Fin.cases rfl (fun i => ?_) i
-      refine Fin.cases rfl (fun i => ?_) i
-      exact Fin.cases rfl (fun i => rfl) i
-    rw [moved] at comm
-    exact comm.trans (Equiv.let₂ (.refl .bv) (Equiv.let₁
-      (.refl (HasType.rename ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
-        (BoundCtx.Renaming.succ _ (.base b))) he))
-      (tree.normal_equiv (heldRenaming ρ _ _ _ _))))
-  | a, b, _, _, _, _, _, .unit (t := body) _ _ tree, _, γ, ρ, he => by
-    have typed : HasType Φ Γ₀
-        ((((γ.snoc (tupleTy [a, b])).snoc (tupleTy ([] : List α))).snoc (.base a)).snoc (.base b))
-        (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
-          (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))) (packedExitType L) :=
-      HasType.rename ((((ρ.up _).up _).up _).up _) tree.typing.toHasType
-    have comm := let_pair_comm_proof (0 : Fin (_ + 1)) rfl he typed
-    have moved : (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up
-        (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun))))).rename afterPair =
-          body.rename (heldRenaming ρ (tupleTy [a, b]) (tupleTy ([] : List α)) (.base a) (.base b)).toFun := by
-      rw [LetCase.LocallyNameless.Tm.rename_comp]
-      apply LetCase.LocallyNameless.Tm.rename_congr
-      intro i
-      refine Fin.cases rfl (fun i => ?_) i
-      refine Fin.cases rfl (fun i => ?_) i
-      refine Fin.cases rfl (fun i => ?_) i
-      exact Fin.cases rfl (fun i => rfl) i
-    rw [moved] at comm
-    exact comm.trans (Equiv.let₂ (.refl .bv) (Equiv.let₁
-      (.refl (HasType.rename ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
-        (BoundCtx.Renaming.succ _ (.base b))) he))
-      (tree.normal_equiv (heldRenaming ρ _ _ _ _))))
+/-- The same for the reply of a request. -/
+theorem SpelledDelayed.normal_flat : {a b : α} → {tags : List (List α)} → {m : Nat} →
+    {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ m} → (d : SpelledDelayed a b tags e Δ s L t) → {k : Nat} →
+    {Θ : BoundCtx (Ty α) k} → (σ : BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ) →
+    (e' : LetCase.LocallyNameless.Tm Empty Φ k) → HasType Φ Γ₀ Θ e' (tagsTy tags) →
+    Equiv false Γ₀ Θ (flatDelayed d σ.toFun e') (.let₁ e' (d.normal σ).1) (packedExitType L)
+  | _, _, _, _, Δ, _, _, _, .atom _ next, _, _, σ, _, he' =>
+    Equiv.let₁ (.refl he') (next.normal_flat ((afterPairRenaming Δ _ _ _).comp (σ.up _)))
+  | _, _, _, _, Δ, _, _, _, .unit next, _, _, σ, _, he' =>
+    Equiv.let₁ (.refl he') (next.normal_flat ((afterPairRenaming Δ _ _ _).comp (σ.up _)))
 
 end
 

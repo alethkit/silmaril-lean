@@ -31,26 +31,36 @@ equality of their normal forms. Two different spellings of one tree have
 the same normal form, so equality of the trees themselves is not the
 criterion.
 
-A pending pair of atoms may also be held across one later request and
-destructured after it. The later request does not use the pair, and its
-reply has one tag with at most one atom. The spelled term is
-`let₁ (op g a) (let₂ x t)` under the pair slot `x`, and the normal form
-destructures the pair first. The two are related by a derived native
+A pending pair of atoms may also be held across a chain of later requests
+and destructured after them. The spelled term is
+`let₁ (op g₁ a₁) (… (let₁ (op gₖ aₖ) (let₂ x t)))` under the pair slot `x`,
+and the normal form destructures the pair first. The dependencies are
+exact. Each request is assembled from the atom slots in scope. The held
+pair is one slot of pair type, not an atom slot, so no request of the
+chain can use it or its components. The reply of each request has one tag
+with at most one atom and is bound, so a later request of the chain may
+use the replies of earlier ones, and any request may use the older atom
+slots. The body may use the two components, the replies of the chain and
+the older slots.
+
+The spelling and its normal form are related by a derived native
 equation, `let₁ E (let₂ x B) = let₂ x (let₁ E↑↑ B′)`, in which the two
 components move beneath the binder of the let. It follows from pure-let
 beta, pair eta, the law that pulls a pattern let out of the scrutinee of a
-let, and pair beta. The request is not duplicated or reordered, and no
-case is moved across a request.
+let, and pair beta. The equation is applied once for each request of the
+chain, by induction on the chain; the length of the chain is not fixed.
+Each request occurs once in the normal form, in the same order. No case
+is moved across a request.
 
 The covered syntax is exact. A request is followed by one of the three
 heads. After a pair head the first atom is a slot and the rest of the
 tuple is pending. After a case head each arm has its tuple or the
 remaining tags pending. Pending tuples and tags are consumed at once and
 in order, as in the case trees, except that a pending pair of atoms may be
-held across one later request as above. Holding a longer tuple, holding
-across a request with a compound or multi-tag reply or across more than
-one request, other placements of a destructuring, and arbitrary LetCase
-terms are outside it.
+held across a chain of requests as above. Holding a tuple of three or
+more atoms, a chain request with a compound or multi-tag reply, a case
+inside the chain, other placements of a destructuring, and arbitrary
+LetCase terms are outside it.
 
 A direct case tree is the spelled tree of a binary signature, with two
 tags of one atom each, in which every request is cased on directly. For

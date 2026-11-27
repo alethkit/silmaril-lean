@@ -60,6 +60,11 @@ yet. Ask `ping` on the later capture and bind its reply `c`. Then
 destructure the pair into `a` and `b`, and return a pair at the pair
 exit. -/
 
+/-- Under the held pair: the pair and the two captures. -/
+private abbrev underPair : BoundCtx (Ty Unit) 3 := older.snoc pairTy
+private abbrev laterUnder : Slot underPair tok := ⟨1, rfl⟩
+private abbrev earlierUnder : Slot underPair tok := ⟨2, rfl⟩
+
 /-- After the destructuring: `b`, `a`, `c`, the pair, and the two captures. -/
 private abbrev heldCtx : BoundCtx (Ty Unit) 6 := (((older.snoc pairTy).snoc tok).snoc tok).snoc tok
 private abbrev compB : Slot heldCtx tok := ⟨0, rfl⟩
@@ -74,8 +79,9 @@ private def heldWith (first second : Slot heldCtx tok) : Spelled older exits
         (.let₂ (.bv 1) (.inl (.pair (.bv first.1) (.bv second.1))))) : Term 2) :=
   .ask Op.both (.atom earlier)
     (.bind (.only [(), ()]
-      (.across () () Op.ping (.atom later)
-        (.atom () () () (.ret pairExit (.pair (.atom first) (.atom second)))))))
+      (.hold () ()
+        (.ask Op.ping (.atom laterUnder)
+          (.atom () (.unpack (.ret pairExit (.pair (.atom first) (.atom second)))))))))
 
 /-- The normal form with a chosen returned pair. The pair is destructured
 before `ping`. -/
@@ -205,8 +211,9 @@ private def armHeld : Spelled older exits
       (.inr (.inl (.bv 0))) : Term 2) :=
   .ask Op.fetch (.pair (.atom earlier) (.atom later))
     (.branch [(), ()] [()] []
-      (.across () () Op.ping (.atom earlier)
-        (.atom () () () (.ret pairExit (.pair (.atom compB) (.atom replyC)))))
+      (.hold () ()
+        (.ask Op.ping (.atom earlierUnder)
+          (.atom () (.unpack (.ret pairExit (.pair (.atom compB) (.atom replyC)))))))
       (.only [()] (.atom () (.ret (β := (older.snoc tok)) atomExit (.atom ⟨0, rfl⟩)))))
 
 /-- Its normal form binds the reply of `fetch`, cases on it, and

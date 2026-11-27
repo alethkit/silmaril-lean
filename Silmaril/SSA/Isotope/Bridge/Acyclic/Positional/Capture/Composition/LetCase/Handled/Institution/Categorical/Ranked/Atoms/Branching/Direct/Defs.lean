@@ -18,11 +18,14 @@ in the case trees: remaining tags are cased on in order and tuples are
 unpacked in order. Bodies may contain further requests in any of the three
 spellings. Leaves are those of the case trees.
 
-A pending pair of atoms may instead be held across one later request and
-destructured after it: `let₁ (op g a) (let₂ x t)`, where `x` is the pair
-slot. The later request is assembled from the older atom slots, so it does
-not use the pair. Its reply has one tag with at most one atom. The body
-has the two components and the later reply as slots.
+A pending pair of atoms may instead be held across a chain of later
+requests and destructured after them:
+`let₁ (op g₁ a₁) (… (let₁ (op gₖ aₖ) (let₂ x t)))`, where `x` is the pair
+slot. Each request is assembled from the atom slots in scope. The pair is
+not an atom slot, so no request of the chain uses it. The reply of each
+request has one tag with at most one atom and is bound, so later requests
+of the chain may use the replies of earlier ones. The body has the two
+components, the replies of the chain and the older slots.
 
 The normal form of a spelled tree is the case tree with the same requests
 in the same order, the same exits and the same payloads. Every slot of the
@@ -41,7 +44,7 @@ open Region (packedExitType)
 open Reverse (CheckedTable)
 open LetCase.LocallyNameless (Derivation Equiv)
 open LetCase.Structural.Reply (Γ₀)
-open LetSeq.StraightLine.Structural (Shape Assembly)
+open LetSeq.StraightLine.Structural (Shape Slot Assembly)
 open scoped LetSeq.StraightLine.Structural Tagged
 
 /-- The slots under one new slot, past a reply slot bound beneath it: the
@@ -56,14 +59,12 @@ newest two move up by one and the third becomes newest. -/
 def afterPair {m : Nat} : Fin (m + 3) → Fin (m + 3) :=
   Fin.cases 1 (Fin.cases 2 (Fin.cases 0 (fun i => i.succ.succ.succ)))
 
-/-- The slots after a held pair is destructured behind a later reply, in
-the normal form that destructures the pair first: the two components come
-before the later reply, and every older slot keeps its place. -/
-def heldRenaming {α : Type} {n m : Nat} {β : BoundCtx (Ty α) n} {γ : BoundCtx (Ty α) m}
-    (ρ : BoundCtx.Renaming β γ) (P X A B : Ty α) :
-    BoundCtx.Renaming ((((β.snoc P).snoc X).snoc A).snoc B) ((((γ.snoc P).snoc A).snoc B).snoc X) where
-  toFun := Fin.cases 1 (Fin.cases 2 (Fin.cases 0 (Fin.cases 3 (fun i => (ρ.toFun i).succ.succ.succ.succ))))
-  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun i => ρ.typed i))))
+/-- That move as a renaming of contexts: two slots `A`, `B` bound after a
+slot `X` are placed beneath it. -/
+def afterPairRenaming {α : Type} {m : Nat} (Δ : BoundCtx (Ty α) m) (X A B : Ty α) :
+    BoundCtx.Renaming (((Δ.snoc X).snoc A).snoc B) (((Δ.snoc A).snoc B).snoc X) where
+  toFun := afterPair
+  typed := Fin.cases rfl (Fin.cases rfl (Fin.cases rfl (fun _ => rfl)))
 
 /-! ## Spelled trees -/
 
@@ -125,29 +126,40 @@ inductive SpelledTuple : {n : Nat} → List α → BoundCtx (Ty α) n → List (
       {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1)}
       (later : SpelledTuple (b :: rest) ((β.snoc (tupleTy (a :: b :: rest))).snoc (.base a)) L t) :
       SpelledTuple (a :: b :: rest) β L (.let₂ (.bv 0) t)
-  | across {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b : α) (g : Φ)
-      (argument : Assembly β (instrSrc g)) {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-      (held : SpelledHeld a b (replyTags g)
-        (.op g (argTerm (argument.rename (BoundCtx.Renaming.succ β (tupleTy [a, b]))))) β L t) :
-      SpelledTuple [a, b] β L t
+  | hold {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b : α)
+      {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
+      (delay : SpelledDelay a b (β.snoc (tupleTy [a, b])) ⟨0, rfl⟩ L t) : SpelledTuple [a, b] β L t
 
-/-- A later request with a pair of atoms held beneath it, over the base
-context. The request does not use the pair. Its reply has one tag with at
-most one atom and is bound. The held pair is destructured after it, and
-the body has the two components newest. -/
-inductive SpelledHeld : α → α → {n : Nat} → List (List α) → LetCase.LocallyNameless.Tm Empty Φ (n + 1) →
-    BoundCtx (Ty α) n → List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ (n + 1) → Type where
-  | atom {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b c : α)
-      {e : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-      {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1 + 1)}
-      (body : Spelled ((((β.snoc (tupleTy [a, b])).snoc (tupleTy [c])).snoc (.base a)).snoc (.base b)) L t) :
-      SpelledHeld a b [[c]] e β L (.let₁ e (.let₂ (.bv 1) t))
-  | unit {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)} (a b : α)
-      {e : LetCase.LocallyNameless.Tm Empty Φ (n + 1)}
-      {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1 + 1 + 1 + 1)}
-      (body : Spelled ((((β.snoc (tupleTy [a, b])).snoc (tupleTy ([] : List α))).snoc (.base a)).snoc (.base b))
-        L t) :
-      SpelledHeld a b [[]] e β L (.let₁ e (.let₂ (.bv 1) t))
+/-- A chain of requests with a pair of atoms held at one slot of the
+context. The chain ends by destructuring the pair, and the body has its
+two components newest. Before that it may ask a request and bind its
+reply. The argument of a request is assembled from the atom slots in
+scope. The held pair is not an atom slot, so no request uses it. The
+replies of earlier requests of the chain are atom slots, so later requests
+may use them. -/
+inductive SpelledDelay : (a b : α) → {m : Nat} → (Δ : BoundCtx (Ty α) m) → Slot Δ (tupleTy [a, b]) →
+    List (Ty α) → LetCase.LocallyNameless.Tm Empty Φ m → Type where
+  | unpack {a b : α} {m : Nat} {Δ : BoundCtx (Ty α) m} {s : Slot Δ (tupleTy [a, b])} {L : List (Ty α)}
+      {t : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1)}
+      (body : Spelled ((Δ.snoc (.base a)).snoc (.base b)) L t) : SpelledDelay a b Δ s L (.let₂ (.bv s.1) t)
+  | ask {a b : α} {m : Nat} {Δ : BoundCtx (Ty α) m} {s : Slot Δ (tupleTy [a, b])} {L : List (Ty α)} (g : Φ)
+      (argument : Assembly Δ (instrSrc g)) {t : LetCase.LocallyNameless.Tm Empty Φ m}
+      (reply : SpelledDelayed a b (replyTags g) (.op g (argTerm argument)) Δ s L t) : SpelledDelay a b Δ s L t
+
+/-- The reply of a request of the chain. It has one tag with one atom or
+none, and is bound. The chain continues under it with the pair one slot
+deeper. -/
+inductive SpelledDelayed : (a b : α) → List (List α) → {m : Nat} → LetCase.LocallyNameless.Tm Empty Φ m →
+    (Δ : BoundCtx (Ty α) m) → Slot Δ (tupleTy [a, b]) → List (Ty α) →
+    LetCase.LocallyNameless.Tm Empty Φ m → Type where
+  | atom {a b : α} {m : Nat} {Δ : BoundCtx (Ty α) m} {s : Slot Δ (tupleTy [a, b])} {L : List (Ty α)} (c : α)
+      {e : LetCase.LocallyNameless.Tm Empty Φ m} {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+      (next : SpelledDelay a b (Δ.snoc (tupleTy [c])) (s.rename (BoundCtx.Renaming.succ Δ _)) L k) :
+      SpelledDelayed a b [[c]] e Δ s L (.let₁ e k)
+  | unit {a b : α} {m : Nat} {Δ : BoundCtx (Ty α) m} {s : Slot Δ (tupleTy [a, b])} {L : List (Ty α)}
+      {e : LetCase.LocallyNameless.Tm Empty Φ m} {k : LetCase.LocallyNameless.Tm Empty Φ (m + 1)}
+      (next : SpelledDelay a b (Δ.snoc (tupleTy ([] : List α))) (s.rename (BoundCtx.Renaming.succ Δ _)) L k) :
+      SpelledDelayed a b [[]] e Δ s L (.let₁ e k)
 
 end
 
@@ -185,17 +197,23 @@ def SpelledTuple.typing : {n : Nat} → {β : BoundCtx (Ty α) n} → {atoms : L
   | _, _, _, _, .unit body => body.typing
   | _, _, _, _, .atom _ body => body.typing
   | _, _, _, _, .pair _ _ _ later => .let₂ .bv later.typing
-  | _, _, _, _, .across _ _ g argument held =>
-    held.typing (.op (f := g) (argTyping (argument.rename (BoundCtx.Renaming.succ _ _))))
+  | _, _, _, _, .hold _ _ delay => delay.typing
 
-/-- The native typing of a held request, from the typing of the request
-under the held pair. -/
-def SpelledHeld.typing : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
-    {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → SpelledHeld a b tags e β L t →
-    Derivation Φ Γ₀ (β.snoc (tupleTy [a, b])) e (tagsTy tags) →
-    Derivation Φ Γ₀ (β.snoc (tupleTy [a, b])) t (packedExitType L)
-  | _, _, _, _, _, _, _, .atom _ _ _ body, d => .let₁ d (.let₂ (.bv (ι := 1)) body.typing)
-  | _, _, _, _, _, _, _, .unit _ _ body, d => .let₁ d (.let₂ (.bv (ι := 1)) body.typing)
+/-- The native typing of a chain with a held pair. -/
+def SpelledDelay.typing : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledDelay a b Δ s L t →
+    Derivation Φ Γ₀ Δ t (packedExitType L)
+  | _, _, _, _, s, _, .unpack body => .let₂ (slotTyping s) body.typing
+  | _, _, _, _, _, _, .ask g argument reply => reply.typing (.op (f := g) (argTyping argument))
+
+/-- The native typing of the reply of a request of the chain, from the
+typing of the request. -/
+def SpelledDelayed.typing : {a b : α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {e t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    SpelledDelayed a b tags e Δ s L t → Derivation Φ Γ₀ Δ e (tagsTy tags) →
+    Derivation Φ Γ₀ Δ t (packedExitType L)
+  | _, _, _, _, _, _, _, _, .atom _ next, d => .let₁ d next.typing
+  | _, _, _, _, _, _, _, _, .unit next, d => .let₁ d next.typing
 
 end
 
@@ -247,28 +265,35 @@ def SpelledTuple.normal : {n : Nat} → {β : BoundCtx (Ty α) n} → {atoms : L
   | _, _, _, _, .atom a body, _, _, ρ => ⟨_, .atom a (body.normal (ρ.up _)).2⟩
   | _, _, _, _, .pair a b rest later, _, _, ρ =>
     ⟨_, .pair a b rest (later.normal ((ρ.up _).up _)).2⟩
-  | _, _, _, _, .across a b g argument held, _, γ, ρ =>
-    ⟨_, .pair a b []
-      (.atom b
-        (.ask g
-          (((argument.rename (BoundCtx.Renaming.succ _ (tupleTy [a, b]))).rename (ρ.up _)).rename
-            ((BoundCtx.Renaming.succ (γ.snoc (tupleTy [a, b])) (.base a)).comp
-              (BoundCtx.Renaming.succ _ (tupleTy [b]))))
-          (held.normal ρ).2))⟩
+  | _, _, _, _, .hold a b delay, _, _, ρ =>
+    ⟨_, .pair a b [] (.atom b (delay.normal (((ρ.up _).up _).up _)).2)⟩
 
-/-- The normal form of a held request: the case tree that consumes the
-bound reply of the later request, after the pair has been destructured
-first. The two components come before the later reply. -/
-def SpelledHeld.normal : {a b : α} → {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
-    {e t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → SpelledHeld a b tags e β L t →
-    {m : Nat} → {γ : BoundCtx (Ty α) m} → BoundCtx.Renaming β γ →
-    (k : LetCase.LocallyNameless.Tm Empty Φ (m + 1 + 1 + 1 + 1)) ×
-      CaseTree (.tags tags)
-        ((((γ.snoc (tupleTy [a, b])).snoc (.base a)).snoc (tupleTy [b])).snoc (tagsTy tags)) L k
-  | _, _, _, _, _, _, _, .atom _ _ c body, _, _, ρ =>
-    ⟨_, .only [c] (.atom c (body.normal (heldRenaming ρ _ _ _ _)).2)⟩
-  | _, _, _, _, _, _, _, .unit _ _ body, _, _, ρ =>
-    ⟨_, .only [] (.unit (body.normal (heldRenaming ρ _ _ _ _)).2)⟩
+/-- The normal form of a chain with a held pair, in a context where the
+two components of the pair are already slots. The renaming is of the
+context of the chain followed by the two components. The requests of the
+chain are asked in order, and the body follows. -/
+def SpelledDelay.normal : {a b : α} → {m : Nat} → {Δ : BoundCtx (Ty α) m} → {s : Slot Δ (tupleTy [a, b])} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ m} → SpelledDelay a b Δ s L t →
+    {k : Nat} → {Θ : BoundCtx (Ty α) k} → BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ →
+    (u : LetCase.LocallyNameless.Tm Empty Φ k) × CaseTree .body Θ L u
+  | _, _, _, _, _, _, .unpack body, _, _, σ => body.normal σ
+  | a, b, _, Δ, _, _, .ask g argument reply, _, _, σ =>
+    ⟨_, .ask g
+      (argument.rename (((BoundCtx.Renaming.succ Δ (.base a)).comp
+        (BoundCtx.Renaming.succ _ (.base b))).comp σ))
+      (reply.normal σ).2⟩
+
+/-- The normal form of the reply of a request of the chain. The chain
+continues with the reply as a slot after the two components. -/
+def SpelledDelayed.normal : {a b : α} → {tags : List (List α)} → {m : Nat} → {Δ : BoundCtx (Ty α) m} →
+    {s : Slot Δ (tupleTy [a, b])} → {e t : LetCase.LocallyNameless.Tm Empty Φ m} →
+    SpelledDelayed a b tags e Δ s L t →
+    {k : Nat} → {Θ : BoundCtx (Ty α) k} → BoundCtx.Renaming ((Δ.snoc (.base a)).snoc (.base b)) Θ →
+    (u : LetCase.LocallyNameless.Tm Empty Φ (k + 1)) × CaseTree (.tags tags) (Θ.snoc (tagsTy tags)) L u
+  | _, _, _, _, Δ, _, _, _, .atom c next, _, _, σ =>
+    ⟨_, .only [c] (.atom c (next.normal ((afterPairRenaming Δ _ _ _).comp (σ.up _))).2)⟩
+  | _, _, _, _, Δ, _, _, _, .unit next, _, _, σ =>
+    ⟨_, .only [] (.unit (next.normal ((afterPairRenaming Δ _ _ _).comp (σ.up _))).2)⟩
 
 end
 
