@@ -12,19 +12,19 @@ open LetCase.Structural.Reply (Γ₀)
 open LetSeq.StraightLine.Structural (Slot Assembly)
 open scoped LetSeq.StraightLine.Structural Tagged Binary
 
-variable {α Φ : Type} [BinarySignature α Φ] {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)}
+variable {α Φ : Type} {n : Nat} {β : BoundCtx (Ty α) n} {L : List (Ty α)}
 
 /-! ## Renaming of exits and payloads -/
 
-omit [BinarySignature α Φ] in
-private theorem exit_term_rename {A : Ty α} (e : ExitAt L A) {m : Nat} (ξ : Fin n → Fin m)
+/-- Renaming commutes with returning at an exit. -/
+theorem exit_term_rename_proof {A : Ty α} (e : ExitAt L A) {m : Nat} (ξ : Fin n → Fin m)
     (t : LetCase.LocallyNameless.Tm Empty Φ n) : (e.term t).rename ξ = e.term (t.rename ξ) := by
   induction e with
   | here => rfl
   | there later ih => exact congrArg LetCase.LocallyNameless.Tm.inr ih
 
-omit [BinarySignature α Φ] in
-private theorem argTerm_rename {A : Ty α} (p : Assembly β A) {m : Nat} {γ : BoundCtx (Ty α) m}
+/-- Renaming commutes with assembling a payload. -/
+theorem argTerm_rename_proof {A : Ty α} (p : Assembly β A) {m : Nat} {γ : BoundCtx (Ty α) m}
     (ρ : BoundCtx.Renaming β γ) :
     (argTerm (Φ := Φ) p).rename ρ.toFun = argTerm (p.rename ρ) := by
   induction p with
@@ -32,48 +32,117 @@ private theorem argTerm_rename {A : Ty α} (p : Assembly β A) {m : Nat} {γ : B
   | unit => rfl
   | pair a b iha ihb => exact congrArg₂ LetCase.LocallyNameless.Tm.pair iha ihb
 
-/-! ## The native equation between the two spellings -/
+/-! ## The native equation between a spelling and its normal form
 
-/-- A direct case tree, renamed, is natively equal to its normal form. Each
-request node uses the native sequencing law that binds the scrutinee of a
-case, and the arms are weakened past the bound reply. -/
-theorem normal_equiv_proof {t : LetCase.LocallyNameless.Tm Empty Φ n} (d : DirectTree β L t) :
-    ∀ {m : Nat} {γ : BoundCtx (Ty α) m} (ρ : BoundCtx.Renaming β γ),
-      Equiv false Γ₀ γ (t.rename ρ.toFun) (d.normal ρ).1 (packedExitType L) := by
-  induction d with
-  | ret exit payload =>
-    intro m γ ρ
+Each head uses one native sequencing law. A bound head needs none. A pair
+head uses the law that binds the scrutinee of a pattern let, and a case
+head the law that binds the scrutinee of a case. In both, the body is
+weakened past the bound reply. -/
+
+section Spelled
+
+variable [TaggedSignature α Φ]
+
+mutual
+
+theorem Spelled.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ n} → (d : Spelled β L t) → {m : Nat} →
+    {γ : BoundCtx (Ty α) m} → (ρ : BoundCtx.Renaming β γ) →
+    Equiv false Γ₀ γ (t.rename ρ.toFun) (d.normal ρ).1 (packedExitType L)
+  | _, _, _, .ret exit payload, _, _, ρ => by
     have term : (exit.term (argTerm (Φ := Φ) payload)).rename ρ.toFun =
         exit.term (argTerm (payload.rename ρ)) := by
-      rw [exit_term_rename, argTerm_rename]
+      rw [exit_term_rename_proof, argTerm_rename_proof]
     rw [term]
     exact .refl (CaseTree.ret exit (payload.rename ρ)).typing.toHasType
-  | @ask _ β L f argument l r left right ihl ihr =>
-    intro m γ ρ
-    have he : HasType Φ Γ₀ γ (.op f (argTerm (argument.rename ρ)))
-        (.coprod (.base (BinarySignature.left f)) (.base (BinarySignature.right f))) :=
-      (Derivation.op (f := f) (argTyping (argument.rename ρ))).toHasType
-    have hl : HasType Φ Γ₀ (γ.snoc (.base (BinarySignature.left f)))
-        (l.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (packedExitType L) :=
+  | _, _, _, .ask f argument head, _, γ, ρ => by
+    have request : (LetCase.LocallyNameless.Tm.op f (argTerm (Φ := Φ) argument)).rename ρ.toFun =
+        .op f (argTerm (argument.rename ρ)) := by
+      simp only [LetCase.LocallyNameless.Tm.rename, argTerm_rename_proof]
+    have he : HasType Φ Γ₀ γ ((LetCase.LocallyNameless.Tm.op f (argTerm (Φ := Φ) argument)).rename ρ.toFun)
+        (tagsTy (replyTags f)) := by
+      rw [request]
+      exact (Derivation.op (f := f) (argTyping (argument.rename ρ))).toHasType
+    have h := head.normal_equiv ρ he
+    rw [request] at h
+    exact h
+
+theorem SpelledHead.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
+    {e t : LetCase.LocallyNameless.Tm Empty Φ n} → (d : SpelledHead tags e β L t) → {m : Nat} →
+    {γ : BoundCtx (Ty α) m} → (ρ : BoundCtx.Renaming β γ) →
+    HasType Φ Γ₀ γ (e.rename ρ.toFun) (tagsTy tags) →
+    Equiv false Γ₀ γ (t.rename ρ.toFun) (.let₁ (e.rename ρ.toFun) (d.normal ρ).1) (packedExitType L)
+  | _, _, _, _, _, .bind reply, _, _, ρ, he => Equiv.let₁ (.refl he) (reply.normal_equiv ρ)
+  | _, _, _, e, _, .destruct (t := body) a b rest later, _, γ, ρ, he => by
+    have typed : HasType Φ Γ₀ ((γ.snoc (.base a)).snoc (tupleTy (b :: rest)))
+        (body.rename (LetCase.LocallyNameless.Tm.up (LetCase.LocallyNameless.Tm.up ρ.toFun)))
+        (packedExitType L) :=
+      HasType.rename ((ρ.up _).up _) later.typing.toHasType
+    have bind := Equiv.bindPair (pureEff := false) he typed
+    have weaken : (body.rename (LetCase.LocallyNameless.Tm.up
+        (LetCase.LocallyNameless.Tm.up ρ.toFun))).underTwoBinders =
+          body.rename (LetCase.LocallyNameless.Tm.up
+            (armRenaming ρ (tupleTy (a :: b :: rest)) (.base a)).toFun) := by
+      rw [LetCase.LocallyNameless.Tm.underTwoBinders, LetCase.LocallyNameless.Tm.rename_comp]
+      apply LetCase.LocallyNameless.Tm.rename_congr
+      intro i
+      exact Fin.cases rfl (fun j => Fin.cases rfl (fun _ => rfl) j) i
+    rw [weaken] at bind
+    exact bind.trans (Equiv.let₁ (.refl he) (Equiv.let₂ (.refl .bv) (later.normal_equiv (armRenaming ρ _ _))))
+  | _, _, _, e, _, .branch (l := l) (r := r) atoms next rest left right, _, γ, ρ, he => by
+    have hl : HasType Φ Γ₀ (γ.snoc (tupleTy atoms)) (l.rename (LetCase.LocallyNameless.Tm.up ρ.toFun))
+        (packedExitType L) :=
       HasType.rename (ρ.up _) left.typing.toHasType
-    have hr : HasType Φ Γ₀ (γ.snoc (.base (BinarySignature.right f)))
-        (r.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (packedExitType L) :=
+    have hr : HasType Φ Γ₀ (γ.snoc (tagsTy (next :: rest))) (r.rename (LetCase.LocallyNameless.Tm.up ρ.toFun))
+        (packedExitType L) :=
       HasType.rename (ρ.up _) right.typing.toHasType
     have bind := Equiv.bindCase (pureEff := false) he hl hr
-    have weaken (X : Ty α) (a : LetCase.LocallyNameless.Tm Empty Φ (_ + 1)) :
+    have weaken (a : LetCase.LocallyNameless.Tm Empty Φ (_ + 1)) :
         (a.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)).underBinder =
-          a.rename (armRenaming ρ (tagsTy (replyTags f)) X).toFun := by
+          a.rename (LetCase.LocallyNameless.Tm.up
+            (ρ.comp (BoundCtx.Renaming.succ γ (tagsTy (atoms :: next :: rest)))).toFun) := by
       rw [LetCase.LocallyNameless.Tm.underBinder, LetCase.LocallyNameless.Tm.rename_comp]
       apply LetCase.LocallyNameless.Tm.rename_congr
       intro i
       exact Fin.cases rfl (fun _ => rfl) i
     rw [weaken, weaken] at bind
-    have start : (LetCase.LocallyNameless.Tm.case (.op f (argTerm (Φ := Φ) argument)) l r).rename ρ.toFun =
-        .case (.op f (argTerm (argument.rename ρ))) (l.rename (LetCase.LocallyNameless.Tm.up ρ.toFun))
-          (r.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) := by
-      simp only [LetCase.LocallyNameless.Tm.rename, argTerm_rename]
-    rw [start]
-    exact bind.trans (Equiv.let₁ (.refl he) (Equiv.case (.refl .bv) (ihl _) (ihr _)))
+    exact bind.trans (Equiv.let₁ (.refl he) (Equiv.case (.refl .bv)
+      (left.normal_equiv (ρ.comp (BoundCtx.Renaming.succ γ _)))
+      (right.normal_equiv (ρ.comp (BoundCtx.Renaming.succ γ _)))))
+
+theorem SpelledTags.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} → {tags : List (List α)} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → (d : SpelledTags tags β L t) → {m : Nat} →
+    {γ : BoundCtx (Ty α) m} → (ρ : BoundCtx.Renaming β γ) →
+    Equiv false Γ₀ (γ.snoc (tagsTy tags)) (t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (d.normal ρ).1
+      (packedExitType L)
+  | _, _, _, _, .only _ payload, _, _, ρ => payload.normal_equiv ρ
+  | _, _, _, _, .split _ _ _ left right, _, _, ρ =>
+    Equiv.case (.refl .bv) (left.normal_equiv (ρ.up _)) (right.normal_equiv (ρ.up _))
+
+theorem SpelledTuple.normal_equiv : {n : Nat} → {β : BoundCtx (Ty α) n} → {atoms : List α} →
+    {t : LetCase.LocallyNameless.Tm Empty Φ (n + 1)} → (d : SpelledTuple atoms β L t) → {m : Nat} →
+    {γ : BoundCtx (Ty α) m} → (ρ : BoundCtx.Renaming β γ) →
+    Equiv false Γ₀ (γ.snoc (tupleTy atoms)) (t.rename (LetCase.LocallyNameless.Tm.up ρ.toFun)) (d.normal ρ).1
+      (packedExitType L)
+  | _, _, _, _, .unit body, _, _, ρ => body.normal_equiv (ρ.up _)
+  | _, _, _, _, .atom _ body, _, _, ρ => body.normal_equiv (ρ.up _)
+  | _, _, _, _, .pair _ _ _ later, _, _, ρ =>
+    Equiv.let₂ (.refl .bv) (later.normal_equiv ((ρ.up _).up _))
+
+end
+
+end Spelled
+
+section Binary
+
+variable [BinarySignature α Φ]
+
+/-- A direct case tree, renamed, is natively equal to its normal form. This
+is the equation of its spelled tree. -/
+theorem normal_equiv_proof {t : LetCase.LocallyNameless.Tm Empty Φ n} (d : DirectTree β L t) {m : Nat}
+    {γ : BoundCtx (Ty α) m} (ρ : BoundCtx.Renaming β γ) :
+    Equiv false Γ₀ γ (t.rename ρ.toFun) (d.normal ρ).1 (packedExitType L) :=
+  d.spelled.normal_equiv ρ
 
 /-! ## The normal form determines the direct tree -/
 
@@ -159,5 +228,7 @@ theorem normal_injective_proof {t : LetCase.LocallyNameless.Tm Empty Φ n} (p : 
       rw [payload_rename_inj argument b ρ inj arguments,
         ihl left' (armRenaming ρ _ _) (arm_injective ρ inj _ _) arms.2.1,
         ihr right' (armRenaming ρ _ _) (arm_injective ρ inj _ _) arms.2.2]
+
+end Binary
 
 end Silmaril.Isotope.LambdaSSA.Acyclic.Positional.Capture.Composition.Handled.Institution
