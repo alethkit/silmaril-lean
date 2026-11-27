@@ -1536,11 +1536,10 @@ The continuation cannot jump back to its own label.
   under renaming, ranked validity and equality of ordered-exit arrows at
   the original exits follow, sharing the proof of the eager case. For
   three or more tags the specialization to the remaining tags is again
-  a delayed tree. What is not built is the computation of the
-  specialized trees from the delayed tree alone: the arms would have to
-  be renamed so that the payload moves beneath the prefix, and spelled
-  trees have no renaming action, only their normal forms do. A prefix
-  that branches, with a case of its own, is also outside the class. The
+  a delayed tree. The constructor takes its specializations as given
+  trees and takes the two term equations as proofs; the next item
+  computes them for two tags. A prefix that branches, with a case of its
+  own, is outside the class. The
   regression delays a two-tag reply across two requests, where the
   second takes a component of the reply of the first, opened by a
   pattern let of the prefix, and an older capture. The delayed tree and
@@ -1550,6 +1549,51 @@ The continuation cannot jump back to its own label.
   [Prefix shapes and deferred cases](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Defs.lean) ·
   [Finite-prefix equation and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Thms.lean) ·
   [A reply inspected after two dependent requests](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomPrefixRegression.lean)
+- Spelled trees have a typed renaming action, and with it the
+  specializations of a delayed case are computed. The action is defined
+  on all the spelled families at once: trees in body position, heads of
+  requests, pending replies and tuples, chains over a stack, their bound
+  replies, the arms of a case delayed across one request, and the shape
+  of a deferred prefix. The result is a tree of the same family over the
+  target context together with the equation that its term is the renamed
+  term, so no tree is transported along an equation; a chain is renamed
+  onto given slots of its stack with a proof that they are the renamed
+  slots. The normal form of the renamed tree along a renaming is the
+  normal form of the tree along the composite, so ranked validity
+  between two renamed trees is equality of the normal forms along the
+  renaming. A finite nonbranching prefix is a family of its own:
+  requests whose replies have one tag and are pushed on the stack,
+  pattern lets on the top tuple, and selections. From a prefix and the
+  arm of a tag at its end, with the payload newest and on top of the
+  stack, the specialization is computed as a tree: at each slot of the
+  prefix the arm built so far is renamed past that slot by the action,
+  and the payload is selected back to the top of the stack. The shape of
+  the prefix is computed as well. One definition then builds a reply
+  with two tags inspected after the prefix from the prefix and the two
+  arms alone; it is the checked constructor of the previous item on the
+  computed shape and trees, so every theorem about the grammar applies.
+  Its term is natively equal to the case on the reply slot around the
+  two computed specializations, and its normal form is the normal form
+  of the eager spelling. No law is added and no requests are exchanged.
+  The limit is the number of tags. With three or more, the
+  specialization to the remaining tags is again a delayed case, on the
+  prefix placed under the slot of the remaining tags. That needs the
+  renaming action on the prefix itself, with its end context, and the
+  equation between the term of the renamed prefix and the specialization
+  term; it is not built, and for more tags the checked constructor with
+  given specializations is used. A branching prefix stays outside. The
+  regression builds the delayed tree of the previous item from its
+  prefix of two dependent requests with the pattern let between them and
+  from its two arms. It has the term of the original tree, the normal
+  form of the eager spelling written by hand, and the same ordered-exit
+  arrow. The removed dependency and a changed component under either tag
+  are told apart, and a selection in the prefix changes nothing. Renamed
+  into a context with one more capture, the tree has the renamed term
+  and the renamed normal form, and the renamed trees are valid together
+  there.
+  [Renaming action and computed specializations](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Renaming/Defs.lean) ·
+  [Normal forms and coverage](../../Silmaril/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/Categorical/Ranked/Atoms/Branching/Direct/Renaming/Thms.lean) ·
+  [A delayed case built from its prefix and its arms](../../Silmaril/Proofs/SSA/Isotope/Bridge/Acyclic/Positional/Capture/Composition/LetCase/Handled/Institution/AtomPrefixBuiltRegression.lean)
 - At fixed source syntax, value context, and exits, lifting all target
   denotation witnesses up to equality of transported arrows is equivalent
   to reflection of region typing. Once the source judgement is typable,
